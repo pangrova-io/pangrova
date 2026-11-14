@@ -53,7 +53,7 @@ class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
                     "actual-channel-admission-worker", 0.0, runtime.admissionIncarnation())) {
                 var envelope = SubmitTaskRequest.from(request);
                 var id = manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(envelope), envelope);
-                assertThat(manager.getTaskSpiState(id)).contains(org.pangrova.protocol.execution.TaskStatus.TaskState.FAILED);
+                assertThat(manager.getReportedTaskState(id)).contains(org.pangrova.protocol.enums.ReportedTaskState.FAILED);
                 assertThat(manager.getExecutorHandle(id)).isEmpty();
                 var failed = observed.stream().filter(report -> "FAILED".equals(report.state())).findFirst().orElseThrow();
                 var canonical = TaskReport.parseFrom(failed.canonicalTaskReport());

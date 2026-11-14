@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon.type;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.types.ArrayType;
@@ -20,7 +22,7 @@ class PaimonSdkVectorTypeTest {
         assertThat(PaimonTypeMapper.toParameterizedType(single)).isEqualTo(new VectorType(3, null));
         assertThat(PaimonTypeMapper.toPangrovaType(doubled)).isEqualTo(PangrovaType.VECTOR);
         assertThat(PaimonTypeMapper.toParameterizedType(doubled))
-                .isEqualTo(new VectorType(9, VectorType.ElementType.DOUBLE));
+                .isEqualTo(new VectorType(9, VectorElementType.DOUBLE));
     }
 
     @Test

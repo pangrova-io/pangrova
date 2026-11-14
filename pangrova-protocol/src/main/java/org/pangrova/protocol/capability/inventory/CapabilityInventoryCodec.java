@@ -1,8 +1,7 @@
 package org.pangrova.protocol.capability.inventory;
 
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.resource.ModelResourceEnvelopes;
-
 import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.function.catalog.FunctionCatalogContracts;
 
@@ -246,7 +245,7 @@ public final class CapabilityInventoryCodec {
                                 + "the same inventory: " + capability.getCapabilityId());
             }
             if (capability.getCapabilityId().equals(
-                    BuiltInCapabilityCatalog.AI_EMBEDDING_ID)) {
+                    BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID)) {
                 VectorLogicalType.requireDimension(contract.getOutputType());
             }
         }

@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.kernel.MaterializationTestFixtures;
@@ -29,12 +30,12 @@ import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourceVector;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TargetLag;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
@@ -55,7 +56,7 @@ import org.pangrova.materialization.api.port.PlanningRequest;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.connector.api.exception.MaterializationSourceException;
 import org.pangrova.connector.api.materialization.SourceRef;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.usecase.CreateMaterialization;
 import org.pangrova.materialization.usecase.DropMaterialization;
@@ -89,7 +90,7 @@ class MaterializationServiceLifecycleTest {
         execution = new RecordingExecution();
         authorizer = new RecordingAuthorizer();
         planner = new MutablePlanner(MaterializationTestFixtures.vector(ORDERS),
-                Set.of(RefreshKind.Full.INSTANCE));
+                Set.of(RefreshKind.FULL));
     }
 
     @Test
@@ -142,7 +143,7 @@ class MaterializationServiceLifecycleTest {
         assertThat(recreated.object().definitionRevision()).isEqualTo(1);
         assertThat(recreated.generation().definitionRevision()).isEqualTo(1);
         assertThat(repository.findObject(OBJECT).orElseThrow().state())
-                .isEqualTo(org.pangrova.materialization.api.domain.ObjectState.Active.INSTANCE);
+                .isEqualTo(org.pangrova.materialization.api.enums.ObjectState.ACTIVE);
         assertThat(repository.findDefinition(OBJECT, 1)).isPresent();
         assertThat(execution.requests).hasSize(2);
     }
@@ -165,7 +166,7 @@ class MaterializationServiceLifecycleTest {
                 Optional.empty(), "create-1", false));
         GenerationId base = created.generation().id();
         pins.failNextPin(new MaterializationSourceException(
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE, "snapshot expired"));
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE, "snapshot expired"));
 
         CreateMaterialization replacement = create(
                 "SELECT id, name FROM orders WHERE id > 10", RefreshMode.FULL, Optional.empty(),
@@ -198,21 +199,21 @@ class MaterializationServiceLifecycleTest {
         MaterializationOutcome created = service().create(create(
                 "SELECT id, name FROM orders", RefreshMode.FULL, Optional.empty(),
                 Optional.empty(), "create-1", false));
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
 
         MaterializationOutcome outcome = service().setRefreshMode(new SetRefreshMode(OBJECT,
                 MaterializationTestFixtures.REQUESTER, RefreshMode.INCREMENTAL,
                 Optional.of(StrategyId.APPEND_ONLY), new CommandId("mode-1")));
 
         assertThat(outcome.newlyPublished()).isTrue();
-        assertThat(outcome.generation().refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(outcome.generation().refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(outcome.object().refreshMode()).isEqualTo(RefreshMode.INCREMENTAL);
         assertThat(outcome.object().incrementalStrategy()).contains(StrategyId.APPEND_ONLY);
         assertThat(created.object().refreshMode()).isEqualTo(RefreshMode.FULL);
         assertThat(execution.requests).hasSize(2);
         assertThat(execution.requests.get(1).attempt().trigger()).isEqualTo(TriggerKind.REPAIR);
         assertThat(execution.requests.get(1).attempt().refreshKind())
-                .isEqualTo(RefreshKind.Full.INSTANCE);
+                .isEqualTo(RefreshKind.FULL);
         assertThat(repository.storedObject(OBJECT).orElseThrow().refreshMode())
                 .isEqualTo(RefreshMode.INCREMENTAL);
         assertThat(repository.events())
@@ -223,7 +224,7 @@ class MaterializationServiceLifecycleTest {
 
     @Test
     void setRefreshModeFullClearsTheIncrementalStrategyAfterARebuild() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         service().create(create("SELECT id, name FROM orders", RefreshMode.INCREMENTAL,
                 Optional.of(StrategyId.APPEND_ONLY), Optional.empty(), "create-1", false));
 
@@ -231,7 +232,7 @@ class MaterializationServiceLifecycleTest {
                 MaterializationTestFixtures.REQUESTER, RefreshMode.FULL, Optional.empty(),
                 new CommandId("mode-full")));
 
-        assertThat(outcome.generation().refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(outcome.generation().refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(outcome.object().refreshMode()).isEqualTo(RefreshMode.FULL);
         assertThat(outcome.object().incrementalStrategy()).isEmpty();
         assertThat(execution.requests).hasSize(2);
@@ -242,7 +243,7 @@ class MaterializationServiceLifecycleTest {
         MaterializationOutcome created = service().create(create(
                 "SELECT id, name FROM orders", RefreshMode.FULL, Optional.empty(),
                 Optional.empty(), "create-1", false));
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         pins.failNextPin(new IllegalStateException("pin refused"));
 
         assertThatThrownBy(() -> service().setRefreshMode(new SetRefreshMode(OBJECT,

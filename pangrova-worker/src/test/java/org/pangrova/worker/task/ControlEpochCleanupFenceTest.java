@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.ControlEpochFenceReason;
 import org.pangrova.worker.exception.ControlEpochFenceException;
 
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ class ControlEpochCleanupFenceTest {
         assertThatThrownBy(() -> fence.verify(7L)).isInstanceOf(ControlEpochFenceException.class)
                 .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
                         ((ControlEpochFenceException) error).reason())
-                        .isEqualTo(ControlEpochFenceException.Reason.EPOCH_MISMATCH));
+                        .isEqualTo(ControlEpochFenceReason.EPOCH_MISMATCH));
         org.assertj.core.api.Assertions.assertThat(fence.currentEpoch()).hasValue(8);
     }
 
@@ -32,7 +33,7 @@ class ControlEpochCleanupFenceTest {
                 .isInstanceOf(ControlEpochFenceException.class)
                 .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
                         ((ControlEpochFenceException) error).reason())
-                        .isEqualTo(ControlEpochFenceException.Reason.EPOCH_AHEAD));
+                        .isEqualTo(ControlEpochFenceReason.EPOCH_AHEAD));
         org.assertj.core.api.Assertions.assertThat(fence.currentEpoch()).hasValue(7);
     }
 
@@ -44,7 +45,7 @@ class ControlEpochCleanupFenceTest {
                 .isInstanceOf(ControlEpochFenceException.class)
                 .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
                         ((ControlEpochFenceException) error).reason())
-                        .isEqualTo(ControlEpochFenceException.Reason.CONTROL_PLANE_NOT_READY));
+                        .isEqualTo(ControlEpochFenceReason.CONTROL_PLANE_NOT_READY));
     }
 
     @Test
@@ -57,7 +58,7 @@ class ControlEpochCleanupFenceTest {
                     .isInstanceOf(ControlEpochFenceException.class)
                     .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
                             ((ControlEpochFenceException) error).reason())
-                            .isEqualTo(ControlEpochFenceException.Reason.INVALID_EPOCH));
+                            .isEqualTo(ControlEpochFenceReason.INVALID_EPOCH));
         }
     }
 

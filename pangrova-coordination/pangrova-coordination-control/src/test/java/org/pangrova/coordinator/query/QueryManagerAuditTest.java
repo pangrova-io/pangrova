@@ -18,7 +18,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
 import org.pangrova.query.audit.QueryAuditService;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;

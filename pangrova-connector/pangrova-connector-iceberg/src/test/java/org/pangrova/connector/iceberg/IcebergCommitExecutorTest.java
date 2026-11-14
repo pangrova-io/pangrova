@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.enums.IcebergCommitOutcome;
+
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -62,7 +64,7 @@ class IcebergCommitExecutorTest {
                     (table, snapshotId, context, tableId) -> {
                         verified.set(true);
                         return new CommitStatusVerifier.VerificationResult(
-                                CommitStatusVerifier.CommitOutcome.UNKNOWN, "unexpected");
+                                IcebergCommitOutcome.UNKNOWN, "unexpected");
                     });
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
@@ -93,7 +95,7 @@ class IcebergCommitExecutorTest {
                         assertThat(tableId).isEqualTo("lake.orders");
                         assertThat(snapshotId).isEqualTo(-1L);
                         return new CommitStatusVerifier.VerificationResult(
-                                CommitStatusVerifier.CommitOutcome.SUCCEEDED, "commit marker");
+                                IcebergCommitOutcome.SUCCEEDED, "commit marker");
                     });
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
@@ -117,7 +119,7 @@ class IcebergCommitExecutorTest {
             IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
                     (table, snapshotId, context, tableId) ->
                             new CommitStatusVerifier.VerificationResult(
-                                    CommitStatusVerifier.CommitOutcome.UNKNOWN,
+                                    IcebergCommitOutcome.UNKNOWN,
                                     "snapshot advanced without marker"));
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null,
@@ -141,7 +143,7 @@ class IcebergCommitExecutorTest {
             IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
                     (table, snapshotId, context, tableId) ->
                             new CommitStatusVerifier.VerificationResult(
-                                    CommitStatusVerifier.CommitOutcome.UNKNOWN,
+                                    IcebergCommitOutcome.UNKNOWN,
                                     "snapshot unchanged"));
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null,

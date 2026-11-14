@@ -1,9 +1,10 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence;
@@ -53,7 +54,7 @@ class ManagedLanceModelAuthorityIntegrationTest extends ContainerTestBase {
         assertThat(head.version()).isZero();
         assertThat(head.rowCount()).isZero();
         var current = fixture.journal().getEntry(original.queryId()).orElseThrow();
-        assertThat(current.state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(current.state()).isEqualTo(WriteCommitState.PENDING);
         assertThat(current.publication()).isNull();
         assertThat(current.commitFingerprint()).isEqualTo(original.commitFingerprint());
         assertThat(current.writeOutputBinding()).isEqualTo(original.writeOutputBinding());
@@ -74,7 +75,7 @@ class ManagedLanceModelAuthorityIntegrationTest extends ContainerTestBase {
         assertThat(accepted.getVersion()).isEqualTo(1);
         assertThat(fixture.reference(accepted.getDatasetUri(), 0)).isEqualTo(accepted);
         assertThat(fixture.journal().getEntry(original.queryId()).orElseThrow().state())
-                .isEqualTo(WriteCommitEntry.State.COMMITTED);
+                .isEqualTo(WriteCommitState.COMMITTED);
         try (var allocator = new RootAllocator()) {
             assertThat(prepared.sdk().read(accepted, allocator)).containsExactly(List.of(7), List.of(9));
         }

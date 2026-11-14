@@ -1,6 +1,7 @@
 package org.pangrova.shuffle.exchange;
 
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 
 import java.io.Closeable;
 

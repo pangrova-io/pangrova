@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.api.embedding;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
@@ -24,7 +26,7 @@ import java.util.Set;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
  * SPI contract for embedding model providers.
@@ -103,12 +105,12 @@ public interface EmbeddingProvider {
         return Set.of(new AiCapabilityDescriptor(
                 "embedding:" + modelName(),
                 modelVersion(),
-                AiCapabilityDescriptor.Operation.EMBEDDING,
+                AiOperation.EMBEDDING,
                 signatures,
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC,
-                        AiCapabilityDescriptor.ExecutionMode.ASYNC),
+                Set.of(AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC,
+                        AiExecutionMode.ASYNC),
                 modalities,
                 maxBatchSize(),
                 resourceLimits(),

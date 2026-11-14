@@ -56,7 +56,7 @@ final class DispatchContextEnricher {
             PlannedQuery plannedQuery, DispatchQueryContext ctx,
             String queryId, String tenantId) {
         var vectorNode = VectorSearchRewriter.tryRewrite(
-                plannedQuery.plan(),
+                plannedQuery,
                 (table, column) -> lookupVectorIndexes(tenantId, table, column));
         if (vectorNode.isEmpty()) {
             return ctx;

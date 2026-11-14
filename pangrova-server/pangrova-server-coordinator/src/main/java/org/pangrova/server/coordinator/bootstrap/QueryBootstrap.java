@@ -222,14 +222,6 @@ final class QueryBootstrap {
         asyncSubmitExecutor = queryManagerResult.asyncExecutor();
         durableRecovery.installShuffleCleanup(queryManager, queryDispatcher);
         taskStatusReceiver = buildTaskStatusReceiver();
-        taskTracker.setTaskFailureCallback((queryId, taskId) -> {
-            var request = taskTracker.getTaskRequest(taskId);
-            if (request != null && isArtifactTask(request.taskRequest().getTaskKind())) {
-                return;
-            }
-            queryManager.onTaskFailed(queryId, new org.pangrova.query.api.error.QueryFailure(
-                    "TASK_FAILED", taskId, "Task " + taskId + " failed"));
-        });
         startTimeoutScheduler();
         terminalCleanupExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                 "coordinator-terminal-cleanup", 2, 32);
@@ -313,11 +305,6 @@ final class QueryBootstrap {
         }
         var queryIndexing = moduleWiring.getIndexQueryBootstrap();
         return queryIndexing == null ? null : queryIndexing.createSplitFetcher(catalog);
-    }
-
-    private static boolean isArtifactTask(org.pangrova.protocol.v2.TaskKind kind) {
-        return kind == org.pangrova.protocol.v2.TaskKind.TASK_KIND_BACKGROUND_BUILD
-                || kind == org.pangrova.protocol.v2.TaskKind.TASK_KIND_BACKGROUND_EXPORT;
     }
 
     void shutdown() {

@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -27,7 +29,7 @@ class AiModelBudgetRegistryTest {
                     "model", "v1", "sha", "text", 3))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                    .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
             first.close();
             assertThat(registry.size()).isEqualTo(1);
         } finally {

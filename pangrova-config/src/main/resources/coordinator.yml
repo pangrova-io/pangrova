@@ -67,10 +67,6 @@ coordinator:
 # ---- Feature Flags ----
 # All modules default to enabled except security.
 
-# ---- State Store ----
-# Global backend for all SPI state stores: IN_MEMORY (dev/test) or JDBC (production).
-state-store:
-  type: IN_MEMORY
 
 metadata:
   enabled: true
@@ -101,6 +97,8 @@ operations:
 
 observability:
   enabled: true
+  # service-name: "pangrova-coordinator"
+  # otlp-endpoint: "http://otel-collector:4317"
 
 security:
   enabled: false

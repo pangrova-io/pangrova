@@ -1,22 +1,23 @@
 package org.pangrova.security.api.grant;
 
+import org.pangrova.security.api.enums.PrivilegeObjectType;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
 
 /** Exact SQL privilege scope. Null trailing coordinates denote the whole namespace, never a delete wildcard. */
 @Experimental
-public record PrivilegeScope(ObjectType objectType, String catalog, String schema, String object) {
+public record PrivilegeScope(PrivilegeObjectType objectType, String catalog, String schema, String object) {
     private static final int MAX_NAME_LENGTH = 255;
 
     public PrivilegeScope {
         Objects.requireNonNull(objectType, "objectType");
         requireName(catalog);
-        if (objectType == ObjectType.CATALOG || objectType == ObjectType.STORAGE_PROFILE) {
+        if (objectType == PrivilegeObjectType.CATALOG || objectType == PrivilegeObjectType.STORAGE_PROFILE) {
             if (schema != null || object != null) throw new IllegalArgumentException("Unexpected scope coordinates");
         } else {
             requireName(schema);
-            if (objectType == ObjectType.SCHEMA) {
+            if (objectType == PrivilegeObjectType.SCHEMA) {
                 if (object != null) throw new IllegalArgumentException("Schema scope has no object");
             } else {
                 requireName(object);
@@ -32,6 +33,4 @@ public record PrivilegeScope(ObjectType objectType, String catalog, String schem
         }
     }
 
-    @Experimental
-    public enum ObjectType { CATALOG, SCHEMA, TABLE, VOLUME, STAGE, STORAGE_PROFILE }
 }

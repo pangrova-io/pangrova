@@ -298,7 +298,7 @@ public final class TaskResource implements Closeable {
         } catch (org.pangrova.worker.exception.TaskAdmissionException failure) {
             return sealError(
                     failure.reason()
-                                    == org.pangrova.worker.exception.TaskAdmissionException.Reason
+                                    == org.pangrova.worker.enums.TaskAdmissionReason
                                             .CAPACITY
                             ? Response.Status.SERVICE_UNAVAILABLE
                             : Response.Status.CONFLICT,

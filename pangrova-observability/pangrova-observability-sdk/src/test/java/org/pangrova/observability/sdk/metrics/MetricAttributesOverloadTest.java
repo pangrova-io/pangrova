@@ -31,6 +31,25 @@ class MetricAttributesOverloadTest {
     private MetricsProvider metricsProvider;
 
     @Test
+    void streamGaugeExportsKnownOffsetsWithDimensionsAndUnregisters() {
+        var sample = new java.util.concurrent.atomic.AtomicReference<>(java.util.OptionalDouble.empty());
+        String name = "pangrova.streaming.cdc.consumer.lag";
+        try (var scope = new org.pangrova.observability.metrics.MetricsScope(metricsProvider)) {
+            try (var registration = scope.createObservedGauge(name, "Offset distance", "{offset}",
+                    MetricAttributes.of("stream", "orders"), sample::get)) {
+                assertThat(findMetric(reader.collectAllMetrics(), name)).isNull();
+                sample.set(java.util.OptionalDouble.of(17));
+                var point = findMetric(reader.collectAllMetrics(), name).getDoubleGaugeData().getPoints()
+                        .iterator().next();
+                assertThat(point.getValue()).isEqualTo(17);
+                assertThat(point.getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("stream")))
+                        .isEqualTo("orders");
+            }
+            assertThat(findMetric(reader.collectAllMetrics(), name)).isNull();
+        }
+    }
+
+    @Test
     void coordinatorGettersRetainRegisteredInstrumentIdentityAndExportUpdates() {
         var metrics = new CoordinatorMetrics(metricsProvider, () -> 1.0);
         assertThat(metrics.getQueriesSubmitted()).isSameAs(metrics.getQueriesSubmitted());

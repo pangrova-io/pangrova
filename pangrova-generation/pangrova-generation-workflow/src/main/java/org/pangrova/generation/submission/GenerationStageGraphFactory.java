@@ -3,7 +3,7 @@ package org.pangrova.generation.submission;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
-import org.pangrova.generation.api.graph.GenerationStageGraph.Purpose;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.enums.GenerationPageKind;
@@ -40,7 +40,7 @@ public final class GenerationStageGraphFactory {
                     GenerationStageTemplate.of(bindings, List.of(), List.of()),
                     List.of(), List.of(), true));
         }
-        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, Purpose.ARTIFACT_GENERATION,
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.ARTIFACT_GENERATION,
                 stages, List.of(), modelSnapshots);
     }
 

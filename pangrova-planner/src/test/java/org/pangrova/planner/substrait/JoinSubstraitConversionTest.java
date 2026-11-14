@@ -1,5 +1,7 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.enums.UnsupportedNodeKind;
+
 import com.google.common.collect.ImmutableList;
 import io.substrait.plan.Plan;
 import io.substrait.plan.ImmutablePlan;
@@ -25,7 +27,6 @@ import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
 import org.pangrova.planner.validation.SubstraitPlanValidator;
-import org.pangrova.planner.validation.UnsupportedNode;
 import org.pangrova.planner.enums.ValidationStatus;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
@@ -202,7 +203,7 @@ class JoinSubstraitConversionTest {
 
         assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
             assertThat(node.nodeType()).isEqualTo("MergeJoinRel");
-            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+            assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.RELATION);
         });
     }
 
@@ -217,7 +218,7 @@ class JoinSubstraitConversionTest {
         assertThat(result.unsupportedNodes()).filteredOn(node -> node.depth() == 0)
                 .hasSize(2).allSatisfy(node -> {
                     assertThat(node.nodeType()).isEqualTo("FieldReference");
-                    assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.EXPRESSION);
+                    assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.EXPRESSION);
                 });
     }
 
@@ -232,7 +233,7 @@ class JoinSubstraitConversionTest {
 
         assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
             assertThat(node.nodeType()).isEqualTo("equal");
-            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.FUNCTION);
+            assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.FUNCTION);
         });
     }
 
@@ -256,7 +257,7 @@ class JoinSubstraitConversionTest {
 
         assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
             assertThat(node.nodeType()).isEqualTo("gt");
-            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.FUNCTION);
+            assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.FUNCTION);
         });
     }
 

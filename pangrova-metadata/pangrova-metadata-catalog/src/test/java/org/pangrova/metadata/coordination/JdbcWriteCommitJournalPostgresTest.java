@@ -1,4 +1,7 @@
 package org.pangrova.metadata.coordination;
+
+import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +57,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         journal.markCommitted("query-1");
 
         WriteCommitEntry committed = journal.getEntry("query-1").orElseThrow();
-        assertThat(committed.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+        assertThat(committed.state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(committed.fragments()).singleElement().isEqualTo(new byte[]{1, 2, 3});
         assertThat(journal.replayPendingEntries(Set.of("query-1"))).isEmpty();
     }
@@ -65,14 +68,14 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         journal.recordIntent(intent);
         byte[] digest = new byte[32];
         digest[0] = 17;
-        var publication = new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, 43, digest);
+        var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, digest);
         journal.recordPublication(intent.queryId(), intent.commitFingerprint(), publication);
 
         var reopened = new JdbcWriteCommitJournal(dataSource);
         var reloaded = reopened.getEntry(intent.queryId()).orElseThrow();
         assertThat(reloaded.publication()).isEqualTo(publication);
         assertThat(reloaded.commitFingerprint()).isEqualTo(intent.commitFingerprint());
-        assertThat(reloaded.state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(reloaded.state()).isEqualTo(WriteCommitState.PENDING);
         reopened.recordPublication(intent.queryId(), intent.commitFingerprint(), publication);
         reopened.recordIntent(intent);
         reopened.markCommitted(intent.queryId());
@@ -84,19 +87,19 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         var intent = pending("publication-fence", 1_000L);
         journal.recordIntent(intent);
         var publication = new NativeWriteFinalization(
-                NativeWriteFinalization.Outcome.COMMITTED, 43, new byte[32]);
+                NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
         journal.recordPublication(intent.queryId(), intent.commitFingerprint(), publication);
         assertThatThrownBy(() -> journal.recordPublication("missing", intent.commitFingerprint(), publication))
                 .isInstanceOf(JournalWriteException.class);
         assertThatThrownBy(() -> journal.recordPublication(intent.queryId(), "0".repeat(64), publication))
                 .isInstanceOf(JournalWriteException.class);
         assertThatThrownBy(() -> journal.recordPublication(intent.queryId(), intent.commitFingerprint(),
-                new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, 44, new byte[32])))
+                new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 44, new byte[32])))
                 .isInstanceOf(JournalWriteException.class);
         byte[] changed = new byte[32];
         changed[0] = 1;
         assertThatThrownBy(() -> journal.recordPublication(intent.queryId(), intent.commitFingerprint(),
-                new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, 43, changed)))
+                new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, changed)))
                 .isInstanceOf(JournalWriteException.class);
         assertThat(journal.getEntry(intent.queryId()).orElseThrow().publication()).isEqualTo(publication);
     }
@@ -106,7 +109,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         var intent = pending("unknown-publication", 1_000L);
         journal.recordIntent(intent);
         assertThatThrownBy(() -> journal.recordPublication(intent.queryId(), intent.commitFingerprint(),
-                new NativeWriteFinalization(NativeWriteFinalization.Outcome.UNKNOWN, 0, new byte[0])))
+                new NativeWriteFinalization(NativeWriteCommitOutcome.UNKNOWN, 0, new byte[0])))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(journal.getEntry(intent.queryId()).orElseThrow().publication()).isNull();
     }
@@ -140,7 +143,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         digest[0] = value;
         try {
             new JdbcWriteCommitJournal(dataSource).recordPublication(intent.queryId(), intent.commitFingerprint(),
-                    new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, 43, digest));
+                    new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, digest));
             return true;
         } catch (JournalWriteException conflict) {
             if (conflict.getCause() instanceof IllegalStateException) return false;
@@ -156,14 +159,14 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         var reopened = new JdbcWriteCommitJournal(dataSource);
         reopened.markAborted(intent.queryId(), intent.commitFingerprint());
         var aborted = reopened.getEntry(intent.queryId()).orElseThrow();
-        assertThat(aborted.state()).isEqualTo(WriteCommitEntry.State.ABORTED);
+        assertThat(aborted.state()).isEqualTo(WriteCommitState.ABORTED);
         assertThat(aborted.fragments()).singleElement().isEqualTo(new byte[]{1, 2, 3});
         assertThat(aborted.commitFingerprint()).isEqualTo(intent.commitFingerprint());
         assertThat(reopened.replayPendingEntries(Set.of(intent.queryId()))).isEmpty();
         assertThatThrownBy(() -> reopened.recordIntent(intent)).isInstanceOf(JournalWriteException.class);
         assertThatThrownBy(() -> reopened.markCommitted(intent.queryId())).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> reopened.recordPublication(intent.queryId(), intent.commitFingerprint(),
-                new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, 43, new byte[32])))
+                new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32])))
                 .isInstanceOf(JournalWriteException.class);
         reopened.purge(intent.queryId());
         assertThat(reopened.getEntry(intent.queryId())).isPresent();
@@ -174,14 +177,14 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         var intent = pending("published-before-abort", 1_000L);
         journal.recordIntent(intent);
         var publication = new NativeWriteFinalization(
-                NativeWriteFinalization.Outcome.COMMITTED, 43, new byte[32]);
+                NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
         journal.recordPublication(intent.queryId(), intent.commitFingerprint(), publication);
         assertThatThrownBy(() -> journal.markAborted(intent.queryId(), intent.commitFingerprint()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> journal.markAborted("missing", intent.commitFingerprint()))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(journal.getEntry(intent.queryId()).orElseThrow().publication()).isEqualTo(publication);
-        assertThat(journal.getEntry(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(journal.getEntry(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
     }
 
     @Test
@@ -200,7 +203,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
             assertThat(publicationWon).isNotEqualTo(abortWon);
             var stored = new JdbcWriteCommitJournal(dataSource).getEntry(intent.queryId()).orElseThrow();
             assertThat(stored.state()).isEqualTo(abortWon
-                    ? WriteCommitEntry.State.ABORTED : WriteCommitEntry.State.PENDING);
+                    ? WriteCommitState.ABORTED : WriteCommitState.PENDING);
             if (abortWon) assertThat(stored.publication()).isNull();
             else assertThat(stored.publication().manifestSha256()[0]).isEqualTo((byte) 17);
         } finally {
@@ -241,7 +244,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                 queryId,
                 "iceberg",
                 "analytics.events",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 timestampMs,
                 fragments,
                 "OVERWRITE",

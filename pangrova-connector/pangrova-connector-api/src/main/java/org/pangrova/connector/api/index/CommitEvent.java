@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.index;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.connector.api.enums.CommitEventType;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -64,7 +66,7 @@ public record CommitEvent(
     }
 
     private static void requireFingerprint(String commitFingerprint) {
-        if (commitFingerprint != null && !commitFingerprint.matches("[0-9a-f]{64}")) {
+        if (commitFingerprint != null && !DigestUtils.isSha256Hex(commitFingerprint)) {
             throw new IllegalArgumentException("commitFingerprint must be a lowercase SHA-256 digest");
         }
     }

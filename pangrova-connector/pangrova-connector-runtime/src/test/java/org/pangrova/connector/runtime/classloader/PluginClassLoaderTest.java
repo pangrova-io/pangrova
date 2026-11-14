@@ -96,6 +96,16 @@ class PluginClassLoaderTest {
     }
 
     @Test
+    void applicationPrivateDependenciesMustBePackagedByThePlugin() throws Exception {
+        try (var loader = new PluginClassLoader("private-dependencies", EMPTY_URLS, getClass().getClassLoader())) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> loader.loadClass("org.pangrova.common.util.Preconditions"))
+                    .isInstanceOf(ClassNotFoundException.class);
+            assertThat(loader.loadClass("java.sql.Connection")).isSameAs(java.sql.Connection.class);
+        }
+    }
+
+    @Test
     void pluginNameIsAccessible() {
         PluginClassLoader cl = new PluginClassLoader(
                 "my-plugin", EMPTY_URLS, getClass().getClassLoader());

@@ -1,5 +1,7 @@
 package org.pangrova.worker.function;
 
+import org.pangrova.worker.enums.NativeFunctionType;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,7 +20,7 @@ class NativeFunctionDescriptorTest {
         for (boolean deterministic : List.of(false, true)) {
             var descriptor = new NativeFunctionDescriptor(
                     "file_from_url", "ROW", List.of("VARCHAR"),
-                    NativeFunctionDescriptor.FunctionType.SCALAR, deterministic);
+                    NativeFunctionType.SCALAR, deterministic);
             var canonical = org.pangrova.protocol.v2.NativeFunctionDescriptor.parseFrom(descriptor.toBytes());
             assertThat(canonical.getName()).isEqualTo(descriptor.name());
             assertThat(canonical.getReturnType().getCanonicalSql()).isEqualTo(descriptor.returnType());
@@ -35,7 +37,7 @@ class NativeFunctionDescriptorTest {
     void explicitNullInputPolicyRetainsPresenceForBothBooleanValues() throws Exception {
         for (boolean strict : List.of(false, true)) {
             var descriptor = new NativeFunctionDescriptor("file_from_url", "ROW", List.of("VARCHAR"),
-                    NativeFunctionDescriptor.FunctionType.SCALAR, false, strict);
+                    NativeFunctionType.SCALAR, false, strict);
             var canonical = org.pangrova.protocol.v2.NativeFunctionDescriptor.parseFrom(descriptor.toBytes());
             assertThat(canonical.hasDefaultNullBehavior()).isTrue();
             assertThat(canonical.getDefaultNullBehavior()).isEqualTo(strict);
@@ -46,12 +48,12 @@ class NativeFunctionDescriptorTest {
     void scalarDescriptorPreservesFields() {
         var desc = new NativeFunctionDescriptor(
                 "my_add", "BIGINT", List.of("BIGINT", "BIGINT"),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
 
         assertThat(desc.name()).isEqualTo("my_add");
         assertThat(desc.returnType()).isEqualTo("BIGINT");
         assertThat(desc.argumentTypes()).containsExactly("BIGINT", "BIGINT");
-        assertThat(desc.functionType()).isEqualTo(NativeFunctionDescriptor.FunctionType.SCALAR);
+        assertThat(desc.functionType()).isEqualTo(NativeFunctionType.SCALAR);
         assertThat(desc.deterministic()).isTrue();
         assertThat(desc.defaultNullBehavior()).isTrue();
     }
@@ -60,9 +62,9 @@ class NativeFunctionDescriptorTest {
     void aggregateDescriptorPreservesFields() {
         var desc = new NativeFunctionDescriptor(
                 "my_sum", "DOUBLE", List.of("DOUBLE"),
-                NativeFunctionDescriptor.FunctionType.AGGREGATE, false);
+                NativeFunctionType.AGGREGATE, false);
 
-        assertThat(desc.functionType()).isEqualTo(NativeFunctionDescriptor.FunctionType.AGGREGATE);
+        assertThat(desc.functionType()).isEqualTo(NativeFunctionType.AGGREGATE);
         assertThat(desc.deterministic()).isFalse();
     }
 
@@ -70,7 +72,7 @@ class NativeFunctionDescriptorTest {
     void nullArgumentTypesDefaultsToEmptyList() {
         var desc = new NativeFunctionDescriptor(
                 "no_args", "VARCHAR", null,
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
 
         assertThat(desc.argumentTypes()).isEmpty();
     }
@@ -80,7 +82,7 @@ class NativeFunctionDescriptorTest {
         var mutableList = new java.util.ArrayList<>(List.of("INT", "VARCHAR"));
         var desc = new NativeFunctionDescriptor(
                 "fn", "INT", mutableList,
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
 
         mutableList.add("DOUBLE");
         assertThat(desc.argumentTypes()).hasSize(2);
@@ -90,7 +92,7 @@ class NativeFunctionDescriptorTest {
     void nullNameThrows() {
         assertThatThrownBy(() -> new NativeFunctionDescriptor(
                 null, "INT", List.of(),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true))
+                NativeFunctionType.SCALAR, true))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("name");
     }
@@ -99,7 +101,7 @@ class NativeFunctionDescriptorTest {
     void nullReturnTypeThrows() {
         assertThatThrownBy(() -> new NativeFunctionDescriptor(
                 "fn", null, List.of(),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true))
+                NativeFunctionType.SCALAR, true))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("returnType");
     }
@@ -116,7 +118,7 @@ class NativeFunctionDescriptorTest {
     void toBytesProducesNonEmptyArray() {
         var desc = new NativeFunctionDescriptor(
                 "test_fn", "VARCHAR", List.of("INT", "DOUBLE"),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
 
         byte[] bytes = desc.toBytes();
         assertThat(bytes).isNotNull().isNotEmpty();
@@ -129,7 +131,7 @@ class NativeFunctionDescriptorTest {
     void toBytesWithNoArgsProducesNonEmptyArray() {
         var desc = new NativeFunctionDescriptor(
                 "zero_arg_fn", "BOOLEAN", List.of(),
-                NativeFunctionDescriptor.FunctionType.AGGREGATE, false);
+                NativeFunctionType.AGGREGATE, false);
 
         byte[] bytes = desc.toBytes();
         assertThat(bytes).isNotNull().isNotEmpty();
@@ -137,18 +139,18 @@ class NativeFunctionDescriptorTest {
 
     @Test
     void functionTypeOrdinals() {
-        assertThat(NativeFunctionDescriptor.FunctionType.SCALAR.ordinal()).isEqualTo(0);
-        assertThat(NativeFunctionDescriptor.FunctionType.AGGREGATE.ordinal()).isEqualTo(1);
+        assertThat(NativeFunctionType.SCALAR.ordinal()).isEqualTo(0);
+        assertThat(NativeFunctionType.AGGREGATE.ordinal()).isEqualTo(1);
     }
 
     @Test
     void equalDescriptorsAreEqual() {
         var desc1 = new NativeFunctionDescriptor(
                 "fn", "INT", List.of("INT"),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
         var desc2 = new NativeFunctionDescriptor(
                 "fn", "INT", List.of("INT"),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true);
+                NativeFunctionType.SCALAR, true);
 
         assertThat(desc1).isEqualTo(desc2);
         assertThat(desc1.hashCode()).isEqualTo(desc2.hashCode());

@@ -1,4 +1,7 @@
 package org.pangrova.planner.analysis;
+
+import org.pangrova.planner.enums.StagePlanMode;
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.api.fragment.StageCoordinates;
 
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
@@ -26,10 +29,8 @@ import java.util.Set;
 
 /** Immutable serialized execution graph produced from an already authorized relational plan. */
 @Internal
-public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
+public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         List<SerializedStage> stages, List<StageTransfer> transfers) {
-    /** Same relational engine, with an explicit result-collection or immutable export terminal. */
-    public enum TerminalPurpose { QUERY_RESULT, RELATIONAL_EXPORT }
 
     /** Requires one complete acyclic graph, with no unbound exchange or duplicate stage. */
     public AuthorizedStageGraph {
@@ -86,8 +87,8 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
         }
 
         @Override
-        public Mode mode() {
-            return Mode.DURABLE_REPLAY;
+        public StagePlanMode mode() {
+            return StagePlanMode.DURABLE_REPLAY;
         }
 
         @Override
@@ -134,7 +135,7 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
 
     /** Strictly serializes each protected fragment, retaining exactly the existing exchange graph. */
     public static AuthorizedStageGraph compile(FragmentedPlan graph, SqlCompiler compiler,
-            List<String> outputNames, TerminalPurpose terminalPurpose) {
+            List<String> outputNames, StageTerminalPurpose terminalPurpose) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(compiler, "compiler");
         List<SerializedStage> stages = new ArrayList<>();

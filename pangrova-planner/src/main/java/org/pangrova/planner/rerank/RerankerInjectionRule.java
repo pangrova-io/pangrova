@@ -1,7 +1,8 @@
 package org.pangrova.planner.rerank;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.SortDirection;
 import org.pangrova.planner.exception.RerankerValidationException;
-
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Literal;
@@ -22,6 +23,7 @@ import org.pangrova.planner.rerank.RerankerPlanNode.VectorSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -197,7 +199,7 @@ public final class RerankerInjectionRule {
         if (!(expr instanceof FunctionCall fn)) {
             return Optional.empty();
         }
-        String funcName = identifierToString(fn.name()).toUpperCase();
+        String funcName = identifierToString(fn.name()).toUpperCase(Locale.ROOT);
         if (!DISTANCE_FUNCTIONS.contains(funcName)) {
             return Optional.empty();
         }
@@ -216,7 +218,7 @@ public final class RerankerInjectionRule {
 
         // Query vector is resolved at Calcite/execution level (auto-embed for text literals).
         // At AST level we capture column and metric for plan node construction.
-        return Optional.of(new VectorSource(column, new float[0], funcName.toLowerCase()));
+        return Optional.of(new VectorSource(column, new float[0], funcName.toLowerCase(Locale.ROOT)));
     }
 
     private static Optional<FullTextSource> extractPositiveMatchSource(
@@ -234,7 +236,7 @@ public final class RerankerInjectionRule {
             return direct;
         }
         if (expression instanceof BinaryExpression binary
-                && binary.operator() == BinaryExpression.Operator.AND) {
+                && binary.operator() == BinaryExpressionOperator.AND) {
             Optional<MatchFunctionRewriter.MatchCallDetails> left =
                     findPositiveConjunctiveMatch(binary.left());
             return left.isPresent() ? left : findPositiveConjunctiveMatch(binary.right());
@@ -251,8 +253,8 @@ public final class RerankerInjectionRule {
             if (score.isEmpty()) {
                 continue;
             }
-            if (item.direction().orElse(SortItem.SortDirection.ASC)
-                    != SortItem.SortDirection.DESC) {
+            if (item.direction().orElse(SortDirection.ASC)
+                    != SortDirection.DESC) {
                 throw new RerankerValidationException(
                         "BM25_SCORE retrieval requires ORDER BY ... DESC");
             }
@@ -292,7 +294,7 @@ public final class RerankerInjectionRule {
         if (!(expr instanceof FunctionCall fn)) {
             return false;
         }
-        String name = identifierToString(fn.name()).toUpperCase();
+        String name = identifierToString(fn.name()).toUpperCase(Locale.ROOT);
         return DISTANCE_FUNCTIONS.contains(name);
     }
 

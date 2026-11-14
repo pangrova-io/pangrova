@@ -84,6 +84,7 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   }
   runner_config.serde_schema_bindings = converter.serdeSchemaBindings();
   runner_config.executor_handle = config.executor_handle;
+  runner_config.failure_reporter = config.failure_reporter;
   runner_config.task_id = config.task_id;
   runner_config.query_id = config.query_id;
   runner_config.tenant_id = config.tenant_id;

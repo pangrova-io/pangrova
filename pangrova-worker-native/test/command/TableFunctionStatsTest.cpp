@@ -6,11 +6,11 @@
 // OperatorStats hierarchy. GenerateSeriesOperator extends Velox's Operator
 // base class which automatically tracks OperatorStats (inputRows, outputRows,
 // addInputTiming, getOutputTiming). These are collected by
-// exec::Task::taskStats() and serialized by serializeNativeTaskStats().
+// exec::Task::taskStats() and serialized by pangrova::velox::serializeNativeTaskStats().
 
 #include <gtest/gtest.h>
 
-#include "command/StatusSerializer.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 
@@ -89,7 +89,7 @@ TEST_F(TableFunctionStatsTest, GenerateSeriesStatsPropagateToProto) {
 
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -146,7 +146,7 @@ TEST_F(TableFunctionStatsTest, TableFunctionWithLateralJoinStats) {
       4096, 8192));
   taskStats.pipelineStats.push_back(std::move(pipeline1));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -191,7 +191,7 @@ TEST_F(TableFunctionStatsTest, GenerateSeriesStatsContributeToAggregates) {
       32768, 65536));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));

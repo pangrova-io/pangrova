@@ -29,7 +29,7 @@ import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

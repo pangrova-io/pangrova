@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.type;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.NullOnlyType;
 import org.pangrova.types.VectorType;
@@ -217,7 +218,7 @@ class IcebergTypeMapperTest {
 
     @Test
     void toIcebergVectorType_float() {
-        VectorType vectorType = new VectorType(128, VectorType.ElementType.FLOAT);
+        VectorType vectorType = new VectorType(128, VectorElementType.FLOAT);
         Types.ListType result = IcebergTypeMapper.toIcebergVectorType(vectorType, 1);
 
         assertThat(result.typeId()).isEqualTo(Type.TypeID.LIST);
@@ -226,7 +227,7 @@ class IcebergTypeMapperTest {
 
     @Test
     void toIcebergVectorType_double() {
-        VectorType vectorType = new VectorType(384, VectorType.ElementType.DOUBLE);
+        VectorType vectorType = new VectorType(384, VectorElementType.DOUBLE);
         Types.ListType result = IcebergTypeMapper.toIcebergVectorType(vectorType, 2);
 
         assertThat(result.typeId()).isEqualTo(Type.TypeID.LIST);
@@ -280,7 +281,7 @@ class IcebergTypeMapperTest {
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(768);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.FLOAT);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.FLOAT);
     }
 
     @Test
@@ -294,7 +295,7 @@ class IcebergTypeMapperTest {
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(384);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.DOUBLE);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.DOUBLE);
     }
 
     @Test

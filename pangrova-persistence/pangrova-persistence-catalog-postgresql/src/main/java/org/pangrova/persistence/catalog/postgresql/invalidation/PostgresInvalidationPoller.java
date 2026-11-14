@@ -1,7 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.invalidation;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -350,7 +350,7 @@ class JdbcQueryStateJournalIntegrationTest {
         try {
             var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEventSync(denied));
-            assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+            assertEquals(org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED,
                     failure.admissionOutcome());
             requireQueryIsolationFault(failure);
             journal.appendTaskEvent(later);
@@ -411,7 +411,7 @@ class JdbcQueryStateJournalIntegrationTest {
                     "q-overflow", "SELECT 44", "{}", "QUEUED");
             var rejected = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEvent(overflow));
-            assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER,
+            assertEquals(org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER,
                     rejected.admissionOutcome());
             requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.purgeQuery(denied.queryId())));
@@ -560,7 +560,7 @@ class JdbcQueryStateJournalIntegrationTest {
             try {
                 var failed = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                         () -> journal.appendQueryEventSync(event));
-                assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+                assertEquals(org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED,
                         failed.admissionOutcome());
                 assertTrue(wire.awaitActualCommit());
                 assertEquals(1, countQueryRows("query_state_journal", event.queryId()));

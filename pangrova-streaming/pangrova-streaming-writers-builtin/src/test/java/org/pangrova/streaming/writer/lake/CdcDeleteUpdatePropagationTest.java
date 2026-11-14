@@ -1,5 +1,6 @@
 package org.pangrova.streaming.writer.lake;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
 import org.pangrova.connector.api.enums.WriteMode;
@@ -46,7 +47,7 @@ class CdcDeleteUpdatePropagationTest {
         assertThat(sent)
                 .as("DELETE record must be materialised through the sink")
                 .anySatisfy(r -> {
-                    assertThat(r.operation()).isEqualTo(WriteRecord.WriteOperation.DELETE);
+                    assertThat(r.operation()).isEqualTo(WriteOperation.DELETE);
                     assertThat(r.data().getInt("id")).isEqualTo(3);
                 });
 
@@ -56,7 +57,7 @@ class CdcDeleteUpdatePropagationTest {
         assertThat(sent)
                 .as("UPDATE after-image must be materialised through the sink")
                 .anySatisfy(r -> {
-                    assertThat(r.operation()).isEqualTo(WriteRecord.WriteOperation.UPDATE);
+                    assertThat(r.operation()).isEqualTo(WriteOperation.UPDATE);
                     assertThat(r.data().getInt("id")).isEqualTo(2);
                     assertThat(r.data().getString("name")).isEqualTo("bobby");
                 });

@@ -11,7 +11,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.exception.UnregisteredWorkerException;
 import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 import org.pangrova.common.client.error.ErrorDetail;
-import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry.RecordedSubmissionFailure;
+import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.exception.TenantQuotaExceededException;
@@ -56,7 +56,7 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
 
     @Override
     public Response toResponse(Exception exception) {
-        if (exception instanceof RecordedSubmissionFailure recorded) {
+        if (exception instanceof RecordedSubmissionException recorded) {
             try (Response failure = toResponse(recorded.failure())) {
                 return Response.fromResponse(failure)
                         .header("X-Pangrova-Query-Id", recorded.queryId()).build();

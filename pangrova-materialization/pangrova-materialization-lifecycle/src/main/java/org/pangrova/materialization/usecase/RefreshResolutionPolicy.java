@@ -6,9 +6,9 @@ import java.util.Set;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
 import org.pangrova.materialization.api.port.PlannedDefinition;
 
@@ -27,10 +27,10 @@ final class RefreshResolutionPolicy {
             // rewrites. Append-only stays the fallback for sources that cannot
             // identify partitions; a workload that wants the cheaper append
             // path pins INCREMENTAL_STRATEGY = APPEND_ONLY.
-            RefreshKind.IncrementalPartitionReplace.INSTANCE,
-            RefreshKind.IncrementalAppendOnly.INSTANCE,
-            RefreshKind.IncrementalAffectedKey.INSTANCE,
-            RefreshKind.IncrementalCdc.INSTANCE);
+            RefreshKind.INCREMENTAL_PARTITION_REPLACE,
+            RefreshKind.INCREMENTAL_APPEND_ONLY,
+            RefreshKind.INCREMENTAL_AFFECTED_KEY,
+            RefreshKind.INCREMENTAL_CDC);
 
     private final MaterializationExtensionRegistry extensions;
 
@@ -65,7 +65,7 @@ final class RefreshResolutionPolicy {
     }
 
     RefreshResolution full() {
-        return new RefreshResolution(RefreshKind.Full.INSTANCE, Optional.empty(),
+        return new RefreshResolution(RefreshKind.FULL, Optional.empty(),
                 extensions.strategy(StrategyId.FULL));
     }
 

@@ -16,7 +16,7 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.jni.NativeRuntime;
 
 import java.nio.file.Path;

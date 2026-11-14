@@ -1,5 +1,8 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.ViewSecurityMode;
+import org.pangrova.metadata.api.enums.VolumeType;
+import org.pangrova.metadata.api.enums.FunctionKind;
 import org.pangrova.metadata.api.enums.AssetType;
 
 import org.junit.jupiter.api.Test;
@@ -28,7 +31,7 @@ class AssetModelTest {
                 List.of(new ColumnMetadata("id", ColumnType.of("BIGINT"), false, "", Map.of()),
                         new ColumnMetadata("name", ColumnType.of("VARCHAR"), true, "", Map.of())),
                 List.of(new QualifiedTableRef("cat", "db", "users")),
-                ViewAsset.ViewSecurityMode.INVOKER,
+                ViewSecurityMode.INVOKER,
                 "admin",
                 Map.of("description", "active users"),
                 NOW, NOW);
@@ -40,7 +43,7 @@ class AssetModelTest {
         assertThat(view.definitionSql()).contains("active = true");
         assertThat(view.columns()).hasSize(2);
         assertThat(view.dependentTables()).hasSize(1);
-        assertThat(view.securityMode()).isEqualTo(ViewAsset.ViewSecurityMode.INVOKER);
+        assertThat(view.securityMode()).isEqualTo(ViewSecurityMode.INVOKER);
         assertThat(view.owner()).isEqualTo("admin");
     }
 
@@ -52,7 +55,7 @@ class AssetModelTest {
 
         assertThat(view.columns()).isEmpty();
         assertThat(view.dependentTables()).isEmpty();
-        assertThat(view.securityMode()).isEqualTo(ViewAsset.ViewSecurityMode.DEFINER);
+        assertThat(view.securityMode()).isEqualTo(ViewSecurityMode.DEFINER);
         assertThat(view.owner()).isEmpty();
         assertThat(view.properties()).isEmpty();
     }
@@ -63,7 +66,7 @@ class AssetModelTest {
     void functionAssetRoundTrip() {
         FunctionAsset fn = new FunctionAsset(
                 "cat", "db", "double_it",
-                FunctionAsset.Kind.SCALAR,
+                FunctionKind.SCALAR,
                 List.of(new FunctionAsset.Parameter("x", ColumnType.of("BIGINT"))),
                 ColumnType.of("BIGINT"),
                 "SQL",
@@ -74,7 +77,7 @@ class AssetModelTest {
 
         assertThat(fn.type()).isEqualTo(AssetType.FUNCTION);
         assertThat(fn.name()).isEqualTo("double_it");
-        assertThat(fn.kind()).isEqualTo(FunctionAsset.Kind.SCALAR);
+        assertThat(fn.kind()).isEqualTo(FunctionKind.SCALAR);
         assertThat(fn.parameters()).hasSize(1);
         assertThat(fn.parameters().get(0).name()).isEqualTo("x");
         assertThat(fn.returnType().baseType()).isEqualTo("BIGINT");
@@ -89,7 +92,7 @@ class AssetModelTest {
                 "c", "s", "f", null, null, null,
                 null, null, false, null, NOW, NOW);
 
-        assertThat(fn.kind()).isEqualTo(FunctionAsset.Kind.SCALAR);
+        assertThat(fn.kind()).isEqualTo(FunctionKind.SCALAR);
         assertThat(fn.parameters()).isEmpty();
         assertThat(fn.language()).isEmpty();
         assertThat(fn.body()).isEmpty();
@@ -102,7 +105,7 @@ class AssetModelTest {
     void volumeAssetRoundTrip() {
         VolumeAsset vol = new VolumeAsset(
                 "cat", "db", "raw_data",
-                VolumeAsset.VolumeType.EXTERNAL,
+                VolumeType.EXTERNAL,
                 "s3://bucket/raw/",
                 Map.of("description", "raw data files"),
                 NOW, NOW);
@@ -111,7 +114,7 @@ class AssetModelTest {
         assertThat(vol.catalog()).isEqualTo("cat");
         assertThat(vol.schema()).isEqualTo("db");
         assertThat(vol.name()).isEqualTo("raw_data");
-        assertThat(vol.volumeType()).isEqualTo(VolumeAsset.VolumeType.EXTERNAL);
+        assertThat(vol.volumeType()).isEqualTo(VolumeType.EXTERNAL);
         assertThat(vol.storageLocation()).isEqualTo("s3://bucket/raw/");
     }
 
@@ -120,7 +123,7 @@ class AssetModelTest {
         VolumeAsset vol = new VolumeAsset(
                 "c", "s", "v", null, null, null, NOW, NOW);
 
-        assertThat(vol.volumeType()).isEqualTo(VolumeAsset.VolumeType.MANAGED);
+        assertThat(vol.volumeType()).isEqualTo(VolumeType.MANAGED);
         assertThat(vol.storageLocation()).isEmpty();
         assertThat(vol.properties()).isEmpty();
     }

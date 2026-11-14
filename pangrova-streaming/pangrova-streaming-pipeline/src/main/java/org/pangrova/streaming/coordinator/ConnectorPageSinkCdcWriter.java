@@ -1,5 +1,7 @@
 package org.pangrova.streaming.coordinator;
 
+import org.pangrova.streaming.enums.CdcBatchPublicationState;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
@@ -88,8 +90,8 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     @Override
     public void discard(CdcWriteSink.StagedWrite staged) {
         if (staged instanceof StagedBatch batch && batch.owner == this) {
-            if (!batch.state.compareAndSet(PublicationState.PREPARED,
-                    PublicationState.DISCARDED)) {
+            if (!batch.state.compareAndSet(CdcBatchPublicationState.PREPARED,
+                    CdcBatchPublicationState.DISCARDED)) {
                 LOG.warn("event=stream_write_discard_skipped target={} reason=publication_attempted state={}",
                         deps.targetTable(), batch.state.get());
                 return;
@@ -173,9 +175,9 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
 
     /** Publishes staged phases; separate phases are not one catalog transaction. */
     private CdcWriteResult publishLocal(StagedBatch staged) {
-        if (!staged.state.compareAndSet(PublicationState.PREPARED,
-                PublicationState.PUBLISHING)) {
-            if (staged.state.get() == PublicationState.PUBLISHED) {
+        if (!staged.state.compareAndSet(CdcBatchPublicationState.PREPARED,
+                CdcBatchPublicationState.PUBLISHING)) {
+            if (staged.state.get() == CdcBatchPublicationState.PUBLISHED) {
                 return staged.publishedResult;
             }
             throw new IllegalStateException(
@@ -190,12 +192,12 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
                     (long) staged.rowCount * ESTIMATED_BYTES_PER_ROW,
                     staged.phases.size(), deps.targetTable());
             staged.publishedResult = result;
-            staged.state.set(PublicationState.PUBLISHED);
+            staged.state.set(CdcBatchPublicationState.PUBLISHED);
             LOG.debug("event=stream_write_batch_committed target={} rows={} phases={}",
                     deps.targetTable(), staged.rowCount, staged.phases.size());
             return result;
         } catch (RuntimeException failure) {
-            staged.state.set(PublicationState.UNKNOWN);
+            staged.state.set(CdcBatchPublicationState.UNKNOWN);
             throw failure;
         }
     }
@@ -204,15 +206,14 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     private record PhaseStage(
             org.pangrova.connector.api.metadata.ConnectorOutputTableHandle handle, byte[] fragment) {}
 
-    private enum PublicationState { PREPARED, PUBLISHING, PUBLISHED, UNKNOWN, DISCARDED }
 
     /** A staged (written-but-unpublished) batch for the local commit path. */
     private static final class StagedBatch implements CdcWriteSink.StagedWrite {
         private final ConnectorPageSinkCdcWriter owner;
         private final List<PhaseStage> phases;
         private final int rowCount;
-        private final AtomicReference<PublicationState> state =
-                new AtomicReference<>(PublicationState.PREPARED);
+        private final AtomicReference<CdcBatchPublicationState> state =
+                new AtomicReference<>(CdcBatchPublicationState.PREPARED);
         private volatile CdcWriteResult publishedResult;
 
         StagedBatch(ConnectorPageSinkCdcWriter owner, List<PhaseStage> phases, int rowCount) {

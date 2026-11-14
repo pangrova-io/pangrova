@@ -1,5 +1,7 @@
 package org.pangrova.streaming.writer.mergetree;
 
+import org.pangrova.connector.api.enums.WriteOperation;
+import org.pangrova.streaming.writer.enums.ChangelogRowKind;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
@@ -98,12 +100,12 @@ class MergeTreeTableWriterTest {
 
     @Test
     void mapToRowKindCoversAllOperations() {
-        assertThat(MergeTreeTableWriter.mapToRowKind(WriteRecord.WriteOperation.INSERT))
-                .isEqualTo(MergeTreeTableWriter.RowKind.INSERT);
-        assertThat(MergeTreeTableWriter.mapToRowKind(WriteRecord.WriteOperation.UPDATE))
-                .isEqualTo(MergeTreeTableWriter.RowKind.UPDATE_AFTER);
-        assertThat(MergeTreeTableWriter.mapToRowKind(WriteRecord.WriteOperation.DELETE))
-                .isEqualTo(MergeTreeTableWriter.RowKind.DELETE);
+        assertThat(MergeTreeTableWriter.mapToRowKind(WriteOperation.INSERT))
+                .isEqualTo(ChangelogRowKind.INSERT);
+        assertThat(MergeTreeTableWriter.mapToRowKind(WriteOperation.UPDATE))
+                .isEqualTo(ChangelogRowKind.UPDATE_AFTER);
+        assertThat(MergeTreeTableWriter.mapToRowKind(WriteOperation.DELETE))
+                .isEqualTo(ChangelogRowKind.DELETE);
     }
 
     // --- test helpers ---
@@ -111,19 +113,19 @@ class MergeTreeTableWriterTest {
     private static WriteRecord insertRecord(String col, Object val) {
         return new WriteRecord(
                 TypedRow.fromRawMap(Map.of(col, val)),
-                WriteRecord.WriteOperation.INSERT, Instant.now());
+                WriteOperation.INSERT, Instant.now());
     }
 
     private static WriteRecord updateRecord(String col, Object val) {
         return new WriteRecord(
                 TypedRow.fromRawMap(Map.of(col, val)),
-                WriteRecord.WriteOperation.UPDATE, Instant.now());
+                WriteOperation.UPDATE, Instant.now());
     }
 
     private static WriteRecord deleteRecord(String col, Object val) {
         return new WriteRecord(
                 TypedRow.fromRawMap(Map.of(col, val)),
-                WriteRecord.WriteOperation.DELETE, Instant.now());
+                WriteOperation.DELETE, Instant.now());
     }
 
     /**

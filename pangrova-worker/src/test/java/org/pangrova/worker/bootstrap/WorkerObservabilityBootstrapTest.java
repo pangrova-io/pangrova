@@ -1,5 +1,11 @@
 package org.pangrova.worker.bootstrap;
 
+import java.util.Map;
+
+import org.pangrova.config.PangrovaConfiguration;
+
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import org.junit.jupiter.api.AfterAll;
@@ -72,8 +78,8 @@ class WorkerObservabilityBootstrapTest {
 
     @Test
     void enabledWithOtelConfigStartsAndShutsDownCleanly() {
-        var obsCfg = new WorkerBootstrapConfig.ObservabilityBootstrapConfig(
-                "pangrova-worker", "http://localhost:4317");
+        var obsCfg = new ObservabilityConfig(PangrovaConfiguration.fromYaml(Map.of(
+                "observability.service-name", "pangrova-worker", "observability.otlp-endpoint", "http://localhost:4317")));
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "worker-obs-3", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, true, obsCfg, null, 0, false,

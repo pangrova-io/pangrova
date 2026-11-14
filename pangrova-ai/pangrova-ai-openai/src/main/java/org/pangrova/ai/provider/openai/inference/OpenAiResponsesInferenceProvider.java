@@ -1,9 +1,8 @@
 package org.pangrova.ai.provider.openai.inference;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
-
 import org.pangrova.ai.http.chat.InferenceBatch;
-
 import org.pangrova.ai.api.invocation.AttemptAdmission;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -210,7 +209,7 @@ public final class OpenAiResponsesInferenceProvider
     private static AiInvocationException invalidResponse(
             String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                 false,
                 message,
                 cause);

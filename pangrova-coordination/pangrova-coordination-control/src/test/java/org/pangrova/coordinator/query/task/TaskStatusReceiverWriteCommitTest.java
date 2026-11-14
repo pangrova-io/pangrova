@@ -142,6 +142,20 @@ class TaskStatusReceiverWriteCommitTest {
     }
 
     @Test
+    void failedPhysicalAttemptCannotOverrideSuccessfulLogicalDagCompletion() {
+        var callback = new DeferredStageCompletion();
+        receiver = receiverWithStageCallback(callback);
+        registerRunningQuery();
+        registerTwoTasks();
+        assertThat(receiver.onTaskStatus(failedReport("t-1"))).isTrue();
+        assertThat(tracker.hasFailedTask(QUERY_ID)).isTrue();
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryState.RUNNING);
+        assertThat(receiver.onTaskStatus(finishedWithoutWriteResult("t-2"))).isTrue();
+        callback.complete(true);
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryState.FINISHED);
+    }
+
+    @Test
     void failedDagTerminalEventCannotFinalizeQueryAsSuccess() {
         DeferredStageCompletion callback = new DeferredStageCompletion();
         receiver = receiverWithStageCallback(callback);
@@ -170,6 +184,8 @@ class TaskStatusReceiverWriteCommitTest {
                 Consumer<Boolean> listener = terminalListener.get();
                 if (listener != null) listener.accept(true);
             }
+
+            @Override public boolean ownsQueryCompletion(String queryId) { return true; }
 
             @Override public boolean isQueryComplete(String queryId) {
                 return dagComplete.get();
@@ -219,6 +235,8 @@ class TaskStatusReceiverWriteCommitTest {
             // The test controls the later DAG outcome explicitly.
         }
 
+        @Override public boolean ownsQueryCompletion(String queryId) { return true; }
+
         @Override
         public boolean isQueryComplete(String queryId) {
             return complete;
@@ -256,7 +274,7 @@ class TaskStatusReceiverWriteCommitTest {
         tracker.markScheduled(QUERY_ID, "t-early");
         assertThat(receiver.onTaskStatus(running)).isTrue();
         assertThat(tracker.getTaskState(QUERY_ID, "t-early"))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING);
         assertThat(tracker.getRunningStageIds(QUERY_ID)).containsExactly("0");
         assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "0", Set.of(), Instant.now()))
                 .singleElement().extracting(org.pangrova.scheduler.api.speculation.TaskDuration::taskId)
@@ -526,7 +544,7 @@ class TaskStatusReceiverWriteCommitTest {
                 .isTrue();
         assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
                 .extracting(org.pangrova.persistence.query.api.commit.WriteCommitEntry::state)
-                .isEqualTo(org.pangrova.persistence.query.api.commit.WriteCommitEntry.State.PENDING);
+                .isEqualTo(org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING);
     }
 
     @Test
@@ -546,7 +564,7 @@ class TaskStatusReceiverWriteCommitTest {
 
         assertThat(accepted).isFalse();
         assertThat(tracker.getTaskState(QUERY_ID, "t-1"))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING);
     }
 
     @Test
@@ -599,7 +617,7 @@ class TaskStatusReceiverWriteCommitTest {
         assertThat(recordingMetadata.finishCalls).isEmpty();
         assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
                 .extracting(org.pangrova.persistence.query.api.commit.WriteCommitEntry::state)
-                .isEqualTo(org.pangrova.persistence.query.api.commit.WriteCommitEntry.State.PENDING);
+                .isEqualTo(org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING);
     }
 
     private static ExecutionAnchor anchor(String ownerId, long token) {

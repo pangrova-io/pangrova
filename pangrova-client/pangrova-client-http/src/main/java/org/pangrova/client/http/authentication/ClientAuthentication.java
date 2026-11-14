@@ -1,17 +1,17 @@
 package org.pangrova.client.http.authentication;
 
+import org.pangrova.client.http.enums.AuthenticationScheme;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Objects;
 
 /** Immutable credentials for the sole REST authorization header; diagnostic output is redacted. */
 public final class ClientAuthentication {
-    public enum Scheme { BEARER, BASIC }
-
-    private final Scheme scheme;
+    private final AuthenticationScheme scheme;
     private final String authorizationHeader;
 
-    private ClientAuthentication(Scheme scheme, String authorizationHeader) {
+    private ClientAuthentication(AuthenticationScheme scheme, String authorizationHeader) {
         this.scheme = scheme;
         this.authorizationHeader = authorizationHeader;
     }
@@ -27,7 +27,7 @@ public final class ClientAuthentication {
         if (!token.matches("[A-Za-z0-9._~+/-]+=*")) {
             throw new IllegalArgumentException("Bearer token must use the HTTP bearer token syntax");
         }
-        return new ClientAuthentication(Scheme.BEARER, "Bearer " + token);
+        return new ClientAuthentication(AuthenticationScheme.BEARER, "Bearer " + token);
     }
 
     /**
@@ -46,14 +46,14 @@ public final class ClientAuthentication {
         }
         String encoded = Base64.getEncoder().encodeToString(
                 (username + ':' + password).getBytes(StandardCharsets.UTF_8));
-        return new ClientAuthentication(Scheme.BASIC, "Basic " + encoded);
+        return new ClientAuthentication(AuthenticationScheme.BASIC, "Basic " + encoded);
     }
 
     private static boolean hasControl(String value) {
         return value.codePoints().anyMatch(Character::isISOControl);
     }
 
-    public Scheme scheme() { return scheme; }
+    public AuthenticationScheme scheme() { return scheme; }
 
     /** Only the actual HTTP request builder should consume this credential-bearing value. */
     public String authorizationHeader() { return authorizationHeader; }

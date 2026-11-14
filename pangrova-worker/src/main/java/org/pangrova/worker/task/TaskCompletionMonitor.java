@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.NativeTaskFailureCategory;
 import org.pangrova.worker.enums.TaskState;
-
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -381,7 +381,7 @@ public final class TaskCompletionMonitor {
      */
     private static long handlePollFailure(
             long handle, Exception e, int transientRetries, long backoffMs) throws Exception {
-        NativeTaskFailureClassifier.Category category = NativeTaskFailureClassifier.classify(e);
+        NativeTaskFailureCategory category = NativeTaskFailureClassifier.classify(e);
         switch (category) {
             case NATIVE_CRASHED -> {
                 LOG.error(

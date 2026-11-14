@@ -2,6 +2,7 @@ package org.pangrova.coordinator.indexing;
 
 import org.pangrova.indexing.api.enums.IndexType;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -65,7 +66,7 @@ public final class IndexTypeCompatibility {
     }
 
     private static String normalizeSqlType(String sqlType) {
-        String upper = sqlType.toUpperCase().trim();
+        String upper = sqlType.toUpperCase(Locale.ROOT).trim();
         // Strip precision/scale: VARCHAR(255) → VARCHAR, DECIMAL(10,2) → DECIMAL
         int parenIdx = upper.indexOf('(');
         if (parenIdx > 0) {

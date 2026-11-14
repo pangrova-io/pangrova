@@ -12,20 +12,32 @@ exporter catalogue used by function-contract tests.
 
 On 2026-11-14 the macOS arm64 Worker handshake exported the current inventory
 from the packaged JNI runtime with the immutable cache, governed FILE callbacks
-and both configured models. The cache-disabled catalogue came from the
+and both configured models. The runtime exports 21 Worker native methods
+under `org.pangrova.worker.jni.NativeRuntime`. The split descriptor includes
+the published index artifact length and SHA-256. The cache-disabled catalogue came from the
 `pangrova_function_export --catalogue` binary built alongside that runtime.
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| Native library | 322876581 | `a99793594d40a57aa2a1c025bb3920596ae4d23d148d5530921aea1a99fc3e1a` |
-| Worker inventory | 795600 | `b49a040ef5c0f3b3afbb03c27cc8b5661b0319b4a3eea9129dbb1d6b47c225db` |
-| Function exporter catalogue | 782981 | `8ae14ab54c5af7af34b3946c0e335ac44e15e28d666ae57cd0afe4c20153952e` |
+| Native library | 322827909 | `6eab152f31b1f305763a87cd14d77baad01959fb4fef2a00a91a03859bc85e7d` |
+| Worker inventory | 795600 | `9c4691f55ad19577ccd623af88b8344d0b4dd45d938157a9206afc6915831aa1` |
+| Function exporter catalogue | 782981 | `66e4d0a405102d3d5e1b181b39201e5efe95a1401a8773856e4d9c3e32d8ed07` |
 
 Both fixtures carry canonical descriptor SHA-256
-`ab4d05e056dea402e400916ba7b05144e5573108dc5e3ffa272de70062b23ed0`,
+`aeeee7695d8a30162edc9d4b0100a0a71651b0bd0e101c755b11d4976f52cbce`,
 including the Coordinator partition publication evidence in the external exchange binding.
 The Worker advertised 19 capabilities, 103 functions and two deployed models.
 The exporter reported nine capabilities, 87 functions and zero models.
+
+A later macOS arm64 handshake used the public Worker DML operation type,
+its checked native operation codes, and task-local storage and statistics ownership.
+Library SHA-256
+`f93a50f7b7053256d2b1c5c439a9f4bee76255cf06f96cf42b7b05ee2c780256`
+advertised the same 19 capabilities, 103 functions and descriptor. All Native
+fields matched the fixture exactly. The complete 795,600-byte publication
+from this deployment had SHA-256
+`441c94151c3a27a3815bd939956879439fd6015f1706877960e7c7fdb08f102b`.
+The two model records contain deployment-specific identities.
 
 ## October capture
 

@@ -27,7 +27,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real local frontend admission/exit ownership; no Worker task or Native exit is simulated. */

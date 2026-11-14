@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -149,9 +151,9 @@ class OperationsChainTest extends org.pangrova.server.coordinator.testinfra.Sign
                 checker, nodeOps, true, Duration.ofSeconds(5));
 
         List<NodeInfo> workers = List.of(
-                new NodeInfo("w-1", NodeInfo.NodeType.WORKER, "1.0"));
+                new NodeInfo("w-1", ClusterNodeType.WORKER, "1.0"));
         List<NodeInfo> coordinators = List.of(
-                new NodeInfo("c-1", NodeInfo.NodeType.COORDINATOR, "1.0"));
+                new NodeInfo("c-1", ClusterNodeType.COORDINATOR, "1.0"));
 
         UpgradeResult result = controller.upgradeCluster(workers, coordinators, "1.1");
 

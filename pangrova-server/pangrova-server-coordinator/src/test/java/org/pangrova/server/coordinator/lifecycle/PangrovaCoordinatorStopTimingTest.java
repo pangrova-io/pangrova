@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.lifecycle;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +28,6 @@ class PangrovaCoordinatorStopTimingTest {
         haService.close();
         haService.close(); // idempotent
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+                .isEqualTo(CoordinatorRole.STOPPED);
     }
 }

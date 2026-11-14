@@ -2,6 +2,8 @@ package org.pangrova.persistence.workflow.postgresql.projection;
 
 import org.pangrova.persistence.catalog.postgresql.projection.CatalogProjectionSql;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -63,7 +65,7 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
                 connection.commit();
                 return epoch;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -93,7 +95,7 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
                 connection.commit();
                 return receipt;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException | RuntimeException failure) {
@@ -134,7 +136,7 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
                 commitStarted = true;
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException | RuntimeException failure) {
@@ -334,14 +336,6 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
                 var scope = new CatalogDeploymentIdentity(rows.getString(1), rows.getString(2), rows.getLong(3));
                 return Optional.of(ProjectionReceiptCodec.decode(id, scope, rows.getString(4), rows.getString(5)));
             }
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable primary) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error failure) {
-            if (primary != failure) primary.addSuppressed(failure);
         }
     }
 

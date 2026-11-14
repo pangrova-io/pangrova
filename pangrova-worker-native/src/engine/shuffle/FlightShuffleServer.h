@@ -3,8 +3,7 @@
 //
 // Maps executor handles to their actual shared producer registration,
 // enabling all shuffle handles to share one Flight server instance.
-// Configures SO_REUSEPORT on the server socket to allow kernel-level
-// load balancing across threads.
+// Each listener belongs to one worker and routes tickets to that registry.
 //
 // Placement: shuffle/ — Native shuffle components.
 #pragma once
@@ -58,8 +57,6 @@ struct FlightShuffleServerConfig {
   // Shared production demux budgets; max_payload_bytes is set from
   // max_batch_bytes so each indivisible serialized batch fits one response.
   ShuffleBufferLimits buffer_limits;
-  // Enable SO_REUSEPORT on the server socket.
-  bool reuse_port = true;
   // TLS certificate chain file path (PEM). Empty = no TLS.
   std::string tls_cert_chain_path;
   // TLS private key file path (PEM). Required when tls_cert_chain_path is set.
@@ -203,7 +200,7 @@ class PartitionDemuxer {
 //
 // Lifecycle:
 //   1. Construct with config
-//   2. start() — binds port with SO_REUSEPORT, begins accepting DoGet
+//   2. start() — binds the worker port, begins accepting DoGet
 //   3. registerHandle() — register executor handle with its queue
 //   4. Downstream workers call DoGet with ticket containing handle routing
 //   5. unregisterHandle() — remove handle when task completes

@@ -1,5 +1,6 @@
 package org.pangrova.security.api.rowfilter;
 
+import org.pangrova.security.api.enums.FilterParameterType;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
@@ -117,7 +118,7 @@ public record ParameterizedFilter(
     /**
      * A bound parameter with its name, value, and type.
      */
-    public record BoundParameter(String name, String value, ParameterType type) {
+    public record BoundParameter(String name, String value, FilterParameterType type) {
         public BoundParameter {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("Parameter name must not be blank");
@@ -125,13 +126,4 @@ public record ParameterizedFilter(
         }
     }
 
-    /**
-     * The type of a bound parameter, determining how it is rendered in SQL.
-     */
-    public enum ParameterType {
-        /** A single string value rendered as 'value'. */
-        STRING,
-        /** A comma-separated list of values rendered as 'val1,val2,...'. */
-        STRING_LIST
-    }
 }

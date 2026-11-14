@@ -1,7 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
 import org.pangrova.execution.stage.binding.RetrievalGenerationIntent;
-
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
@@ -23,28 +24,28 @@ class RetrievalGenerationResolverTest {
 
     @Test
     void exactRetrievalAndEmptyStageNeedNoArtifactOwner() {
-        assertThat(resolver.resolve(fragment(RetrievalTopKPlanHint.Kind.EXACT, ""),
+        assertThat(resolver.resolve(fragment(RetrievalKind.EXACT, ""),
                 List.of(), Optional.empty(), SPLITS)).isEmpty();
-        assertThat(resolver.resolve(fragment(RetrievalTopKPlanHint.Kind.FULL_TEXT, "FULL_TEXT:body"),
+        assertThat(resolver.resolve(fragment(RetrievalKind.FULL_TEXT, "FULL_TEXT:body"),
                 List.of(), Optional.empty(), List.of())).isEmpty();
     }
 
     @Test
     void missingFullTextArtifactCannotBecomeVectorExactFallback() {
-        var fullText = fragment(RetrievalTopKPlanHint.Kind.FULL_TEXT, "FULL_TEXT:body");
+        var fullText = fragment(RetrievalKind.FULL_TEXT, "FULL_TEXT:body");
         assertThatThrownBy(() -> resolver.resolve(fullText, List.of(), Optional.empty(), SPLITS))
                 .hasMessageContaining("no immutable artifact binding");
         assertThatThrownBy(() -> resolver.resolve(fullText,
                 List.of(intent("FULL_TEXT:body", true)), Optional.empty(), SPLITS))
                 .hasMessageContaining("complete immutable BM25 artifact");
-        assertThat(resolver.resolve(fragment(RetrievalTopKPlanHint.Kind.VECTOR, "VECTOR:embedding"),
+        assertThat(resolver.resolve(fragment(RetrievalKind.VECTOR, "VECTOR:embedding"),
                 List.of(intent("VECTOR:embedding", false)), Optional.empty(), SPLITS)).isEmpty();
     }
 
     @Test
     void duplicatedOrUnconsumedBindingsAreRejected() {
         var vector = intent("VECTOR:embedding", false);
-        var plan = fragment(RetrievalTopKPlanHint.Kind.VECTOR, "VECTOR:embedding");
+        var plan = fragment(RetrievalKind.VECTOR, "VECTOR:embedding");
         assertThatThrownBy(() -> resolver.resolve(plan, List.of(vector, vector), Optional.empty(), SPLITS))
                 .hasMessageContaining("Duplicate retrieval source binding");
         assertThatThrownBy(() -> resolver.resolve(plan,
@@ -52,9 +53,9 @@ class RetrievalGenerationResolverTest {
                 .hasMessageContaining("not represented in the physical Native stage");
     }
 
-    private static SerializedPlanFragment fragment(RetrievalTopKPlanHint.Kind kind, String source) {
+    private static SerializedPlanFragment fragment(RetrievalKind kind, String source) {
         return new SerializedPlanFragment(new byte[0], List.of(new RetrievalTopKPlanHint(kind, source,
-                0, 10, RetrievalTopKPlanHint.ScoreDirection.LOWER_IS_BETTER, List.of(1), new byte[0])));
+                0, 10, RetrievalScoreDirection.LOWER_IS_BETTER, List.of(1), new byte[0])));
     }
 
     private static RetrievalGenerationIntent intent(String source, boolean fullText) {

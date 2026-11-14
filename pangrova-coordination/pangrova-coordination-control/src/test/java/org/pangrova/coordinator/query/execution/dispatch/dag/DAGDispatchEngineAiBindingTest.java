@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
-
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 
@@ -36,7 +36,7 @@ class DAGDispatchEngineAiBindingTest {
     void appendsExactModelAndBoundedProviderResources() {
         ModelAvailability model = model(limits(5, 10, 6, 0, 2));
         OperatorBinding bound = AiInvocationOperatorBinder.bindQuery(
-                fragment(AiInvocationPlanHint.Operation.TEXT_GENERATION, false)
+                fragment(AiInvocationOperation.TEXT_GENERATION, false)
                         .aiInvocationHints().get(0),
                 selector(model), USER);
 
@@ -59,14 +59,14 @@ class DAGDispatchEngineAiBindingTest {
     @Test
     void requiresOperationSpecificGenerationAndMediaLimits() {
         assertThatThrownBy(() -> AiInvocationOperatorBinder.bindQuery(
-                fragment(AiInvocationPlanHint.Operation.TEXT_GENERATION, false)
+                fragment(AiInvocationOperation.TEXT_GENERATION, false)
                         .aiInvocationHints().get(0),
                 selector(model(limits(5, 10, 0, 0, 2))), USER))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("output-token");
 
         assertThatThrownBy(() -> AiInvocationOperatorBinder.bindQuery(
-                fragment(AiInvocationPlanHint.Operation.MULTIMODAL_GENERATION, true)
+                fragment(AiInvocationOperation.MULTIMODAL_GENERATION, true)
                         .aiInvocationHints().get(0),
                 selector(model(limits(5, 10, 6, 0, 2))), USER))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -74,7 +74,7 @@ class DAGDispatchEngineAiBindingTest {
     }
 
     private static SerializedPlanFragment fragment(
-            AiInvocationPlanHint.Operation operation, boolean media) {
+            AiInvocationOperation operation, boolean media) {
         return new SerializedPlanFragment(
                 new byte[] {1},
                 List.of(),

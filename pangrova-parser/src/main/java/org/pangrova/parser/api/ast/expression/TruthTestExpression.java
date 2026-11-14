@@ -1,5 +1,6 @@
 package org.pangrova.parser.api.ast.expression;
 
+import org.pangrova.parser.api.enums.TruthValue;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.enums.ExpressionType;
 
@@ -11,8 +12,6 @@ public record TruthTestExpression(Expression operand, TruthValue value, boolean 
         Objects.requireNonNull(operand, "operand");
         Objects.requireNonNull(value, "value");
     }
-
-    public enum TruthValue { TRUE, FALSE, UNKNOWN }
 
     @Override
     public ExpressionType type() {

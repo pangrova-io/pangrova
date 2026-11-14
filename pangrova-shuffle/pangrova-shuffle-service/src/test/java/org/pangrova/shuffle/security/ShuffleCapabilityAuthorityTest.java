@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

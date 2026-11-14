@@ -7,7 +7,7 @@ import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.connector.api.materialization.SourceRef;
 

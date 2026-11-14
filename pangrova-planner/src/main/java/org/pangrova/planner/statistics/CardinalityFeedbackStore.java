@@ -2,7 +2,7 @@ package org.pangrova.planner.statistics;
 
 import org.pangrova.planner.api.statistics.CardinalityFeedback;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.Objects;
 import java.util.Optional;

@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider;
 
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
@@ -39,7 +42,9 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var sdkTable = fixture.create("rows");
             ReadBindingSdkFixture.write(sdkTable, 3);
             var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session);
-            var schema = fixture.bootstrap.buildCalciteSchema(fixture.session, owner);
+            var schema = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(fixture.session, owner);
             var table = schema.plus().getSubSchema("bound").getSubSchema("db").getTable("rows");
             assertThat(table).isInstanceOf(MetadataResolvedTable.class);
             var binding = ((MetadataResolvedTable) table).unwrap(ConnectorReadBinding.class);
@@ -179,7 +184,9 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     List.of(SchemaChange.addColumn("added", DataTypes.STRING())), false);
             var selectedSession = PlanningSnapshotSelectors.bind(fixture.session, Map.of("bound.db.history", version));
             var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), selectedSession);
-            var schema = fixture.bootstrap.buildCalciteSchema(selectedSession, owner);
+            var schema = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(selectedSession, owner);
             var declared = schema.plus().getSubSchema("bound").getSubSchema("db").getTable("history");
             assertThat(declared.getRowType(new JavaTypeFactoryImpl()).getFieldNames()).containsExactly("id");
             var currentOwner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session);
@@ -199,7 +206,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var table = fixture.create("empty");
             var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session);
             var binding = owner.resolve("bound", "db", "empty").orElseThrow();
-            assertThat(binding.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+            assertThat(binding.state()).isEqualTo(ReadSnapshotState.EMPTY);
             ReadBindingSdkFixture.write(table, 2);
             assertThat(fixture.splits(binding, Map.of())).isEmpty();
             assertThat(new CatalogStatisticsProvider(owner).getTableStatistics(new QualifiedTableName("bound", "db", "empty")).rowCount()).isZero();
@@ -222,7 +229,9 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var statistics = new org.pangrova.planner.statistics.StatisticsCollector(new CatalogStatisticsProvider(owner));
             assertThat(statistics.getStatistics(firstName).orElseThrow().columns().get("id").rowCount()).isEqualTo(2);
             assertThat(statistics.getStatistics(secondName).orElseThrow().columns().get("id").rowCount()).isEqualTo(7);
-            var schema = fixture.bootstrap.buildCalciteSchema(fixture.session, owner);
+            var schema = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(fixture.session, owner);
             var firstPlan = new org.pangrova.planner.analysis.PangrovaPlanner(schema, List.of("bound", "db"))
                     .planForPolicyApplication("SELECT id FROM bound.\"a.b\".rows").toPlannedQuery();
             var secondPlan = new org.pangrova.planner.analysis.PangrovaPlanner(schema, List.of("bound", "db"))
@@ -293,7 +302,9 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var selected = PlanningSnapshotSelectors.bind(fixture.session,
                     Map.of(PlanningSnapshotSelectors.tableKey("bound", "db", "CamelRows"), version));
             var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), selected);
-            var schema = fixture.bootstrap.buildCalciteSchema(selected, owner);
+            var schema = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(selected, owner);
             var binding = owner.resolve("bound", "db", "CamelRows").orElseThrow();
             assertThat(binding.statistics().rowCount()).isEqualTo(2);
             assertThat(binding.snapshotId()).hasValue(version);

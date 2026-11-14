@@ -1,7 +1,7 @@
 package org.pangrova.metadata.coordination;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.enums.ColumnDerivationKind;
-
 import org.pangrova.metadata.governance.TestQualityRuleExecutor;
 import org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox;
 
@@ -50,7 +50,7 @@ class QueryLineageHttpRecoveryIntegrationTest {
             var columns = java.util.Arrays.stream(ColumnDerivationKind.values())
                     .map(kind -> new DatasetRef.ColumnLineage(kind.name(), List.of(source), kind)).toList();
             try (var transport = transport(null, STARTUP_HTTP_TIMEOUT_MS)) {
-                transport.send(new LineageEvent(LineageEvent.EventType.START, id, "fixture-readiness", "SELECT 1",
+                transport.send(new LineageEvent(LineageEventType.START, id, "fixture-readiness", "SELECT 1",
                         List.of(new DatasetRef(reference.namespace(), "warm.source", List.of())),
                         List.of(new DatasetRef(reference.namespace(), "warm.target", columns)),
                         Map.of(), Instant.now()));
@@ -76,8 +76,8 @@ class QueryLineageHttpRecoveryIntegrationTest {
     @Test
     void successorDeliversFrozenStartBeforeTerminalAndReplaysDoNotCreateNewLogicalFacts() throws Exception {
         String run = UUID.randomUUID().toString();
-        QueryLineageFact start = fact(run, QueryLineageFact.Phase.START, 1000);
-        QueryLineageFact complete = fact(run, QueryLineageFact.Phase.COMPLETE, 1001);
+        QueryLineageFact start = fact(run, LineageEventType.START, 1000);
+        QueryLineageFact complete = fact(run, LineageEventType.COMPLETE, 1001);
         outbox.append(complete);
         outbox.append(start);
         new JdbcQueryLineageOutbox(dataSource).append(start);
@@ -100,8 +100,8 @@ class QueryLineageHttpRecoveryIntegrationTest {
     @Test
     void actualHttpNonAcceptanceRetainsBothFactsForSuccessor() throws Exception {
         String run = UUID.randomUUID().toString();
-        outbox.append(fact(run, QueryLineageFact.Phase.START, 1000));
-        outbox.append(fact(run, QueryLineageFact.Phase.FAIL, 1001));
+        outbox.append(fact(run, LineageEventType.START, 1000));
+        outbox.append(fact(run, LineageEventType.FAIL, 1001));
         try (var owner = new LineageEventEmitter(transport("/api/v1/unsupported-ingestion", FORMAL_HTTP_TIMEOUT_MS),
                 outbox, reference.namespace())) {
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(deliveryAttempts()).isPositive());
@@ -119,8 +119,8 @@ class QueryLineageHttpRecoveryIntegrationTest {
     @Test
     void timedOutCloseCannotEraseEnteredHttpAndRepeatedCloseWaitsForPhysicalOwner() throws Exception {
         String run = UUID.randomUUID().toString();
-        QueryLineageFact start = fact(run, QueryLineageFact.Phase.START, 1000);
-        QueryLineageFact abort = fact(run, QueryLineageFact.Phase.ABORT, 1001);
+        QueryLineageFact start = fact(run, LineageEventType.START, 1000);
+        QueryLineageFact abort = fact(run, LineageEventType.ABORT, 1001);
         var owner = new LineageEventEmitter(transport(null, 1000), outbox, reference.namespace(), 100);
         try {
             try (var lock = reference.connection(); var statement = lock.createStatement()) {
@@ -180,14 +180,14 @@ class QueryLineageHttpRecoveryIntegrationTest {
                 lock.setAutoCommit(false);
                 statement.execute("LOCK TABLE lineage_events IN ACCESS EXCLUSIVE MODE");
                 try {
-                    emitter.record(fact(run, QueryLineageFact.Phase.START, 1000));
+                    emitter.record(fact(run, LineageEventType.START, 1000));
                     await().atMost(Duration.ofSeconds(5)).untilAsserted(
                             () -> assertThat(actualBlockedIngestion()).isTrue());
                     assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class)
                             .hasMessageContaining("has not actually terminated");
                     assertThat(emitter.shutdownTimedOut()).isTrue();
                     assertThat(outbox.pendingCount()).isEqualTo(1);
-                    assertThatThrownBy(() -> emitter.record(fact(run, QueryLineageFact.Phase.START, 1000)))
+                    assertThatThrownBy(() -> emitter.record(fact(run, LineageEventType.START, 1000)))
                             .isInstanceOf(IllegalStateException.class);
                     await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
                         org.assertj.core.api.Assertions.assertThatCode(owner::close).doesNotThrowAnyException();
@@ -220,7 +220,7 @@ class QueryLineageHttpRecoveryIntegrationTest {
         }
     }
 
-    private static QueryLineageFact fact(String run, QueryLineageFact.Phase phase, long timestamp) {
+    private static QueryLineageFact fact(String run, LineageEventType phase, long timestamp) {
         var source = new QueryLineageMetadata.SourceColumn(reference.namespace(), "source.orders", "amount");
         var column = new QueryLineageMetadata.Column("total", List.of(source),
                 ColumnDerivationKind.AGGREGATE);
@@ -228,8 +228,8 @@ class QueryLineageHttpRecoveryIntegrationTest {
                 List.of(new QueryLineageMetadata.Dataset(reference.namespace(), "source.orders", List.of())),
                 List.of(new QueryLineageMetadata.Dataset(reference.namespace(), "target.totals", List.of(column))));
         return new QueryLineageFact(reference.namespace(), run, phase, timestamp,
-                phase == QueryLineageFact.Phase.START ? "INSERT INTO target.totals SELECT SUM(amount) FROM source.orders" : null,
-                phase == QueryLineageFact.Phase.FAIL ? "actual query failure" : null, metadata);
+                phase == LineageEventType.START ? "INSERT INTO target.totals SELECT SUM(amount) FROM source.orders" : null,
+                phase == LineageEventType.FAIL ? "actual query failure" : null, metadata);
     }
 
     private static OpenLineageHttpTransport transport(String endpoint, int timeoutMs) {

@@ -1,15 +1,34 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.constants.ConnectorFactoryContract;
+import org.pangrova.connector.api.enums.ConnectorRole;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.connector.api.plugin.ConnectorFactory;
+
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
 
 /** Creates a persistent Lance catalog with a connector-owned warehouse and Native control port. */
 public final class LanceConnectorFactory implements ConnectorFactory {
     private static final int MAX_URI_LENGTH = 8192;
+
+    @Override
+    public int apiVersion() {
+        return ConnectorFactoryContract.CURRENT_API_VERSION;
+    }
+
+    @Override
+    public Set<ConnectorRole> roles() {
+        return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER);
+    }
+
+    @Override
+    public void validateConfiguration(Map<String, String> config) {
+        validatedWarehouse(config);
+    }
 
     @Override public String getName() { return "lance"; }
 
@@ -17,13 +36,17 @@ public final class LanceConnectorFactory implements ConnectorFactory {
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("Lance catalog name is required");
         }
+        String warehouse = validatedWarehouse(config);
+        return new LanceConnector(catalogName, warehouse, config, context.nativeDatasetControlPlane(),
+                context.managedSourceCatalog());
+    }
+
+    private static String validatedWarehouse(Map<String, String> config) {
         if (config.containsKey("jdbc.url") || config.containsKey("jdbc.user") || config.containsKey("jdbc.password")) {
             throw new IllegalArgumentException(
                     "Managed Lance uses the shared metadata authority; connector JDBC is forbidden");
         }
-        String warehouse = warehouse(config.get("warehouse"));
-        return new LanceConnector(catalogName, warehouse, config, context.nativeDatasetControlPlane(),
-                context.managedSourceCatalog());
+        return warehouse(config.get("warehouse"));
     }
 
     private static String warehouse(String value) {

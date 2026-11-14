@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.time.Clock;
 import java.util.regex.Pattern;
 
@@ -9,11 +11,11 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
-import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
-import org.pangrova.shuffle.server.error.FailureKind;
-import org.pangrova.shuffle.server.error.ShuffleServiceFailure;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
+import org.pangrova.shuffle.server.enums.FailureKind;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 
@@ -100,7 +102,7 @@ final class ShuffleAccessControl {
         }
         Allocation allocation = requireAllocation(request.getShuffleId());
         if (!allocation.owner().equals(owner)
-                || allocation.state() == ShuffleServiceModel.AllocationState.CLEANING) {
+                || allocation.state() == ShuffleAllocationState.CLEANING) {
             throw new SecurityException("shuffle renewal owner is fenced");
         }
         if (!control && request.hasTaskAttempt()) {
@@ -201,7 +203,7 @@ final class ShuffleAccessControl {
             throw new IllegalArgumentException("shuffle id is invalid");
         }
         return lifecycle.findAllocation(shuffleId)
-                .orElseThrow(() -> new ShuffleServiceFailure(
+                .orElseThrow(() -> new ShuffleServiceException(
                         FailureKind.NOT_FOUND, "shuffle does not exist"));
     }
 

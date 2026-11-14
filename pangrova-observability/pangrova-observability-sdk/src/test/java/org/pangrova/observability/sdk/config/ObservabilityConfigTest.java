@@ -21,14 +21,41 @@ import java.util.Map;
 class ObservabilityConfigTest {
 
     private static final Map<String, String> REQUIRED_KEYS = Map.of(
-            "pangrova.observability.service-name", "pangrova-test",
-            "pangrova.observability.otlp-endpoint", "http://localhost:4317");
+            "observability.service-name", "pangrova-test",
+            "observability.otlp-endpoint", "http://localhost:4317");
+
+    @Test
+    void acceptsIndependentRateLimitAndParsesHeadersOnceWithoutLeakingValuesOnError() {
+        var configured = new ObservabilityConfig(configWith(Map.of(
+                "observability.sampling.strategy", "RATE_LIMITING", "observability.sampling.traces-per-second", "24",
+                "observability.otlp-headers", "Authorization=Bearer secret==,x-scope=jobs")));
+        assertThat(configured.getTracesPerSecond()).isEqualTo(24);
+        assertThat(configured.getOtlpHeaders()).containsEntry("authorization", "Bearer secret==");
+        assertThatThrownBy(() -> new ObservabilityConfig(configWith(Map.of(
+                "observability.otlp-headers", "token=private,Token=other"))))
+                .hasMessageContaining("distinct").hasMessageNotContaining("private");
+        assertThatThrownBy(() -> new ObservabilityConfig(configWith(Map.of(
+                "observability.sampling.traces-per-second", "NaN")))).hasMessageContaining("traces-per-second");
+    }
+
+    @Test
+    void partialExporterSettingsFailBeforeAllocatingResources() {
+        assertThat(ObservabilityConfig.fromDeployment(PangrovaConfiguration.fromYaml(Map.of()))).isEmpty();
+        assertThat(ObservabilityConfig.fromDeployment(PangrovaConfiguration.fromYaml(Map.of(
+                "observability.enabled", "false", "observability.service-name", "disabled")))).isEmpty();
+        assertThatThrownBy(() -> ObservabilityConfig.fromDeployment(PangrovaConfiguration.fromYaml(
+                Map.of("observability.service-name", "coordinator"))))
+                .hasMessageContaining("observability.otlp-endpoint");
+        assertThatThrownBy(() -> ObservabilityConfig.fromDeployment(configWith(
+                Map.of("observability.service-name", "  "))))
+                .hasMessageContaining("observability.service-name");
+    }
 
     @Test
     void productionEnvironment_defaultsSamplingProbabilityTo001() {
         // When deployment-environment is "production" and no explicit sampling probability
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.deployment-environment", "production"));
+                "observability.deployment-environment", "production"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -52,7 +79,7 @@ class ObservabilityConfigTest {
     @ValueSource(strings = {"development", "test", "staging", "local", "ci"})
     void nonProductionEnvironments_defaultSamplingProbabilityTo1(String environment) {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.deployment-environment", environment));
+                "observability.deployment-environment", environment));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -64,7 +91,7 @@ class ObservabilityConfigTest {
     @Test
     void productionEnvironment_caseInsensitive() {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.deployment-environment", "Production"));
+                "observability.deployment-environment", "Production"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -75,8 +102,8 @@ class ObservabilityConfigTest {
     void explicitSamplingProbability_overridesEnvironmentDefault_inProduction() {
         // Explicit probability in production overrides the 0.01 default
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.deployment-environment", "production",
-                "pangrova.observability.sampling.probability", "0.1"));
+                "observability.deployment-environment", "production",
+                "observability.sampling.probability", "0.1"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -87,8 +114,8 @@ class ObservabilityConfigTest {
     void explicitSamplingProbability_overridesEnvironmentDefault_inDevelopment() {
         // Explicit lower probability in development overrides the 1.0 default
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.deployment-environment", "development",
-                "pangrova.observability.sampling.probability", "0.5"));
+                "observability.deployment-environment", "development",
+                "observability.sampling.probability", "0.5"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -98,7 +125,7 @@ class ObservabilityConfigTest {
     @Test
     void explicitSamplingProbability_zeroIsAllowed() {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.sampling.probability", "0.0"));
+                "observability.sampling.probability", "0.0"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -108,7 +135,7 @@ class ObservabilityConfigTest {
     @Test
     void samplingProbabilityAboveOne_throws() {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.sampling.probability", "1.5"));
+                "observability.sampling.probability", "1.5"));
         assertThatThrownBy(() -> new ObservabilityConfig(pangrovaConfig))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Sampling probability");
@@ -117,7 +144,7 @@ class ObservabilityConfigTest {
     @Test
     void negativeSamplingProbability_throws() {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.sampling.probability", "-0.1"));
+                "observability.sampling.probability", "-0.1"));
         assertThatThrownBy(() -> new ObservabilityConfig(pangrovaConfig))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Sampling probability");
@@ -126,7 +153,7 @@ class ObservabilityConfigTest {
     @Test
     void nonPositiveMetricsInterval_throws() {
         PangrovaConfiguration pangrovaConfig = configWith(Map.of(
-                "pangrova.observability.metrics.interval-ms", "0"));
+                "observability.metrics.interval-ms", "0"));
         assertThatThrownBy(() -> new ObservabilityConfig(pangrovaConfig))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Metrics interval");

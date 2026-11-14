@@ -1,7 +1,5 @@
 package org.pangrova.security.api.secret;
 
-import org.pangrova.security.api.secret.SecretResolver;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.common.concurrent.ThreadSafe;

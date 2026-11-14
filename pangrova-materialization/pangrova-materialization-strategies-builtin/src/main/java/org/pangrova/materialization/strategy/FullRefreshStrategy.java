@@ -2,8 +2,8 @@ package org.pangrova.materialization.strategy;
 
 import java.util.Map;
 import org.pangrova.materialization.api.exception.MaterializationException;
-import org.pangrova.materialization.api.domain.RefreshKind;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.refresh.RefreshContext;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
@@ -25,7 +25,7 @@ public final class FullRefreshStrategy implements RefreshStrategy {
 
     @Override
     public RefreshKind kind() {
-        return RefreshKind.Full.INSTANCE;
+        return RefreshKind.FULL;
     }
 
     @Override

@@ -4,6 +4,7 @@ import org.pangrova.function.api.aggregate.AggregateFunction;
 import org.pangrova.function.api.registry.FunctionFactory;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
 import org.pangrova.function.api.runtime.FunctionFailureProjector;
+import org.pangrova.worker.function.WorkerCallbackProviders;
 import org.pangrova.function.api.scalar.ScalarFunction;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.function.NativeFunctionCallbacks;
@@ -29,7 +30,7 @@ import java.util.ServiceLoader;
  *   <li>Discovers {@link FunctionFactory} implementations via ServiceLoader
  *   <li>Collects scalar and aggregate functions from each factory
  *   <li>Registers them in the {@link NativeFunctionCallbacks} for JNI callback dispatch
- *   <li>Stores the bridge in {@link WorkerComponentRefs} for lifecycle management
+ *   <li>Stores the callbacks in {@link WorkerComponentRefs} for lifecycle management
  * </ol>
  *
  * <p>Registration is fail-closed. A worker must not accept tasks if its Java function catalog
@@ -44,11 +45,11 @@ public final class NativeFunctionBootstrap {
     /**
      * Discovers and registers UDF/UDAF functions with the native engine.
      *
-     * @param refs component refs to store the function bridge
+     * @param refs component refs to store the function callbacks
      * @param functionConfig configuration controlling auto-registration
      */
     public static void initialize(WorkerComponentRefs refs, NativeFunctionConfig functionConfig) {
-        initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class));
+        initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class, NativeFunctionBootstrap.class.getClassLoader()));
     }
 
     static void initialize(
@@ -65,11 +66,8 @@ public final class NativeFunctionBootstrap {
             throw new IllegalStateException("Previous native function owners have not drained");
         }
 
-        NativeFunctionCallbacks bridge = new NativeFunctionCallbacks();
-        ServiceLoader.load(FunctionCallbackScope.class).findFirst()
-                .ifPresent(bridge::setCallbackScope);
-        ServiceLoader.load(FunctionFailureProjector.class).findFirst()
-                .ifPresent(bridge::setFailureProjector);
+        NativeFunctionCallbacks callbacks = new NativeFunctionCallbacks();
+        bindCallbacks(callbacks, NativeFunctionBootstrap.class.getClassLoader());
         int scalarCount = 0;
         int aggregateCount = 0;
         int factoryCount = 0;
@@ -91,20 +89,19 @@ public final class NativeFunctionBootstrap {
                 Map<String, String> pluginConfig = functionConfig.configForPlugin(pluginName);
                 LOG.info("event=function_factory_discovered plugin={}", pluginName);
 
-                scalarCount += registerScalarFunctions(bridge, factory, pluginConfig, pluginName);
+                scalarCount += registerScalarFunctions(callbacks, factory, pluginConfig, pluginName);
                 aggregateCount +=
-                        registerAggregateFunctions(bridge, factory, pluginConfig, pluginName);
+                        registerAggregateFunctions(callbacks, factory, pluginConfig, pluginName);
             }
 
-            refs.setNativeFunctionCallbacks(bridge);
-
-            List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
+            List<NativeFunctionDescriptor> descriptors = callbacks.buildDescriptors();
             if (refs.nativeAvailable()) {
                 if (!descriptors.isEmpty()) {
-                    NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                    NativeRuntime.nativeRegisterFunctions(callbacks, descriptors);
                 }
                 NativeCapabilityLoader.finalizeStartup();
             }
+            refs.setNativeFunctionCallbacks(callbacks);
             LOG.info(
                     "event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
                     factoryCount,
@@ -121,13 +118,21 @@ public final class NativeFunctionBootstrap {
         }
     }
 
+    static void bindCallbacks(NativeFunctionCallbacks callbacks, ClassLoader loader) {
+        WorkerCallbackProviders.optional(ServiceLoader.load(FunctionCallbackScope.class, loader))
+                .ifPresent(callbacks::setCallbackScope);
+        WorkerCallbackProviders.optional(ServiceLoader.load(FunctionFailureProjector.class, loader))
+                .ifPresent(callbacks::setFailureProjector);
+    }
+
     /** Closes provider registries and other resources owned by function factories. */
     public static void close(WorkerComponentRefs refs) {
         refs.closeNativeFunctionResources();
+        refs.setNativeFunctionCallbacks(null);
     }
 
     private static int registerScalarFunctions(
-            NativeFunctionCallbacks bridge,
+            NativeFunctionCallbacks callbacks,
             FunctionFactory factory,
             Map<String, String> pluginConfig,
             String pluginName) {
@@ -135,7 +140,7 @@ public final class NativeFunctionBootstrap {
         List<ScalarFunction> scalars = factory.getScalarFunctions(pluginConfig);
         for (ScalarFunction fn : scalars) {
             try {
-                bridge.registerScalar(fn);
+                callbacks.registerScalar(fn);
                 count++;
             } catch (RuntimeException e) {
                 throw new IllegalStateException(
@@ -151,7 +156,7 @@ public final class NativeFunctionBootstrap {
     }
 
     private static int registerAggregateFunctions(
-            NativeFunctionCallbacks bridge,
+            NativeFunctionCallbacks callbacks,
             FunctionFactory factory,
             Map<String, String> pluginConfig,
             String pluginName) {
@@ -159,7 +164,7 @@ public final class NativeFunctionBootstrap {
         List<AggregateFunction> aggregates = factory.getAggregateFunctions(pluginConfig);
         for (AggregateFunction fn : aggregates) {
             try {
-                bridge.registerAggregate(fn);
+                callbacks.registerAggregate(fn);
                 count++;
             } catch (RuntimeException e) {
                 throw new IllegalStateException(

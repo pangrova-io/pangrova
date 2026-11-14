@@ -1,10 +1,10 @@
 package org.pangrova.server.worker.bootstrap;
 
-import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.config.WorkerOptions;
+import org.pangrova.config.constants.WorkerOptions;
 import org.pangrova.server.bootstrap.ServerConfigurationLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

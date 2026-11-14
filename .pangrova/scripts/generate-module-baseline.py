@@ -48,6 +48,9 @@ def pom_artifacts() -> dict[str, dict]:
         tree = ET.parse(pom)
         root = tree.getroot()
         artifact_id = root.findtext("m:artifactId", namespaces=NS)
+        if artifact_id and artifact_id.startswith("pangrova-") and artifact_id.endswith(
+                ("-core", "-spi", "-adapter", "-bridge")):
+            raise ValueError(f"{rel(pom)}: name {artifact_id} for its capability or implementation")
         if artifact_id in artifacts:
             raise ValueError(f"Duplicate reactor artifact {artifact_id}: "
                              f"{artifacts[artifact_id]['pom']} and {rel(pom)}")

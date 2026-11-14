@@ -1,5 +1,6 @@
 package org.pangrova.streaming.watermark;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.streaming.enums.LateDataPolicy;
 import org.pangrova.streaming.exception.LateDataRouteException;
 
@@ -119,7 +120,7 @@ class LateDataRouterTest {
 
     private static WriteRecord makeRecord(Instant eventTime) {
         TypedRow row = TypedRow.fromRawMap(Map.of("id", 1, "name", "test"));
-        return new WriteRecord(row, WriteRecord.WriteOperation.INSERT, eventTime);
+        return new WriteRecord(row, WriteOperation.INSERT, eventTime);
     }
 
     /** Recording writer that captures writes for assertions. */

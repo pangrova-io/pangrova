@@ -40,10 +40,13 @@ Index state and index orchestration have separate owners:
   PostgreSQL production artifact does not depend on Metadata or Indexing Core.
   Narrower persistence ports and removal of permissive optional defaults remain
   separate work; moving the existing broad port does not complete that redesign.
-- `pangrova-coordination/pangrova-coordination-control` owns only the control-plane adapter under
-  `org.pangrova.coordinator.indexing` (DDL, filter, lifecycle/GC and the
-  AI retrieval-index lifecycle). It depends on indexing contracts and store
-  ports; it never owns a second index metadata store.
+- Planner derives scalar predicates with one physical scan as their provenance.
+  Self-joins and unions retain their full split sets when provenance is ambiguous.
+  Coordinator looks up READY descriptors for the bound tenant and matching columns.
+  Indexing evaluates predicate compatibility and applies pruning.
+- `org.pangrova.coordinator.indexing` handles SQL entry, split dispatch and
+  lifecycle integration. Vector search passes the compiled query to the indexing
+  rewriter, which inspects the Calcite plan inside the indexing module.
 - Index generation has exactly one owner: the indexing store allocates and
   fences generations, and the coordinator adapter may only advance them through
   that store.

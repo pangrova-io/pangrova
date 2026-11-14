@@ -1,7 +1,7 @@
 package org.pangrova.metadata.security;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
-
 import org.pangrova.metadata.testinfra.TestCatalogRegistry;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -116,12 +116,12 @@ class TableControlRowPolicyStoreTest {
         var transformed = new org.pangrova.security.api.authorization.DeferredAuthorizationScope(List.of(
                 new org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission(table, Set.of("id"),
                         org.pangrova.security.api.enums.Privilege.SELECT,
-                        org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot(
                                 Optional.of("(id > 0)"), Map.of("id", Optional.empty()))),
                 new org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission(table, Set.of(),
                         org.pangrova.security.api.enums.Privilege.ALTER,
-                        org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode.NONE,
+                        AuthorizedReadMode.NONE,
                         org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         try (var transaction = source.getConnection()) {
             transaction.setAutoCommit(false);

@@ -1,5 +1,6 @@
 package org.pangrova.governance.runtime.lineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 import org.pangrova.persistence.query.api.lineage.QueryLineageOutbox;
@@ -126,22 +127,22 @@ public final class LineageEventEmitter implements AutoCloseable {
 
     public void emitStartEvent(String queryId, String sql,
                                 List<DatasetRef> inputs, List<DatasetRef> outputs) {
-        emit(buildEvent(LineageEvent.EventType.START, queryId, sql, inputs, outputs, Map.of()));
+        emit(buildEvent(LineageEventType.START, queryId, sql, inputs, outputs, Map.of()));
     }
 
     public void emitCompleteEvent(String queryId) {
-        emit(buildEvent(LineageEvent.EventType.COMPLETE, queryId, null, List.of(), List.of(), Map.of()));
+        emit(buildEvent(LineageEventType.COMPLETE, queryId, null, List.of(), List.of(), Map.of()));
     }
 
     public void emitFailEvent(String queryId, String errorMessage) {
-        emit(buildEvent(LineageEvent.EventType.FAIL, queryId, null,
+        emit(buildEvent(LineageEventType.FAIL, queryId, null,
             List.of(), List.of(), Map.of("error", errorMessage)));
     }
 
     /** Enqueues the terminal type with its actual logical dataset lineage and facets. */
-    public void emitTerminalEvent(LineageEvent.EventType type, String queryId, String sql,
+    public void emitTerminalEvent(LineageEventType type, String queryId, String sql,
             List<DatasetRef> inputs, List<DatasetRef> outputs, Map<String, String> facets) {
-        if (type == LineageEvent.EventType.START) {
+        if (type == LineageEventType.START) {
             throw new IllegalArgumentException("Terminal lineage cannot emit START");
         }
         emit(buildEvent(type, queryId, sql, inputs, outputs, facets));
@@ -377,7 +378,7 @@ public final class LineageEventEmitter implements AutoCloseable {
         }
     }
 
-    private LineageEvent buildEvent(LineageEvent.EventType type, String queryId,
+    private LineageEvent buildEvent(LineageEventType type, String queryId,
                                     String sql, List<DatasetRef> inputs,
                                     List<DatasetRef> outputs, Map<String, String> facets) {
         return new LineageEvent(type, queryId, "pangrova-query", sql,

@@ -42,6 +42,7 @@ final class ShuffleReadPump implements Runnable {
     private int chunkIndex;
     private int reservedBytes;
     private boolean running;
+    private boolean pinReleased;
 
     ShuffleReadPump(
             ShuffleServiceEngine engine,
@@ -57,9 +58,6 @@ final class ShuffleReadPump implements Runnable {
         this.memoryBytes = memoryBytes;
         this.limits = limits;
         this.sequence = result.startSequence();
-        if (sequence > finalPartition().committedLastSequence() + 1) {
-            throw new IllegalArgumentException("read start sequence exceeds partition end");
-        }
     }
 
     void schedule() {
@@ -98,6 +96,9 @@ final class ShuffleReadPump implements Runnable {
         int emitted = 0;
         while (!closed.get() && response.isReady() && emitted < MAX_FRAMES_PER_PUMP) {
             if (!preparePayload()) {
+                // All object reads have drained. A consumer may request cleanup as soon as the RPC completes.
+                releaseRead();
+                if (closed.get()) return;
                 response.onNext(terminal());
                 response.onCompleted();
                 closed.set(true);
@@ -126,6 +127,9 @@ final class ShuffleReadPump implements Runnable {
             page = engine.readPage(result, sequence);
             pageIndex = 0;
             if (page.isEmpty()) {
+                if (sequence <= finalPartition().committedLastSequence()) {
+                    throw new IllegalStateException("finalized shuffle partition is missing committed batches");
+                }
                 return false;
             }
         }
@@ -205,13 +209,21 @@ final class ShuffleReadPump implements Runnable {
     private synchronized void setRunning(boolean value) {
         running = value;
         if (!value && closed.get()) {
-            releaseLease();
+            releaseRead();
         }
     }
 
     private synchronized void releaseIfIdle() {
         if (!running) {
-            releaseLease();
+            releaseRead();
+        }
+    }
+
+    private void releaseRead() {
+        releaseLease();
+        if (!pinReleased) {
+            result.close();
+            pinReleased = true;
         }
     }
 

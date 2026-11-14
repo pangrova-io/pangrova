@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.enums;
 
+import java.util.Locale;
+
 /**
  * Supported CDC envelope formats for native transform path.
  *
@@ -40,7 +42,7 @@ public enum CdcFormat {
         if (value == null || value.isBlank()) {
             return DEBEZIUM;
         }
-        String normalized = value.strip().toLowerCase();
+        String normalized = value.strip().toLowerCase(Locale.ROOT);
         for (CdcFormat format : values()) {
             if (format.formatName.equals(normalized)) {
                 return format;

@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
-
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.SourcePreparationResult;
@@ -53,7 +53,7 @@ final class SourcePreparationControl implements AutoCloseable {
             // Another exact delivery can finish between the terminal read and reservation.
             // Recheck the same authority; a seal without a real preparation outcome still rejects.
             var completed = owner.taskAdmissions.preparationTerminal(authority);
-            if (rejected.reason() == TaskAdmissionException.Reason.SEALED && completed.isPresent()) {
+            if (rejected.reason() == TaskAdmissionReason.SEALED && completed.isPresent()) {
                 return replay(request, completed.orElseThrow());
             }
             throw rejected;
@@ -101,7 +101,7 @@ final class SourcePreparationControl implements AutoCloseable {
             return leases.replay(request, terminal.usage(), terminal.error(), terminal.succeeded());
         } catch (RuntimeException denied) {
             boolean policy = denied instanceof org.pangrova.security.api.exception.AccessDeniedException
-                    || denied instanceof org.pangrova.worker.copy.CopySourceReadClient.Rejected rejected
+                    || denied instanceof org.pangrova.worker.exception.CopySourceReadRejectedException rejected
                             && rejected.isPolicyDenial();
             if (!policy) throw denied;
             return SourcePreparationResult.newBuilder().setAttempt(request.preparation().getAttempt())
@@ -193,13 +193,13 @@ final class SourcePreparationControl implements AutoCloseable {
             if (quota != null) {
                 tenant = quota.tryReserveTask(task, request.preparation().getSecurity().getTenantId(),
                         request.preparation().getResourceGrant().getJvmHeapBytes());
-                if (!tenant) throw new TaskAdmissionException(TaskAdmissionException.Reason.CAPACITY,
+                if (!tenant) throw new TaskAdmissionException(TaskAdmissionReason.CAPACITY,
                         "Source preparation tenant quota exceeded");
             }
             if (nodePool != null) {
                 long requested = request.preparation().getResourceGrant().getJvmHeapBytes();
                 memory = nodePool.tryReserve(requested);
-                if (memory != requested) throw new TaskAdmissionException(TaskAdmissionException.Reason.CAPACITY,
+                if (memory != requested) throw new TaskAdmissionException(TaskAdmissionReason.CAPACITY,
                         "Source preparation JVM memory grant is not available");
             }
         }

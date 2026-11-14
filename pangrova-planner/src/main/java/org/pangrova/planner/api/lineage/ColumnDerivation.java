@@ -1,5 +1,6 @@
 package org.pangrova.planner.api.lineage;
 
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
@@ -15,19 +16,10 @@ import java.util.List;
 public record ColumnDerivation(
         String outputColumn,
         List<SourceColumn> sourceColumns,
-        DerivationType expression
+        ColumnDerivationKind expression
 ) {
     public ColumnDerivation {
         sourceColumns = sourceColumns == null ? List.of() : List.copyOf(sourceColumns);
-    }
-
-    public enum DerivationType {
-        /** Direct column reference (SELECT col FROM t) */
-        DIRECT,
-        /** Expression-based transformation (SELECT col * 2 FROM t) */
-        TRANSFORM,
-        /** Aggregate function (SELECT SUM(col) FROM t) */
-        AGGREGATE
     }
 
     /**

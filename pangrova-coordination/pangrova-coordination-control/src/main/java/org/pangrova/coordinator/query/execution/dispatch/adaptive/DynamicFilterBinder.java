@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.adaptive;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -59,7 +61,7 @@ public final class DynamicFilterBinder {
      * Converts a {@link RuntimeFilter} into a {@link DynamicFilterPayload} protocol message.
      */
     public static DynamicFilterPayload toPayload(String stageId, RuntimeFilter filter) {
-        String filterType = filter.type() == RuntimeFilter.FilterType.BLOOM ? "BLOOM" : "MIN_MAX";
+        String filterType = filter.filterType().name();
         byte[] filterData = serializeFilterData(filter);
         String filterId = "dpp-" + stageId;
         return new DynamicFilterPayload(filterId, filterType, filterData, stageId,
@@ -67,7 +69,7 @@ public final class DynamicFilterBinder {
     }
 
     private static byte[] serializeFilterData(RuntimeFilter filter) {
-        org.pangrova.protocol.v2.RuntimeFilter entry = filter.type() == RuntimeFilter.FilterType.MIN_MAX
+        org.pangrova.protocol.v2.RuntimeFilter entry = filter.filterType() == DynamicFilterType.MIN_MAX
                 ? minMaxEntry(filter)
                 : bloomEntry(filter);
         return InjectRuntimeFilterRequest.newBuilder()

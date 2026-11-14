@@ -1,5 +1,6 @@
 package org.pangrova.metadata.testinfra;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.security.api.enums.Privilege;
@@ -20,7 +21,7 @@ public final class MetadataWriteReceiptFixtures {
         var table = new QualifiedTableName("fixture", "schema", "table");
         var declaration = new WriteDeclarationSnapshot(table, "0".repeat(64), "0".repeat(64), false);
         var permission = new DeferredAuthorizationScope.TablePermission(table, Set.of(), Privilege.INSERT,
-                DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
+                AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
         return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(permission),
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, List.of()))));
     }

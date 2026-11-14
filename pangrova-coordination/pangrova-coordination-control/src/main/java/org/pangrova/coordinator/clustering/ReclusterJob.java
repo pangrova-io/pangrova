@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.clustering;
 
+import org.pangrova.coordinator.enums.ReclusterJobState;
+
 import java.time.Instant;
 import java.util.Objects;
 
@@ -19,7 +21,7 @@ import java.util.Objects;
 public record ReclusterJob(
         String taskId,
         String tableName,
-        State state,
+        ReclusterJobState state,
         Instant submittedAt,
         Instant updatedAt,
         String errorMessage) {
@@ -32,18 +34,11 @@ public record ReclusterJob(
         Objects.requireNonNull(updatedAt, "updatedAt");
     }
 
-    public enum State {
-        PENDING,
-        RUNNING,
-        COMPLETED,
-        FAILED
-    }
-
-    public ReclusterJob withState(State newState) {
+    public ReclusterJob withState(ReclusterJobState newState) {
         return new ReclusterJob(taskId, tableName, newState, submittedAt, Instant.now(), errorMessage);
     }
 
     public ReclusterJob withFailure(String message) {
-        return new ReclusterJob(taskId, tableName, State.FAILED, submittedAt, Instant.now(), message);
+        return new ReclusterJob(taskId, tableName, ReclusterJobState.FAILED, submittedAt, Instant.now(), message);
     }
 }

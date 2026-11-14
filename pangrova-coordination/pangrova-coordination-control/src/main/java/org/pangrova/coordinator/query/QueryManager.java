@@ -220,7 +220,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
             acquireOwnershipOrReject(queryId);
 
-            journalLifecycle.queued(queryId, sql, enriched, sm);
+            journalLifecycle.queued(queryId, sm.getSql(), enriched, sm);
 
             sm.resolveOwnership(true);
         } catch (RuntimeException | Error failure) {

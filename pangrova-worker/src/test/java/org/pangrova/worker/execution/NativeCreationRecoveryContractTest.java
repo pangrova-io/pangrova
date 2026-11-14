@@ -3,6 +3,11 @@ package org.pangrova.worker.execution;
 import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.protocol.execution.AiTaskLifecycle;
+import org.pangrova.protocol.v2.ResourceUsage;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.worker.function.WorkerCallbackProviders;
 import org.pangrova.protocol.v2.ExecutorCreationRecoveryRequest;
 import org.pangrova.protocol.v2.ExecutorCreationRecoveryResult;
 import org.pangrova.protocol.v2.ExecutorCreationState;
@@ -93,8 +98,52 @@ class NativeCreationRecoveryContractTest {
         assertThat(owner.nativeClosedWithoutOwner).isFalse();
     }
 
+    @Test
+    void recoveryReleasesOnlyTheCallbackOwnerAdmittedByThisExecutor(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var descriptor = directory.resolve("META-INF/services/" + AiTaskLifecycle.class.getName());
+        java.nio.file.Files.createDirectories(descriptor.getParent());
+        java.nio.file.Files.writeString(descriptor, TrackingLifecycle.class.getName());
+        try (var loader = new java.net.URLClassLoader(new java.net.URL[]{directory.toUri().toURL()}, getClass().getClassLoader()) {
+            @Override
+            public java.util.Enumeration<java.net.URL> getResources(String name) throws java.io.IOException {
+                return name.equals("META-INF/services/" + AiTaskLifecycle.class.getName())
+                        ? findResources(name) : super.getResources(name);
+            }
+        }) {
+            var installed = (TrackingLifecycle) WorkerCallbackProviders.taskLifecycle(loader);
+            var independent = (TrackingLifecycle) WorkerCallbackProviders.taskLifecycle(loader);
+            var request = ActualNativeTaskFixture.valuesTaskRequest(false);
+            var owner = new NativeCreationOwners().prepare(request, installed);
+            installed.registerTask(request);
+            owner.aiRegistered = true;
+            NativeCreationOwners.cleanupCallbacks(owner, null);
+            NativeCreationOwners.cleanupCallbacks(owner, null);
+            assertThat(installed.releases).containsExactly(request.getAttempt());
+            assertThat(independent.releases).isEmpty();
+
+            java.nio.file.Files.writeString(descriptor, TrackingLifecycle.class.getName() + "\n" + ConflictingLifecycle.class.getName());
+            assertThatThrownBy(() -> WorkerCallbackProviders.taskLifecycle(loader))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining(TrackingLifecycle.class.getName()).hasMessageContaining(ConflictingLifecycle.class.getName());
+        }
+    }
+
+    public static class TrackingLifecycle implements AiTaskLifecycle {
+        private final java.util.List<TaskAttemptId> releases = new java.util.ArrayList<>();
+        public void registerTask(TaskRequest request) {}
+        public ResourceUsage releaseTask(String tenant, TaskAttemptId attempt) {
+            releases.add(attempt);
+            return ResourceUsage.getDefaultInstance();
+        }
+        public void cancelTask(String tenant, TaskAttemptId attempt) {}
+        public ResourceUsage usage(String tenant, TaskAttemptId attempt) { return ResourceUsage.getDefaultInstance(); }
+    }
+
+    public static final class ConflictingLifecycle extends TrackingLifecycle {}
+
     private static NativeCreationOwners.Owner owner() {
-        return new NativeCreationOwners.Owner(ActualNativeTaskFixture.valuesTaskRequest(false));
+        return new NativeCreationOwners.Owner(ActualNativeTaskFixture.valuesTaskRequest(false),
+                AiTaskLifecycle.NONE);
     }
     private static ExecutorCreationRecoveryRequest identity(NativeCreationOwners.Owner owner) {
         return ExecutorCreationRecoveryRequest.newBuilder().setAdmissionSeal(CanonicalTaskAdmissionSeals.create(owner.request))

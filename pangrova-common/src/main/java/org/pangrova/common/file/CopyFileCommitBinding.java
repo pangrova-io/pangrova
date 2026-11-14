@@ -1,9 +1,10 @@
 package org.pangrova.common.file;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /** Exact admitted COPY file generation bound to one distributed write commit. */
 @Experimental
@@ -13,16 +14,15 @@ public record CopyFileCommitBinding(
         String claimDigest,
         String tableUuid) {
 
-    private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
     public CopyFileCommitBinding {
-        if (fileKey == null || !SHA_256.matcher(fileKey).matches()) {
+        if (!DigestUtils.isSha256Hex(fileKey)) {
             throw new IllegalArgumentException("fileKey must be lowercase SHA-256 hex");
         }
         if (loadGeneration < 0) {
             throw new IllegalArgumentException("loadGeneration must not be negative");
         }
-        if (claimDigest == null || !SHA_256.matcher(claimDigest).matches()) {
+        if (!DigestUtils.isSha256Hex(claimDigest)) {
             throw new IllegalArgumentException("claimDigest must be lowercase SHA-256 hex");
         }
         if (tableUuid == null) {

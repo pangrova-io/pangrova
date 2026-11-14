@@ -6,7 +6,7 @@
 // hierarchy. GroupIdNode uses Velox's built-in OperatorStats framework
 // (inputRows, outputRows, addInputTiming, getOutputTiming) which is
 // automatically collected by exec::Task::taskStats() and serialized by
-// serializeNativeTaskStats().
+// pangrova::velox::serializeNativeTaskStats().
 //
 // GroupIdNode replicates each input row N times (one per grouping set),
 // so outputRows = inputRows × N. This test verifies that relationship
@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "command/StatusSerializer.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 
@@ -114,7 +114,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeStatsPropagateToProto) {
 
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -176,7 +176,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeInMultiPipelineTask) {
       4096, 8192));
   taskStats.pipelineStats.push_back(std::move(pipeline1));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -221,7 +221,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeStatsContributeToAggregates) {
       8192, 16384));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));

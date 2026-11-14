@@ -1,5 +1,8 @@
 package org.pangrova.ai.worker.provider;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -66,7 +69,7 @@ class ConfiguredAiProviderRegistryTest {
             assertThat(inference.maxBatchSize()).isEqualTo(8);
             assertThat(inference.capabilities())
                     .extracting(AiCapabilityDescriptor::operation)
-                    .containsExactly(AiCapabilityDescriptor.Operation.TEXT_GENERATION);
+                    .containsExactly(AiOperation.TEXT_GENERATION);
             assertThat(inference.capabilities().iterator().next().retryPolicy())
                     .isEqualTo(AiCapabilityDescriptor.RetryPolicy.noRetry());
             assertThat(registry.models().stream()
@@ -97,7 +100,7 @@ class ConfiguredAiProviderRegistryTest {
             assertThatThrownBy(() -> registry.resolveInference("missing"))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                         assertThat(failure.category())
-                                .isEqualTo(AiInvocationException.Category.MODEL_NOT_FOUND);
+                                .isEqualTo(AiFailureCategory.MODEL_NOT_FOUND);
                         assertThat(failure.retryable()).isFalse();
                     });
             assertThat(secretResolutions).hasValue(0);
@@ -194,7 +197,7 @@ class ConfiguredAiProviderRegistryTest {
                         AiInvocationException invocation =
                                 (AiInvocationException) failure;
                         assertThat(invocation.category()).isEqualTo(
-                                AiInvocationException.Category.AUTHENTICATION);
+                                AiFailureCategory.AUTHENTICATION);
                         assertThat(invocation.retryable()).isFalse();
                     });
         }

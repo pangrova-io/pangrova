@@ -1,12 +1,14 @@
 package org.pangrova.common.lifecycle;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import java.util.Map;
 import java.util.Objects;
 
 /**
  * Immutable health check result for a node.
  */
-public record HealthStatus(boolean ready, HealthCheckEndpoint.NodeType nodeType,
+public record HealthStatus(boolean ready, ClusterNodeType nodeType,
                            Map<String, Boolean> checks, long lastProcessedInvalidationId,
                            int resultServerPort, boolean resultServerRunning) {
 

@@ -15,7 +15,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.TestDataGenerator;
 import org.pangrova.testing.testkit.TestDataGenerator.ColumnDef;
-import org.pangrova.testing.testkit.TestDataGenerator.ColumnType;
+import org.pangrova.testing.testkit.enums.GeneratedColumnType;
 import org.pangrova.testing.testkit.TestDataGenerator.TableSchema;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
 import org.slf4j.Logger;
@@ -191,7 +191,7 @@ public final class TestDataSetup {
             col.name(), type, OptionalInt.of(fieldId));
     }
 
-    static PangrovaType toPangrovaType(ColumnType type) {
+    static PangrovaType toPangrovaType(GeneratedColumnType type) {
         return switch (type) {
             case STRING -> PangrovaType.VARCHAR;
             case LONG -> PangrovaType.BIGINT;
@@ -251,7 +251,7 @@ public final class TestDataSetup {
         return valuesList.toString();
     }
 
-    private static String formatColumnValue(ColumnValue cv, ColumnType type) {
+    private static String formatColumnValue(ColumnValue cv, GeneratedColumnType type) {
         if (cv instanceof ColumnValue.NullValue) {
             return "NULL";
         }
@@ -267,7 +267,7 @@ public final class TestDataSetup {
         return value.replace("'", "''");
     }
 
-    private static String toSqlType(ColumnType type) {
+    private static String toSqlType(GeneratedColumnType type) {
         return switch (type) {
             case STRING -> "VARCHAR";
             case LONG -> "BIGINT";

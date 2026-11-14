@@ -1,8 +1,12 @@
 package org.pangrova.shuffle.api;
 
+import org.pangrova.shuffle.api.enums.DecommissionReadiness;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+
+import org.pangrova.shuffle.api.enums.ShuffleRetentionPolicy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,7 +111,7 @@ class ShuffleRetentionPolicyTest {
     @Test
     void safeWithDrainAssessment() {
         var assessment = new DecommissionAssessment(
-                DecommissionAssessment.Readiness.SAFE_WITH_DRAIN, List.of(), 0);
+                DecommissionReadiness.SAFE_WITH_DRAIN, List.of(), 0);
         assertThat(assessment.isSafe()).isFalse();
         assertThat(assessment.isSafeWithDrain()).isTrue();
         assertThat(assessment.requiresReExecution()).isFalse();
@@ -118,7 +122,7 @@ class ShuffleRetentionPolicyTest {
         var ref = new ShuffleDataRef("q1", 1, "w1",
                 ShuffleRetentionPolicy.EPHEMERAL, 2048, false);
         var assessment = new DecommissionAssessment(
-                DecommissionAssessment.Readiness.REQUIRES_RE_EXECUTION, List.of(ref), 2048);
+                DecommissionReadiness.REQUIRES_RE_EXECUTION, List.of(ref), 2048);
         assertThat(assessment.isSafe()).isFalse();
         assertThat(assessment.isSafeWithDrain()).isFalse();
         assertThat(assessment.requiresReExecution()).isTrue();
@@ -135,7 +139,7 @@ class ShuffleRetentionPolicyTest {
     @Test
     void decommissionAssessmentNegativeBytesThrows() {
         assertThatThrownBy(() -> new DecommissionAssessment(
-                DecommissionAssessment.Readiness.SAFE, List.of(), -1))
+                DecommissionReadiness.SAFE, List.of(), -1))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -145,7 +149,7 @@ class ShuffleRetentionPolicyTest {
                 ShuffleRetentionPolicy.EPHEMERAL, 100, false);
         var mutableList = new java.util.ArrayList<>(List.of(ref));
         var assessment = new DecommissionAssessment(
-                DecommissionAssessment.Readiness.REQUIRES_RE_EXECUTION, mutableList, 100);
+                DecommissionReadiness.REQUIRES_RE_EXECUTION, mutableList, 100);
         mutableList.clear();
         // The assessment should retain its own copy
         assertThat(assessment.ephemeralData()).hasSize(1);

@@ -1,5 +1,7 @@
 package org.pangrova.planner.metadata.catalog;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import java.util.List;
 import java.util.OptionalInt;
 
@@ -19,9 +21,9 @@ class MetadataResolvedTableVectorTypeTest {
     void preservesStoredVectorElementPrecisionInPlannerSchema() {
         var columns = List.of(
                 new ConnectorTableMetadata.Column("float_vector", PangrovaType.VECTOR,
-                        OptionalInt.empty(), new VectorType(3, VectorType.ElementType.FLOAT)),
+                        OptionalInt.empty(), new VectorType(3, VectorElementType.FLOAT)),
                 new ConnectorTableMetadata.Column("double_vector", PangrovaType.VECTOR,
-                        OptionalInt.empty(), new VectorType(3, VectorType.ElementType.DOUBLE)));
+                        OptionalInt.empty(), new VectorType(3, VectorElementType.DOUBLE)));
         var metadata = new ConnectorTableMetadata(
                 new org.pangrova.connector.api.metadata.table.SchemaTableName("schema", "vectors"),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, java.util.Map.of());

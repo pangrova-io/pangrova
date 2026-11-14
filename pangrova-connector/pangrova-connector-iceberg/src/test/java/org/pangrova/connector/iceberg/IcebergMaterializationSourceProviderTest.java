@@ -18,6 +18,7 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
@@ -77,7 +78,7 @@ class IcebergMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.describe(source, "t1", "1", POLICY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                    .isEqualTo(MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
 
             SourceSnapshotRef empty = provider.describeEmpty(
                     source, "t1", emptyIdentity(table), POLICY);
@@ -91,7 +92,7 @@ class IcebergMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.pin(source, "t1", empty, "attempt-2"))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.SHAPE_MISMATCH);
+                    .isEqualTo(MaterializationSourceFailureReason.SHAPE_MISMATCH);
         }
     }
 
@@ -118,7 +119,7 @@ class IcebergMaterializationSourceProviderTest {
                     provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+                    .isEqualTo(MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED);
         }
     }
 
@@ -138,7 +139,7 @@ class IcebergMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.changeSet(from, to, ChangeSetMode.APPEND_ONLY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.PROOF_INCOMPLETE);
+                    .isEqualTo(MaterializationSourceFailureReason.PROOF_INCOMPLETE);
 
             ChangeSetPlan unproven = new ChangeSetPlan(source, from.snapshot(), to.snapshot(),
                     ChangeSetMode.APPEND_ONLY, "plan:delete", java.time.Instant.now(),
@@ -164,7 +165,7 @@ class IcebergMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.changeSet(from, to, ChangeSetMode.APPEND_ONLY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.SHAPE_MISMATCH);
+                    .isEqualTo(MaterializationSourceFailureReason.SHAPE_MISMATCH);
         }
     }
 
@@ -284,7 +285,7 @@ class IcebergMaterializationSourceProviderTest {
                     provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+                    .isEqualTo(MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED);
         }
     }
 

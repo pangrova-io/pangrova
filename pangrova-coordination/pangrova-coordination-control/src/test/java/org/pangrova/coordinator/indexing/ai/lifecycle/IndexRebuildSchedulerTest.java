@@ -13,6 +13,8 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
+import org.pangrova.coordinator.enums.VectorIndexHealthLevel;
+import org.pangrova.coordinator.enums.IndexRebuildAction;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
@@ -63,7 +65,7 @@ class IndexRebuildSchedulerTest {
 
         IndexRebuildScheduler.RebuildResult result =
                 scheduler.scheduleRebuild(d, assessment).get();
-        assertEquals(IndexRebuildScheduler.RebuildAction.SKIPPED, result.action());
+        assertEquals(IndexRebuildAction.SKIPPED, result.action());
     }
 
     @Test
@@ -72,7 +74,7 @@ class IndexRebuildSchedulerTest {
         IndexDescriptor d = bloomDescriptor();
         VectorIndexHealthAssessor.HealthAssessment assessment =
                 new VectorIndexHealthAssessor.HealthAssessment(
-                        "idx-bloom", VectorIndexHealthAssessor.HealthLevel.CRITICAL,
+                        "idx-bloom", VectorIndexHealthLevel.CRITICAL,
                         0.9, "too stale", true);
 
         CompletableFuture<IndexRebuildScheduler.RebuildResult> future =
@@ -99,7 +101,7 @@ class IndexRebuildSchedulerTest {
 
         IndexRebuildScheduler.RebuildResult result =
                 scheduler.scheduleRebuild(d, assessment).get();
-        assertEquals(IndexRebuildScheduler.RebuildAction.FULL_REBUILD, result.action());
+        assertEquals(IndexRebuildAction.FULL_REBUILD, result.action());
         assertTrue(rebuildCalled.isDone());
     }
 
@@ -149,7 +151,7 @@ class IndexRebuildSchedulerTest {
         IndexRebuildScheduler.RebuildResult result =
                 scheduler.scheduleRebuild(d, critical).get();
 
-        assertEquals(IndexRebuildScheduler.RebuildAction.SKIPPED, result.action());
+        assertEquals(IndexRebuildAction.SKIPPED, result.action());
     }
 
     @Test

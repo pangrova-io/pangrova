@@ -58,9 +58,6 @@ class FlightShuffleHmacE2ETest : public ::testing::Test {
   void startServer(bool mutualTls = false) {
     FlightShuffleServerConfig config;
     config.port = 0;  // auto-assign
-    // Authentication tests need an exclusive ephemeral listener. Reuse-port
-    // could route a connection to an unrelated local server on the same port.
-    config.reuse_port = false;
     config.hmac_current_key = kHmacKey;
     if (mutualTls) {
       config.tls_cert_chain_path = tlsResource("localhost-cert.pem").string();

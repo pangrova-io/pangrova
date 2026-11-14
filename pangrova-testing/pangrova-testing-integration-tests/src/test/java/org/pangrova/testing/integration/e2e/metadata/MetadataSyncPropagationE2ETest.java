@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.metadata;
 
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;

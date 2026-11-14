@@ -1,5 +1,7 @@
 package org.pangrova.metadata.api.cache;
 
+import org.pangrova.metadata.api.enums.InvalidationType;
+
 import java.time.Instant;
 import java.util.Objects;
 
@@ -26,13 +28,4 @@ public record InvalidationEntry(
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
     }
 
-    /**
-     * Type of cache invalidation.
-     */
-    public enum InvalidationType {
-        TABLE,
-        CATALOG,
-        /** Invalidates query result cache entries referencing a mutated table. */
-        RESULT_CACHE
-    }
 }

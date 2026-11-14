@@ -1,12 +1,12 @@
 package org.pangrova.worker.buffer;
 
+import org.pangrova.worker.enums.BackpressureAction;
+
 import java.time.Duration;
 
 public final class BackpressureController {
 
-    public enum Action { PROCEED, SLOW_DOWN, REJECT }
-
-    public record BackpressureResult(Action action, Duration delay) {}
+    public record BackpressureResult(BackpressureAction action, Duration delay) {}
 
     private static final int DEFAULT_MAX_PENDING = 1000;
     private static final int DEFAULT_HIGH_WATER_MARK = 800;
@@ -39,12 +39,12 @@ public final class BackpressureController {
     /** Evaluates the pending count against the water marks and returns the action to take. */
     public BackpressureResult checkBackpressure(int pendingCount) {
         if (pendingCount >= maxPending) {
-            return new BackpressureResult(Action.REJECT, Duration.ZERO);
+            return new BackpressureResult(BackpressureAction.REJECT, Duration.ZERO);
         }
         if (pendingCount >= highWaterMark) {
-            return new BackpressureResult(Action.SLOW_DOWN, computeDelay(pendingCount));
+            return new BackpressureResult(BackpressureAction.SLOW_DOWN, computeDelay(pendingCount));
         }
-        return new BackpressureResult(Action.PROCEED, Duration.ZERO);
+        return new BackpressureResult(BackpressureAction.PROCEED, Duration.ZERO);
     }
 
     private Duration computeDelay(int pendingCount) {

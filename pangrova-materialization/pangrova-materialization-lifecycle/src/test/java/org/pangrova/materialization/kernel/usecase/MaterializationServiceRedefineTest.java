@@ -18,10 +18,10 @@ import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.domain.TenantId;
@@ -101,9 +101,9 @@ class MaterializationServiceRedefineTest {
         MaterializationId object = MaterializationTestFixtures.objectId("orders_dt");
         MaterializationObject active = active(object);
         MaterializationObject dropping = active.transitionTo(
-                ObjectState.Dropping.INSTANCE, active.revision(), MaterializationTestFixtures.NOW);
+                ObjectState.DROPPING, active.revision(), MaterializationTestFixtures.NOW);
         repository.putObject(dropping.transitionTo(
-                ObjectState.Dropped.INSTANCE, dropping.revision(), MaterializationTestFixtures.NOW));
+                ObjectState.DROPPED, dropping.revision(), MaterializationTestFixtures.NOW));
         repository.putSchedule(Schedule.manual(object));
 
         assertThatThrownBy(() -> service().redefine(new RedefineMaterialization(object,
@@ -172,7 +172,7 @@ class MaterializationServiceRedefineTest {
                     MaterializationTestFixtures.vector(sources.toArray(SourceRef[]::new)),
                     Set.of(),
                     MaterializationTestFixtures.policies(sources),
-                    Set.of(RefreshKind.Full.INSTANCE),
+                    Set.of(RefreshKind.FULL),
                     org.pangrova.materialization.api.domain.PartitionAlignment.NONE);
         };
         Clock clock = () -> MaterializationTestFixtures.NOW;

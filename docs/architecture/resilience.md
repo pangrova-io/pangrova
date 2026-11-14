@@ -672,123 +672,36 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-## 12. Stage-Level Retry (OPT-012)
+## 12. Stage and task retry
 
-This section adds stage-level retry capability to the Coordinator's `StageScheduler`, triggered when split-level retry (§7) is insufficient — e.g., when shuffle data is lost due to multiple Worker crashes or rack-level failures.
+A live query owns a DAG and its task-terminal registrations. Each registered task is
+bound to its Stage instance and attempt generation. The authenticated report receiver
+first validates the issued request and Worker identity. A report may arrive before
+the dispatch response reaches the Coordinator. The DAG buffers the first terminal
+fact and replays it once after the whole cohort is known. Duplicate reports preserve
+the original outcome. Retirement closes admission and clears pending and delivered
+registrations. Listeners run outside the registry and Stage accounting locks.
 
-### 12.1 Architecture
+`Stage` owns the attempt generation and retry budget. Once its task cohort reaches
+FAILED, `RetryStageHandler` classifies the error and applies its Resilience4j
+limit to the Stage's own policy. A retryable source stage can restart as a whole
+while downstream stages remain planned. A Worker-loss replacement for a single
+exchange-free task inherits that logical task's retry budget. A dispatch failure
+refunds an unused reservation and replays the original terminal report if it
+arrived during the swap. A successful retry binds the selected Worker incarnation
+and the new control/input seals before transport entry. An ambiguous transport
+failure keeps the issued identity and cancels it on that Worker until real drain.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Stage-Level Retry Flow                           │
-│                                                                  │
-│  Task Failure                                                    │
-│       │                                                          │
-│       ▼                                                          │
-│  Split-Level Retry (§7)                                          │
-│       │                                                          │
-│       │ exhausted (retryCount >= maxSplitRetries)                │
-│       ▼                                                          │
-│  StageRetryManager.onTaskFailure()                               │
-│       │                                                          │
-│       ├─ failureRatio <= threshold? → failQuery()                │
-│       │                                                          │
-│       ├─ failureRatio > threshold AND retryable?                 │
-│       │       │                                                  │
-│       │       ▼                                                  │
-│       │  initiateStageRetry()                                    │
-│       │       ├─ Cancel running tasks                            │
-│       │       ├─ Invalidate shuffle output                       │
-│       │       ├─ Check upstream shuffle validity                 │
-│       │       │       └─ Lost? → cascade upstream retry          │
-│       │       └─ Re-schedule all tasks in stage                  │
-│       │                                                          │
-│       └─ stageRetryCount >= maxStageRetries? → failQuery()       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Design Rationale**: Split-level retry handles individual task failures but cannot recover from systemic issues like lost shuffle data (Worker crash with `MEMORY_ONLY` mode) or rack-level network partitions. Stage-level retry re-executes the entire stage, including cascading to upstream stages whose shuffle output is no longer available.
-
-### 12.2 Pseudocode
-
-**Stage Retry Decision Logic**:
-
-```pseudocode
-class StageRetryManager:
-    maxStageRetries = 2
-    stageRetryTriggerThreshold = 0.3  // retry stage if > 30% of tasks fail
-
-    function onTaskFailure(stage: Stage, task: Task, error: Error):
-        if task.retryCount < maxSplitRetries:
-            retrySplit(task)
-            return
-
-        stage.failedTaskCount++
-        failureRatio = stage.failedTaskCount / stage.totalTasks
-
-        if failureRatio > stageRetryTriggerThreshold
-           AND stage.stageRetryCount < maxStageRetries
-           AND isRetryableError(error):
-            initiateStageRetry(stage)
-        else:
-            failQuery(stage.queryId, error)
-
-    function initiateStageRetry(stage: Stage):
-        stage.stageRetryCount++
-        for task in stage.runningTasks:
-            cancelTask(task)
-        shuffleRegistry.invalidate(stage.queryId, stage.stageId)
-
-        upstreamStages = findUpstreamStagesWithLostShuffle(stage)
-        for upstream in upstreamStages:
-            if NOT upstream.hasValidShuffleOutput():
-                initiateStageRetry(upstream)
-
-        stage.reset()
-        stageScheduler.scheduleStage(stage)
-```
-
-**Shuffle Output Validation**:
-
-```pseudocode
-class ShuffleOutputValidator:
-    function hasValidShuffleOutput(stage: Stage):
-        for partition in stage.shufflePartitions:
-            location = shuffleRegistry.getLocation(
-                stage.queryId, stage.stageId, partition)
-            if location == null:
-                return false
-            if NOT isWorkerAlive(location.workerId):
-                if stage.shuffleMode == MEMORY_AND_REMOTE:
-                    return s3ShuffleStore.exists(
-                        stage.queryId, stage.stageId, partition)
-                return false
-        return true
-```
-
-### 12.3 Trade-offs
-
-| Aspect | Split-Level Retry Only (Current) | With Stage-Level Retry |
-|--------|----------------------------------|----------------------|
-| Reliability | Query fails if split retry exhausted and shuffle data lost | Stage re-execution recovers from shuffle data loss |
-| Performance | No re-computation overhead | Stage retry re-executes all tasks — potentially expensive for large stages |
-| Complexity | Simple split-level retry | Medium — stage retry coordination, upstream cascade, shuffle invalidation |
-| Risk | Query failure on systemic issues | Low — stage retry is last resort after split retry; bounded by maxStageRetries=2 |
-
-### 12.4 Migration Path
-
-| Phase | Scope | Description |
-|-------|-------|-------------|
-| 1 | Shuffle Output Validation | Proposed `ShuffleOutputValidator` detects lost shuffle data and logs validation results without triggering retry. |
-| 2 | Leaf Stage Retry | Enable stage retry for source (scan) stages only — no upstream cascade needed. |
-| 3 | Full Stage Retry with Cascade | Enable stage retry for intermediate stages with upstream cascade detection and re-execution. |
-
-> **Cross-reference**: Stage-Level Retry depends on External Shuffle Service (OPT-010 in [02 §18](./query-execution.md)) for shuffle data validation — ESS ensures shuffle data survives Worker crash. Lineage-Based Recovery (OPT-017) extends this with a `RECOMPUTE` mode that skips S3 persistence entirely. Split-level retry configuration is defined in §7.
-
-
----
-
-
+The client-facing OUTPUT endpoint pins the issued attempt when the Coordinator
+hands it to the result sink. Once published, a live Flight reader cannot switch
+to a different attempt. Existing DML commit fragments also pin write attempts.
+Each admitted downstream consumer pins its producer generation before binding
+exchange records, including the interval before the consumer starts scheduling.
+DAG terminal signals drive logical query completion. Physical attempts remain
+tracked for drain; a replaced failed task cannot fail a recovered query. A
+non-DAG query still uses the task tracker for completion. Query cancellation
+resolves pending DAG observers before waiting for physical cleanup. Cancellation
+and unclassified stage errors preserve failure.
 
 Query cancellation, stage dispatch and speculative attempts share a Coordinator
 queue for exact-attempt seals. The task timeout sweep retries the queue even
@@ -802,6 +715,14 @@ the control response `RETIRED_RESULT_NOTICE` lets the Worker stop resending
 the older undrained notification. The subsequent physical-release report still
 requires its own matching `CONTINUE`. The control response performs no output
 publication, write commit, or query state transition.
+
+A replacement consumer would need to reacquire read authority for its exact
+published partitions. Direct tickets and external read grants are bound to the
+original request. Current providers do not advertise consumer replay for a new
+attempt. Both task replacement and whole-stage retry decline affected consumers.
+Moving a single producer also requires replacing its downstream placement record
+and producer authority. These requests fail admission before a second dispatch.
+The current runtime does not cascade retries into previously finished producers.
 
 ## 13. Lineage-Based Recovery Mode (OPT-017)
 

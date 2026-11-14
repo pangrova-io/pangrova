@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
@@ -24,10 +26,10 @@ class CoordinationFailureLifecycleTest {
             return call.call();
         }), "host", 8080);
         assertThatThrownBy(() -> service.start("node")).isSameAs(FAILURE);
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STOPPED);
         assertThat(registry.getCoordinator("node")).isEmpty();
         failing.set(false);
-        try { service.start("node"); assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER); }
+        try { service.start("node"); assertThat(service.getRole()).isEqualTo(CoordinatorRole.LEADER); }
         finally { service.close(); }
     }
     @Test void unknownAcquisitionCannotPublishLeaderOrLeakRunningStartup() {
@@ -38,7 +40,7 @@ class CoordinationFailureLifecycleTest {
             return result;
         }), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         assertThatThrownBy(() -> service.start("node")).isSameAs(FAILURE);
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STOPPED);
         assertThat(service.hasActiveLeader()).as("unknown grant may really exist; failure is not absence").isTrue();
         service.close();
     }
@@ -52,7 +54,7 @@ class CoordinationFailureLifecycleTest {
         service.onDemotion(demoted::incrementAndGet);
         service.tryBecomeLeader("node");
         assertThatThrownBy(() -> service.stepDown("node")).isSameAs(FAILURE);
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STANDBY);
         assertThat(demoted).hasValue(1);
         service.close();
     }
@@ -71,7 +73,7 @@ class CoordinationFailureLifecycleTest {
         assertThatThrownBy(service::close).hasMessage("release failed")
                 .satisfies(f -> assertThat(f.getSuppressed()).singleElement().satisfies(t -> assertThat(t).hasMessage("unregister failed")));
         assertThat(unregister).hasValue(1);
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STOPPED);
     }
     @Test void renewalAndRolePublicationFailureStillStopLeaderLoops() {
         var fail = new AtomicBoolean();
@@ -88,7 +90,7 @@ class CoordinationFailureLifecycleTest {
         try {
             service.start("node"); fail.set(true);
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-                assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                assertThat(service.getRole()).isEqualTo(CoordinatorRole.STANDBY);
                 assertThat(demoted.get()).isPositive();
             });
         } finally { fail.set(false); service.close(); }
@@ -100,7 +102,7 @@ class CoordinationFailureLifecycleTest {
         service.onFailover(id -> { throw new IllegalStateException("activation failed"); });
         service.onDemotion(demotions::incrementAndGet);
         assertThatThrownBy(() -> service.start("node")).hasMessage("activation failed");
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STOPPED);
         assertThat(service.hasActiveLeader()).isFalse();
         assertThat(demotions.get()).isPositive();
         service.close();
@@ -110,7 +112,7 @@ class CoordinationFailureLifecycleTest {
         service.tryBecomeLeader("node");
         service.onDemotion(() -> { throw new IllegalStateException("demotion failed"); });
         assertThatThrownBy(() -> service.stepDown("node")).hasMessage("demotion failed");
-        assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+        assertThat(service.getRole()).isEqualTo(CoordinatorRole.STANDBY);
         assertThat(service.hasActiveLeader()).isFalse();
         service.onDemotion(() -> {});
         service.close();
@@ -127,7 +129,7 @@ class CoordinationFailureLifecycleTest {
         try {
             service.start("node"); failed.set(true);
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-                assertThat(service.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                assertThat(service.getRole()).isEqualTo(CoordinatorRole.STANDBY);
                 assertThat(registry.getCoordinator("node").orElseThrow().role()).isEqualTo("STANDBY");
             });
         } finally {

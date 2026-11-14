@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvider;
 
@@ -105,7 +106,7 @@ class OpenAiResponsesInferenceProviderTest {
                     GenerationParameters.DEFAULTS))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                    .isEqualTo(AiFailureCategory.AUTHORIZATION);
         }
     }
 
@@ -128,7 +129,7 @@ class OpenAiResponsesInferenceProviderTest {
                     GenerationParameters.DEFAULTS))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                    .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
         }
         assertThat(loaded).isFalse();
     }
@@ -153,7 +154,7 @@ class OpenAiResponsesInferenceProviderTest {
                     .satisfies(failure -> {
                         AiInvocationException invocation = (AiInvocationException) failure;
                         assertThat(invocation.category()).isEqualTo(
-                                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                         assertThat(invocation.retryable()).isFalse();
                     });
         }
@@ -181,7 +182,7 @@ class OpenAiResponsesInferenceProviderTest {
                     .satisfies(failure -> {
                         AiInvocationException invocation = (AiInvocationException) failure;
                         assertThat(invocation.category()).isEqualTo(
-                                AiInvocationException.Category.PROVIDER_UNAVAILABLE);
+                                AiFailureCategory.PROVIDER_UNAVAILABLE);
                         assertThat(invocation.retryable()).isFalse();
                     });
         }

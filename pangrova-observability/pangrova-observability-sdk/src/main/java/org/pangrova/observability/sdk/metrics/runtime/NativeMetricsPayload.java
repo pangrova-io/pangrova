@@ -1,5 +1,7 @@
 package org.pangrova.observability.sdk.metrics.runtime;
 
+import org.pangrova.observability.sdk.enums.NativeMetricFieldType;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.LinkedHashMap;
@@ -45,10 +47,10 @@ public final class NativeMetricsPayload {
     private static final int LEGACY_PAYLOAD_SIZE = 32;
 
     private static final FieldDefinition[] V1_FIELDS = {
-            new FieldDefinition("memoryUsedBytes", FieldType.LONG),
-            new FieldDefinition("operatorRowsProcessed", FieldType.LONG),
-            new FieldDefinition("ioBytesRead", FieldType.LONG),
-            new FieldDefinition("cacheHitRatio", FieldType.DOUBLE)
+            new FieldDefinition("memoryUsedBytes", NativeMetricFieldType.LONG),
+            new FieldDefinition("operatorRowsProcessed", NativeMetricFieldType.LONG),
+            new FieldDefinition("ioBytesRead", NativeMetricFieldType.LONG),
+            new FieldDefinition("cacheHitRatio", NativeMetricFieldType.DOUBLE)
     };
 
     private final int schemaVersion;
@@ -163,7 +165,7 @@ public final class NativeMetricsPayload {
                 result.put(fd.name(), zeroValue(fd.type()));
             } else {
                 long bits = buf.getLong(fieldOffset);
-                if (fd.type() == FieldType.DOUBLE) {
+                if (fd.type() == NativeMetricFieldType.DOUBLE) {
                     result.put(fd.name(), Double.longBitsToDouble(bits));
                 } else {
                     result.put(fd.name(), bits);
@@ -174,8 +176,8 @@ public final class NativeMetricsPayload {
         return new NativeMetricsPayload(version, result);
     }
 
-    private static Number zeroValue(FieldType type) {
-        if (type == FieldType.DOUBLE) {
+    private static Number zeroValue(NativeMetricFieldType type) {
+        if (type == NativeMetricFieldType.DOUBLE) {
             return Double.valueOf(0.0);
         }
         return Long.valueOf(0L);
@@ -198,13 +200,8 @@ public final class NativeMetricsPayload {
         return "NativeMetricsPayload{version=" + schemaVersion + ", fields=" + fields + '}';
     }
 
-    /** Field type in the binary payload. */
-    public enum FieldType {
-        LONG, DOUBLE
-    }
-
     /** Immutable field definition: name + type. */
-    public record FieldDefinition(String name, FieldType type) {
+    public record FieldDefinition(String name, NativeMetricFieldType type) {
         public FieldDefinition {
             Objects.requireNonNull(name, "Field name must not be null");
             Objects.requireNonNull(type, "Field type must not be null");

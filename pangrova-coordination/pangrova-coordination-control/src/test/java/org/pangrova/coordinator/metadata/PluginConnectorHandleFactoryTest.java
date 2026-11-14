@@ -33,6 +33,24 @@ class PluginConnectorHandleFactoryTest {
         assertThat(discovered.names()).contains("iceberg", "paimon", "lance");
     }
 
+    @Test
+    void bundledFactoriesPreflightConfigurationInBothRolesWithoutOpeningCatalogs() {
+        for (var role : org.pangrova.connector.api.enums.ConnectorRole.values()) {
+            var registry = org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry
+                    .discover(getClass().getClassLoader(), role);
+            registry.validateConfiguration("iceberg", Map.of("type", "rest", "uri", "http://127.0.0.1:1"));
+            registry.validateConfiguration("paimon", Map.of("metastore", "rest", "uri", "http://127.0.0.1:1"));
+            registry.validateConfiguration("lance", Map.of("warehouse", "s3://bucket/lance"));
+            assertThatThrownBy(() -> registry.validateConfiguration("iceberg", Map.of("catalog-impl", " ")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("catalog-impl");
+            assertThatThrownBy(() -> registry.validateConfiguration("paimon", Map.of("metastore", "rest")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("uri");
+            assertThatThrownBy(() -> registry.validateConfiguration("lance",
+                    Map.of("warehouse", "s3://bucket/lance", "jdbc.url", "untrusted")))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("JDBC");
+        }
+    }
+
     @BeforeEach
     void setUp() {
         factory = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(), descriptor -> java.util.Optional.empty());
@@ -85,16 +103,18 @@ class PluginConnectorHandleFactoryTest {
     }
 
     @Test
-    void isolatedClassLoadersPerConnectorType() {
+    void bundledFactoryCanCreateMultipleIndependentCatalogs() {
         CatalogDescriptor iceberg1 = connectorDescriptor("ice1", "iceberg");
         CatalogDescriptor iceberg2 = connectorDescriptor("ice2", "iceberg");
 
         CatalogHandle handle1 = factory.create(iceberg1);
         CatalogHandle handle2 = factory.create(iceberg2);
 
-        // Both should succeed — same provider reuses the same isolated classloader
+        // A factory can create distinct catalog handles in one role.
         assertThat(handle1).isNotNull();
-        assertThat(handle2).isNotNull();
+        assertThat(handle2).isNotSameAs(handle1);
+        handle1.shutdown();
+        handle2.shutdown();
     }
 
     @Test

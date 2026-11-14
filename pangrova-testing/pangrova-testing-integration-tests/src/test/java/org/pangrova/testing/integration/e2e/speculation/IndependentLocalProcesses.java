@@ -541,8 +541,6 @@ final class IndependentLocalProcesses implements AutoCloseable {
                     mode: %s
                     tls:
                       server-identity: "%s"
-                state-store:
-                  type: JDBC
                 metadata:
                   enabled: true
                   jdbc-url: "%s"

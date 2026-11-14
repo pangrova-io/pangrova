@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -106,7 +107,7 @@ public final class PangrovaConfiguration {
         if (raw == null) {
             return option.defaultValue();
         }
-        return parseValue(raw, option.typeClass());
+        return parseValue(raw, option);
     }
 
     /**
@@ -195,20 +196,26 @@ public final class PangrovaConfiguration {
         result = result.replace('_', '.');
         // Restore double underscores as single underscores
         result = result.replace(DOUBLE_UNDERSCORE_SENTINEL, "_");
-        return result.toLowerCase();
+        return result.toLowerCase(Locale.ROOT);
     }
 
     private static final Map<Class<?>, java.util.function.Function<String, ?>> PARSERS = Map.of(
             String.class, s -> s,
             Integer.class, Integer::valueOf,
             Long.class, Long::valueOf,
-            Boolean.class, Boolean::valueOf,
             Double.class, Double::valueOf,
             Duration.class, PangrovaConfiguration::parseDuration
     );
 
     @SuppressWarnings("unchecked")
-    private static <T> T parseValue(String raw, Class<T> typeClass) {
+    private static <T> T parseValue(String raw, ConfigOption<T> option) {
+        Class<T> typeClass = option.typeClass();
+        if (typeClass == Boolean.class) {
+            String value = raw.trim();
+            if ("true".equalsIgnoreCase(value)) return typeClass.cast(Boolean.TRUE);
+            if ("false".equalsIgnoreCase(value)) return typeClass.cast(Boolean.FALSE);
+            throw new IllegalArgumentException("Expected true or false for " + option.key());
+        }
         var parser = PARSERS.get(typeClass);
         if (parser != null) {
             return (T) parser.apply(raw);
@@ -216,7 +223,7 @@ public final class PangrovaConfiguration {
         if (typeClass.isEnum()) {
             @SuppressWarnings("rawtypes")
             Class<? extends Enum> enumClass = (Class<? extends Enum>) typeClass;
-            return (T) Enum.valueOf(enumClass, raw.trim().toUpperCase());
+            return (T) Enum.valueOf(enumClass, raw.trim().toUpperCase(Locale.ROOT));
         }
         throw new IllegalArgumentException("Unsupported config type: " + typeClass.getName());
     }
@@ -232,8 +239,9 @@ public final class PangrovaConfiguration {
 
     private static Duration parseDuration(String raw) {
         String trimmed = raw.trim();
-        if (trimmed.toUpperCase().startsWith("PT") || trimmed.toUpperCase().startsWith("-PT")) {
-            return Duration.parse(trimmed.toUpperCase());
+        String iso = trimmed.toUpperCase(Locale.ROOT);
+        if (iso.startsWith("PT") || iso.startsWith("-PT")) {
+            return Duration.parse(iso);
         }
         for (var entry : DURATION_SUFFIXES) {
             if (trimmed.endsWith(entry.getKey())) {

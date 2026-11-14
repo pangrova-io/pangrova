@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.resilience.degradation;
 
+import org.pangrova.coordinator.enums.AdmissionRejectionReason;
+
 import java.util.Comparator;
 import java.util.List;
 
@@ -62,21 +64,21 @@ public final class GracefulDegradationController {
             LOG.warn("Query rejected: queueDepth={} maxQueueDepth={} tenant={} priority={}",
                     request.currentQueueDepth(), maxQueueDepth,
                     request.tenantId(), request.tenantPriority());
-            return new AdmissionDecision(false, RejectionReason.QUEUE_FULL);
+            return new AdmissionDecision(false, AdmissionRejectionReason.QUEUE_FULL);
         }
 
         if (request.memoryUsageRatio() >= memoryPressureThreshold) {
             LOG.warn("Query rejected: memoryUsage={} threshold={} tenant={} priority={}",
                     request.memoryUsageRatio(), memoryPressureThreshold,
                     request.tenantId(), request.tenantPriority());
-            return new AdmissionDecision(false, RejectionReason.MEMORY_PRESSURE);
+            return new AdmissionDecision(false, AdmissionRejectionReason.MEMORY_PRESSURE);
         }
 
         if (request.cpuUsageRatio() >= cpuPressureThreshold) {
             LOG.warn("Query rejected: cpuUsage={} threshold={} tenant={} priority={}",
                     request.cpuUsageRatio(), cpuPressureThreshold,
                     request.tenantId(), request.tenantPriority());
-            return new AdmissionDecision(false, RejectionReason.CPU_PRESSURE);
+            return new AdmissionDecision(false, AdmissionRejectionReason.CPU_PRESSURE);
         }
 
         return new AdmissionDecision(true, null);
@@ -149,7 +151,7 @@ public final class GracefulDegradationController {
      * @param admitted whether the query is admitted
      * @param reason   the rejection reason (null if admitted)
      */
-    public record AdmissionDecision(boolean admitted, RejectionReason reason) {
+    public record AdmissionDecision(boolean admitted, AdmissionRejectionReason reason) {
     }
 
     /**
@@ -170,12 +172,4 @@ public final class GracefulDegradationController {
         }
     }
 
-    /**
-     * Reasons for rejecting a query admission.
-     */
-    public enum RejectionReason {
-        MEMORY_PRESSURE,
-        CPU_PRESSURE,
-        QUEUE_FULL
-    }
 }

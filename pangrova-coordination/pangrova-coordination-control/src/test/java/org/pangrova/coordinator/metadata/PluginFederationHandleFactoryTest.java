@@ -26,7 +26,8 @@ class PluginFederationHandleFactoryTest {
     @Test
     void unknownProviderThrowsCatalogProviderNotFound() {
         PluginFederationHandleFactory factory =
-                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry());
+                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(),
+                        new org.pangrova.metadata.cache.TieredMetadataCache());
 
         CatalogDescriptor descriptor = federationDescriptor("unknown_fed", "nonexistent");
 
@@ -41,7 +42,8 @@ class PluginFederationHandleFactoryTest {
         PluginConnectorHandleFactory connectorFactory =
                 new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(), descriptor -> java.util.Optional.empty());
         PluginFederationHandleFactory federationFactory =
-                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry());
+                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(),
+                        new org.pangrova.metadata.cache.TieredMetadataCache());
 
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(memoryTableStores(),
                 store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory, federationFactory);
@@ -61,7 +63,8 @@ class PluginFederationHandleFactoryTest {
         PluginConnectorHandleFactory connectorFactory =
                 new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(), descriptor -> java.util.Optional.empty());
         PluginFederationHandleFactory federationFactory =
-                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry());
+                new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(),
+                        new org.pangrova.metadata.cache.TieredMetadataCache());
 
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(memoryTableStores(),
                 store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory, federationFactory);

@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.security.api.secret.SecretProvider;
+import org.pangrova.security.api.secret.SecretProviderFactory;
 import org.pangrova.security.api.secret.SecretReference;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 
@@ -15,7 +15,7 @@ class CoordinatorSecretDiscoveryTest {
     @Test
     void discoversPackagedProvidersAndDispatchesEachReferenceToItsOwner() {
         var loader = CoordinatorBootstrap.class.getClassLoader();
-        var prefixes = ServiceLoader.load(SecretProvider.class, loader).stream()
+        var prefixes = ServiceLoader.load(SecretProviderFactory.class, loader).stream()
                 .map(factory -> factory.get().prefix()).toList();
         assertThat(prefixes).contains("ENV", "FILE").doesNotHaveDuplicates();
         var resolver = SecretResolverRegistry.discover(loader);

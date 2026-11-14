@@ -2,8 +2,12 @@ package org.pangrova.security.secret.resolution;
 
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.security.api.secret.SecretProvider;
+import org.pangrova.security.api.secret.SecretProviderFactory;
 import org.pangrova.security.api.secret.SecretReference;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -129,6 +133,30 @@ class SecretResolverRegistryTest {
 
         assertThat(SecretTemplates.resolve(resolver, "${TEST:key}", "tenant-a"))
                 .isEqualTo("tenant-a/key");
+    }
+
+    @Test
+    void validatesEveryFactoryBeforeCreatingResolvers() {
+        var first = new Factory("ENV", SecretProviderFactory.API_VERSION,
+                () -> { throw new AssertionError("resolver created before validation"); });
+        assertThatThrownBy(() -> SecretResolverRegistry.install(List.of(first, first)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("already registered");
+        var incompatible = new Factory("TEST", SecretProviderFactory.API_VERSION + 1, first.constructor());
+        assertThatThrownBy(() -> SecretResolverRegistry.install(List.of(first, incompatible)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Incompatible");
+    }
+
+    @Test
+    void refusesResolverForDifferentPrefix() {
+        var factory = new Factory("ENV", SecretProviderFactory.API_VERSION, () -> provider("FILE", ref -> "unused"));
+        assertThatThrownBy(() -> SecretResolverRegistry.install(List.of(factory)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("declared prefix");
+    }
+
+    private record Factory(String prefix, int apiVersion, Supplier<SecretProvider> constructor)
+            implements SecretProviderFactory {
+        @Override
+        public SecretProvider create() { return constructor.get(); }
     }
 
     private static SecretResolverRegistry registryWith(

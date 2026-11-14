@@ -1,11 +1,13 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
@@ -21,8 +23,8 @@ public final class GovernedAiBindings {
     /** Decodes the exact model operation contract already admitted with the Native task. */
     public static BoundAiInvocation fromAdmitted(OperatorBinding binding) {
         if (binding == null) throw mismatch();
-        Operation operation = operation(binding.getCapability());
-        String layout = operation == Operation.RERANKING ? "AI_RERANK" : "AI_MODEL";
+        AiOperation operation = operation(binding.getCapability());
+        String layout = operation == AiOperation.RERANKING ? "AI_RERANK" : "AI_MODEL";
         var values = GovernedBindingProjection.values(layout, binding);
         return new BoundAiInvocation(
                 text(values, "invocation_id"),
@@ -42,20 +44,20 @@ public final class GovernedAiBindings {
                 unsigned(values, "provider_request_bytes"),
                 unsigned(values, "provider_response_bytes"),
                 unsigned(values, "media_bytes"),
-                operation == Operation.RERANKING
+                operation == AiOperation.RERANKING
                         ? 0
                         : Math.toIntExact(unsigned(values, "output_vector_dimension")));
     }
 
-    private static Operation operation(CapabilityRef actual) {
+    private static AiOperation operation(CapabilityRef actual) {
         CapabilityRef expected = switch (actual.getCapabilityId()) {
-            case BuiltInCapabilityCatalog.AI_TEXT_GENERATION_ID ->
+            case BuiltInCapabilityIdentifiers.AI_TEXT_GENERATION_ID ->
                             BuiltInCapabilityCatalog.aiTextGenerationPlanRef();
-            case BuiltInCapabilityCatalog.AI_MULTIMODAL_GENERATION_ID ->
+            case BuiltInCapabilityIdentifiers.AI_MULTIMODAL_GENERATION_ID ->
                             BuiltInCapabilityCatalog.aiMultimodalGenerationPlanRef();
-            case BuiltInCapabilityCatalog.AI_EMBEDDING_ID ->
+            case BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID ->
                             BuiltInCapabilityCatalog.aiEmbeddingPlanRef();
-            case BuiltInCapabilityCatalog.CROSS_ENCODER_RERANK_ID ->
+            case BuiltInCapabilityIdentifiers.CROSS_ENCODER_RERANK_ID ->
                             BuiltInCapabilityCatalog.crossEncoderRerankPlanRef();
             default -> throw mismatch();
         };
@@ -63,17 +65,17 @@ public final class GovernedAiBindings {
                 || !expected.getSignatureSha256().equals(actual.getSignatureSha256())
                 || !actual.getUnknownFields().asMap().isEmpty()) throw mismatch();
         return switch (actual.getCapabilityId()) {
-            case BuiltInCapabilityCatalog.AI_TEXT_GENERATION_ID -> Operation.TEXT_GENERATION;
-            case BuiltInCapabilityCatalog.AI_MULTIMODAL_GENERATION_ID ->
-                    Operation.MULTIMODAL_GENERATION;
-            case BuiltInCapabilityCatalog.AI_EMBEDDING_ID -> Operation.EMBEDDING;
-            default -> Operation.RERANKING;
+            case BuiltInCapabilityIdentifiers.AI_TEXT_GENERATION_ID -> AiOperation.TEXT_GENERATION;
+            case BuiltInCapabilityIdentifiers.AI_MULTIMODAL_GENERATION_ID ->
+                    AiOperation.MULTIMODAL_GENERATION;
+            case BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID -> AiOperation.EMBEDDING;
+            default -> AiOperation.RERANKING;
         };
     }
 
     private static AiInvocationException mismatch() {
         return new AiInvocationException(
-                AiInvocationException.Category.CAPABILITY_MISMATCH,
+                AiFailureCategory.CAPABILITY_MISMATCH,
                 false,
                 "Admitted binding does not identify an exact governed provider capability");
     }

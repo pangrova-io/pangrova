@@ -116,7 +116,7 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
             double requiredRecall = assertAnn(published, evidence);
             assertThat(evidence.tasks().stream().flatMap(task -> task.request().getOperatorBindingsList().stream())
                     .filter(binding -> binding.getCapability().getCapabilityId().equals(
-                            org.pangrova.protocol.capability.BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID)))
+                            org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID)))
                     .allSatisfy(binding -> assertThat(binding.getExecutionPolicy().getApproximation().getRecallK())
                             .isEqualTo(K));
             assertDistanceAndRecall(stored, point, evidence.rows(), requiredRecall);
@@ -211,7 +211,7 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
                 assertThat(evidence.tasks().stream()
                         .flatMap(task -> task.request().getOperatorBindingsList().stream())
                         .filter(binding -> binding.getCapability().getCapabilityId().equals(
-                                org.pangrova.protocol.capability.BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))
+                                org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID))
                         .toList()).as("unsupported indexed scope must keep the exact scan").isEmpty();
                 assertEligiblePopulation(eligible, point, evidence.rows(), 1.0);
                 continue;

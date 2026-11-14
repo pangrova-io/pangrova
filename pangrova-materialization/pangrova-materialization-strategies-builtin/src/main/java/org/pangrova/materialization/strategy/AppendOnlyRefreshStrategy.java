@@ -4,10 +4,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.pangrova.materialization.api.domain.Generation;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
-import org.pangrova.materialization.api.domain.RefreshKind;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.refresh.RefreshContext;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
@@ -36,7 +36,7 @@ public final class AppendOnlyRefreshStrategy implements RefreshStrategy {
 
     @Override
     public RefreshKind kind() {
-        return RefreshKind.IncrementalAppendOnly.INSTANCE;
+        return RefreshKind.INCREMENTAL_APPEND_ONLY;
     }
 
     @Override
@@ -52,7 +52,7 @@ public final class AppendOnlyRefreshStrategy implements RefreshStrategy {
             return Optional.of("append-only refresh requires a published base generation");
         }
         Generation base = context.baseGeneration().get();
-        if (base.state() != GenerationState.Published.INSTANCE) {
+        if (base.state() != GenerationState.PUBLISHED) {
             return Optional.of(
                     "base generation " + base.id() + " is " + base.state() + ", not published");
         }

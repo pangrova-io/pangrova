@@ -1,5 +1,6 @@
 package org.pangrova.query.lifecycle;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;
 
@@ -100,9 +101,9 @@ public class QueryStateMachine {
 
     /** Retains the first exact fact for a phase so journal and audit retries share its identity. */
     public synchronized org.pangrova.query.api.lineage.QueryLineageFact freezeLineage(
-            org.pangrova.query.api.lineage.QueryLineageFact.Phase phase,
+            LineageEventType phase,
             java.util.function.Supplier<org.pangrova.query.api.lineage.QueryLineageFact> create) {
-        var slot = phase == org.pangrova.query.api.lineage.QueryLineageFact.Phase.START
+        var slot = phase == LineageEventType.START
                 ? lineageStart : lineageTerminal;
         var retained = slot.get();
         if (retained == null) {

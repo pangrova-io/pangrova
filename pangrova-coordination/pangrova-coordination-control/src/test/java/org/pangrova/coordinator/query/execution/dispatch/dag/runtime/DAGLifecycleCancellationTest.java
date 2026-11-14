@@ -13,7 +13,7 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -37,7 +37,7 @@ class DAGLifecycleCancellationTest {
             var outcomes = new CopyOnWriteArrayList<Boolean>();
             lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
 
-            lifecycle.completeDurable(state.queryId(), new CompletableFuture<>());
+            lifecycle.completeDurable(state.queryId(), state.dag(), new CompletableFuture<>());
             lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
 
             assertThat(outcomes).containsExactly(true, true);
@@ -54,7 +54,7 @@ class DAGLifecycleCancellationTest {
             var outcomes = new CopyOnWriteArrayList<Boolean>();
             lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
 
-            lifecycle.failQuery(state.queryId());
+            lifecycle.failQuery(state.queryId(), state.dag());
             lifecycle.clearQuery(state.queryId());
 
             assertThat(outcomes).containsExactly(false);
@@ -86,7 +86,7 @@ class DAGLifecycleCancellationTest {
                 });
                 var completion = threads.submit(() -> {
                     start.await();
-                    lifecycle.completeDurable(queryId, new CompletableFuture<>());
+                    lifecycle.completeDurable(queryId, dag, new CompletableFuture<>());
                     return null;
                 });
                 start.countDown();
@@ -130,6 +130,25 @@ class DAGLifecycleCancellationTest {
         } finally {
             threads.shutdownNow();
             assertThat(threads.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void logicalCancellationReleasesFinalizersBeforePhysicalCleanupAndRetainsFailureForLateReports() {
+        try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
+            var lifecycle = lifecycle(remote);
+            var state = state();
+            lifecycle.registerQuery(state.queryId(), state.dag(), null);
+            lifecycle.registerLiveExecution(state);
+            var outcomes = new CopyOnWriteArrayList<Boolean>();
+            lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
+            lifecycle.cancelLiveDispatch(state.queryId());
+            assertCancelled(state);
+            lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
+            assertThat(lifecycle.ownsQueryCompletion(state.queryId())).isTrue();
+            assertThat(outcomes).containsExactly(false, false);
+            lifecycle.clearQuery(state.queryId());
+            assertThat(lifecycle.ownsQueryCompletion(state.queryId())).isFalse();
         }
     }
 

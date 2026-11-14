@@ -13,10 +13,9 @@
  */
 package org.pangrova.testing.integration.e2e.index;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
-
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
-
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.generation.api.enums.GenerationJobState;
@@ -154,9 +153,9 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
 
     protected static double assertAnn(PublishedIndex index, QueryEvidence evidence) {
         String expectedCapability = switch (index.descriptor().properties().get("algorithm")) {
-            case "DISK_ANN" -> BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID;
-            case "HNSW" -> BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID;
-            case "IVF_PQ" -> BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID;
+            case "DISK_ANN" -> BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID;
+            case "HNSW" -> BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID;
+            case "IVF_PQ" -> BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID;
             default -> throw new IllegalArgumentException("Unsupported functional ANN fixture algorithm");
         };
         return assertAnnCapability(index, evidence, expectedCapability);
@@ -164,11 +163,11 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
 
     protected static double assertFilteredAnn(PublishedIndex index, QueryEvidence evidence) {
         assertThat(index.descriptor().properties().get("algorithm")).isEqualTo("DISK_ANN");
-        double required = assertAnnCapability(index, evidence, BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID);
+        double required = assertAnnCapability(index, evidence, BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID);
         int actualOwners = 0;
         for (IssuedTask task : evidence.tasks()) {
             var bindings = task.request().getOperatorBindingsList().stream().filter(binding ->
-                    binding.getCapability().getCapabilityId().equals(BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))
+                    binding.getCapability().getCapabilityId().equals(BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID))
                     .toList();
             for (var binding : bindings) {
                 assertThat(binding.getCapability()).isEqualTo(BuiltInCapabilityCatalog.filteredDiskAnnRetrievalPlanRef());

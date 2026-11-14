@@ -13,6 +13,7 @@
  */
 package org.pangrova.client.cli;
 
+import org.pangrova.client.cli.exception.ResultDecodeException;
 import org.pangrova.transport.client.ArrowBatchDecoder;
 import org.pangrova.transport.client.ResultBatch;
 import org.pangrova.transport.client.exception.TransportException;

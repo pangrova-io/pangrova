@@ -160,7 +160,8 @@ class IndexGcIcebergPinIntegrationTest {
                     .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
             table.newFastAppend().appendFile(file).commit();
             long snapshot = table.currentSnapshot().snapshotId();
-            var connector = new IcebergConnector("cat", catalog, table.io(), Set.of());
+            var connector = new IcebergConnector("cat", catalog,
+                    new org.apache.iceberg.hadoop.HadoopFileIO(new Configuration()), Set.of());
             try {
                 var registry = new CatalogRegistry(memoryTableStores(), new PostgresCatalogDeploymentRepository(dataSource),
                         descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);

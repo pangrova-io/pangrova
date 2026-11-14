@@ -1,5 +1,6 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.ViewSecurityMode;
 import org.pangrova.metadata.api.enums.AssetType;
 
 import java.time.Instant;
@@ -65,11 +66,4 @@ public record ViewAsset(
         return AssetType.VIEW;
     }
 
-    /** SQL-92 view privilege evaluation mode. */
-    public enum ViewSecurityMode {
-        /** Run with the privileges of the principal that created the view. */
-        DEFINER,
-        /** Run with the privileges of the principal that invokes the view. */
-        INVOKER
-    }
 }

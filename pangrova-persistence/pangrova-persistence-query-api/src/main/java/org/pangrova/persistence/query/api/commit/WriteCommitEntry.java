@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.api.commit;
 
+import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
@@ -51,7 +53,7 @@ public record WriteCommitEntry(
         String queryId,
         String catalogName,
         String tableName,
-        State state,
+        WriteCommitState state,
         long timestampMs,
         List<byte[]> fragments,
         String writeMode,
@@ -67,19 +69,6 @@ public record WriteCommitEntry(
         long executionFencingToken,
         NativeWriteFinalization publication,
         CopyFileCommitBinding copyFile) {
-
-    /**
-     * Commit lifecycle states.
-     */
-    @Stable(since = "1.0")
-    public enum State {
-        /** Intent recorded; commit not yet executed. */
-        PENDING,
-        /** Commit succeeded; safe to skip on retry. */
-        COMMITTED,
-        /** Confirmed abort; the immutable intent cannot be resubmitted. */
-        ABORTED
-    }
 
     public WriteCommitEntry {
         requireText(queryId, "queryId");
@@ -121,13 +110,13 @@ public record WriteCommitEntry(
         }
         validateOwner(ownerId, ownerIncarnation, executionFencingToken);
         validatePublication(publication);
-        if (state == State.ABORTED && publication != null) {
+        if (state == WriteCommitState.ABORTED && publication != null) {
             throw new IllegalArgumentException("A published write cannot be marked aborted");
         }
     }
 
     private static void validatePublication(NativeWriteFinalization publication) {
-        if (publication != null && publication.outcome() != NativeWriteFinalization.Outcome.COMMITTED) {
+        if (publication != null && publication.outcome() != NativeWriteCommitOutcome.COMMITTED) {
             throw new IllegalArgumentException("Only confirmed publication evidence may be persisted");
         }
     }
@@ -161,9 +150,9 @@ public record WriteCommitEntry(
     }
 
     /** Applies a monotonic lifecycle transition without dropping the immutable replay identity. */
-    public WriteCommitEntry withState(State next, long timestamp) {
+    public WriteCommitEntry withState(WriteCommitState next, long timestamp) {
         Objects.requireNonNull(next, "next must not be null");
-        if (state != State.PENDING && state != next) {
+        if (state != WriteCommitState.PENDING && state != next) {
             throw new IllegalStateException("A terminal write intent cannot change state");
         }
         return new WriteCommitEntry(queryId, catalogName, tableName, next, timestamp, fragments,

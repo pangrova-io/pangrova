@@ -1,5 +1,7 @@
 package org.pangrova.operations.upgrade;
 
+import org.pangrova.operations.enums.VersionComparison;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -67,20 +69,20 @@ public final class VersionRange {
     private static void addConstraints(String op, SemanticVersion version, List<Constraint> constraints) {
         if (op == null || op.isEmpty() || op.equals("=")) {
             // Exact match — only this specific version
-            constraints.add(new Constraint(Operator.GTE, version));
-            constraints.add(new Constraint(Operator.LTE, version));
+            constraints.add(new Constraint(VersionComparison.GTE, version));
+            constraints.add(new Constraint(VersionComparison.LTE, version));
         } else if (op.equals("^")) {
             // Caret range: >=version <next-major
-            constraints.add(new Constraint(Operator.GTE, version));
-            constraints.add(new Constraint(Operator.LT,
+            constraints.add(new Constraint(VersionComparison.GTE, version));
+            constraints.add(new Constraint(VersionComparison.LT,
                     new SemanticVersion(version.major() + 1, 0, 0)));
         } else if (op.equals("~")) {
             // Tilde range: >=version <next-minor
-            constraints.add(new Constraint(Operator.GTE, version));
-            constraints.add(new Constraint(Operator.LT,
+            constraints.add(new Constraint(VersionComparison.GTE, version));
+            constraints.add(new Constraint(VersionComparison.LT,
                     new SemanticVersion(version.major(), version.minor() + 1, 0)));
         } else {
-            Operator operator = Operator.fromSymbol(op);
+            VersionComparison operator = VersionComparison.fromSymbol(op);
             constraints.add(new Constraint(operator, version));
         }
     }
@@ -110,30 +112,8 @@ public final class VersionRange {
         return original;
     }
 
-    private enum Operator {
-        GTE(">="),
-        LTE("<="),
-        GT(">"),
-        LT("<"),
-        EQ("=");
 
-        private final String symbol;
-
-        Operator(String symbol) {
-            this.symbol = symbol;
-        }
-
-        static Operator fromSymbol(String symbol) {
-            for (Operator op : values()) {
-                if (op.symbol.equals(symbol)) {
-                    return op;
-                }
-            }
-            throw new IllegalArgumentException("Unknown operator: " + symbol);
-        }
-    }
-
-    private record Constraint(Operator operator, SemanticVersion bound) {
+    private record Constraint(VersionComparison operator, SemanticVersion bound) {
         boolean test(SemanticVersion version) {
             int cmp = version.compareTo(bound);
             return switch (operator) {

@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.streaming.coordinator.StreamConfig;
@@ -57,14 +59,14 @@ class StreamingBootstrapLeadershipTest extends ContainerTestBase {
         var created = new AtomicInteger();
         var config = StreamConfig.withDefaults();
         try (var maintenance = new MaintenanceScheduler(AbsentTableMaintenance.instance(), MaintenanceConfig.defaults())) {
-            var scheduler = new StreamScheduler(new StreamSchedulerContext(states, offsets,
+            var scheduler = new StreamScheduler(new StreamSchedulerContext(TestObservability.METRICS, states, offsets,
                     new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)),
                     CdcRecordConverterRegistry.discover(getClass().getClassLoader()),
                     new WatermarkTracker(new InMemoryWatermarkStore()), maintenance, config,
                     s -> readers.get(created.getAndIncrement()), s -> new UnusedSink()), "coordinator-a");
             var ddl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, scheduler, config,
                     CdcSourceRegistry.discover(getClass().getClassLoader())));
-            var followerScheduler = new StreamScheduler(new StreamSchedulerContext(states, offsets,
+            var followerScheduler = new StreamScheduler(new StreamSchedulerContext(TestObservability.METRICS, states, offsets,
                     new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)),
                     CdcRecordConverterRegistry.discover(getClass().getClassLoader()),
                     new WatermarkTracker(new InMemoryWatermarkStore()), maintenance, config,

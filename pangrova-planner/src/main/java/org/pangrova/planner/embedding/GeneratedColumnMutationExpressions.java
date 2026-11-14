@@ -1,5 +1,7 @@
 package org.pangrova.planner.embedding;
 
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
 import org.pangrova.planner.metadata.PlanTable;
 
 import org.apache.calcite.rel.core.TableModify;
@@ -74,7 +76,7 @@ final class GeneratedColumnMutationExpressions {
         var column = metadata.typedColumns().get(target);
         if (column.type() != PangrovaType.VECTOR
                 || !(column.parameterizedType() instanceof VectorType physical)
-                || physical.elementType() != VectorType.ElementType.FLOAT
+                || physical.elementType() != VectorElementType.FLOAT
                 || physical.dimension() != dimension) {
             throw invalid("Generated VECTOR output differs from its compiled storage declaration");
         }

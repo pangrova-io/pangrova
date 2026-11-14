@@ -1,6 +1,7 @@
 package org.pangrova.ai.control.config;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 
@@ -16,14 +17,14 @@ final class AiCapabilityConfigParser {
 
     private AiCapabilityConfigParser() {}
 
-    static Set<Operation> operations(String raw, String modelName) {
-        var operations = EnumSet.noneOf(Operation.class);
+    static Set<AiOperation> operations(String raw, String modelName) {
+        var operations = EnumSet.noneOf(AiOperation.class);
         for (String token : csv(raw)) {
             operations.add(switch (token.toLowerCase(Locale.ROOT)) {
-                case "inference" -> Operation.TEXT_GENERATION;
-                case "multimodal" -> Operation.MULTIMODAL_GENERATION;
-                case "embedding" -> Operation.EMBEDDING;
-                case "reranking" -> Operation.RERANKING;
+                case "inference" -> AiOperation.TEXT_GENERATION;
+                case "multimodal" -> AiOperation.MULTIMODAL_GENERATION;
+                case "embedding" -> AiOperation.EMBEDDING;
+                case "reranking" -> AiOperation.RERANKING;
                 default -> throw configurationFailure(
                         "Unknown capability '" + token + "' for AI model '" + modelName + "'");
             });
@@ -35,7 +36,7 @@ final class AiCapabilityConfigParser {
     }
 
     static List<AiCapabilityDescriptor> parse(
-            Set<Operation> operations,
+            Set<AiOperation> operations,
             String modelName,
             String version,
             int maxBatchSize,
@@ -43,7 +44,7 @@ final class AiCapabilityConfigParser {
             AiCapabilityDescriptor.ResourceLimits resourceLimits,
             boolean governedBlobLoaderAvailable) {
         List<AiCapabilityDescriptor> result = new ArrayList<>();
-        for (Operation operation : operations) {
+        for (AiOperation operation : operations) {
             CapabilitySpec spec = switch (operation) {
                 case TEXT_GENERATION -> inference(modelName, maxBatchSize);
                 case MULTIMODAL_GENERATION -> {
@@ -79,13 +80,13 @@ final class AiCapabilityConfigParser {
     private static CapabilitySpec inference(String modelName, int maxBatchSize) {
         return new CapabilitySpec(
                 "inference:" + modelName,
-                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                AiOperation.TEXT_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VARCHAR", List.of("VARCHAR"))),
                 Set.of(
-                        AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                        AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC),
                 Set.of(Modality.TEXT),
                 maxBatchSize,
                 false);
@@ -102,12 +103,12 @@ final class AiCapabilityConfigParser {
         }
         return new CapabilitySpec(
                 "multimodal-inference:" + modelName,
-                AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION,
+                AiOperation.MULTIMODAL_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VARCHAR", List.of("MULTIMODAL_PROMPT"))),
                 Set.of(
-                        AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                        AiExecutionMode.SCALAR,
+                        AiExecutionMode.SYNC),
                 modalities,
                 1,
                 false);
@@ -117,14 +118,14 @@ final class AiCapabilityConfigParser {
             String modelName, int maxBatchSize, Set<Modality> modalities) {
         return new CapabilitySpec(
                 "embedding:" + modelName,
-                AiCapabilityDescriptor.Operation.EMBEDDING,
+                AiOperation.EMBEDDING,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VECTOR", List.of("VARCHAR"))),
                 Set.of(
-                        AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC,
-                        AiCapabilityDescriptor.ExecutionMode.ASYNC),
+                        AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC,
+                        AiExecutionMode.ASYNC),
                 modalities,
                 maxBatchSize,
                 true);
@@ -133,13 +134,13 @@ final class AiCapabilityConfigParser {
     private static CapabilitySpec reranking(String modelName, int maxBatchSize) {
         return new CapabilitySpec(
                 "reranking:" + modelName,
-                AiCapabilityDescriptor.Operation.RERANKING,
+                AiOperation.RERANKING,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "DOUBLE", List.of("VARCHAR", "VARCHAR"))),
                 Set.of(
-                        AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                        AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC),
                 Set.of(Modality.TEXT),
                 maxBatchSize,
                 false);
@@ -171,9 +172,9 @@ final class AiCapabilityConfigParser {
 
     private record CapabilitySpec(
             String id,
-            AiCapabilityDescriptor.Operation operation,
+            AiOperation operation,
             List<AiCapabilityDescriptor.Signature> signatures,
-            Set<AiCapabilityDescriptor.ExecutionMode> modes,
+            Set<AiExecutionMode> modes,
             Set<Modality> modalities,
             int maxBatchSize,
             boolean deterministic) {}

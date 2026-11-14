@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -57,7 +59,7 @@ import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import javax.sql.DataSource;
 import java.nio.file.Path;
@@ -107,7 +109,9 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
                 new SecretResolverRegistry(), ignored -> Optional.empty());
         metadata = MetadataBootstrap.initialize(memoryTableStores(), store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectors);
         var compiler = new SqlCompiler().withSessionPlanner(session ->
-                new PangrovaPlanner(metadata.buildCalciteSchema(session), List.of(CATALOG, SCHEMA)));
+                new PangrovaPlanner(new MetadataSchemaBuilder(
+                        metadata.metadataService(), metadata.catalogRegistry())
+                        .buildRootSchema(session), List.of(CATALOG, SCHEMA)));
         remoteDispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         var authority = createAuthority(dataSource);
         var context = QueryDispatcherContext.withDefaults(compiler,

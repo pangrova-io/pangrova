@@ -37,8 +37,7 @@ import java.util.NoSuchElementException;
 /**
  * Reads column values from Iceberg data files using catalog-backed schema resolution.
  *
- * <p>Unlike {@link IcebergColumnValueReader} which requires a table schema at
- * construction time, this reader lazily resolves the schema by matching the
+ * <p>This reader lazily resolves the schema by matching the
  * data file path against table locations in the catalog. The resolved schema
  * is cached for subsequent reads within the same table.</p>
  */
@@ -137,6 +136,6 @@ public final class IcebergCatalogColumnValueReader implements ColumnValueReader 
 
     @Override
     public void close() {
-        // FileIO lifecycle managed by IcebergFileSystemAccessor
+        // The connector owns the shared FileIO.
     }
 }

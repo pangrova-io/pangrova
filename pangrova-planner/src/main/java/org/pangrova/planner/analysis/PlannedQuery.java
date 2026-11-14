@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.PlannedDmlOperation;
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.metadata.PlanTable;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
@@ -40,8 +42,7 @@ import java.util.Optional;
 
 /**
  * Opaque result of SQL compilation. Wraps the Calcite {@link RelNode} tree internally
- * and exposes only coordinator-safe methods. No Calcite types appear in this class's
- * public API — coordinator code holds and passes {@code PlannedQuery} without any
+ * and exposes query and stage observations. Coordinator code holds and passes {@code PlannedQuery} without any
  * Calcite imports.
  *
  * <p>Metadata is immutable. The Calcite tree remains query-owned and must not be
@@ -75,7 +76,7 @@ public final class PlannedQuery {
 
     /**
      * Returns the internal Calcite RelNode for classes that are already
-     * Calcite-coupled (IndexAwareSplitFetcher, DispatchContextEnricher).
+     * performing deep planner analysis.
      * Do not call from coordinator code that should remain Calcite-free.
      * For split fetching, prefer {@link #splitSources()} instead.
      */
@@ -99,6 +100,11 @@ public final class PlannedQuery {
             throw new IllegalStateException("SQL output names differ from the planned column count");
         }
         return List.copyOf(columnNames);
+    }
+
+    /** An eligible single-table predicate scope for index selection. */
+    public Optional<ScanPredicates> singleScanPredicates() {
+        return PlanSplitSourceExtractor.singleScanPredicates(plan);
     }
 
     /**
@@ -371,7 +377,7 @@ public final class PlannedQuery {
         return findTableModify(plan).map(modify ->
                 new DmlWriteTarget(
                         PlanTable.require(modify).getQualifiedName(),
-                        DmlWriteTarget.DmlOperation.fromCalciteName(
+                        PlannedDmlOperation.fromCalciteName(
                                 modify.getOperation().name()),
                         org.pangrova.planner.declaration.CompiledWriteDeclaration.capture(modify)));
     }
@@ -402,7 +408,7 @@ public final class PlannedQuery {
     /** Caps exchange cohorts before their partition identities enter the stage graph. */
     public FragmentedPlan fragmentForCluster(int clusterParallelismLimit) {
         return PlanFragmenter.fragment(plan, -1,
-                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                StageTerminalPurpose.QUERY_RESULT,
                 clusterParallelismLimit);
     }
 
@@ -415,7 +421,7 @@ public final class PlannedQuery {
     public FragmentedPlan fragmentWithPhysicalRetrievalIdentity(int clusterParallelismLimit) {
         RelNode extended = org.pangrova.planner.retrieval.PhysicalRetrievalIdentityRewriter.rewrite(plan);
         FragmentedPlan fragments = PlanFragmenter.fragment(extended, -1,
-                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                StageTerminalPurpose.QUERY_RESULT,
                 clusterParallelismLimit);
         int visibleCount = plan.getRowType().getFieldCount();
         var stages = fragments.stages().stream().map(stage -> {
@@ -438,7 +444,7 @@ public final class PlannedQuery {
 
     /** Serializes only this protected plan's exchange stages; no original SQL retry or persisted node is needed. */
     public AuthorizedStageGraph serializeAuthorizedStageGraph(SqlCompiler compiler, int parallelism) {
-        var purpose = AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT;
+        var purpose = StageTerminalPurpose.RELATIONAL_EXPORT;
         return AuthorizedStageGraph.compile(PlanFragmenter.fragment(plan, parallelism, purpose),
                 compiler, columnNames, purpose);
     }

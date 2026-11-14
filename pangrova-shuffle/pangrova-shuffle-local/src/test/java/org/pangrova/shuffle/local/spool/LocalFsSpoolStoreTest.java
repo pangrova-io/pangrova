@@ -13,7 +13,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.shuffle.api.ShuffleDurability;
+import org.pangrova.shuffle.api.enums.ShuffleDurability;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
 import org.pangrova.shuffle.api.spool.SpoolStore;
 import org.pangrova.shuffle.api.spool.SpoolStoreContext;

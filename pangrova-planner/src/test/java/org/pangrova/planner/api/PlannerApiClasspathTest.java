@@ -17,8 +17,10 @@ class PlannerApiClasspathTest {
     void contractsLinkWithoutRuntimeOrCentralSpi() throws Exception {
         URL types = org.pangrova.planner.api.exception.PlannerException.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Experimental.class.getProtectionDomain().getCodeSource().getLocation();
+        URL governance = org.pangrova.governance.api.enums.ColumnDerivationKind.class
+                .getProtectionDomain().getCodeSource().getLocation();
         Path classes = Path.of(types.toURI());
-        try (var loader = new URLClassLoader(new URL[]{types, common}, ClassLoader.getPlatformClassLoader());
+        try (var loader = new URLClassLoader(new URL[]{types, common, governance}, ClassLoader.getPlatformClassLoader());
              var files = Files.walk(classes.resolve("org/pangrova/planner/api"))) {
             List<Path> classFiles = files.filter(path -> path.toString().endsWith(".class")).toList();
             assertThat(classFiles).isNotEmpty();
@@ -44,7 +46,9 @@ class PlannerApiClasspathTest {
                     field.getGenericType();
                 }
             }
-            for (String excluded : List.of("org.pangrova.connector.api.plugin.Connector",
+            assertThat(loader.loadClass("org.pangrova.governance.api.enums.ColumnDerivationKind").isEnum()).isTrue();
+            for (String excluded : List.of("org.pangrova.governance.runtime.classification.ColumnTagBindings",
+                    "org.pangrova.connector.api.plugin.Connector",
                     "org.pangrova.protocol.v2.ExchangeInputBinding",
                     "org.pangrova.protocol.substrait.SubstraitProtocolVersion",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",

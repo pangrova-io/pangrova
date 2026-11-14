@@ -454,7 +454,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
     // and its factories untouched, not clear them in an error recovery path.
     registry->withScalars(scalarSpecs);
     const auto callbackOwner =
-        pangrova::udf::prepareJvmFunctionCallbacks(env, callback);
+        pangrova::udf::prepareJvmFunctionCallbacks(env, callback, pangrova::jni::HandleRegistry::instance());
     for (auto& spec : scalarSpecs) {
       pangrova::udf::bindJvmFunctionCallbacks(spec, callbackOwner);
     }

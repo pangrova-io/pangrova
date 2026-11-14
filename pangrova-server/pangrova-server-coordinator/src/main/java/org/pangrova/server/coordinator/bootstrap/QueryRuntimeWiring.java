@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.observability.logging.MdcTaskWrapping;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
 import javax.sql.DataSource;
@@ -83,8 +84,7 @@ final class QueryRuntimeWiring {
             java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle> readerPins) {
         java.util.Objects.requireNonNull(stateJournal, "stateJournal must be selected explicitly");
         AsyncSubmitConfig asyncConfig = AsyncSubmitConfig.defaultEnabled();
-        ExecutorService asyncExecutor = ManagedExecutorFactory.newBoundedThreadPool(
-                "async-query-submit", 4, 128);
+        ExecutorService asyncExecutor = createAsyncSubmitExecutor();
         QueryManager queryManager;
         try {
             QueryManagerContext context = new QueryManagerContext(
@@ -109,6 +109,11 @@ final class QueryRuntimeWiring {
         }
         queryManager.setLocalCoordinatorId(dependencies.config().coordinatorId());
         return new QueryManagerResult(queryManager, auditEmitter, asyncExecutor);
+    }
+
+    static ExecutorService createAsyncSubmitExecutor() {
+        return new MdcTaskWrapping().wrapExecutorService(
+                ManagedExecutorFactory.newBoundedThreadPool("async-query-submit", 4, 128));
     }
 
     record Dependencies(

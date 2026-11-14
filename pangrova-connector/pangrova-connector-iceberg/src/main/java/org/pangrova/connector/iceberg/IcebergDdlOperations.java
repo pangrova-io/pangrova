@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -225,7 +226,7 @@ final class IcebergDdlOperations {
     private static void applyNamedTransform(org.apache.iceberg.UpdatePartitionSpec updateSpec,
                                             String funcName, List<String> args) {
         String colName = args.get(0);
-        switch (funcName.toLowerCase()) {
+        switch (funcName.toLowerCase(Locale.ROOT)) {
             case "year" -> updateSpec.addField(Expressions.year(colName));
             case "month" -> updateSpec.addField(Expressions.month(colName));
             case "day" -> updateSpec.addField(Expressions.day(colName));

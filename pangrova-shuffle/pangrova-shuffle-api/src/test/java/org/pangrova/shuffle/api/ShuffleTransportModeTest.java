@@ -2,6 +2,8 @@ package org.pangrova.shuffle.api;
 
 import org.junit.jupiter.api.Test;
 
+import org.pangrova.shuffle.api.enums.ShuffleTransportMode;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**

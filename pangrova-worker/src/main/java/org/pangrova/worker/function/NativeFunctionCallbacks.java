@@ -1,8 +1,8 @@
 package org.pangrova.worker.function;
 
+import org.pangrova.worker.enums.NativeFunctionType;
 import org.pangrova.worker.exception.NativeRuntimeException;
-
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.aggregate.AggregateFunction;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
@@ -119,14 +119,14 @@ public final class NativeFunctionCallbacks {
             for (List<String> signature : fn.getArgumentSignatures()) {
                 descriptors.add(new NativeFunctionDescriptor(
                         m.name(), m.returnType(), signature,
-                        NativeFunctionDescriptor.FunctionType.SCALAR, m.deterministic(), m.defaultNullBehavior()));
+                        NativeFunctionType.SCALAR, m.deterministic(), m.defaultNullBehavior()));
             }
         }
         for (AggregateFunction fn : aggregateFunctions.values()) {
             FunctionMetadata m = fn.getMetadata();
             descriptors.add(new NativeFunctionDescriptor(
                     m.name(), m.returnType(), m.argumentTypes(),
-                    NativeFunctionDescriptor.FunctionType.AGGREGATE, m.deterministic(), m.defaultNullBehavior()));
+                    NativeFunctionType.AGGREGATE, m.deterministic(), m.defaultNullBehavior()));
         }
         return Collections.unmodifiableList(descriptors);
     }

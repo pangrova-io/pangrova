@@ -1,5 +1,6 @@
 package org.pangrova.planner.type;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.mapping.PangrovaTypeMapping;
 import org.pangrova.types.ArrayType;
@@ -44,7 +45,7 @@ public final class ConnectorColumnTypeMapper {
         if (type == PangrovaType.VECTOR) {
             var vector = (VectorType) parameterizedType;
             var logical = VectorLogicalType.create(vector.dimension(),
-                    vector.elementType() == VectorType.ElementType.FLOAT
+                    vector.elementType() == VectorElementType.FLOAT
                             ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64, true, false);
             return StorageVectorRelDataType.create(logical, factory);
         }

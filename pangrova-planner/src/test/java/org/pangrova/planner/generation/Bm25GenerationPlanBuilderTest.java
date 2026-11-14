@@ -1,5 +1,7 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import io.substrait.proto.Plan;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
@@ -34,7 +36,7 @@ class Bm25GenerationPlanBuilderTest {
         assertThat(extension.getInput().getRead().getNamedTable().getNamesList())
                 .containsExactly("lake", "db", "items");
         assertThat(extension.getInput().getRead().getBaseSchema().getNamesList())
-                .containsExactly(BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN,
+                .containsExactly(BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN,
                         "description");
         var types = extension.getInput().getRead().getBaseSchema().getStruct().getTypesList();
         assertThat(types.get(0).getI64().getNullability())
@@ -53,7 +55,7 @@ class Bm25GenerationPlanBuilderTest {
     @Test
     void rejectsReservedOrIncompleteNames() {
         assertThatThrownBy(() -> Bm25GenerationPlanBuilder.build(
-                List.of("items"), BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN))
+                List.of("items"), BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Bm25GenerationPlanBuilder.build(List.of(), "description"))
                 .isInstanceOf(IllegalArgumentException.class);

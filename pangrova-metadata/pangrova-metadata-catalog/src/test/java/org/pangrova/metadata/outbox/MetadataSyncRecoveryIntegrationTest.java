@@ -1,5 +1,7 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -185,7 +187,7 @@ class MetadataSyncRecoveryIntegrationTest {
 
     private static final class Inventory implements FederatedCatalog {
         private MetadataChangeBatch batch = new MetadataChangeBatch(List.of(new MetadataChange(
-                MetadataChange.ChangeType.ADD, new QualifiedTableRef("catalog", "schema", "table"), table())), Optional.of(BOUND));
+                MetadataChangeType.ADD, new QualifiedTableRef("catalog", "schema", "table"), table())), Optional.of(BOUND));
         private final List<Instant> requested = new ArrayList<>();
         private Runnable beforeRead = () -> {};
         private int schemaReads;

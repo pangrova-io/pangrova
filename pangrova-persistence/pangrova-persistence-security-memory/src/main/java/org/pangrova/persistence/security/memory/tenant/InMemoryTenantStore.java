@@ -1,6 +1,7 @@
 package org.pangrova.persistence.security.memory.tenant;
-import org.pangrova.security.api.exception.AuthorizationDeniedException;
 
+import org.pangrova.security.api.enums.TenantMembershipOperation;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.security.api.enums.TenantRole;
@@ -91,7 +92,7 @@ public class InMemoryTenantStore implements TenantStore {
         if (target != null && !target.tenantId().equals(mutation.tenantId())) {
             throw new AuthorizationDeniedException("Cross-tenant membership transfer is not allowed");
         }
-        if (mutation.operation() == org.pangrova.security.api.tenant.TenantMembershipMutation.Operation.GRANT) {
+        if (mutation.operation() == TenantMembershipOperation.GRANT) {
             if (target != null) return false;
             userMemberships.put(mutation.principal(), new UserMembership(mutation.tenantId(), TenantRole.MEMBER));
             return true;

@@ -13,6 +13,10 @@
  */
 package org.pangrova.ai.worker.governance;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -37,7 +41,7 @@ class ConfigurableAiInvocationAuthorizerTest {
         assertThatThrownBy(() -> authorizer.authorize(request("model-a", List.of(text("x"))), capability()))
                 .isInstanceOf(AiInvocationException.class)
                 .extracting("category")
-                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                .isEqualTo(AiFailureCategory.AUTHORIZATION);
     }
 
     @Test
@@ -47,7 +51,7 @@ class ConfigurableAiInvocationAuthorizerTest {
         assertThatThrownBy(() -> authorizer.authorize(request("model-a", List.of(text("x"))), capability()))
                 .isInstanceOf(AiInvocationException.class)
                 .extracting("category")
-                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                .isEqualTo(AiFailureCategory.AUTHORIZATION);
     }
 
     @Test
@@ -75,12 +79,12 @@ class ConfigurableAiInvocationAuthorizerTest {
                 request("model-b", List.of(text("x"))), capability()))
                 .isInstanceOf(AiInvocationException.class)
                 .extracting("category")
-                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                .isEqualTo(AiFailureCategory.AUTHORIZATION);
         assertThatThrownBy(() -> authorizer.authorize(
                 request("model-a", List.of(text("hello"))), capability()))
                 .isInstanceOf(AiInvocationException.class)
                 .extracting("category")
-                .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+                .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
     }
 
     @Test
@@ -95,10 +99,10 @@ class ConfigurableAiInvocationAuthorizerTest {
         AiCapabilityDescriptor rerank = new AiCapabilityDescriptor(
                 "rerank:model-a",
                 "v1",
-                AiCapabilityDescriptor.Operation.RERANKING,
+                AiOperation.RERANKING,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "DOUBLE", List.of("VARCHAR", "VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.BATCH),
+                Set.of(AiExecutionMode.BATCH),
                 Set.of(Modality.TEXT),
                 2,
                 new AiCapabilityDescriptor.ResourceLimits(
@@ -108,7 +112,7 @@ class ConfigurableAiInvocationAuthorizerTest {
                 Set.of("AI_MODEL_USAGE"));
         AiInvocationRequest rerankRequest = request(
                 "model-a",
-                AiCapabilityDescriptor.Operation.RERANKING,
+                AiOperation.RERANKING,
                 List.of(new AiInvocationRequest.RerankInput("abc", "defg")));
 
         assertThatCode(() -> authorizer.authorize(rerankRequest, rerank))
@@ -134,9 +138,9 @@ class ConfigurableAiInvocationAuthorizerTest {
         return new AiCapabilityDescriptor(
                 "inference:model-a",
                 "v1",
-                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                AiOperation.TEXT_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature("VARCHAR", List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR),
+                Set.of(AiExecutionMode.SCALAR),
                 Set.of(Modality.TEXT),
                 8,
                 new AiCapabilityDescriptor.ResourceLimits(
@@ -149,12 +153,12 @@ class ConfigurableAiInvocationAuthorizerTest {
     private static AiInvocationRequest request(
             String model, List<AiInvocationRequest.Input> inputs) {
         return request(
-                model, AiCapabilityDescriptor.Operation.TEXT_GENERATION, inputs);
+                model, AiOperation.TEXT_GENERATION, inputs);
     }
 
     private static AiInvocationRequest request(
             String model,
-            AiCapabilityDescriptor.Operation operation,
+            AiOperation operation,
             List<AiInvocationRequest.Input> inputs) {
         return new AiInvocationRequest(
                 "request-1",
@@ -167,8 +171,8 @@ class ConfigurableAiInvocationAuthorizerTest {
                 new byte[32],
                 "v1",
                 operation,
-                AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                operation == AiCapabilityDescriptor.Operation.EMBEDDING
+                AiExecutionMode.SCALAR,
+                operation == AiOperation.EMBEDDING
                         ? java.util.Optional.of(org.pangrova.ai.api.enums.EmbeddingPurpose.DOCUMENT)
                         : java.util.Optional.empty(),
                 inputs,

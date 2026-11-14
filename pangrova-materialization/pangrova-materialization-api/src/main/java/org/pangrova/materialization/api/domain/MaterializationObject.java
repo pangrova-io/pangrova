@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.identity.StrategyId;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
@@ -59,7 +61,7 @@ public record MaterializationObject(
         requirePayload(state, definer, securityMode, refreshMode);
         incrementalStrategy = requireNonNullField(incrementalStrategy, "incrementalStrategy");
         requireRefreshConfiguration(refreshMode, incrementalStrategy);
-        if (state == ObjectState.Creating.INSTANCE && publishedGeneration.isPresent()) {
+        if (state == ObjectState.CREATING && publishedGeneration.isPresent()) {
             throw new IllegalArgumentException("a creating object cannot have a published generation");
         }
         requireTimestamps(createdAt, updatedAt);
@@ -120,7 +122,7 @@ public record MaterializationObject(
             Optional<StrategyId> incrementalStrategy,
             Instant now) {
         return new MaterializationObject(id, kind, incarnation, 1, 0, Optional.empty(),
-                ObjectState.Creating.INSTANCE, definer, securityMode, refreshMode,
+                ObjectState.CREATING, definer, securityMode, refreshMode,
                 incrementalStrategy, now, now);
     }
 
@@ -134,15 +136,15 @@ public record MaterializationObject(
      */
     public MaterializationObject publish(GenerationId generation, long expectedRevision, Instant now) {
         requireRevision(expectedRevision);
-        if (state != ObjectState.Creating.INSTANCE
-                && state != ObjectState.Active.INSTANCE
-                && state != ObjectState.Suspended.INSTANCE
-                && state != ObjectState.Failed.INSTANCE) {
+        if (state != ObjectState.CREATING
+                && state != ObjectState.ACTIVE
+                && state != ObjectState.SUSPENDED
+                && state != ObjectState.FAILED) {
             throw MaterializationException.invalidStateTransition(
                     "cannot publish in object state " + state);
         }
         return new MaterializationObject(id, kind, incarnation, definitionRevision, revision + 1,
-                Optional.of(requireNonNullField(generation, "generation")), ObjectState.Active.INSTANCE,
+                Optional.of(requireNonNullField(generation, "generation")), ObjectState.ACTIVE,
                 definer, securityMode, refreshMode, incrementalStrategy, createdAt, now);
     }
 
@@ -178,12 +180,12 @@ public record MaterializationObject(
      */
     public MaterializationObject dropped(long expectedRevision, Instant now) {
         requireRevision(expectedRevision);
-        if (state != ObjectState.Dropping.INSTANCE) {
+        if (state != ObjectState.DROPPING) {
             throw MaterializationException.invalidStateTransition(
                     "object " + id.canonicalName() + " must be dropping before it is dropped");
         }
         return new MaterializationObject(id, kind, incarnation, definitionRevision, revision + 1,
-                Optional.empty(), ObjectState.Dropped.INSTANCE, definer, securityMode, refreshMode,
+                Optional.empty(), ObjectState.DROPPED, definer, securityMode, refreshMode,
                 incrementalStrategy, createdAt, now);
     }
 

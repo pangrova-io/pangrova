@@ -1,7 +1,7 @@
 package org.pangrova.security.authorization;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
-
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 
 import net.jqwik.api.ForAll;
@@ -27,11 +27,11 @@ class DeferredAuthorizationScopeTest {
     @Test
     void roundTripsExactRawAndObservedScopesWithoutCredentialContext() {
         var source = new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("amount"), Privilege.SELECT,
-                DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                AuthorizedReadMode.SECURITY_TRANSFORMED,
                 new DeferredAuthorizationScope.PolicySnapshot(Optional.of("amount > 10"),
                         Map.of("amount", Optional.empty())));
         var target = new DeferredAuthorizationScope.TablePermission(TABLE, Set.of(), Privilege.ALTER,
-                DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
+                AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
         var scope = new DeferredAuthorizationScope(List.of(source, target), Optional.empty());
         assertThat(DeferredAuthorizationScopeCodec.decode(DeferredAuthorizationScopeCodec.encode(scope))).isEqualTo(scope);
         assertThat(DeferredAuthorizationScopeCodec.sha256(scope)).hasSize(64);
@@ -44,7 +44,7 @@ class DeferredAuthorizationScopeTest {
         assertThatThrownBy(() -> new DeferredAuthorizationScope(List.of(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("amount"), Privilege.SELECT,
-                DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED, DeferredAuthorizationScope.PolicySnapshot.empty()))
+                AuthorizedReadMode.SECURITY_TRANSFORMED, DeferredAuthorizationScope.PolicySnapshot.empty()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("every read column");
         assertThatThrownBy(() -> DeferredAuthorizationScope.raw(TABLE, Set.of(), TABLE))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -57,7 +57,7 @@ class DeferredAuthorizationScopeTest {
         assertThat(DeferredAuthorizationScopeCodec.sha256(first)).isEqualTo(DeferredAuthorizationScopeCodec.sha256(second));
         var transformed = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("a", "b"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new DeferredAuthorizationScope.PolicySnapshot(Optional.of("a > 1"),
                                 Map.of("a", Optional.empty(), "b", Optional.of("NULL")))),
                 first.permissions().get(1)), Optional.empty());
@@ -93,11 +93,11 @@ class DeferredAuthorizationScopeTest {
     void codecRoundTripsExactObservedContent(@ForAll @StringLength(max = 256) String expression) {
         var scope = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("amount"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new DeferredAuthorizationScope.PolicySnapshot(Optional.of(expression),
                                 Map.of("amount", Optional.of(expression)))),
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of(), Privilege.ALTER,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         byte[] bytes = DeferredAuthorizationScopeCodec.encode(scope);
         assertThat(DeferredAuthorizationScopeCodec.decode(bytes)).isEqualTo(scope);
         assertThat(DeferredAuthorizationScopeCodec.encode(DeferredAuthorizationScopeCodec.decode(bytes))).isEqualTo(bytes);

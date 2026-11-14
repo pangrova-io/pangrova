@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import org.pangrova.persistence.query.postgresql.exception.JournalPayloadConflictException;
+
 import java.sql.Connection;
 import javax.sql.DataSource;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
@@ -99,8 +101,8 @@ final class JournalFlushOwner implements AutoCloseable {
                 if (failure instanceof Error error) throw error;
                 throw JournalPendingWrites.failure("Confirmed journal commit publication failed", failure);
             }
-            var rejected = failure instanceof JournalEventSql.PayloadConflict conflict && conflict.rollbackConfirmed
-                    ? conflict.eventId : null;
+            var rejected = failure instanceof JournalPayloadConflictException conflict && conflict.rollbackConfirmed()
+                    ? conflict.key() : null;
             pending.failed(batch, failure, rejected);
             LOG.warn("event=journal_commit_pending events={}", batch.writes().size(), failure);
             return false;

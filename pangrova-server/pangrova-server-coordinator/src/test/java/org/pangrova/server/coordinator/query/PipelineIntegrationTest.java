@@ -29,7 +29,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.pangrova.protocol.rest.task.TaskStatusReport;

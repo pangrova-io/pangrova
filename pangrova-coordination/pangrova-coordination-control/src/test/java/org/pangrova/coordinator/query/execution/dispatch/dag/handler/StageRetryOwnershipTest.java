@@ -26,6 +26,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real Stage/Resilience4j owner decisions; no Worker execution or invented runtime receipt. */
 class StageRetryOwnershipTest {
     @Test
+    void admittedConsumerPinsProducerBeforeItTransitionsOutOfPlanned() {
+        var owner = stage("pipelined");
+        var handler = new RetryStageHandler(new ResilienceRegistry(Map.of()));
+        owner.addTaskId("producer");
+        owner.stateMachine().transitionTo(StageState.SCHEDULING);
+        assertThat(owner.admitDownstream()).isFalse();
+        owner.stateMachine().transitionTo(StageState.RUNNING);
+        assertThat(owner.admitDownstream()).isTrue();
+        owner.onTaskFailed("producer", exchangeError());
+        handler.onFailed(event(owner));
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.FAILED);
+        assertThat(owner.retryCount()).isZero();
+    }
+
+    @Test
     void ordinaryControlCancellationDoesNotBecomeAnInternalRetry() {
         requireDeclined(new QueryFailure("TASK_CANCELLED", "Cancellation", "Control cancelled"));
     }

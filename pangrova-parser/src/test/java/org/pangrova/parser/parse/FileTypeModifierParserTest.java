@@ -1,5 +1,7 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.FileStorageMode;
+
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.parser.api.ast.Statement;
@@ -33,7 +35,7 @@ class FileTypeModifierParserTest {
                 "CREATE TABLE t (id BIGINT, img FILE EXTERNAL)");
 
         assertThat(create.columns().get(1).type())
-                .isEqualTo(new DataTypeSpec.FileType(DataTypeSpec.FileType.FileStorage.EXTERNAL));
+                .isEqualTo(new DataTypeSpec.FileType(FileStorageMode.EXTERNAL));
         assertThat(create.columns().get(1).type().toCanonicalString()).isEqualTo("FILE");
     }
 

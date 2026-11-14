@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamScheduler;
 import org.pangrova.streaming.coordinator.StreamSchedulerContext;
@@ -58,7 +60,7 @@ class StreamSchedulerStopAllRaceTest extends org.pangrova.testing.testkit.Contai
                 new NoOpTableMaintenance(), MaintenanceConfig.defaults());
 
         StreamSchedulerContext deps = new StreamSchedulerContext(
-                new NoOpStreamStateStore(),
+                TestObservability.METRICS, new NoOpStreamStateStore(),
                 new NoOpStreamOffsetStore(),
                 commitCoordinator(),
                 converterRegistry,

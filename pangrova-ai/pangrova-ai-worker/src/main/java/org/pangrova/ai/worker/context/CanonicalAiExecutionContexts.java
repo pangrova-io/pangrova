@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
@@ -34,6 +36,6 @@ final class CanonicalAiExecutionContexts {
     }
 
     private static AiInvocationException invalidAuthority(String message, Throwable cause) {
-        return new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false, message, cause);
+        return new AiInvocationException(AiFailureCategory.AUTHORIZATION, false, message, cause);
     }
 }

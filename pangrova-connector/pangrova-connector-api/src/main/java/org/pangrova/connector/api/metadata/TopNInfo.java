@@ -2,6 +2,7 @@ package org.pangrova.connector.api.metadata;
 
 import java.util.List;
 
+import org.pangrova.connector.api.enums.ConnectorSortOrder;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
 
@@ -18,17 +19,8 @@ public record TopNInfo(List<SortColumn> sortColumns, long topN) {
     /**
      * A single sort column with direction.
      */
-    public record SortColumn(ColumnHandle column, SortOrder order) {}
+    public record SortColumn(ColumnHandle column, ConnectorSortOrder order) {}
 
-    /**
-     * Sort direction.
-     */
-    public enum SortOrder {
-        ASC_NULLS_FIRST,
-        ASC_NULLS_LAST,
-        DESC_NULLS_FIRST,
-        DESC_NULLS_LAST
-    }
 
     public TopNInfo {
         if (sortColumns == null || sortColumns.isEmpty()) {

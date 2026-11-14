@@ -4,6 +4,7 @@
 // Unit tests for NativeEngineLifecycle: idempotent init/shutdown, re-init
 // lifecycle, accessor validity, and stale handle rejection after re-init.
 
+#include "TestMemoryHelper.h"
 #include "engine/velox/runtime/NativeEngineLifecycle.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -41,15 +42,14 @@ pangrova::executor::TaskExecutorConfig makeTaskConfig(const std::string& id) {
 class NativeEngineLifecycleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // Do NOT shutdown the global runtime in SetUp — other test suites
-    // depend on it. The lifecycle test manages its own state carefully.
+    test::detail::ensureRuntimeInitialized();
   }
 
   void TearDown() override {
     // Ensure the runtime is initialized for subsequent test suites.
     auto& mgr = NativeEngineLifecycle::instance();
     if (!mgr.isInitialized()) {
-      mgr.initialize(makeTestConfig());
+      initializeVeloxRuntime(makeTestConfig());
     }
   }
 };
@@ -57,32 +57,30 @@ class NativeEngineLifecycleTest : public ::testing::Test {
 TEST_F(NativeEngineLifecycleTest, InitShutdownReinitLifecycle) {
   auto& mgr = NativeEngineLifecycle::instance();
 
-  // Verify the runtime is initialized (by the global test fixture).
+  shutdownVeloxRuntime();
+  EXPECT_FALSE(mgr.isInitialized());
+  initializeVeloxRuntime(makeTestConfig());
   ASSERT_TRUE(mgr.isInitialized());
   EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
   EXPECT_NE(mgr.executor(), nullptr);
   EXPECT_NE(mgr.ioExecutor(), nullptr);
 }
 
-TEST_F(NativeEngineLifecycleTest, DoubleInitIsIdempotent) {
+TEST_F(NativeEngineLifecycleTest, RepeatedInitializationCreatesAReadyIncarnation) {
   auto& mgr = NativeEngineLifecycle::instance();
-
-  // Runtime already initialized by global test fixture.
-  ASSERT_TRUE(mgr.isInitialized());
-  EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
-  // Verify accessors are stable across repeated calls.
+  initializeVeloxRuntime(makeTestConfig());
+  initializeVeloxRuntime(makeTestConfig());
+  EXPECT_TRUE(mgr.isInitialized());
   EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
   EXPECT_NE(mgr.executor(), nullptr);
-  EXPECT_NE(mgr.ioExecutor(), nullptr);
 }
 
 TEST_F(NativeEngineLifecycleTest, DoubleShutdownIsIdempotent) {
   auto& mgr = NativeEngineLifecycle::instance();
-  ASSERT_TRUE(mgr.isInitialized());
-  // Verify accessors return consistent non-null values.
-  EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
-  EXPECT_NE(mgr.executor(), nullptr);
-  EXPECT_NE(mgr.ioExecutor(), nullptr);
+  shutdownVeloxRuntime();
+  shutdownVeloxRuntime();
+  EXPECT_FALSE(mgr.isInitialized());
+  EXPECT_EQ(mgr.veloxMemoryGovernor(), nullptr);
 }
 
 TEST_F(NativeEngineLifecycleTest, StaleHandlesRejectedAfterReinit) {
@@ -98,7 +96,14 @@ TEST_F(NativeEngineLifecycleTest, StaleHandlesRejectedAfterReinit) {
   ASSERT_NE(acquired, nullptr);
   EXPECT_EQ(acquired->taskId(), "t1");
 
-  HandleRegistry::instance().release(handle1);
+  acquired.reset();
+  initializeVeloxRuntime(makeTestConfig());
+  EXPECT_TRUE(mgr.isInitialized());
+  EXPECT_THROW(HandleRegistry::instance().acquire(handle1), std::runtime_error);
+  const auto next = HandleRegistry::instance().create(
+      std::make_shared<executor::TaskExecutor>(makeTaskConfig("after-reinit")));
+  EXPECT_GT(next, handle1);
+  HandleRegistry::instance().release(next);
 }
 
 }  // namespace

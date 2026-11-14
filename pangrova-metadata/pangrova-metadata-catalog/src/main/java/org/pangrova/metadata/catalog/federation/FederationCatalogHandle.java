@@ -30,10 +30,14 @@ public final class FederationCatalogHandle implements CatalogHandle {
 
     /** Creates a handle wrapping the given descriptor and federated catalog adapter. */
     public FederationCatalogHandle(CatalogDescriptor descriptor, FederatedCatalog adapter) {
+        this(descriptor, adapter, adapter);
+    }
+
+    FederationCatalogHandle(CatalogDescriptor descriptor, FederatedCatalog source, FederatedCatalog readView) {
         this.descriptor = descriptor;
-        this.adapter = Objects.requireNonNull(adapter, "federatedCatalog");
+        this.adapter = Objects.requireNonNull(source, "federatedCatalog");
         this.state = descriptor.state();
-        this.cachedMetadata = new FederationConnectorMetadata(adapter);
+        this.cachedMetadata = new FederationConnectorMetadata(readView);
     }
 
     @Override

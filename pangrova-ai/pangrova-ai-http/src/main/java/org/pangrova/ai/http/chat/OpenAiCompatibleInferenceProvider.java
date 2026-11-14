@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.http.chat;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.invocation.AttemptAdmission;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -226,14 +227,14 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             return attemptOnce(requestBody);
         } catch (IOException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Inference provider POST outcome is unknown",
                     failure);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Inference provider POST was interrupted with unknown outcome",
                     failure);
@@ -272,14 +273,14 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             long waitMillis = AiProviderCallContext.remainingTimeout(timeout).toMillis();
             if (!rateLimiter.tryAcquire(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS)) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.RATE_LIMIT,
+                        AiFailureCategory.RATE_LIMIT,
                         true,
                         "Timed out waiting for inference provider admission");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
+                    AiFailureCategory.TIMEOUT,
                     false,
                     "Inference provider admission was interrupted",
                     e);
@@ -312,13 +313,13 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
     }
 
     private static AiInvocationException responseFailure(int statusCode) {
-        AiInvocationException.Category category = switch (statusCode) {
-            case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
-            case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
+        AiFailureCategory category = switch (statusCode) {
+            case HTTP_UNAUTHORIZED -> AiFailureCategory.AUTHENTICATION;
+            case HTTP_FORBIDDEN -> AiFailureCategory.AUTHORIZATION;
             case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
-                            AiInvocationException.Category.TIMEOUT;
-            case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
-            default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+                            AiFailureCategory.TIMEOUT;
+            case HTTP_TOO_MANY_REQUESTS -> AiFailureCategory.RATE_LIMIT;
+            default -> AiFailureCategory.PROVIDER_UNAVAILABLE;
         };
         return new AiInvocationException(
                 category, false, "Inference provider returned HTTP " + statusCode);
@@ -330,6 +331,6 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
 
     private static AiInvocationException invalidResponse(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID, false, message, cause);
+                AiFailureCategory.PROVIDER_RESPONSE_INVALID, false, message, cause);
     }
 }

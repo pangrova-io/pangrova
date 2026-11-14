@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.ai.embedding;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.workflow.api.security.TableControlWriteAuthority;
 
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
@@ -174,7 +175,7 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
     }
 
     private static void requireMatchingCommit(CommitEvent event, WriteCommitEntry entry, QualifiedTableName table) {
-        if (entry.state() != WriteCommitEntry.State.COMMITTED || !entry.tenantId().equals(event.tenantId())
+        if (entry.state() != WriteCommitState.COMMITTED || !entry.tenantId().equals(event.tenantId())
                 || !entry.catalogName().equals(event.catalogName())
                 || !entry.authorizationReceipt().declaration().table().equals(table)) {
             throw new AuthorizationDeniedException("Commit event differs from its authenticated write journal anchor");

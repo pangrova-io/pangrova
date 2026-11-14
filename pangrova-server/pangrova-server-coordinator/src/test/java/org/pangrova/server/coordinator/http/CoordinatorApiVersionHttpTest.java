@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.http;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.client.version.ApiVersion;
+import org.pangrova.common.client.constants.ApiVersion;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;

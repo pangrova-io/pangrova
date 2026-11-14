@@ -110,7 +110,7 @@ class CoordinatorTaskTimeoutTest {
     @Test
     void configExplicitTaskTimeoutOverridesDefault() {
         var config = new org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig(
-                new org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 new org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.QueryConfig(300, 10, 60),
                 org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.TransportConfig.defaults(),

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.resilience.breaker;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -86,7 +87,7 @@ class CircuitBreakerMetricsTest {
         }
 
         // The breaker should be OPEN
-        assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
         // Verify state transition counter was incremented
         assertThat(metricsProvider.stateTransitionCounter.recordings)
@@ -133,7 +134,7 @@ class CircuitBreakerMetricsTest {
         for (int i = 0; i < 10; i++) {
             cb.onError(0, TimeUnit.MILLISECONDS, new RuntimeException("test"));
         }
-        assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
         // Attempt a call that should be rejected
         cb.tryAcquirePermission(); // returns false, fires not_permitted event

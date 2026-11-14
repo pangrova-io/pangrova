@@ -121,7 +121,7 @@ after unregister, so gauge suppliers must read safe snapshots rather than derefe
 a released Native handle. This lifecycle does not establish cardinality bounds or
 complete the remaining per-component metric accounting and adapter separation.
 
-Task wrappers capture the submitting context at decoration time and restore
+Coordinator's bounded async-submit executor captures request logging fields when each dispatch is submitted. The dispatch scope installs the query ID and execution span. Task wrappers capture the submitting context at decoration time and restore
 the executing thread's previous MDC in `finally`, including inline execution,
 nested wrappers and exceptions. The executor decorator shares its delegate's
 lifecycle; shutting down the decorator shuts down that delegate. It does not

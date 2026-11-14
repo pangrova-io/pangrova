@@ -1,7 +1,9 @@
 package org.pangrova.ai.worker.provider.governed;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
@@ -30,7 +32,7 @@ final class AiInvocationRequests {
             String modelVersion,
             byte[] modelSignatureSha256,
             AiCapabilityDescriptor capability,
-            AiCapabilityDescriptor.ExecutionMode mode,
+            AiExecutionMode mode,
             List<AiInvocationRequest.Input> inputs,
             GenerationParameters parameters) {
         return create(new RequestDefinition(
@@ -43,7 +45,7 @@ final class AiInvocationRequests {
             String modelVersion,
             byte[] modelSignatureSha256,
             AiCapabilityDescriptor capability,
-            AiCapabilityDescriptor.ExecutionMode mode,
+            AiExecutionMode mode,
             List<AiInvocationRequest.Input> inputs,
             EmbeddingPurpose purpose) {
         return create(new RequestDefinition(
@@ -61,7 +63,7 @@ final class AiInvocationRequests {
         String fingerprint = fingerprint(context, definition);
         String idempotencyBase = AiExecutionContext.providerIdempotencyBase()
                 .orElseThrow(() -> new AiInvocationException(
-                        AiInvocationException.Category.AUTHORIZATION,
+                        AiFailureCategory.AUTHORIZATION,
                         false,
                         "AI expression has no stable operator idempotency identity"));
         return buildRequest(
@@ -71,14 +73,14 @@ final class AiInvocationRequests {
     private static AiExecutionContext requireContext() {
         AiExecutionContext context = AiExecutionContext.current().orElseThrow(() ->
                 new AiInvocationException(
-                        AiInvocationException.Category.AUTHORIZATION,
+                        AiFailureCategory.AUTHORIZATION,
                         false,
                         "AI invocation has no trusted native task context"));
         try {
             context.requireGovernedIdentity();
         } catch (IllegalStateException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.AUTHORIZATION,
+                    AiFailureCategory.AUTHORIZATION,
                     false,
                     failure.getMessage(),
                     failure);
@@ -89,7 +91,7 @@ final class AiInvocationRequests {
     private static BoundAiInvocation requireBoundInvocation() {
         return AiExecutionContext.boundInvocation()
                 .orElseThrow(() -> new AiInvocationException(
-                        AiInvocationException.Category.AUTHORIZATION,
+                        AiFailureCategory.AUTHORIZATION,
                         false,
                         "AI expression has no exact Native OperatorBinding"));
     }
@@ -135,7 +137,7 @@ final class AiInvocationRequests {
     private static void requireModelSignature(byte[] signature) {
         if (signature == null || signature.length != 32) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "AI model does not expose an exact 32-byte public signature");
         }
@@ -143,12 +145,12 @@ final class AiInvocationRequests {
 
     static AiCapabilityDescriptor requireCapability(
             java.util.Set<AiCapabilityDescriptor> capabilities,
-            AiCapabilityDescriptor.Operation operation) {
+            AiOperation operation) {
         return capabilities.stream()
                 .filter(capability -> capability.operation() == operation)
                 .findFirst()
                 .orElseThrow(() -> new AiInvocationException(
-                        AiInvocationException.Category.CAPABILITY_MISMATCH,
+                        AiFailureCategory.CAPABILITY_MISMATCH,
                         false,
                         "Provider does not advertise operation " + operation));
     }
@@ -266,7 +268,7 @@ final class AiInvocationRequests {
             String modelVersion,
             byte[] modelSignatureSha256,
             AiCapabilityDescriptor capability,
-            AiCapabilityDescriptor.ExecutionMode mode,
+            AiExecutionMode mode,
             List<AiInvocationRequest.Input> inputs,
             GenerationParameters parameters,
             Optional<EmbeddingPurpose> embeddingPurpose) {}

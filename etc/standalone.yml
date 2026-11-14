@@ -164,10 +164,6 @@ worker:
 # Shared Configuration Sections
 # ====================================================================
 
-# ---- State Store ----
-# Dev mode: in-memory state store
-state-store:
-  type: IN_MEMORY
 
 # ---- Metadata ----
 metadata:

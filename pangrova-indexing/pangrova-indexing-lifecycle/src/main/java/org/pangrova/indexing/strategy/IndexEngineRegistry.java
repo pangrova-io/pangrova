@@ -36,8 +36,13 @@ public final class IndexEngineRegistry {
      *         or if any declared provider cannot be instantiated
      */
     public IndexEngineRegistry() {
+        this(IndexEngineRegistry.class.getClassLoader());
+    }
+
+    /** Uses the Coordinator role class loader, including its installed strategy artifacts. */
+    public IndexEngineRegistry(ClassLoader roleLoader) {
         var map = new EnumMap<IndexType, IndexStrategyProvider>(IndexType.class);
-        ServiceLoader<IndexStrategyProvider> loader = ServiceLoader.load(IndexStrategyProvider.class);
+        ServiceLoader<IndexStrategyProvider> loader = ServiceLoader.load(IndexStrategyProvider.class, roleLoader);
         for (ServiceLoader.Provider<IndexStrategyProvider> sp : loader.stream().toList()) {
             try {
                 registerProvider(map, sp.get());

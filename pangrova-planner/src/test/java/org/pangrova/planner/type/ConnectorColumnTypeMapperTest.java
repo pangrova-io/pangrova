@@ -1,5 +1,7 @@
 package org.pangrova.planner.type;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -102,16 +104,16 @@ class ConnectorColumnTypeMapperTest {
     }
 
     @ParameterizedTest
-    @EnumSource(VectorType.ElementType.class)
-    void vectorSchemaAndLogicalContractHaveTheSameElementPrecisionAndNullability(VectorType.ElementType element) {
+    @EnumSource(VectorElementType.class)
+    void vectorSchemaAndLogicalContractHaveTheSameElementPrecisionAndNullability(VectorElementType element) {
         var columns = List.of(column(PangrovaType.VECTOR, new VectorType(65535, element)));
         var sql = ConnectorColumnTypeMapper.rowType(columns, new PlannerTypeFactory()).getFieldList().get(0).getType();
         assertThat(sql.getComponentType().getSqlTypeName()).isEqualTo(
-                element == VectorType.ElementType.FLOAT ? SqlTypeName.REAL : SqlTypeName.DOUBLE);
+                element == VectorElementType.FLOAT ? SqlTypeName.REAL : SqlTypeName.DOUBLE);
         var compiled = NativeDatasetSchemaCompiler.compile(columns);
         var logical = compiled.columnTypes().get(0);
         assertThat(logical).isEqualTo(VectorLogicalType.create(65535,
-                element == VectorType.ElementType.FLOAT ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64,
+                element == VectorElementType.FLOAT ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64,
                 true, false));
         assertThat(logical.getSubstraitType()).isEqualTo(compiled.schema().getStruct().getTypes(0));
         assertThat(VectorLogicalType.requireStorageDimension(logical)).isEqualTo(65535);

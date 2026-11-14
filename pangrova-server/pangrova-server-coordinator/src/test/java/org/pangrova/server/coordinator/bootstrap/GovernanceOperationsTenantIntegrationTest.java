@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.common.enums.ClusterNodeType;
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.governance.runtime.GovernanceDeps;
@@ -107,9 +109,9 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
         awaitEvents(capturedEvents, 2, 5);
 
         assertThat(capturedEvents).hasSize(2);
-        assertThat(capturedEvents.get(0).eventType()).isEqualTo(LineageEvent.EventType.START);
+        assertThat(capturedEvents.get(0).eventType()).isEqualTo(LineageEventType.START);
         assertThat(capturedEvents.get(0).runId()).isEqualTo("q-gov-1");
-        assertThat(capturedEvents.get(1).eventType()).isEqualTo(LineageEvent.EventType.COMPLETE);
+        assertThat(capturedEvents.get(1).eventType()).isEqualTo(LineageEventType.COMPLETE);
         emitter.close();
     }
 
@@ -178,18 +180,18 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
     @Test
     void healthCheckEndpointReportsCoordinatorReadiness() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestHealthConditions(true, false, false, 1, 1));
 
         assertThat(endpoint.isReady()).isTrue();
         assertThat(endpoint.health().nodeType())
-                .isEqualTo(HealthCheckEndpoint.NodeType.COORDINATOR);
+                .isEqualTo(ClusterNodeType.COORDINATOR);
     }
 
     @Test
     void healthCheckEndpointNotReadyWithoutWorkers() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestHealthConditions(true, false, false, 0, 1));
 
         assertThat(endpoint.isReady()).isFalse();
@@ -371,7 +373,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-gov-ops-tenant", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

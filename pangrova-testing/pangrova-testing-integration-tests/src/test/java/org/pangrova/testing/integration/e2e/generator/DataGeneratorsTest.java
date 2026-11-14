@@ -8,7 +8,7 @@ import net.jqwik.api.Provide;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestDataGenerator;
-import org.pangrova.testing.testkit.TestDataGenerator.ColumnType;
+import org.pangrova.testing.testkit.enums.GeneratedColumnType;
 import org.pangrova.testing.testkit.TestDataGenerator.TableSchema;
 
 import java.util.Set;
@@ -73,16 +73,16 @@ class DataGeneratorsTest {
 
     @Provide
     Arbitrary<ColumnValue> stringValues() {
-        return DataGenerators.valueForType(ColumnType.STRING);
+        return DataGenerators.valueForType(GeneratedColumnType.STRING);
     }
 
     @Provide
     Arbitrary<ColumnValue> longValues() {
-        return DataGenerators.valueForType(ColumnType.LONG);
+        return DataGenerators.valueForType(GeneratedColumnType.LONG);
     }
 
     @Provide
     Arbitrary<ColumnValue> doubleValues() {
-        return DataGenerators.valueForType(ColumnType.DOUBLE);
+        return DataGenerators.valueForType(GeneratedColumnType.DOUBLE);
     }
 }

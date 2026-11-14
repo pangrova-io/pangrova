@@ -1,9 +1,10 @@
 package org.pangrova.parser.build;
 
+import org.pangrova.parser.api.enums.EmbeddingMode;
+import org.pangrova.parser.api.enums.FileStorageMode;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.statement.*;
 import org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement;
@@ -380,7 +381,7 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
         }
         if (ctx.FILE_TYPE_KW() != null) {
             return ctx.MANAGED() != null
-                    ? new DataTypeSpec.FileType(DataTypeSpec.FileType.FileStorage.MANAGED)
+                    ? new DataTypeSpec.FileType(FileStorageMode.MANAGED)
                     : DataTypeSpec.FileType.INSTANCE;
         }
         if (ctx.DECIMAL() != null || ctx.NUMERIC() != null) {
@@ -401,8 +402,8 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
                     "Invalid vector dimension: '" + ctx.vectorDim.getText() + "'", loc, e);
         }
         var element = ctx.vectorElementType != null && ctx.vectorElementType.getType() == PangrovaSqlParser.DOUBLE
-                ? org.pangrova.types.VectorType.ElementType.DOUBLE
-                : org.pangrova.types.VectorType.ElementType.FLOAT;
+                ? org.pangrova.types.enums.VectorElementType.DOUBLE
+                : org.pangrova.types.enums.VectorElementType.FLOAT;
         return new DataTypeSpec.VectorType(dimension, DistanceMetric.COSINE, element);
     }
 
@@ -469,9 +470,9 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
         List<String> sourceColumns = ctx.sourceColumn.stream()
                 .map(AstDdlDmlBuilder::extractIdentifierText)
                 .toList();
-        AutoEmbeddingColumnSpec.EmbeddingMode mode = AutoEmbeddingColumnSpec.EmbeddingMode.SYNC;
+        EmbeddingMode mode = EmbeddingMode.SYNC;
         if (ctx.embeddingMode != null && ctx.embeddingMode.getType() == PangrovaSqlParser.ASYNC) {
-            mode = AutoEmbeddingColumnSpec.EmbeddingMode.ASYNC;
+            mode = EmbeddingMode.ASYNC;
         }
         return Optional.of(new AutoEmbeddingColumnSpec(modelName, sourceColumns, mode));
     }

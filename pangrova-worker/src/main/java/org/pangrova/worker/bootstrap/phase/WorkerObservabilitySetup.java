@@ -1,8 +1,6 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import java.util.Map;
 import org.pangrova.observability.metrics.MetricsScope;
-import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.observability.sdk.config.ObservabilityConfig;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.observability.sdk.logging.otel.OtelLoggingProvider;
@@ -47,20 +45,11 @@ public final class WorkerObservabilitySetup {
         loggingProvider = new NoOpLoggingProvider();
     }
 
-    private void initOtelProviders(WorkerBootstrapConfig.ObservabilityBootstrapConfig bootCfg) {
-        ObservabilityConfig obsCfg = buildObservabilityConfig(bootCfg);
-        otelInitializer = new TelemetryInitializer(obsCfg);
+    private void initOtelProviders(ObservabilityConfig config) {
+        otelInitializer = new TelemetryInitializer(config);
         tracingProvider = new OtelTracingProvider(otelInitializer.getTracer());
         metricsProvider = new MetricsScope(new OtelMetricsProvider(otelInitializer.getMeter()));
         loggingProvider = new OtelLoggingProvider();
-    }
-
-    private static ObservabilityConfig buildObservabilityConfig(
-            WorkerBootstrapConfig.ObservabilityBootstrapConfig bootCfg) {
-        PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", bootCfg.serviceName(),
-                "pangrova.observability.otlp-endpoint", bootCfg.otlpEndpoint()));
-        return new ObservabilityConfig(pangrovaConfig);
     }
 
     public TracingProvider tracingProvider() { return tracingProvider; }

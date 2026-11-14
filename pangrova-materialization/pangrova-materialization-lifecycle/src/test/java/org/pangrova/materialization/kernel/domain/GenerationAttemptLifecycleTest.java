@@ -23,14 +23,14 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 import org.pangrova.materialization.api.domain.AttemptId;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 
 class GenerationAttemptLifecycleTest {
@@ -47,25 +47,25 @@ class GenerationAttemptLifecycleTest {
     void generationMovesCandidateCommittedPublishedRetiredCollected() {
         Generation candidate = fullGeneration();
 
-        assertThat(candidate.state()).isEqualTo(GenerationState.Candidate.INSTANCE);
+        assertThat(candidate.state()).isEqualTo(GenerationState.CANDIDATE);
         assertThat(candidate.evidence()).isEmpty();
         assertThat(candidate.publishedAt()).isEmpty();
 
         Generation committed = candidate.commit(EVIDENCE, LATER);
-        assertThat(committed.state()).isEqualTo(GenerationState.Committed.INSTANCE);
+        assertThat(committed.state()).isEqualTo(GenerationState.COMMITTED);
         assertThat(committed.evidence()).contains(EVIDENCE);
         assertThat(committed.publishedAt()).isEmpty();
 
         Generation published = committed.publish(LATER);
-        assertThat(published.state()).isEqualTo(GenerationState.Published.INSTANCE);
+        assertThat(published.state()).isEqualTo(GenerationState.PUBLISHED);
         assertThat(published.publishedAt()).contains(LATER);
 
         Generation retired = published.retire();
-        assertThat(retired.state()).isEqualTo(GenerationState.Retired.INSTANCE);
+        assertThat(retired.state()).isEqualTo(GenerationState.RETIRED);
         assertThat(retired.publishedAt()).contains(LATER);
 
         Generation collected = retired.collect();
-        assertThat(collected.state()).isEqualTo(GenerationState.Collected.INSTANCE);
+        assertThat(collected.state()).isEqualTo(GenerationState.COLLECTED);
     }
 
     @Test
@@ -102,17 +102,17 @@ class GenerationAttemptLifecycleTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> candidateGeneration(
                         OBJECT, GENERATION, ATTEMPT, candidate(0),
-                        RefreshKind.IncrementalAppendOnly.INSTANCE, VECTOR, Optional.empty()))
+                        RefreshKind.INCREMENTAL_APPEND_ONLY, VECTOR, Optional.empty()))
                 .withMessageContaining("base generation");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> candidateGeneration(
                         OBJECT, GENERATION, ATTEMPT, candidate(0),
-                        RefreshKind.Full.INSTANCE, VECTOR, Optional.of(base)))
+                        RefreshKind.FULL, VECTOR, Optional.of(base)))
                 .withMessageContaining("must not name a base generation");
 
         Generation incremental = candidateGeneration(
                 OBJECT, GENERATION, ATTEMPT, candidate(0),
-                RefreshKind.IncrementalAppendOnly.INSTANCE, VECTOR, Optional.of(base));
+                RefreshKind.INCREMENTAL_APPEND_ONLY, VECTOR, Optional.of(base));
         assertThat(incremental.baseGeneration()).contains(base);
     }
 
@@ -121,33 +121,33 @@ class GenerationAttemptLifecycleTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Generation(
                         GENERATION, OBJECT, INCARNATION, 1, ATTEMPT, Optional.empty(), candidate(0),
-                        RefreshKind.Full.INSTANCE, VECTOR, Optional.empty(),
-                        GenerationState.Committed.INSTANCE, NOW, Optional.empty()))
+                        RefreshKind.FULL, VECTOR, Optional.empty(),
+                        GenerationState.COMMITTED, NOW, Optional.empty()))
                 .withMessageContaining("requires commit evidence");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Generation(
                         GENERATION, OBJECT, INCARNATION, 1, ATTEMPT, Optional.empty(), candidate(0),
-                        RefreshKind.Full.INSTANCE, VECTOR, Optional.of(EVIDENCE),
-                        GenerationState.Published.INSTANCE, NOW, Optional.empty()))
+                        RefreshKind.FULL, VECTOR, Optional.of(EVIDENCE),
+                        GenerationState.PUBLISHED, NOW, Optional.empty()))
                 .withMessageContaining("publication instant");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new Generation(
                         GENERATION, OBJECT, INCARNATION, 1, ATTEMPT, Optional.empty(), candidate(0),
-                        RefreshKind.Full.INSTANCE, VECTOR, Optional.empty(),
-                        GenerationState.Candidate.INSTANCE, NOW, Optional.of(NOW)))
+                        RefreshKind.FULL, VECTOR, Optional.empty(),
+                        GenerationState.CANDIDATE, NOW, Optional.of(NOW)))
                 .withMessageContaining("only published, retired, or collected");
     }
 
     @Test
     void quarantinedGenerationCanOnlyCommitOrBeCollected() {
         Generation quarantined = fullGeneration().quarantine();
-        assertThat(quarantined.state()).isEqualTo(GenerationState.Quarantined.INSTANCE);
+        assertThat(quarantined.state()).isEqualTo(GenerationState.QUARANTINED);
 
         Generation committed = quarantined.commit(EVIDENCE, LATER);
-        assertThat(committed.state()).isEqualTo(GenerationState.Committed.INSTANCE);
+        assertThat(committed.state()).isEqualTo(GenerationState.COMMITTED);
 
         Generation collected = quarantined.collect();
-        assertThat(collected.state()).isEqualTo(GenerationState.Collected.INSTANCE);
+        assertThat(collected.state()).isEqualTo(GenerationState.COLLECTED);
 
         MaterializationException exception = catchThrowableOfType(
                 () -> quarantined.publish(LATER), MaterializationException.class);
@@ -157,26 +157,26 @@ class GenerationAttemptLifecycleTest {
 
     @Test
     void attemptMovesPreparingBuildingCommittedPublished() {
-        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.Full.INSTANCE,
+        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.FULL,
                 VECTOR, Optional.empty());
-        assertThat(preparing.state()).isEqualTo(AttemptState.Preparing.INSTANCE);
+        assertThat(preparing.state()).isEqualTo(AttemptState.PREPARING);
         assertThat(preparing.errorCode()).isEmpty();
 
         RefreshAttempt building = preparing.markBuilding(LATER);
-        assertThat(building.state()).isEqualTo(AttemptState.Building.INSTANCE);
+        assertThat(building.state()).isEqualTo(AttemptState.BUILDING);
 
         RefreshAttempt committed = building.markCommitted(EVIDENCE, LATER);
-        assertThat(committed.state()).isEqualTo(AttemptState.Committed.INSTANCE);
+        assertThat(committed.state()).isEqualTo(AttemptState.COMMITTED);
         assertThat(committed.evidence()).contains(EVIDENCE);
 
         RefreshAttempt published = committed.markPublished(LATER);
-        assertThat(published.state()).isEqualTo(AttemptState.Published.INSTANCE);
+        assertThat(published.state()).isEqualTo(AttemptState.PUBLISHED);
         assertThat(published.evidence()).contains(EVIDENCE);
     }
 
     @Test
     void attemptIdentityAndCandidateAreImmutableAcrossTransitions() {
-        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(7), RefreshKind.Full.INSTANCE,
+        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(7), RefreshKind.FULL,
                 VECTOR, Optional.empty());
         RefreshAttempt building = preparing.markBuilding(LATER);
 
@@ -193,10 +193,10 @@ class GenerationAttemptLifecycleTest {
 
     @Test
     void terminalAttemptStatesRejectFurtherTransitions() {
-        RefreshAttempt failed = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.Full.INSTANCE,
+        RefreshAttempt failed = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.FULL,
                 VECTOR, Optional.empty()).fail("boom", LATER);
 
-        assertThat(failed.state()).isEqualTo(AttemptState.Failed.INSTANCE);
+        assertThat(failed.state()).isEqualTo(AttemptState.FAILED);
         assertThat(failed.errorCode()).contains("boom");
         MaterializationException exception = catchThrowableOfType(
                 () -> failed.markBuilding(LATER), MaterializationException.class);
@@ -206,7 +206,7 @@ class GenerationAttemptLifecycleTest {
 
     @Test
     void failureRequiresAReason() {
-        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.Full.INSTANCE,
+        RefreshAttempt preparing = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.FULL,
                 VECTOR, Optional.empty());
 
         assertThatIllegalArgumentException()
@@ -216,29 +216,29 @@ class GenerationAttemptLifecycleTest {
 
     @Test
     void ambiguousAttemptIsQuarantinedAndRetainedForReconciliation() {
-        RefreshAttempt building = attempt(OBJECT, ATTEMPT, candidate(3), RefreshKind.Full.INSTANCE,
+        RefreshAttempt building = attempt(OBJECT, ATTEMPT, candidate(3), RefreshKind.FULL,
                 VECTOR, Optional.empty()).markBuilding(LATER);
 
         RefreshAttempt quarantined = building.quarantine("connector ack lost", LATER);
-        assertThat(quarantined.state()).isEqualTo(AttemptState.Quarantined.INSTANCE);
+        assertThat(quarantined.state()).isEqualTo(AttemptState.QUARANTINED);
         assertThat(quarantined.errorCode()).contains("connector ack lost");
 
         RefreshAttempt reconciled = quarantined.markCommitted(EVIDENCE, LATER);
-        assertThat(reconciled.state()).isEqualTo(AttemptState.Committed.INSTANCE);
+        assertThat(reconciled.state()).isEqualTo(AttemptState.COMMITTED);
     }
 
     @Test
     void supersededAndAbandonedAttemptsAreTerminal() {
-        RefreshAttempt committed = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.Full.INSTANCE,
+        RefreshAttempt committed = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.FULL,
                 VECTOR, Optional.empty()).markBuilding(LATER).markCommitted(EVIDENCE, LATER);
         RefreshAttempt superseded = committed.supersede("newer publication won", LATER);
 
-        assertThat(superseded.state()).isEqualTo(AttemptState.Superseded.INSTANCE);
+        assertThat(superseded.state()).isEqualTo(AttemptState.SUPERSEDED);
         assertThat(superseded.state().isTerminal()).isTrue();
 
-        RefreshAttempt abandoned = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.Full.INSTANCE,
+        RefreshAttempt abandoned = attempt(OBJECT, ATTEMPT, candidate(0), RefreshKind.FULL,
                 VECTOR, Optional.empty()).abandon("owner shut down", LATER);
-        assertThat(abandoned.state()).isEqualTo(AttemptState.Abandoned.INSTANCE);
+        assertThat(abandoned.state()).isEqualTo(AttemptState.ABANDONED);
         assertThat(abandoned.state().isTerminal()).isTrue();
     }
 
@@ -249,20 +249,20 @@ class GenerationAttemptLifecycleTest {
 
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> attempt(OBJECT, ATTEMPT, candidate(0),
-                        RefreshKind.IncrementalAppendOnly.INSTANCE, VECTOR, Optional.empty()))
+                        RefreshKind.INCREMENTAL_APPEND_ONLY, VECTOR, Optional.empty()))
                 .withMessageContaining("base generation");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> attempt(OBJECT, ATTEMPT, candidate(0),
-                        RefreshKind.Full.INSTANCE, VECTOR, Optional.of(base)))
+                        RefreshKind.FULL, VECTOR, Optional.of(base)))
                 .withMessageContaining("must not name a base generation");
 
         RefreshAttempt incremental = attempt(OBJECT, ATTEMPT, candidate(0),
-                RefreshKind.IncrementalAppendOnly.INSTANCE, VECTOR, Optional.of(base));
+                RefreshKind.INCREMENTAL_APPEND_ONLY, VECTOR, Optional.of(base));
         assertThat(incremental.baseGeneration()).contains(base);
     }
 
     private static Generation fullGeneration() {
         return candidateGeneration(OBJECT, GENERATION, ATTEMPT, candidate(0),
-                RefreshKind.Full.INSTANCE, VECTOR, Optional.empty());
+                RefreshKind.FULL, VECTOR, Optional.empty());
     }
 }

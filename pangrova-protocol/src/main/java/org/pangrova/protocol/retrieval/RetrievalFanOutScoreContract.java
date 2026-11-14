@@ -1,9 +1,10 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 /** Validates declared score types before independently bound branches share an exchange. */
 final class RetrievalFanOutScoreContract {
@@ -11,7 +12,7 @@ final class RetrievalFanOutScoreContract {
 
     static void validate(RetrievalFanOutBinding fanOut) throws InvalidProtocolBufferException {
         boolean bm25 = fanOut.sources().stream().anyMatch(source ->
-                BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID.equals(
+                BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID.equals(
                         source.binding().capability().getCapabilityId()));
         for (var source : fanOut.sources()) {
             var binding = source.binding();

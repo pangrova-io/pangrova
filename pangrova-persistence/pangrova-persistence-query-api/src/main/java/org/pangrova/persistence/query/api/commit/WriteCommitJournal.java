@@ -28,7 +28,7 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      * Records a commit intent synchronously (blocks until persisted).
      * Must be called BEFORE {@code finishDistributedWrite()}.
      *
-     * @param entry the commit intent with state {@link WriteCommitEntry.State#PENDING}
+     * @param entry the commit intent with state {@link WriteCommitState#PENDING}
      * @throws JournalWriteException if persistence fails
      */
     void recordIntent(WriteCommitEntry entry);

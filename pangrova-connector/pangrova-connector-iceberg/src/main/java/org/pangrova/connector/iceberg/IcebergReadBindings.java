@@ -3,6 +3,8 @@ package org.pangrova.connector.iceberg;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
@@ -34,8 +36,8 @@ final class IcebergReadBindings {
                     new SchemaTableName(partitions.baseTable().schemaName(), partitions.tableName()),
                     columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
             return new ConnectorReadBinding(partitions, new ConnectorTableReadMetadata(metadata,
-                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
-                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
                     partitions.sourceIdentity(), Optional.empty());
         }
         if (selector instanceof IcebergFileTableHandle files) {
@@ -45,8 +47,8 @@ final class IcebergReadBindings {
                     new SchemaTableName(files.baseTable().schemaName(), files.tableName()),
                     columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
             return new ConnectorReadBinding(files, new ConnectorTableReadMetadata(metadata,
-                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
-                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
                     fileSourceIdentity(files), java.util.Optional.empty());
         }
         if (selector instanceof IcebergManifestTableHandle manifests) {
@@ -56,8 +58,8 @@ final class IcebergReadBindings {
                     new SchemaTableName(manifests.baseTable().schemaName(), manifests.tableName()),
                     columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
             return new ConnectorReadBinding(manifests, new ConnectorTableReadMetadata(metadata,
-                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
-                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
                     manifestSourceIdentity(manifests), java.util.Optional.empty());
         }
         if (selector instanceof IcebergSystemTableHandle system) {
@@ -66,8 +68,8 @@ final class IcebergReadBindings {
                     new SchemaTableName(system.baseTable().schemaName(), system.tableName()),
                     columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
             return new ConnectorReadBinding(system, new ConnectorTableReadMetadata(metadata,
-                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
-                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
                     system.metadataLocation(), Optional.empty());
         }
         var handle = (IcebergTableHandle) selector;
@@ -79,10 +81,10 @@ final class IcebergReadBindings {
         var readSchema = IcebergReadSchema.resolve(handle, table);
         var declaration = IcebergCatalogTables.readDeclaration(handle, readSchema);
         var schema = readSchema.schema();
-        var schemaIdentity = declaration.declarationEvidence() == ConnectorTableReadMetadata.DeclarationEvidence.EXACT
+        var schemaIdentity = declaration.declarationEvidence() == TableDeclarationEvidence.EXACT
                 ? Optional.of(new org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity(
                         readSchema.tableIdentity(), "iceberg.table-fields.v1", declaration.metadata().typedColumns(),
-                        org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                        org.pangrova.connector.api.enums.FieldIdStability
                                 .NON_REUSABLE_NAMESPACE))
                 : Optional.<org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity>empty();
         var fresh = IcebergTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), table);
@@ -94,8 +96,8 @@ final class IcebergReadBindings {
         TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
                 : IcebergStatisticsCollector.buildStatistics(snapshot, table, handle);
         return new ConnectorReadBinding(bound, declaration, statistics,
-                snapshot == null ? ConnectorReadBinding.SnapshotState.EMPTY
-                        : ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                snapshot == null ? ReadSnapshotState.EMPTY
+                        : ReadSnapshotState.SNAPSHOT,
                 snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.snapshotId()), identity,
                 schemaIdentity);
     }
@@ -132,7 +134,7 @@ final class IcebergReadBindings {
         var handle = (IcebergTableHandle) binding.handle();
         Table table = tables.resolveTable(handle);
         // An empty view remains empty after a first write; only its table identity is validated.
-        Snapshot snapshot = binding.state() == ConnectorReadBinding.SnapshotState.EMPTY
+        Snapshot snapshot = binding.state() == ReadSnapshotState.EMPTY
                 ? null : selectedSnapshot(table, handle);
         if (!binding.sourceIdentity().equals(identity(table, snapshot))) {
             throw new IllegalStateException("Selected table or snapshot identity changed");

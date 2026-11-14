@@ -1,5 +1,6 @@
 package org.pangrova.planner.lineage;
 
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
 import org.pangrova.planner.api.lineage.ColumnDerivation;
 
 import org.pangrova.planner.metadata.PlanTable;
@@ -85,7 +86,7 @@ final class WriteColumnLineage {
         sources.addAll(preserved.sourceColumns());
         var ordered = sources.stream().sorted(Comparator.comparing(ColumnDerivation.SourceColumn::table)
                 .thenComparing(ColumnDerivation.SourceColumn::column)).toList();
-        var type = ColumnLineageKinds.combine(ColumnDerivation.DerivationType.TRANSFORM,
+        var type = ColumnLineageKinds.combine(ColumnDerivationKind.TRANSFORM,
                 ColumnLineageKinds.combine(value.expression(), preserved.expression()));
         return new ColumnDerivation(value.outputColumn(), ordered, type);
     }

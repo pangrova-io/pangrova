@@ -58,8 +58,8 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
             var maskStore = new JdbcColumnMaskStore(fixture.dataSource);
             var boundMasks = new org.pangrova.metadata.security.TableControlColumnMaskStore(
                     fixture.bootstrap.catalogRegistry().tableGovernance(), maskStore);
-            var bindingStore = new org.pangrova.persistence.table.postgresql.governancebinding
-                    .JdbcTableControlGovernanceBindingStore(fixture.dataSource);
+            var bindingStore = new org.pangrova.persistence.table.postgresql.policy
+                    .PostgresTablePolicyRepository(fixture.dataSource);
             AtomicInteger invalidations = new AtomicInteger();
             var executor = new DdlExecutor(fixture.bootstrap.catalogRegistry(), null,
                     invalidations::incrementAndGet);

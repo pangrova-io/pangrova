@@ -1,5 +1,6 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildError;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.MetricsProvider;
@@ -46,15 +47,6 @@ public final class IndexBuildMetrics {
                 () -> (double) inFlightBuilds.get());
     }
 
-    /** Error type classification for build failures. */
-    public enum ErrorType {
-        IO,
-        UNKNOWN,
-        REJECTED,
-        CLAIM_FAILED,
-        STALE_GENERATION
-    }
-
     /** Records completion of a build task. */
     public void recordBuild(long durationMs, int filesProcessed, int filesFailed) {
         buildDuration.record(durationMs);
@@ -73,7 +65,7 @@ public final class IndexBuildMetrics {
     }
 
     /** Records a build error with classification. */
-    public void recordError(long durationMs, ErrorType type) {
+    public void recordError(long durationMs, IndexBuildError type) {
         buildDuration.record(durationMs);
         failuresTotal.add(1);
     }

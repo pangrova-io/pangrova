@@ -9,10 +9,10 @@ import java.util.Set;
 
 import org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.shuffle.api.capability.ShuffleCapability;
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 import org.pangrova.shuffle.api.coordinator.ShuffleCoordinatorFactory;
 import org.pangrova.shuffle.api.coordinator.ShuffleCoordinatorSession;
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool.PemTlsConfig;
 
 /** Creates the Pangrova service control session and owns its endpoint and PEM configuration grammar. */

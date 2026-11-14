@@ -9,15 +9,15 @@ import org.pangrova.parser.api.ast.statement.CreateTableStatement;
 import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.build.type.DataTypeSpecParser;
 import org.pangrova.parser.api.enums.DistanceMetric;
-import org.pangrova.types.VectorType.ElementType;
+import org.pangrova.types.enums.VectorElementType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class VectorDeclarationPrecisionTest {
     @ParameterizedTest
-    @EnumSource(ElementType.class)
-    void neutralDeclarationRoundTripPreservesPrecisionAndExistingMetric(ElementType element) {
+    @EnumSource(VectorElementType.class)
+    void neutralDeclarationRoundTripPreservesPrecisionAndExistingMetric(VectorElementType element) {
         for (DistanceMetric metric : DistanceMetric.values()) {
             var declared = new DataTypeSpec.VectorType(3, metric, element);
             assertThat(org.pangrova.parser.build.type.RawSqlTypeParser.parse(declared.toCanonicalString())).isEqualTo(declared);
@@ -28,16 +28,16 @@ class VectorDeclarationPrecisionTest {
     @Test
     void storageCanonicalNamesAndLegacyCosineAliasHaveExplicitCoordinatePrecision() {
         assertThat(org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3,DOUBLE)"))
-                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, ElementType.DOUBLE));
+                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, VectorElementType.DOUBLE));
         assertThat(org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3)"))
-                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, ElementType.FLOAT));
+                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, VectorElementType.FLOAT));
         assertThat(org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3, COSINE)"))
-                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, ElementType.FLOAT));
+                .isEqualTo(new DataTypeSpec.VectorType(3, DistanceMetric.COSINE, VectorElementType.FLOAT));
     }
 
     @ParameterizedTest
-    @EnumSource(ElementType.class)
-    void actualSqlPrinterAndOnlyParserRetainVectorPrecision(ElementType element) {
+    @EnumSource(VectorElementType.class)
+    void actualSqlPrinterAndOnlyParserRetainVectorPrecision(VectorElementType element) {
         var parser = new AntlrSqlParser();
         var original = (CreateTableStatement) parser.parse(
                 "CREATE TABLE t (v VECTOR(3," + element.name() + "))");

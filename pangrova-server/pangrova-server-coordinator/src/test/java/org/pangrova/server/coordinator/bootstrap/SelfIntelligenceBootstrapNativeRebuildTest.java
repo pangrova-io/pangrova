@@ -1,7 +1,8 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.coordinator.enums.IndexRebuildAction;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
@@ -24,7 +25,7 @@ class SelfIntelligenceBootstrapNativeRebuildTest {
                 ExecutionException.class,
                 () -> rebuild.apply(
                                 vectorDescriptor(),
-                                IndexRebuildScheduler.RebuildAction.FULL_REBUILD)
+                                IndexRebuildAction.FULL_REBUILD)
                         .get());
 
         assertInstanceOf(IllegalStateException.class, failure.getCause());

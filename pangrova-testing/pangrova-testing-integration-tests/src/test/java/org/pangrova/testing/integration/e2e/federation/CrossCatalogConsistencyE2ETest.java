@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.federation;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.metadata.api.cache.CacheStats;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
@@ -253,10 +254,10 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     Map.of(), List.of(), Map.of(),
                     Instant.now(), Instant.now());
 
-            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChange.ChangeType.UPDATE,
+            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChangeType.UPDATE,
                     new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable), corruptedMeta));
 
-            FederatedCatalog driftAdapter = new DriftSimulatingAdapter(
+            FederatedCatalog driftAdapter = new DriftingFederatedCatalog(
                     correctMeta, staleChanges);
 
             // Step 4: Create MetadataSyncService and trigger incremental sync
@@ -328,7 +329,7 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     Map.of(), List.of(), Map.of(),
                     Instant.now(), Instant.now());
 
-            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChange.ChangeType.UPDATE,
+            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChangeType.UPDATE,
                     new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable), corruptedMeta));
 
             // Trigger drift detection and auto-correction via incremental sync
@@ -336,7 +337,7 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     tables, projections, new PostgresMetadataSyncRepository(metadataDs), new NoOpMetadataCache(), eventDispatcher);
 
             syncService.incrementalSync(deployments.getCatalogDescriptor(ICE_CATALOG).orElseThrow(),
-                    new DriftSimulatingAdapter(correctMeta, staleChanges));
+                    new DriftingFederatedCatalog(correctMeta, staleChanges));
 
             assertThat(syncService.getSchemaDriftDetectedCount())
                     .as("Drift should be detected")
@@ -383,11 +384,11 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
      * This models the scenario where incremental change detection is slightly
      * behind the point lookup used for projection.
      */
-    private static class DriftSimulatingAdapter implements FederatedCatalog {
+    private static class DriftingFederatedCatalog implements FederatedCatalog {
         private final TableMetadata correctMetadata;
         private final List<MetadataChange> staleChanges;
 
-        DriftSimulatingAdapter(TableMetadata correctMetadata,
+        DriftingFederatedCatalog(TableMetadata correctMetadata,
                                List<MetadataChange> staleChanges) {
             this.correctMetadata = correctMetadata;
             this.staleChanges = staleChanges;

@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
-import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
+import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
@@ -91,7 +92,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 "q1",
                 CATALOG,
                 tableName,
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 System.currentTimeMillis(),
                 fragments,
                 writeMode,
@@ -116,7 +117,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("frag".getBytes()), "INSERT"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(md.decodeCount.get()).as("exact handle decoded").isEqualTo(1);
         assertThat(md.finishCount.get()).as("commit re-driven (idempotent)").isEqualTo(1);
         assertThat(md.lastFragments).as("original worker fragments replayed").hasSize(1);
@@ -133,7 +134,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).as("must not commit when codec unavailable").isZero();
     }
 
@@ -146,7 +147,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "DELETE"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).isZero();
     }
 
@@ -158,7 +159,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of(), "OVERWRITE"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(md.decodeCount.get()).isEqualTo(1);
         assertThat(md.finishCount.get()).isEqualTo(1);
     }
@@ -173,7 +174,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var outcome = reconciler.reconcile(
                 pending("IcebergOutputTableHandle[schemaName=x]", List.of("f".getBytes()), "INSERT"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.decodeCount.get()).isZero();
     }
 
@@ -184,7 +185,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
     }
 
     @Test
@@ -197,7 +198,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var outcome = reconciler.reconcile(
                 pending(TABLE, List.of("old-fragment".getBytes()), "INSERT"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.decodeCount.get()).isZero();
         assertThat(md.finishCount.get()).isZero();
     }
@@ -215,8 +216,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         assertThat(actual.getOutputHandleCodec().serialize(decoded)).isEqualTo(actual.getOutputHandleCodec().serialize(output));
         assertThat(new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(intent))
-                .isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
-        assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+                .isEqualTo(WriteRecoveryOutcome.COMMITTED);
+        assertThat(execution.intent().state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(execution.intent().publication().publishedVersion()).isEqualTo(accepted.getVersion());
         assertThat(execution.intent().publication().manifestSha256()).isEqualTo(accepted.getManifestSha256().getDigest().toByteArray());
     }
@@ -236,8 +237,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null, null);
         assertThat(new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(forged))
-                .isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
-        assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+                .isEqualTo(WriteRecoveryOutcome.QUARANTINED);
+        assertThat(execution.intent().state()).isEqualTo(WriteCommitState.PENDING);
         assertThat(execution.intent().publication()).isNull();
         execution.accept();
     }
@@ -346,7 +347,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         @Override
         public Optional<org.pangrova.connector.api.metadata.NativeWriteAllocation> nativeWriteAllocation() {
             return nativeOutput ? Optional.of(new org.pangrova.connector.api.metadata.NativeWriteAllocation(
-                    "file:///warehouse/orders", org.pangrova.connector.api.metadata.NativeWriteAllocation.Operation.APPEND,
+                    "file:///warehouse/orders", org.pangrova.connector.api.enums.NativeWriteOperation.APPEND,
                     37L, new byte[32], "write-1", "transactions/write-1", "generation-1", List.of("id")))
                     : Optional.empty();
         }

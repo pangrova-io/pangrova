@@ -3,6 +3,9 @@ package org.pangrova.persistence.generation.api;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
@@ -28,6 +31,7 @@ class GenerationStorageContractIsolationTest {
                 DigestUtils.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.persistence.generation.api.job.GenerationJobStore.class
                         .getProtectionDomain().getCodeSource().getLocation(),
+                ShuffleProviderDescriptor.class.getProtectionDomain().getCodeSource().getLocation(),
                 ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.connector.api.metadata.table.QualifiedTableName.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.types.Type.class.getProtectionDomain().getCodeSource().getLocation(),
@@ -38,6 +42,7 @@ class GenerationStorageContractIsolationTest {
         };
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
             for (String missing : List.of("com.fasterxml.jackson.databind.ObjectMapper",
+                    "org.pangrova.shuffle.pangrova.client.PangrovaShuffleClient",
                     "org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority",
                     "org.pangrova.generation.submission.GenerationStageGraphFactory",
                     "org.pangrova.generation.codec.execution.GenerationStageGraphCodec",
@@ -69,12 +74,12 @@ class GenerationStorageContractIsolationTest {
             Object template = templateType.getMethod("of", byte[].class, List.class, List.class)
                     .invoke(null, new byte[]{2}, List.of(), List.of());
             Class<?> kindType = loader.loadClass("org.pangrova.generation.api.enums.GenerationPageKind");
-            Class<?> stageType = loader.loadClass(graphType.getName() + "$StagePlan");
+            Class<?> stageType = loader.loadClass(GenerationStageGraph.StagePlan.class.getName());
             Object stage = stageType.getMethod("of", int.class, int.class, kindType, byte[].class,
                             templateType, List.class, List.class, boolean.class)
                     .invoke(null, 0, 0, kindType.getField("SOURCE_MAP").get(null), new byte[]{1},
                             template, List.of(), List.of(), true);
-            Class<?> purposeType = loader.loadClass(graphType.getName() + "$Purpose");
+            Class<?> purposeType = loader.loadClass(GenerationGraphPurpose.class.getName());
             Object graph = graphType.getConstructor(int.class, purposeType, List.class, List.class, List.class)
                     .newInstance(2, purposeType.getField("ARTIFACT_GENERATION").get(null),
                             List.of(stage), List.of(), List.of());

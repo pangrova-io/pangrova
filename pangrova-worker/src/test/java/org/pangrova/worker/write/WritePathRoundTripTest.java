@@ -1,5 +1,6 @@
 package org.pangrova.worker.write;
 
+import org.pangrova.worker.enums.DmlOperation;
 import org.pangrova.worker.catalog.CatalogResourceResolver;
 import org.pangrova.batch.api.reader.ReadableBatch;
 import org.pangrova.connector.api.data.ColumnarPageSink;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies Arrow IPC round-trip correctness for the write path.
@@ -49,6 +51,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class WritePathRoundTripTest {
     private NativeWriteExecutor executor;
+
+    @Test
+    void nativeDmlOperationCodesHaveStableMeanings() {
+        assertThat(DmlOperation.fromNativeCode(0)).isEqualTo(DmlOperation.INSERT);
+        assertThat(DmlOperation.fromNativeCode(1)).isEqualTo(DmlOperation.OVERWRITE);
+        assertThat(DmlOperation.fromNativeCode(2)).isEqualTo(DmlOperation.DELETE);
+        assertThatThrownBy(() -> DmlOperation.fromNativeCode(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> DmlOperation.fromNativeCode(3)).isInstanceOf(IllegalArgumentException.class);
+    }
 
     @AfterEach
     void closeExecutor() {
@@ -196,7 +207,7 @@ class WritePathRoundTripTest {
 
     private static WriteDescriptor descriptor(String tableName) {
         return new WriteDescriptor(
-                WriteDescriptor.DmlOperation.INSERT,
+                DmlOperation.INSERT,
                 List.of(
                         new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),

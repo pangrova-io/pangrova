@@ -2,6 +2,7 @@ package org.pangrova.streaming.writer.property;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.enums.WriteMode;
@@ -94,12 +95,12 @@ class LakeTableWriterClassifyPropertyTest {
 
     private static WriteRecord insertRecord(int id, String name) {
         TypedRow row = TypedRow.fromRawMap(Map.of("id", id, "name", name));
-        return new WriteRecord(row, WriteRecord.WriteOperation.INSERT, Instant.now());
+        return new WriteRecord(row, WriteOperation.INSERT, Instant.now());
     }
 
     private static WriteRecord deleteRecord(int id) {
         TypedRow row = TypedRow.fromRawMap(Map.of("id", id));
-        return new WriteRecord(row, WriteRecord.WriteOperation.DELETE, Instant.now());
+        return new WriteRecord(row, WriteOperation.DELETE, Instant.now());
     }
 
     static final class NoOpDataFileSink implements DataFileSink {

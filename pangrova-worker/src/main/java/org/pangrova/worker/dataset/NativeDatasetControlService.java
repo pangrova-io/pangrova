@@ -1,5 +1,7 @@
 package org.pangrova.worker.dataset;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.worker.exception.ControlDeadlineExceededException;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
@@ -174,7 +176,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         requireDeadline(request.getDeadlineEpochMs());
         requireCatalog(request.getCatalog());
         if (request.getExecutionId().isBlank()
-                || !request.getCommitFingerprint().matches("[0-9a-f]{64}")
+                || !DigestUtils.isSha256Hex(request.getCommitFingerprint())
                 || !request.getCleanupId().matches("[0-9a-f]{32}")
                 || request.getDatasetUri().isBlank()
                 || request.getObjectsCount() < 1
@@ -271,7 +273,7 @@ public final class NativeDatasetControlService implements AutoCloseable {
         if (!request.getInvocationId().matches("[0-9a-f]{32}")) {
             throw new IllegalArgumentException("Preparation requires its durable invocation nonce");
         }
-        if (!request.getCommitFingerprint().matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(request.getCommitFingerprint())) {
             throw new IllegalArgumentException("Publication requires an exact commit fingerprint");
         }
         if (!request.getOutputBinding().hasLance()) {

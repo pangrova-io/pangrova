@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.SchemaChange;
 import org.junit.jupiter.api.Test;
@@ -34,7 +36,9 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
             assertThat(extracted.snapshotOverrides()).containsEntry("bound.db.history", version);
             var session = PlanningSnapshotSelectors.bind(fixture.session, extracted.snapshotOverrides());
             var owner = new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), session);
-            var schema = fixture.bootstrap.buildCalciteSchema(session, owner);
+            var schema = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(session, owner);
             var plan = new PangrovaPlanner(schema, List.of("bound", "db"))
                     .planForPolicyApplication(extracted.strippedSql()).toPlannedQuery();
             var binding = owner.resolve("bound", "db", "history").orElseThrow();
@@ -48,7 +52,9 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
                     throw new AssertionError(error);
                 }
             });
-            var current = fixture.bootstrap.buildCalciteSchema(fixture.session,
+            var current = new MetadataSchemaBuilder(
+                    fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
+                    .buildRootSchema(fixture.session,
                     new PlanningReadBindings(fixture.bootstrap.catalogRegistry(), fixture.session));
             assertThatThrownBy(() -> new PangrovaPlanner(current, List.of("bound", "db"))
                     .planForPolicyApplication("SELECT id FROM history")).hasMessageContaining("id");

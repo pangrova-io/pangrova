@@ -1,5 +1,7 @@
 package org.pangrova.governance.quality.executor.sql;
 
+import org.pangrova.governance.api.enums.QualityQueryType;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -7,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.enums.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.exception.GovernanceQueryException;
-import org.pangrova.governance.api.quality.GovernanceQueryRunner;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import org.pangrova.governance.api.quality.QualityQueryResult;
 import org.pangrova.governance.api.quality.QualityReadRequest;
@@ -24,7 +25,7 @@ class SqlQualityRuleExecutorTest {
         var executor = new SqlQualityRuleExecutor((request, subject) -> {
             assertThat(subject).isEqualTo(rule.executionIdentity());
             calls.add(request);
-            return request.type() == GovernanceQueryRunner.QueryType.COUNTS
+            return request.type() == QualityQueryType.COUNTS
                     ? new QualityQueryResult(4, 2, List.of())
                     : new QualityQueryResult(2, 2, List.of(List.of("bad-one"), List.of("bad-two")));
         });
@@ -42,7 +43,7 @@ class SqlQualityRuleExecutorTest {
             assertThat(request.expression()).isEqualTo(rule.checkExpression());
         });
         assertThat(calls).extracting(QualityReadRequest::type).containsExactly(
-                GovernanceQueryRunner.QueryType.COUNTS, GovernanceQueryRunner.QueryType.SAMPLES);
+                QualityQueryType.COUNTS, QualityQueryType.SAMPLES);
     }
 
     @Test

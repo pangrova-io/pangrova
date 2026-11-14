@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
@@ -66,7 +67,7 @@ public final class AiInvocationOperatorBinder {
                 hint.modelName(), capability, user);
         ModelCapabilityContract modelContract = modelContract(
                 availability, capability, hint.modelName());
-        if (hint.operation() == AiInvocationPlanHint.Operation.EMBEDDING) {
+        if (hint.operation() == AiInvocationOperation.EMBEDDING) {
             VectorLogicalType.requireDimension(modelContract.getOutputType());
         }
         CapabilityLimits limits = availability.getLimits();
@@ -106,7 +107,7 @@ public final class AiInvocationOperatorBinder {
         return matches.get(0);
     }
 
-    private static CapabilityRef capability(AiInvocationPlanHint.Operation operation) {
+    private static CapabilityRef capability(AiInvocationOperation operation) {
         return switch (operation) {
             case TEXT_GENERATION -> BuiltInCapabilityCatalog.aiTextGenerationPlanRef();
             case MULTIMODAL_GENERATION ->
@@ -118,7 +119,7 @@ public final class AiInvocationOperatorBinder {
     private static void validateLimits(
             AiInvocationPlanHint hint, CapabilityLimits limits) {
         ModelResourceEnvelopes.validate(limits);
-        if (hint.operation() != AiInvocationPlanHint.Operation.EMBEDDING
+        if (hint.operation() != AiInvocationOperation.EMBEDDING
                 && limits.getMaxOutputTokens() == 0) {
             throw new IllegalArgumentException(
                     "generation model has no positive output-token limit: "

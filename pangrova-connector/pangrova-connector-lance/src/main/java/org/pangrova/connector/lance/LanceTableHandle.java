@@ -15,7 +15,7 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
             new org.pangrova.connector.api.metadata.table.TableCapabilities(
                     true, false, false, true, true, false,
                     java.util.Set.of(), java.util.Set.of(),
-                    org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.connector.api.enums.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     public LanceTableHandle {

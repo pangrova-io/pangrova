@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.types.MapType;
 import org.pangrova.types.primitive.VarcharType;
 import org.pangrova.types.primitive.temporal.TimestampType;
@@ -16,40 +17,10 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 /** Immutable, read-only reference to one Iceberg metadata-table version. */
 public record IcebergSystemTableHandle(
         IcebergTableHandle baseTable,
-        Kind kind,
+        IcebergSystemTableKind kind,
         String metadataLocation,
         long metadataLength) implements ConnectorTableHandle {
 
-    /** Metadata tables supported by the Native JSON reader. */
-    public enum Kind {
-        SNAPSHOTS("snapshots"),
-        HISTORY("history"),
-        REFS("refs");
-
-        private final String suffix;
-
-        Kind(String suffix) {
-            this.suffix = suffix;
-        }
-
-        public String suffix() {
-            return suffix;
-        }
-
-        /** Resolves a supported suffix without accepting a base-table fallback. */
-        public static Optional<Kind> fromSuffix(String suffix) {
-            if (suffix == null) {
-                return Optional.empty();
-            }
-            String normalized = suffix.toLowerCase(Locale.ROOT);
-            for (Kind kind : values()) {
-                if (kind.suffix.equals(normalized)) {
-                    return Optional.of(kind);
-                }
-            }
-            return Optional.empty();
-        }
-    }
 
     public IcebergSystemTableHandle {
         Objects.requireNonNull(baseTable, "baseTable");

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.List;
 import java.util.Set;
 
@@ -163,7 +164,7 @@ public final class IndexSchemaEvolutionHandler {
         if (oldType == null || newType == null) {
             return false;
         }
-        return isWideningChange(oldType.toUpperCase(), newType.toUpperCase());
+        return isWideningChange(oldType.toUpperCase(Locale.ROOT), newType.toUpperCase(Locale.ROOT));
     }
 
     private static boolean isWideningChange(String oldType, String newType) {

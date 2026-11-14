@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.metadata.testinfra.TestCatalogRegistry;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -121,7 +124,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
     /** Creates a fresh dispatcher for a test, never mutates a running authority. */
     void createEngineWithAuthority(org.pangrova.query.api.write.WriteAuthorityResolver resolver) {
         engine = new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
-                null, null, null, null, registry, null, null, 0), resolver);
+                null, null, null, null, registry, null, 0), resolver);
         engine.setWriteCommitTracker(tracker);
     }
 
@@ -163,7 +166,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
         directory.saveCatalogDescriptor(catalogHandle.getDescriptor());
         var bootstrap = MetadataBootstrap.initialize(memoryTableStores(), directory, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), ignored -> catalogHandle);
         try {
-            var schema = bootstrap.buildCalciteSchema(SessionContextConverter.toConnectorSession(actor));
+            var schema = new MetadataSchemaBuilder(
+                    bootstrap.metadataService(), bootstrap.catalogRegistry())
+                    .buildRootSchema(SessionContextConverter.toConnectorSession(actor));
             var compiler = new SqlCompiler(new PangrovaPlanner(schema, List.of("catalog", "schema")),
                     new SubstraitConverter(), new SubstraitPlanSerializer());
             var security = new SecurityPolicyApplier(compiler, new AccessControlEnforcer(authority),
@@ -209,7 +214,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
         var permissions = new ArrayList<>(request.observedReadPermissions());
         request.requiredWritePrivileges().forEach(privilege -> permissions.add(
                 new DeferredAuthorizationScope.TablePermission(request.table(), Set.of(), privilege,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())));
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())));
         return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(permissions,
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, List.of()))));
     }

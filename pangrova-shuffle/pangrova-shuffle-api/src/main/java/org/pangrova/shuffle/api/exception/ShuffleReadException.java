@@ -1,17 +1,18 @@
 package org.pangrova.shuffle.api.exception;
 
+import org.pangrova.shuffle.api.enums.ShuffleReadFailureReason;
+
 import java.util.Objects;
 
 /** Classifies partition read failure for execution policy without parsing provider messages. */
 public class ShuffleReadException extends RuntimeException {
-    public enum Reason { TRANSPORT, CORRUPTION }
 
-    private final Reason reason;
+    private final ShuffleReadFailureReason reason;
 
-    public ShuffleReadException(Reason reason, String message, Throwable cause) {
+    public ShuffleReadException(ShuffleReadFailureReason reason, String message, Throwable cause) {
         super(message, cause);
         this.reason = Objects.requireNonNull(reason, "reason");
     }
 
-    public Reason reason() { return reason; }
+    public ShuffleReadFailureReason reason() { return reason; }
 }

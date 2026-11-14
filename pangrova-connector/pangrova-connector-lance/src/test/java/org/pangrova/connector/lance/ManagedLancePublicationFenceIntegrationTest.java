@@ -1,11 +1,12 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Files;
@@ -75,7 +76,7 @@ class ManagedLancePublicationFenceIntegrationTest extends ContainerTestBase {
                 assertThat(fixture.store().load(fixture.catalog().getCatalogName(), LanceManagedSourceFixture.TENANT,
                         allocation.output().table().table()).version()).isZero();
                 var current = fixture.journal().getEntry(original.queryId()).orElseThrow();
-                assertThat(current.state()).isEqualTo(WriteCommitEntry.State.PENDING);
+                assertThat(current.state()).isEqualTo(WriteCommitState.PENDING);
                 assertThat(current.publication()).isNull();
                 assertThat(current.commitFingerprint()).isEqualTo(original.commitFingerprint());
                 assertThat(current.writeOutputBinding()).isEqualTo(original.writeOutputBinding());
@@ -86,7 +87,7 @@ class ManagedLancePublicationFenceIntegrationTest extends ContainerTestBase {
                 assertThat(reference.getVersion()).isEqualTo(1);
                 assertThat(fixture.reference(reference.getDatasetUri(), 0)).isEqualTo(reference);
                 var current = fixture.journal().getEntry(original.queryId()).orElseThrow();
-                assertThat(current.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+                assertThat(current.state()).isEqualTo(WriteCommitState.COMMITTED);
                 assertThat(current.publication().publishedVersion()).isEqualTo(reference.getVersion());
                 assertThat(current.publication().manifestSha256()).isEqualTo(reference.getManifestSha256().getDigest().toByteArray());
                 assertPublicationState(observer, original.commitFingerprint(), "ACCEPTED");

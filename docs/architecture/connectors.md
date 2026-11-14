@@ -277,45 +277,34 @@ HTTP DTOs and persistence implementations retain plugin-first resolution.
 `BROAD`, `NARROW` and `CUSTOM` select additional packages searched on the host
 first. `NARROW` includes the data-plane and logging packages. `BROAD` also shares
 Guava, Hadoop, Parquet, ORC and Jackson. Package matching honors Java package
-boundaries. An unlisted plugin class is loaded from its own JAR when available.
+boundaries. Private classes resolve from the plugin JARs; only JDK platform classes are available as fallback.
 
-### 2.3 Plugin Manager Implementation
+### 2.3 Connector plugin deployment and lifetime
 
-```java
-public class PluginManager {
+Both server roles read the optional `connector.plugin-directory` setting from their
+own deployment configuration. The default inventory contains the bundled factories on
+the process classpath. Each immediate child of the configured root is a plugin
+installation. Place its provider JAR and its private dependency JARs directly in
+that directory. A plugin JAR declares its factory in
+`META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory`.
+Deploy only administrator-trusted JARs. External installations currently use the
+NARROW shared-package policy and must ship their SDK dependencies.
 
-    private final Path pluginDir;
-    private final ClassLoader spiClassLoader;
-    private final ConnectorClassLoaderFactory classLoaderFactory;
-    private final Map<String, ClassLoader> pluginClassLoaders = new ConcurrentHashMap<>();
-    private final Map<String, ConnectorFactory> connectorFactories = new ConcurrentHashMap<>();
+At startup, each role builds its own `ConnectorPluginInventory`. The inventory
+sorts the installation directories and JARs, allocates one classloader per
+installation, and resolves the factory class from that installation. Factory
+construction, validation and catalog creation run with the plugin's thread
+context classloader. Connector instances can use their defining classloader for
+lazy resource lookup. A factory declares its supported process roles. Conflicting
+names for a role, incompatible factories, unreadable roots and installations
+without a factory abort discovery and close the acquired loaders. To deploy a
+connector update, restart the role with its new installation.
 
-    public void loadPlugins() {
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginDir)) {
-            for (Path pluginPath : stream) {
-                if (Files.isDirectory(pluginPath)) loadPlugin(pluginPath);
-            }
-        }
-    }
-
-    private void loadPlugin(Path pluginPath) {
-        String pluginName = pluginPath.getFileName().toString();
-
-        URL[] urls = collectJars(pluginPath);
-        ClassLoader classLoader = classLoaderFactory.createClassLoader(
-            pluginName, urls, spiClassLoader);
-        pluginClassLoaders.put(pluginName, classLoader);
-
-        // Fail-closed discovery: duplicate or blank names are rejected.
-        ConnectorFactoryRegistry.discover(classLoader).factories()
-            .forEach(connectorFactories::putIfAbsent);
-    }
-
-    public ConnectorFactory getConnectorFactory(String name) {
-        return connectorFactories.get(name);
-    }
-}
-```
+Coordinator closes the catalog registry after query drain, then releases the
+inventory. Worker closes admission, drains connector leases and shuts down
+connectors before releasing the loaders. A Worker close with an active lease
+reports the owner still in use. Release that lease and retry shutdown. Standalone
+constructs independent inventories through the two role entry points.
 
 ### 2.4 CatalogRegistry Implementation
 
@@ -344,9 +333,9 @@ still pins its own immutable metadata and source identity through the query life
  *   - Catalog lifecycle (CREATING → ACTIVE → DEGRADED → SUSPENDED → DROPPING)
  *   - Health monitoring and dynamic load/unload
  *
- * This Connector-side view shows how PluginManager loads ConnectorFactory
+ * This Connector-side view shows how ConnectorPluginInventory loads ConnectorFactory
  * instances and how table references are resolved through the Connector SPI.
- * At runtime, CatalogRegistry (07 §3.2) delegates to PluginManager (§2.3)
+ * At runtime, CatalogRegistry (07 §3.2) uses its ConnectorHandleFactory (§2.3)
  * for Connector-backed catalogs via loadConnectorCatalog().
  */
 // See metadata.md §3.2 for the full CatalogRegistry implementation.
@@ -641,6 +630,10 @@ pangrova-connector/pangrova-connector-iceberg/
 
 ```java
 public class IcebergConnectorFactory implements ConnectorFactory {
+    @Override public int apiVersion() { return ConnectorFactoryContract.CURRENT_API_VERSION; }
+    @Override public Set<ConnectorRole> roles() { return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER); }
+    @Override public void validateConfiguration(Map<String, String> config) { normalizeCatalogProperties(config); }
+
     @Override
     public String getName() { return "iceberg"; }
 

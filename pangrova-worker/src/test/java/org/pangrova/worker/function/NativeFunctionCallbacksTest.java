@@ -1,7 +1,7 @@
 package org.pangrova.worker.function;
 
+import org.pangrova.worker.enums.NativeFunctionType;
 import org.pangrova.worker.exception.NativeRuntimeException;
-
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.aggregate.AggregateFunction;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
@@ -340,10 +340,10 @@ class NativeFunctionCallbacksTest {
         assertThat(descriptors).hasSize(3);
 
         long scalarCount = descriptors.stream()
-                .filter(d -> d.functionType() == NativeFunctionDescriptor.FunctionType.SCALAR)
+                .filter(d -> d.functionType() == NativeFunctionType.SCALAR)
                 .count();
         long aggCount = descriptors.stream()
-                .filter(d -> d.functionType() == NativeFunctionDescriptor.FunctionType.AGGREGATE)
+                .filter(d -> d.functionType() == NativeFunctionType.AGGREGATE)
                 .count();
         assertThat(scalarCount).isEqualTo(2);
         assertThat(aggCount).isEqualTo(1);
@@ -355,7 +355,7 @@ class NativeFunctionCallbacksTest {
         List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
         assertThatThrownBy(() -> descriptors.add(new NativeFunctionDescriptor(
                 "x", "INT", List.of(),
-                NativeFunctionDescriptor.FunctionType.SCALAR, true)))
+                NativeFunctionType.SCALAR, true)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

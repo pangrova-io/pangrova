@@ -32,7 +32,7 @@ class CanonicalPublishedTaskTest : public ::testing::Test {
     config.num_drivers = 1;
     config.cache_enabled = false;
     auto& runtime = pangrova::jni::NativeEngineLifecycle::instance();
-    runtime.initialize(config);
+    pangrova::jni::initializeVeloxRuntime(config);
     const auto actual = facebook::velox::exec::FunctionRegistrySnapshot::capture();
     const auto prepared = capability::FunctionCatalogAssembler::assemble(
         actual, capability::runtimeCapabilityInventory(*actual));
@@ -60,7 +60,7 @@ class CanonicalPublishedTaskTest : public ::testing::Test {
   void TearDown() override {
     // Test-local outputs/tasks must leave scope before retiring this incarnation.
     registry_.reset();
-    pangrova::jni::NativeEngineLifecycle::instance().shutdown();
+    pangrova::jni::shutdownVeloxRuntime();
     pangrova::test::detail::ensureRuntimeInitialized();
   }
 

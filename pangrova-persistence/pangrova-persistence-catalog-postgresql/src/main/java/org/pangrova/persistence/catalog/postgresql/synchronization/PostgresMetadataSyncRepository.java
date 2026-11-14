@@ -1,5 +1,9 @@
 package org.pangrova.persistence.catalog.postgresql.synchronization;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.persistence.catalog.postgresql.enums.SyncCompletionRelation;
+
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
 import org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException;
@@ -39,7 +43,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
     @Override
     public Optional<MetadataSyncCompletion> findCompletion(UUID runId) {
         try (Connection connection = dataSource.getConnection()) {
-            return SyncCompletionRows.read(connection, runId, SyncCompletionRows.Relation.RECEIPT);
+            return SyncCompletionRows.read(connection, runId, SyncCompletionRelation.RECEIPT);
         } catch (SQLException failure) {
             throw new MetastoreException("Cannot confirm metadata sync completion: " + runId, failure);
         }
@@ -63,7 +67,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
                 commitStarted = true;
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException | RuntimeException failure) {
@@ -102,7 +106,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
                 commitStarted = true;
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException | RuntimeException failure) {
@@ -117,7 +121,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
 
     private static void reserveOrReplay(Connection connection, long observationEpoch, MetadataSyncCompletion completion) throws SQLException {
         if (lockUnlessReplay(connection, completion)) return;
-        var existing = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRows.Relation.INTENT);
+        var existing = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRelation.INTENT);
         if (existing.isPresent()) {
             if (!existing.orElseThrow().equals(completion)) {
                 throw new MetadataSyncConflictException("Metadata sync run ID already has different content");
@@ -134,18 +138,18 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
         if (!CatalogProjectionSql.isCurrentObservation(connection, completion.scope().catalogName(), observationEpoch)) {
             throw new MetadataSyncConflictException("Catalog observation has been superseded");
         }
-        SyncCompletionRows.insert(connection, completion, SyncCompletionRows.Relation.INTENT);
+        SyncCompletionRows.insert(connection, completion, SyncCompletionRelation.INTENT);
     }
 
     private static void applyOrReplay(Connection connection, MetadataSyncCompletion completion) throws SQLException {
         if (lockUnlessReplay(connection, completion)) return;
-        var intent = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRows.Relation.INTENT);
+        var intent = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRelation.INTENT);
         if (intent.isEmpty() || !intent.orElseThrow().equals(completion)) {
             throw new MetadataSyncConflictException("Metadata sync has no matching durable intent");
         }
         SyncIntentJournal.requirePending(connection, completion.runId());
         requireCheckpoint(connection, completion);
-        SyncCompletionRows.insert(connection, completion, SyncCompletionRows.Relation.RECEIPT);
+        SyncCompletionRows.insert(connection, completion, SyncCompletionRelation.RECEIPT);
         if (completion.nextCheckpoint().isPresent()) {
             advance(connection, completion.scope(), completion.nextCheckpoint().orElseThrow());
         }
@@ -168,14 +172,6 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
             throws SQLException {
         if (!readCheckpoint(connection, completion.scope()).equals(completion.expectedCheckpoint())) {
             throw new MetadataSyncConflictException("Metadata sync checkpoint has changed");
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable primary) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error failure) {
-            if (primary != failure) primary.addSuppressed(failure);
         }
     }
 
@@ -207,7 +203,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
 
     private static boolean checkReplay(Connection connection, MetadataSyncCompletion completion) throws SQLException {
         Optional<MetadataSyncCompletion> previous = SyncCompletionRows.read(
-                connection, completion.runId(), SyncCompletionRows.Relation.RECEIPT);
+                connection, completion.runId(), SyncCompletionRelation.RECEIPT);
         if (previous.isPresent() && !previous.get().equals(completion)) {
             throw new MetadataSyncConflictException("Metadata sync run ID already has different content");
         }

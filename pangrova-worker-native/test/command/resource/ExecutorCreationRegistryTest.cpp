@@ -67,7 +67,7 @@ class ExecutorCreationRegistryTest : public ::testing::Test {
     config.io_thread_count = 2;
     config.num_drivers = 1;
     config.cache_enabled = false;
-    NativeEngineLifecycle::instance().initialize(config);
+    initializeVeloxRuntime(config);
 
     const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
     const auto assembled = capability::FunctionCatalogAssembler::assemble(
@@ -93,7 +93,7 @@ class ExecutorCreationRegistryTest : public ::testing::Test {
 
   void TearDown() override {
     HandleRegistry::instance().destroyAll();
-    NativeEngineLifecycle::instance().shutdown();
+    shutdownVeloxRuntime();
     pangrova::test::detail::ensureRuntimeInitialized();
   }
 };

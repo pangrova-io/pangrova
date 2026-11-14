@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.resilience;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -49,7 +50,7 @@ class ResilienceRegistryTest {
                 cb.onError(0, TimeUnit.MILLISECONDS, new RuntimeException("simulated failure"));
             }
             // Circuit should now be OPEN
-            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
             assertThat(cb.tryAcquirePermission()).isFalse();
         }
 
@@ -59,7 +60,7 @@ class ResilienceRegistryTest {
             for (int i = 0; i < 20; i++) {
                 cb.onSuccess(100, TimeUnit.MILLISECONDS);
             }
-            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test

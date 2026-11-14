@@ -1,5 +1,6 @@
 package org.pangrova.planner.api.invocation;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Locale;
@@ -16,14 +17,8 @@ public record AiInvocationPlanHint(
         String invocationId,
         String functionName,
         String modelName,
-        Operation operation,
+        AiInvocationOperation operation,
         boolean mediaInput) {
-
-    public enum Operation {
-        TEXT_GENERATION,
-        MULTIMODAL_GENERATION,
-        EMBEDDING
-    }
 
     public AiInvocationPlanHint {
         invocationId = requireText(invocationId, "invocationId");
@@ -33,7 +28,7 @@ public record AiInvocationPlanHint(
         if (operation == null) {
             throw new IllegalArgumentException("operation must not be null");
         }
-        if (operation == Operation.TEXT_GENERATION && mediaInput) {
+        if (operation == AiInvocationOperation.TEXT_GENERATION && mediaInput) {
             throw new IllegalArgumentException(
                     "text generation cannot declare media input");
         }

@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 /** Durable issuance identity for one SDK preparation call; expiry is never drain evidence. */
@@ -24,7 +26,7 @@ public record SourcePrepareInvocation(String executionId, String fingerprint, St
 
     private static void requireExecutionIdentity(String executionId, String fingerprint, String invocationId) {
         if (executionId == null || executionId.isBlank() || fingerprint == null
-                || !fingerprint.matches("[0-9a-f]{64}") || invocationId == null
+                || !DigestUtils.isSha256Hex(fingerprint) || invocationId == null
                 || !invocationId.matches("[0-9a-f]{32}")) {
             throw new IllegalArgumentException("Incomplete preparation issuance identity");
         }

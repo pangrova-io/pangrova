@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -362,13 +362,13 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             cancelActiveTask(taskId, attempt);
             return;
         }
-        TaskStateMachine.State state = findTaskState(taskId, attempt);
-        if (state == TaskStateMachine.State.FINISHED || state == TaskStateMachine.State.FAILED
-                || state == TaskStateMachine.State.ABANDONED) return;
+        ScheduledTaskState state = findTaskState(taskId, attempt);
+        if (state == ScheduledTaskState.FINISHED || state == ScheduledTaskState.FAILED
+                || state == ScheduledTaskState.ABANDONED) return;
         renewAttemptIfDue(taskId, attempt, now);
     }
 
-    private TaskStateMachine.State findTaskState(
+    private ScheduledTaskState findTaskState(
             String taskId, ActiveAttempt attempt) {
         try {
             return taskTracker.getTaskState(attempt.lease.executionAnchor().executionId(), taskId);
@@ -433,7 +433,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             if (issued == null) throw new IllegalStateException("Cannot seal an unissued artifact attempt: " + taskId);
             var cancelled = taskDispatcher.cancelTask(issued, attempt.worker.host(), attempt.worker.httpPort());
             if (cancelled.isSuccess()) taskTracker.recordExecutionDrain(issued, cancelled.executionDrainReceipt());
-            if (cancelled.status() == org.pangrova.coordinator.scheduler.SchedulerCancelResult.Status.FAILED) {
+            if (cancelled.status() == org.pangrova.coordinator.enums.SchedulerCancellationStatus.FAILED) {
                 LOG.warn("event=artifact_native_cancel_rejected taskId={} deadline={} reason={}",
                         taskId, attempt.lease.expiresAt(), cancelled.errorMessage());
             }

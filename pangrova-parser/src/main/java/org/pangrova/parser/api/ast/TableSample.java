@@ -1,5 +1,7 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.TableSamplingMethod;
+
 import java.util.Optional;
 
 /**
@@ -11,17 +13,8 @@ import java.util.Optional;
  * <p>Example: {@code SELECT * FROM orders TABLESAMPLE BERNOULLI(10) REPEATABLE(42)}
  */
 public record TableSample(
-        SamplingMethod method,
+        TableSamplingMethod method,
         Expression percentage,
         Optional<Expression> seed) {
 
-    /**
-     * Sampling method for TABLESAMPLE clause.
-     */
-    public enum SamplingMethod {
-        /** Row-level sampling: each row independently included with given probability. */
-        BERNOULLI,
-        /** Block-level sampling: entire blocks selected with given probability. */
-        SYSTEM
-    }
 }

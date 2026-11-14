@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.pangrova.coordinator.resilience.degradation.DegradationManager;
-import org.pangrova.coordinator.resilience.degradation.DegradationManager.DegradationLevel;
+import org.pangrova.coordinator.enums.DegradationLevel;
 import org.pangrova.coordinator.resilience.degradation.DegradationThresholds;
 import org.junit.jupiter.api.Test;
 

@@ -6,6 +6,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.server.coordinator.http.request.RequestLimitConfig;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
@@ -16,6 +17,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.util.List;
 
 /**
  * Unit tests for {@link RequestLimitFilter}.
@@ -267,8 +269,12 @@ class RequestLimitFilterTest {
     }
 
     private static void authenticatedInternal(StubRequestContext context) {
-        context.setProperty(AuthenticationFilter.INTERNAL_IDENTITY_PROPERTY,
-                AuthenticationFilter.InternalServiceIdentity.AUTHENTICATED);
+        try (var authentication = new AuthenticationManager(List.of())) {
+            String secret = "internal-filter-test";
+            context.addHeader("Authorization", "Bearer " + secret);
+            new AuthenticationFilter(authentication, secret).filter(context);
+            assertThat(AuthenticationFilter.hasInternalServiceIdentity(context)).isTrue();
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 import org.pangrova.common.api.annotation.Internal;
 
@@ -15,7 +16,7 @@ public record GeneratedValueGenerationPlan(
         artifact = Objects.requireNonNull(artifact, "artifact must not be null");
         modelInvocation = Objects.requireNonNull(
                 modelInvocation, "modelInvocation must not be null");
-        if (modelInvocation.operation() != AiInvocationPlanHint.Operation.EMBEDDING) {
+        if (modelInvocation.operation() != AiInvocationOperation.EMBEDDING) {
             throw new IllegalArgumentException(
                     "generated vector values require an embedding invocation");
         }

@@ -28,5 +28,3 @@ indexing:
   enabled: true
 security:
   enabled: false
-state-store:
-  type: IN_MEMORY

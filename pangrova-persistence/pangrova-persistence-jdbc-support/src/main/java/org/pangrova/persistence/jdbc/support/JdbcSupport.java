@@ -1,5 +1,6 @@
 package org.pangrova.persistence.jdbc.support;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -20,6 +21,18 @@ import static java.util.Objects.requireNonNull;
 public final class JdbcSupport {
 
     private JdbcSupport() {}
+
+    /**
+     * Attempts rollback of the caller's own transaction after an operation fails.
+     * The caller retains the primary failure and still owns connection close.
+     */
+    public static void rollbackAfterFailure(Connection connection, Throwable failure) {
+        try {
+            connection.rollback();
+        } catch (SQLException | RuntimeException | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+        }
+    }
 
     /** Binds canonical PostgreSQL JSON/JSONB text without implicit VARCHAR casts. */
     public static void setJson(PreparedStatement statement, int index, String json)

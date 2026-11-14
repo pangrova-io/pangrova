@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.enums.ReportedTaskState;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.protocol.execution.TaskStatus;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies Task state mapping consistency across all three layers:
- * Protobuf TaskState, SPI TaskStatus.TaskState, and REST DTO state strings.
+ * Protobuf TaskState, SPI ReportedTaskState, and REST DTO state strings.
  *
  * <p>Ensures TaskStateMapper is the single authoritative mapping entry point
  * and that Protobuf TaskState enum values have 1:1 correspondence with SPI TaskState.</p>
@@ -36,7 +36,7 @@ class TaskStateMappingConsistencyTest {
 
     @Test
     void spiTaskState_hasOneToOneCorrespondenceWithProtobuf() {
-        Set<String> spiNames = Arrays.stream(TaskStatus.TaskState.values())
+        Set<String> spiNames = Arrays.stream(ReportedTaskState.values())
                 .map(s -> "TASK_STATE_" + s.name())
                 .collect(Collectors.toSet());
 
@@ -70,21 +70,21 @@ class TaskStateMappingConsistencyTest {
     }
 
     @Test
-    void toSpiState_coversAllSpiValues() {
-        Set<TaskStatus.TaskState> mapped = Arrays.stream(org.pangrova.worker.enums.TaskState.values())
-                .map(TaskStateMapper::toSpiState)
+    void toReportedState_coversAllSpiValues() {
+        Set<ReportedTaskState> mapped = Arrays.stream(org.pangrova.worker.enums.TaskState.values())
+                .map(TaskStateMapper::toReportedState)
                 .collect(Collectors.toSet());
 
         assertThat(mapped)
-                .as("toSpiState must cover all SPI TaskState values")
-                .containsExactlyInAnyOrder(TaskStatus.TaskState.values());
+                .as("toReportedState must cover all SPI TaskState values")
+                .containsExactlyInAnyOrder(ReportedTaskState.values());
     }
 
     @Test
     void fromRestState_roundTripsWithToProtoState() {
-        for (TaskStatus.TaskState spiState : TaskStatus.TaskState.values()) {
+        for (ReportedTaskState spiState : ReportedTaskState.values()) {
             String restName = spiState.name();
-            TaskStatus.TaskState roundTripped = TaskStateMapper.fromRestState(restName);
+            ReportedTaskState roundTripped = TaskStateMapper.fromRestState(restName);
             assertThat(roundTripped)
                     .as("fromRestState(%s) must return the original SPI state", restName)
                     .isEqualTo(spiState);

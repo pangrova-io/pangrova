@@ -2,7 +2,7 @@ package org.pangrova.persistence.table.memory.provider;
 
 import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 import org.pangrova.persistence.table.memory.statistics.InMemoryTableControlStatisticsStore;
-import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.policy.InMemoryTablePolicyRepository;
 import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
 import org.pangrova.persistence.table.api.provider.TableStoreFactory;
 import org.pangrova.persistence.table.api.provider.TableStores;
@@ -12,6 +12,9 @@ import java.util.Optional;
 
 /** Creates memory repositories for one table authority. */
 public final class MemoryTableStoreFactory implements TableStoreFactory {
+    @Override
+    public int apiVersion() { return API_VERSION; }
+
     @Override
     public String identifier() {
         return "memory";
@@ -23,7 +26,7 @@ public final class MemoryTableStoreFactory implements TableStoreFactory {
         return new TableStores(
                 new InMemoryTableControlStore(),
                 new InMemoryTableControlStatisticsStore(),
-                new InMemoryTableControlGovernanceBindingStore(),
+                new InMemoryTablePolicyRepository(),
                 new InMemoryTableControlMaintenanceStore());
     }
 }

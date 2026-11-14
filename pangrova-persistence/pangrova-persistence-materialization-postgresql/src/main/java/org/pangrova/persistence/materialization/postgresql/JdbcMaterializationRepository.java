@@ -1,5 +1,7 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -23,7 +25,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
@@ -124,7 +126,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
             throw MaterializationException.invalidDefinition(
                     "a reclaimed object must keep its logical identity");
         }
-        if (expectedDropped.state() != ObjectState.Dropped.INSTANCE) {
+        if (expectedDropped.state() != ObjectState.DROPPED) {
             throw MaterializationException.invalidDefinition(
                     "only a dropped materialization can be reclaimed");
         }
@@ -148,7 +150,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 statement.setObject(2, replacement.incarnation().value());
                 statement.setLong(3, replacement.definitionRevision());
                 statement.setLong(4, replacement.revision());
-                statement.setString(5, JdbcMaterializationRows.objectStateName(replacement.state()));
+                statement.setString(5, replacement.state().name());
                 statement.setString(6, replacement.definer().name());
                 statement.setString(7, replacement.securityMode().name());
                 statement.setString(8, replacement.refreshMode().name());
@@ -329,7 +331,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 } else {
                     statement.setNull(3, java.sql.Types.OTHER);
                 }
-                statement.setString(4, JdbcMaterializationRows.objectStateName(object.state()));
+                statement.setString(4, object.state().name());
                 statement.setString(5, object.refreshMode().name());
                 if (object.incrementalStrategy().isPresent()) {
                     statement.setString(6, object.incrementalStrategy().orElseThrow().value());
@@ -395,7 +397,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 statement.setLong(6, attempt.baseObjectRevision());
                 JdbcMaterializationRows.bindNullableUuid(statement, 7,
                         attempt.baseGeneration().map(GenerationId::value).orElse(null));
-                statement.setString(8, JdbcMaterializationRows.refreshKindName(attempt.refreshKind()));
+                statement.setString(8, attempt.refreshKind().name());
                 setJson(statement, 9, MaterializationJson.sourceVector(attempt.sourceVector()));
                 statement.setString(10, sourceVectorHash);
                 statement.setString(11, attempt.trigger().name());
@@ -407,7 +409,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 statement.setString(17, attempt.candidateTable().catalog());
                 statement.setString(18, attempt.candidateTable().schema());
                 statement.setString(19, attempt.candidateTable().table());
-                statement.setString(20, JdbcMaterializationRows.attemptStateName(attempt.state()));
+                statement.setString(20, attempt.state().name());
                 statement.setNull(21, java.sql.Types.VARCHAR);
                 setInstant(statement, 22, attempt.createdAt());
                 setInstant(statement, 23, attempt.updatedAt());
@@ -438,10 +440,10 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 statement.setString(8, candidate.physicalTable().catalog());
                 statement.setString(9, candidate.physicalTable().schema());
                 statement.setString(10, candidate.physicalTable().table());
-                statement.setString(11, JdbcMaterializationRows.refreshKindName(candidate.refreshKind()));
+                statement.setString(11, candidate.refreshKind().name());
                 setJson(statement, 12, MaterializationJson.sourceVector(candidate.sourceVector()));
                 statement.setString(13, candidate.sourceVector().canonicalHash());
-                statement.setString(14, JdbcMaterializationRows.generationStateName(candidate.state()));
+                statement.setString(14, candidate.state().name());
                 setInstant(statement, 15, candidate.createdAt());
                 statement.executeUpdate();
             }
@@ -465,7 +467,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE materialization.attempts SET state=?, error_code=?, updated_at=? "
                             + "WHERE attempt_id=? AND state=?")) {
-                statement.setString(1, JdbcMaterializationRows.attemptStateName(attempt.state()));
+                statement.setString(1, attempt.state().name());
                 if (attempt.errorCode().isPresent()) {
                     statement.setString(2, attempt.errorCode().orElseThrow());
                 } else {
@@ -473,17 +475,17 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
                 }
                 setInstant(statement, 3, attempt.updatedAt());
                 statement.setObject(4, attempt.id().value());
-                statement.setString(5, JdbcMaterializationRows.attemptStateName(previous.state()));
+                statement.setString(5, previous.state().name());
                 if (statement.executeUpdate() != 1) {
                     throw MaterializationException.concurrentPublication(
                             "attempt " + attempt.id().value() + " is no longer in state "
-                                    + JdbcMaterializationRows.attemptStateName(previous.state()));
+                                    + previous.state().name());
                 }
             }
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE materialization.generations SET state=?, published_at=? "
                             + "WHERE generation_id=?")) {
-                statement.setString(1, JdbcMaterializationRows.generationStateName(generation.state()));
+                statement.setString(1, generation.state().name());
                 setNullableInstant(statement, 2, generation.publishedAt().orElse(null));
                 statement.setObject(3, generation.id().value());
                 if (statement.executeUpdate() != 1) {
@@ -564,7 +566,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
     @Override
     public boolean collectGeneration(Generation generation, GcLedgerEntry entry,
             MaterializationEvent event, Runnable physicalDrop) {
-        String expectedState = JdbcMaterializationRows.generationStateName(generation.state());
+        String expectedState = generation.state().name();
         return sql.inTransaction("collectGeneration", connection -> {
             String state;
             try (PreparedStatement statement = connection.prepareStatement(
@@ -631,7 +633,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
             try (PreparedStatement statement = connection.prepareStatement(
                     "UPDATE materialization.generations SET state=?, published_at=? "
                             + "WHERE generation_id=?")) {
-                statement.setString(1, JdbcMaterializationRows.generationStateName(generation.state()));
+                statement.setString(1, generation.state().name());
                 setNullableInstant(statement, 2, generation.publishedAt().orElse(null));
                 statement.setObject(3, generation.id().value());
                 if (statement.executeUpdate() != 1) {
@@ -900,7 +902,7 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
     }
 
     @Override
-    public void updateGcDecision(UUID entryId, GcLedgerEntry.GcState state, Instant now) {
+    public void updateGcDecision(UUID entryId, GcState state, Instant now) {
         readerPins.updateGcDecision(entryId, state, now);
     }
 }

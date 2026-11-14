@@ -1,5 +1,7 @@
 package org.pangrova.worker.resource.memory;
 
+import org.pangrova.worker.enums.NativeMemoryEventType;
+
 /**
  * Event reported from Native execution domain to Java control plane.
  *
@@ -15,21 +17,10 @@ package org.pangrova.worker.resource.memory;
  */
 public record NativeMemoryEvent(
         String tenantId,
-        Type type,
+        NativeMemoryEventType type,
         long allocatedBytes,
         long timestampMillis
 ) {
-
-    public enum Type {
-        /** Periodic heartbeat stat report. */
-        STAT,
-        /** Native triggered a spill for this tenant. */
-        SPILL,
-        /** Native shrunk allocation for this tenant. */
-        SHRINK,
-        /** Native encountered OOM for this tenant. */
-        OOM
-    }
 
     public NativeMemoryEvent {
         if (tenantId == null || tenantId.isBlank()) {

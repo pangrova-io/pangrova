@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
 
 import org.apache.calcite.jdbc.CalciteSchema;
@@ -9,7 +10,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
-import org.pangrova.coordinator.query.statement.DdlExecutor;
+import org.pangrova.planner.metadata.TableDeclarationCompiler;
 import org.pangrova.parser.format.AstPrinter;
 import org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;
@@ -35,13 +36,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual SQL, CREATE/CTAS declaration builders and metadata planner, without a substitute connector. */
 class DdlVectorPrecisionChainTest {
     @ParameterizedTest
-    @EnumSource(VectorType.ElementType.class)
-    void createAndCtasPreserveCoordinatePrecisionThroughFinalLogicalDeclaration(VectorType.ElementType element) {
+    @EnumSource(VectorElementType.class)
+    void createAndCtasPreserveCoordinatePrecisionThroughFinalLogicalDeclaration(VectorElementType element) {
         var schema = CalciteSchema.createRootSchema(false);
         var compiler = compiler(schema);
         var create = (CreateTableStatement) compiler.parseToAst(
                 "CREATE TABLE vectors (embedding VECTOR(3," + element.name() + "))");
-        var declaration = DdlExecutor.declaredTableMetadata(new SchemaTableName("default", "vectors"), create);
+        var declaration = TableDeclarationCompiler.compile(new SchemaTableName("default", "vectors"), create);
         assertThat(declaration.typedColumns().get(0).parameterizedType()).isEqualTo(new VectorType(3, element));
         assertThat(declaration.properties()).containsEntry("pangrova.vector.dimension.embedding", "3");
         schema.add("vectors", new MetadataResolvedTable(declaration));
@@ -55,7 +56,7 @@ class DdlVectorPrecisionChainTest {
         assertThat(columns).singleElement().satisfies(column -> assertThat(column.name()).isEqualTo("result"));
         var copiedStatement = new CreateTableStatement(ctas.tableName(), columns, ctas.ifNotExists(),
                 List.of(), List.of(), Optional.empty(), Map.of());
-        var copied = DdlExecutor.declaredTableMetadata(new SchemaTableName("default", "copied"), copiedStatement);
+        var copied = TableDeclarationCompiler.compile(new SchemaTableName("default", "copied"), copiedStatement);
         assertThat(copied.typedColumns().get(0).parameterizedType()).isEqualTo(new VectorType(3, element));
         schema.add("copied", new MetadataResolvedTable(copied));
 
@@ -64,7 +65,7 @@ class DdlVectorPrecisionChainTest {
         assertThat(outputs).singleElement().satisfies(output -> {
             assertThat(output.getColumnIndex()).isZero();
             assertThat(output.getLogicalType()).isEqualTo(VectorLogicalType.create(3,
-                    element == VectorType.ElementType.FLOAT ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64,
+                    element == VectorElementType.FLOAT ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64,
                     true, false));
         });
     }
@@ -75,7 +76,7 @@ class DdlVectorPrecisionChainTest {
         String suffix = " GENERATED ALWAYS AS (AI_EMBED('catalog.embed', body)) EMBEDDING MODE ASYNC)";
         var create = (CreateTableStatement) compiler.parseToAst(
                 "CREATE TABLE docs (body STRING, embedding VECTOR(3)" + suffix);
-        ConnectorTableMetadata declared = DdlExecutor.declaredTableMetadata(
+        ConnectorTableMetadata declared = TableDeclarationCompiler.compile(
                 new SchemaTableName("default", "docs"), create);
         assertThat(GeneratedColumnMetadataCodec.decode(declared.properties()).getDefinitionsList())
                 .singleElement().satisfies(definition ->
@@ -83,7 +84,7 @@ class DdlVectorPrecisionChainTest {
 
         var doubleCreate = (CreateTableStatement) compiler.parseToAst(
                 "CREATE TABLE docs (body STRING, embedding VECTOR(3,DOUBLE)" + suffix);
-        assertThatThrownBy(() -> DdlExecutor.declaredTableMetadata(
+        assertThatThrownBy(() -> TableDeclarationCompiler.compile(
                 new SchemaTableName("default", "docs"), doubleCreate))
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE))
@@ -94,11 +95,11 @@ class DdlVectorPrecisionChainTest {
     void nestedDdlDeclarationAndDefaultFloatPreserveExistingStorageContracts() {
         var create = (CreateTableStatement) new SqlCompiler().parseToAst(
                 "CREATE TABLE nested (default_vec VECTOR(3), vectors ARRAY(VECTOR(3,DOUBLE)))");
-        var declaration = DdlExecutor.declaredTableMetadata(new SchemaTableName("default", "nested"), create);
+        var declaration = TableDeclarationCompiler.compile(new SchemaTableName("default", "nested"), create);
         assertThat(declaration.typedColumns().get(0).parameterizedType())
-                .isEqualTo(new VectorType(3, VectorType.ElementType.FLOAT));
+                .isEqualTo(new VectorType(3, VectorElementType.FLOAT));
         assertThat(declaration.typedColumns().get(1).parameterizedType())
-                .isEqualTo(new ArrayType(new VectorType(3, VectorType.ElementType.DOUBLE)));
+                .isEqualTo(new ArrayType(new VectorType(3, VectorElementType.DOUBLE)));
     }
 
     private static SqlCompiler compiler(CalciteSchema schema) {

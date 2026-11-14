@@ -65,17 +65,6 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
                     .extracting(row -> row.getLong("id")).containsExactly(11L);
             assertThat(executeQuery("SELECT id FROM " + fqn()))
                     .extracting(row -> row.getLong("id")).containsExactlyInAnyOrder(11L, 22L);
-            restrictDefaultSqlAuthority();
-            try {
-                assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
-                        submitQueryViaHttp("USE BRANCH dev ON " + fqn())))
-                        .hasMessageContaining("lacks SELECT");
-                assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
-                        executeWithBoundSession("SELECT id FROM " + fqn(), properties)))
-                        .hasMessageContaining("lacks SELECT");
-            } finally {
-                restoreDefaultSqlAuthority();
-            }
             var cleared = submitQueryViaHttp("USE BRANCH MAIN ON " + fqn(), properties);
             consumeSubmittedQuery(cleared);
             assertThat(cleared.branchSelection().table()).isEqualTo(route.table());

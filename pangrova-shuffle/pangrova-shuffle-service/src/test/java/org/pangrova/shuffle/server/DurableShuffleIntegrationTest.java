@@ -94,7 +94,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    void survivesRestartFencesRetriesDetectsCorruptionAndCleansOrphans() {
+    void survivesRestartFencesRetriesDetectsCorruptionAndCleansOrphans() throws Exception {
         Harness first = openHarness();
         var registration = first.engine.register(registration());
         String shuffleId = registration.getShuffleId();
@@ -137,14 +137,44 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         first.engine.close();
 
         Harness restarted = openHarness();
-        var read = restarted.engine.read(ReadPartitionRequest.newBuilder()
+        var readRequest = ReadPartitionRequest.newBuilder()
                 .setShuffleId(shuffleId).setPartitionId(0).setStartSequence(0)
                 .setConsumerAttempt(consumerAttempt()).setDeadlineEpochMs(
                         System.currentTimeMillis() + 60_000)
                 .setAccessCapability(taskGrant(restarted, registration,
                         consumerAttempt(), org.pangrova.protocol.v2.shuffle
                                 .ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ))
-                .build());
+                .build();
+        try (var transport = new CanonicalShuffleGrpcServer(restarted.engine, config().limits())) {
+            var server = io.grpc.ServerBuilder.forPort(0).addService(transport).build().start();
+            var channel = io.grpc.ManagedChannelBuilder.forAddress("localhost", server.getPort())
+                    .usePlaintext().build();
+            try {
+                var stub = org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc.newBlockingStub(channel)
+                        .withDeadlineAfter(10, java.util.concurrent.TimeUnit.SECONDS);
+                var frames = stub.readPartition(readRequest);
+                assertThat(frames.next().getChunk().getData().toByteArray()).isEqualTo(winnerPayload);
+                assertThat(frames.next().getTerminal().getCommittedLastSequence()).isZero();
+                assertThat(frames.hasNext()).isFalse();
+                // Starting immediately after the final batch yields only the committed terminal.
+                var tail = stub.readPartition(readRequest.toBuilder().setStartSequence(1).build());
+                assertThat(tail.next().hasTerminal()).isTrue();
+                assertThat(tail.hasNext()).isFalse();
+            } finally {
+                channel.shutdownNow().awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
+                server.shutdownNow().awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }
+        var read = restarted.engine.read(readRequest);
+        Harness concurrent = openHarness();
+        try {
+            assertThatThrownBy(() -> concurrent.engine.cleanup(CleanupRequest.newBuilder()
+                    .setQueryId("query-1").setExecutionOwner(owner())
+                    .setAccessCapability(registration.getCleanupCapability()).build()))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("reads are still in progress");
+        } finally {
+            concurrent.engine.close();
+        }
         var page = restarted.engine.readPage(read, 0);
         assertThat(page).hasSize(1);
         assertThat(restarted.engine.readPayload(read, page.get(0))).isEqualTo(winnerPayload);
@@ -157,9 +187,12 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                             java.nio.charset.StandardCharsets.UTF_8)));
         }
         assertThatThrownBy(() -> restarted.engine.readPayload(read, page.get(0)))
-                .isInstanceOf(org.pangrova.shuffle.server.error.ShuffleServiceFailure.class)
+                .isInstanceOf(org.pangrova.shuffle.server.exception.ShuffleServiceException.class)
                 .hasMessageContaining("checksum");
 
+        read.close();
+        assertThatThrownBy(() -> restarted.engine.readPayload(read, page.get(0)))
+                .isInstanceOf(SecurityException.class).hasMessageContaining("closed or expired");
         var cleanup = restarted.engine.cleanup(CleanupRequest.newBuilder()
                 .setQueryId("query-1").setExecutionOwner(owner())
                 .setAccessCapability(registration.getCleanupCapability()).build());
@@ -169,6 +202,41 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .setAccessCapability(registration.getCleanupCapability()).build());
         assertThat(repeatedCleanup.getBytesFreed()).isZero();
         restarted.engine.close();
+    }
+
+    @Test
+    void abandonedReaderBlocksCleanupAcrossRestartOnlyUntilItsDrainWindowEnds() throws Exception {
+        String query = "reader-crash-" + UUID.randomUUID();
+        seedAnchor(query, owner());
+        long until = System.currentTimeMillis() + 60_000;
+        UUID pin;
+        try (var store = PostgresShuffleStore.create(config().database())) {
+            store.register(registerCommand(query, "shuffle-" + query, 1, until));
+            pin = store.pinRead(query, owner(), until, 30_000);
+        }
+        var command = new CleanupCommand(query, owner());
+        var lease = new CleanupLease("reader-test", 100, 200);
+        try (var successor = PostgresShuffleStore.create(config().database());
+                var database = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                        POSTGRES.getPassword());
+                var age = database.prepareStatement("UPDATE shuffle.shuffle_read_pin "
+                        + "SET read_until_ms = 1, protect_until_ms = ? WHERE pin_id = ?")) {
+            age.setObject(2, pin);
+            age.setLong(1, until);
+            assertThat(age.executeUpdate()).isEqualTo(1);
+            assertThatThrownBy(() -> successor.requirePinnedRead(query, owner(), pin))
+                    .isInstanceOf(SecurityException.class);
+            assertThatThrownBy(() -> successor.beginCleanup(command, lease))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("reads are still in progress");
+
+            age.setLong(1, 2);
+            assertThat(age.executeUpdate()).isEqualTo(1);
+            var plan = successor.beginCleanup(command, lease).orElseThrow();
+            assertThatThrownBy(() -> successor.pinRead(query, owner(), until, 30_000))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("not active");
+            successor.completeCleanup(plan);
+            successor.releaseRead(pin);
+        }
     }
 
     @Test

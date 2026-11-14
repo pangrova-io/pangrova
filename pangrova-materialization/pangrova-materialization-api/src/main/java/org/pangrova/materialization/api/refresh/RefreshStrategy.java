@@ -1,9 +1,8 @@
 package org.pangrova.materialization.api.refresh;
 
 import org.pangrova.common.api.annotation.Experimental;
-
-import org.pangrova.materialization.api.domain.RefreshKind;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.connector.api.materialization.ChangeProof;
 

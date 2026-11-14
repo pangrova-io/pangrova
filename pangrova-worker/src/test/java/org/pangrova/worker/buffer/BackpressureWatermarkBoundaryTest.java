@@ -1,7 +1,7 @@
 package org.pangrova.worker.buffer;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.buffer.BackpressureController.Action;
+import org.pangrova.worker.enums.BackpressureAction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -10,7 +10,7 @@ class BackpressureWatermarkBoundaryTest {
     @Test
     void emptyBufferProceedsAtBothFormerWorkerThresholds() {
         assertThat(new BackpressureController(10, 8, 5).checkBackpressure(0).action())
-                .isEqualTo(Action.PROCEED);
+                .isEqualTo(BackpressureAction.PROCEED);
         assertThat(new BackpressureController(10, 8, 5).checkBackpressure(0).delay())
                 .isEqualTo(java.time.Duration.ZERO);
     }
@@ -18,7 +18,7 @@ class BackpressureWatermarkBoundaryTest {
     @Test
     void fullBufferRejectsAtTheFormerThreeBatchBootstrapBoundary() {
         assertThat(new BackpressureController(3, 2, 1).checkBackpressure(3).action())
-                .isEqualTo(Action.REJECT);
+                .isEqualTo(BackpressureAction.REJECT);
         assertThat(new BackpressureController(3, 2, 1).checkBackpressure(3).delay())
                 .isEqualTo(java.time.Duration.ZERO);
     }
@@ -26,7 +26,7 @@ class BackpressureWatermarkBoundaryTest {
     @Test
     void formerWorkerHighWatermarkStillRequiresAPositiveSlowdownDelay() {
         var result = new BackpressureController(10, 5, 3).checkBackpressure(6);
-        assertThat(result.action()).isEqualTo(Action.SLOW_DOWN);
+        assertThat(result.action()).isEqualTo(BackpressureAction.SLOW_DOWN);
         assertThat(result.delay().toMillis()).isGreaterThan(0);
     }
 }

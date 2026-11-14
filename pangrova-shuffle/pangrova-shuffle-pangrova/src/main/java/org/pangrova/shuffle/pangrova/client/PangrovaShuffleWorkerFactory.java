@@ -1,8 +1,8 @@
 package org.pangrova.shuffle.pangrova.client;
 
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.shuffle.api.capability.ShuffleCapability;
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
 import org.pangrova.shuffle.nativewire.NativeShuffleReaders;
 import org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory;

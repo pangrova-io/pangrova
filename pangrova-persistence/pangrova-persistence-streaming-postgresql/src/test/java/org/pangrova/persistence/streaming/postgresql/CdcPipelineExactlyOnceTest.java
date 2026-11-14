@@ -1,5 +1,7 @@
 package org.pangrova.persistence.streaming.postgresql;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.enums.CdcOperation;
@@ -215,7 +217,7 @@ class CdcPipelineExactlyOnceTest extends org.pangrova.testing.testkit.ContainerT
             new CdcQuotaEnforcer(10, 1_000_000),
             new WatermarkTracker(new FakeWatermarkStore()),
             new MaintenanceScheduler(new StubMaintenanceSpi(), MaintenanceConfig.defaults()),
-            new CdcPipelineRuntimeHooks(listener, BackoffStrategy.retry(10, 100), commitCoordinator));
+            new CdcPipelineRuntimeHooks(TestObservability.METRICS, listener, BackoffStrategy.retry(10, 100), commitCoordinator));
     }
 
     private SourceRecord record(String topic, int partition, long offset) {
@@ -388,7 +390,7 @@ class CdcPipelineExactlyOnceTest extends org.pangrova.testing.testkit.ContainerT
             new CdcQuotaEnforcer(10, 1_000_000),
             new WatermarkTracker(new FakeWatermarkStore()),
             new MaintenanceScheduler(new StubMaintenanceSpi(), MaintenanceConfig.defaults()),
-            new CdcPipelineRuntimeHooks(e -> {}, BackoffStrategy.retry(10, 100), null));
+            new CdcPipelineRuntimeHooks(TestObservability.METRICS, e -> {}, BackoffStrategy.retry(10, 100), null));
 
         assertNull(deps.commitCoordinator(),
             "null coordinator in runtime hooks should surface as null commit coordinator");

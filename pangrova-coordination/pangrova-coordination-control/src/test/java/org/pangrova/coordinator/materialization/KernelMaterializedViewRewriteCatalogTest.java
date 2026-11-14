@@ -18,7 +18,7 @@ import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
@@ -193,7 +193,7 @@ class KernelMaterializedViewRewriteCatalogTest {
                 new OutputSchema(List.of(
                         new ColumnDefinition("id", "BIGINT", false, 0),
                         new ColumnDefinition("total", "BIGINT", true, 1))),
-                Set.of(ORDERS), RefreshKind.Full.INSTANCE,
+                Set.of(ORDERS), RefreshKind.FULL,
                 new SourceVector(Map.of(), 1), publishedAt);
     }
 

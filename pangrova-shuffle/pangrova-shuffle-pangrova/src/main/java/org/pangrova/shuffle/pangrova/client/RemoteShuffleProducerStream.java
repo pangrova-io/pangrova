@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.enums.ProducerStreamState;
+
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
 import java.util.HashMap;
@@ -29,7 +31,7 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
     private final CountDownLatch completed = new CountDownLatch(1);
     private final AtomicReference<Throwable> error = new AtomicReference<>();
     private final AtomicReference<WriteBatchResponse> response = new AtomicReference<>();
-    private final AtomicReference<State> state = new AtomicReference<>(State.ACTIVE);
+    private final AtomicReference<ProducerStreamState> state = new AtomicReference<>(ProducerStreamState.ACTIVE);
     private final java.util.concurrent.atomic.AtomicBoolean abortCompleted =
             new java.util.concurrent.atomic.AtomicBoolean();
     private final Map<Integer, PartitionWriteStats> written = new HashMap<>();
@@ -111,22 +113,22 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
     }
 
     synchronized void finish() {
-        if (!state.compareAndSet(State.ACTIVE, State.FINISHING)) {
+        if (!state.compareAndSet(ProducerStreamState.ACTIVE, ProducerStreamState.FINISHING)) {
             throw new IllegalStateException("Remote shuffle writer is terminal");
         }
         requestStream.onCompleted();
         awaitCompletion();
         validateResponse();
-        if (!state.compareAndSet(State.FINISHING, State.FINISHED)) {
+        if (!state.compareAndSet(ProducerStreamState.FINISHING, ProducerStreamState.FINISHED)) {
             throw new RemoteShuffleClientException(
                     "Remote shuffle writer was aborted during completion");
         }
     }
 
     void abort(String reason) {
-        State previous = state.getAndSet(State.ABORTED);
+        ProducerStreamState previous = state.getAndSet(ProducerStreamState.ABORTED);
         try {
-            if (previous != State.FINISHED && !abortCompleted.get()) {
+            if (previous != ProducerStreamState.FINISHED && !abortCompleted.get()) {
                 requestStream.cancel(reason, Status.CANCELLED
                         .withDescription(reason).asRuntimeException());
                 abortCompleted.set(true);
@@ -182,7 +184,7 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
 
             @Override
             public void onCompleted() {
-                if (state.get() == State.ACTIVE) {
+                if (state.get() == ProducerStreamState.ACTIVE) {
                     error.compareAndSet(null, new RemoteShuffleClientException(
                             "Remote shuffle server completed before the producer finished writing"));
                 }
@@ -194,7 +196,7 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
 
     private void awaitReady() {
         synchronized (readinessMonitor) {
-            while (state.get() == State.ACTIVE && error.get() == null && !requestStream.isReady()) {
+            while (state.get() == ProducerStreamState.ACTIVE && error.get() == null && !requestStream.isReady()) {
                 waitUntilReady();
             }
         }
@@ -277,7 +279,7 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
     }
 
     private void requireActive() {
-        if (state.get() != State.ACTIVE) {
+        if (state.get() != ProducerStreamState.ACTIVE) {
             throw new RemoteShuffleClientException(
                     "Remote shuffle writer is terminal");
         }
@@ -306,10 +308,4 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
         }
     }
 
-    private enum State {
-        ACTIVE,
-        FINISHING,
-        FINISHED,
-        ABORTED
-    }
 }

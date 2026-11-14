@@ -1,7 +1,7 @@
 package org.pangrova.common.resilience.policy;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.resilience.policy.ErrorClassifier.ErrorCategory;
+import org.pangrova.common.enums.ErrorCategory;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

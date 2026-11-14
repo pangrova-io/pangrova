@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.worker.governance;
 
+import org.pangrova.ai.worker.exception.MimeTypeNotAllowedException;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Locale;
@@ -140,12 +142,4 @@ public final class MimeTypeValidator {
         return parseWhitelist(allowedTypesStr);
     }
 
-    /**
-     * Exception thrown when a MIME type violates the table's whitelist policy.
-     */
-    public static final class MimeTypeNotAllowedException extends RuntimeException {
-        public MimeTypeNotAllowedException(String message) {
-            super(message);
-        }
-    }
 }

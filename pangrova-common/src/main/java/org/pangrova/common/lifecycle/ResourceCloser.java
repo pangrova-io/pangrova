@@ -46,6 +46,15 @@ public final class ResourceCloser {
         if (failure instanceof Error error) throw error;
     }
 
+    /** Releases an acquired resource when initialization fails, retaining both failures. */
+    public static void closeOnFailure(Throwable failure, AutoCloseable resource) {
+        try {
+            resource.close();
+        } catch (Exception | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+        }
+    }
+
     /**
      * Closes the given resource, silently swallowing any exception.
      *

@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -102,7 +103,7 @@ public final class IcebergMaintenanceProcedures {
      * @throws UnsupportedOperationException for unknown procedure names
      */
     public List<TypedRow> execute(String procedureName, Map<String, String> arguments) {
-        return switch (procedureName.toLowerCase()) {
+        return switch (procedureName.toLowerCase(Locale.ROOT)) {
             case "compact" -> executeCompact(arguments);
             case "expire_snapshots" -> executeExpireSnapshots(arguments);
             case "remove_orphan_files" -> executeRemoveOrphanFiles(arguments);

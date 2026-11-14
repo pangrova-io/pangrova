@@ -93,7 +93,7 @@ class NativeWriterRegistrationTest {
         assertThat(writer).isNotNull();
 
         var descriptor = new org.pangrova.worker.write.WriteDescriptor(
-                org.pangrova.worker.write.WriteDescriptor.DmlOperation.INSERT,
+                org.pangrova.worker.enums.DmlOperation.INSERT,
                 List.of(new org.pangrova.worker.write.WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new org.pangrova.worker.write.WriteDescriptor.ColumnSchema("name", "VARCHAR")),
                 java.util.Map.of("taskId", "native-registration-test"));

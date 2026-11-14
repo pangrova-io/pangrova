@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.sql.Connection;
@@ -24,7 +26,6 @@ import static org.pangrova.shuffle.server.PostgresShuffleRecords.refreshAllocati
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.refreshQueryScopeExpiry;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationIdentity;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationState;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
@@ -124,17 +125,70 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     @Override
     public void requireLiveOwner(String queryId, ExecutionOwnerIdentity owner) {
         transaction(dataSource, connection -> {
-            ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
-            QueryScope scope = lockExistingQueryScope(connection, queryId);
-            if (scope == null) {
-                throw new org.pangrova.shuffle.server.error.ShuffleServiceFailure(
-                        org.pangrova.shuffle.server.error.FailureKind.NOT_FOUND,
-                        "shuffle query scope does not exist");
+            requireActiveOwner(connection, queryId, owner);
+            return null;
+        });
+    }
+
+    private static void requireActiveOwner(Connection connection, String queryId, ExecutionOwnerIdentity owner)
+            throws SQLException {
+        ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
+        QueryScope scope = lockExistingQueryScope(connection, queryId);
+        if (scope == null) {
+            throw new org.pangrova.shuffle.server.exception.ShuffleServiceException(
+                    org.pangrova.shuffle.server.enums.FailureKind.NOT_FOUND,
+                    "shuffle query scope does not exist");
+        }
+        if (!"ACTIVE".equals(scope.state())) {
+            throw new SecurityException("shuffle query scope is not active");
+        }
+        requireSameOwner(scope.owner(), owner);
+    }
+
+    @Override
+    public UUID pinRead(String queryId, ExecutionOwnerIdentity owner, long readUntilMs, long drainMillis) {
+        if (drainMillis <= 0) throw new IllegalArgumentException("read drain timeout must be positive");
+        return transaction(dataSource, connection -> {
+            requireActiveOwner(connection, queryId, owner);
+            requireFutureExpiry(connection, readUntilMs);
+            UUID id = UUID.randomUUID();
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO shuffle_read_pin (pin_id, query_id, read_until_ms, protect_until_ms) VALUES (?, ?, ?, ?)")) {
+                insert.setObject(1, id);
+                insert.setString(2, queryId);
+                insert.setLong(3, readUntilMs);
+                insert.setLong(4, Math.addExact(readUntilMs, drainMillis));
+                insert.executeUpdate();
             }
-            if (!"ACTIVE".equals(scope.state())) {
-                throw new SecurityException("shuffle query scope is not active");
+            return id;
+        });
+    }
+
+    @Override
+    public void requirePinnedRead(String queryId, ExecutionOwnerIdentity owner, UUID id) {
+        transaction(dataSource, connection -> {
+            requireActiveOwner(connection, queryId, owner);
+            try (PreparedStatement check = connection.prepareStatement(
+                    "SELECT 1 FROM shuffle_read_pin WHERE pin_id = ? AND query_id = ? "
+                            + "AND read_until_ms > EXTRACT(EPOCH FROM clock_timestamp()) * 1000")) {
+                check.setObject(1, id);
+                check.setString(2, queryId);
+                try (ResultSet row = check.executeQuery()) {
+                    if (!row.next()) throw new SecurityException("shuffle read pin is closed or expired");
+                }
             }
-            requireSameOwner(scope.owner(), owner);
+            return null;
+        });
+    }
+
+    @Override
+    public void releaseRead(UUID id) {
+        transaction(dataSource, connection -> {
+            try (PreparedStatement delete = connection.prepareStatement(
+                    "DELETE FROM shuffle_read_pin WHERE pin_id = ?")) {
+                delete.setObject(1, id);
+                delete.executeUpdate();
+            }
             return null;
         });
     }
@@ -172,8 +226,8 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             adoptOwnerIfFenced(connection, queryId, scope.owner(), owner);
             Allocation allocation = PostgresShuffleRecords.findAllocation(
                     connection, shuffleId, true).orElseThrow();
-            if (allocation.state() != AllocationState.REGISTERED
-                    && allocation.state() != AllocationState.FINALIZED) {
+            if (allocation.state() != ShuffleAllocationState.REGISTERED
+                    && allocation.state() != ShuffleAllocationState.FINALIZED) {
                 throw new SecurityException("shuffle allocation cannot be finalized");
             }
             refreshAllocationExpiry(connection, shuffleId, expiresAtMs);
@@ -201,7 +255,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
                         connection, shuffleId, true).orElseThrow(
                                 () -> new IllegalArgumentException("shuffle does not exist"));
                 if (!allocation.identity().queryId().equals(queryId)
-                        || allocation.state() == AllocationState.CLEANING) {
+                        || allocation.state() == ShuffleAllocationState.CLEANING) {
                     throw new SecurityException("shuffle allocation does not belong to query");
                 }
                 refreshAllocationExpiry(connection, shuffleId, expiresAtMs);
@@ -234,7 +288,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
                     new AllocationIdentity(
                             shuffleId, command.queryId(), command.stageId(), command.planEpoch()),
                     command.owner(), command.shape(), command.capabilityExpiresAtMs(),
-                    queryScope.cleanupExpiresAtMs(), 0, AllocationState.REGISTERED);
+                    queryScope.cleanupExpiresAtMs(), 0, ShuffleAllocationState.REGISTERED);
         });
     }
     @Override

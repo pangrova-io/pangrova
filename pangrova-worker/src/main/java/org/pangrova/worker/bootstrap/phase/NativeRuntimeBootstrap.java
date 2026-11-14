@@ -38,8 +38,7 @@ public final class NativeRuntimeBootstrap {
         // Task 148: use the shared MemoryArbitrator from refs so native and
         // Java memory accounting share a single unified budget.
         org.pangrova.worker.resource.memory.MemoryArbitrator sharedArbitrator = refs.memoryArbitrator();
-        // Without a bridge, an allocation denial never reaches native reclaim, so
-        // operator spill can only ever be triggered by Velox-internal arbitration.
+        // Ask the Native arbitrator to reclaim operator memory on an allocation denial.
         var spillController = new org.pangrova.worker.memory.NativeSpillController(
                 NativeRuntime::nativeRequestReclaim);
         spillController.setSpillEnabled(isEngineSpillConfigured(config));
@@ -60,7 +59,7 @@ public final class NativeRuntimeBootstrap {
     /**
      * Engine-level spill requires a destination directory; an unset directory
      * leaves spill disabled so native never sees spill_enabled with nowhere to
-     * spill to. Shared by the init config and the Java-side spill bridge so the
+     * spill to. Shared by the init config and the Java-side spill controller so the
      * two cannot disagree.
      */
     private static boolean isEngineSpillConfigured(WorkerBootstrapConfig config) {

@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.enums.MaterializationAction;
 import org.pangrova.materialization.api.enums.MaterializationEventType;
 import org.pangrova.materialization.api.exception.MaterializationException;
@@ -40,7 +40,7 @@ final class MaterializationRemoval {
             }
             throw MaterializationException.notFound(command.object().canonicalName());
         }
-        if (header.state() == ObjectState.Dropped.INSTANCE) {
+        if (header.state() == ObjectState.DROPPED) {
             return;
         }
         authorizer.requireManage(command.object(), command.requester(),
@@ -80,14 +80,14 @@ final class MaterializationRemoval {
     private void dropOne(MaterializationId object, DropMaterialization command) {
         MaterializationObject header = repository.findObject(object)
                 .orElseThrow(() -> MaterializationException.notFound(object.canonicalName()));
-        if (header.state() == ObjectState.Dropped.INSTANCE) {
+        if (header.state() == ObjectState.DROPPED) {
             return;
         }
         schedules.suspendIfActive(object);
         Instant now = clock.now();
         MaterializationObject dropping = header;
-        if (header.state() != ObjectState.Dropping.INSTANCE) {
-            dropping = header.transitionTo(ObjectState.Dropping.INSTANCE, header.revision(), now);
+        if (header.state() != ObjectState.DROPPING) {
+            dropping = header.transitionTo(ObjectState.DROPPING, header.revision(), now);
             repository.updateObject(dropping, header.revision(), command.commandId(),
                     MaterializationEvents.of(MaterializationEventType.OBJECT_ALTERED, object,
                             command.requester(), header.definer(), command.commandId(),

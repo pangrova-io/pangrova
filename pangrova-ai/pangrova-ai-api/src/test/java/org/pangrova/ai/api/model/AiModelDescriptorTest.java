@@ -1,5 +1,7 @@
 package org.pangrova.ai.api.model;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
@@ -96,8 +98,8 @@ class AiModelDescriptorTest {
             }
         }
         var descriptor = model(ENDPOINT, "vault://model", Map.of(), List.of(capability()));
-        assertThat(descriptor.requireCapability(AiCapabilityDescriptor.Operation.EMBEDDING, "1")).isEqualTo(capability());
-        assertThatThrownBy(() -> descriptor.requireCapability(AiCapabilityDescriptor.Operation.EMBEDDING, "2"))
+        assertThat(descriptor.requireCapability(AiOperation.EMBEDDING, "1")).isEqualTo(capability());
+        assertThatThrownBy(() -> descriptor.requireCapability(AiOperation.EMBEDDING, "2"))
                 .isInstanceOf(AiInvocationException.class).hasMessageContaining("does not provide");
     }
 
@@ -107,9 +109,9 @@ class AiModelDescriptorTest {
     }
 
     private static AiCapabilityDescriptor capability() {
-        return new AiCapabilityDescriptor("embedding", "1", AiCapabilityDescriptor.Operation.EMBEDDING,
+        return new AiCapabilityDescriptor("embedding", "1", AiOperation.EMBEDDING,
                 List.of(new AiCapabilityDescriptor.Signature("VECTOR(3)", List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR), Set.of(Modality.TEXT), 1,
+                Set.of(AiExecutionMode.SCALAR), Set.of(Modality.TEXT), 1,
                 new AiCapabilityDescriptor.ResourceLimits(new AiRequestConstraints(1, 0, 1024, 4096),
                         0, 1, 1, 1), true,
                 AiCapabilityDescriptor.RetryPolicy.noRetry(), Set.of());

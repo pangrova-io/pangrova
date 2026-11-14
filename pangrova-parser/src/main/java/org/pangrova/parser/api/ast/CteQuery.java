@@ -1,5 +1,6 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.CteSearchOrder;
 import org.pangrova.parser.api.enums.StatementType;
 
 import java.util.List;
@@ -42,13 +43,10 @@ public record CteQuery(boolean recursive, List<CteDefinition> ctes, Statement bo
         }
     }
 
-    /** Search order for recursive CTE traversal. */
-    public enum SearchOrder { DEPTH_FIRST, BREADTH_FIRST }
-
     /**
      * SEARCH DEPTH FIRST | BREADTH FIRST BY columns SET sequenceColumn.
      */
-    public record SearchClause(SearchOrder order, List<SortItem> orderBy, String sequenceColumn) {
+    public record SearchClause(CteSearchOrder order, List<SortItem> orderBy, String sequenceColumn) {
         public SearchClause {
             orderBy = List.copyOf(orderBy);
         }

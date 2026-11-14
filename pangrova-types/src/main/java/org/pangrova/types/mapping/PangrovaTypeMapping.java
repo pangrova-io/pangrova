@@ -1,5 +1,6 @@
 package org.pangrova.types.mapping;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.NullOnlyType;
@@ -227,8 +228,8 @@ public final class PangrovaTypeMapping {
         String inner = sqlTypeName.substring(openParen + 1, closeParen).strip();
         String[] parts = inner.split(",", 2);
         int dimension = parseDimension(parts[0].strip());
-        VectorType.ElementType elementType = parts.length == 2
-                ? parseElementType(parts[1].strip()) : VectorType.ElementType.FLOAT;
+        VectorElementType elementType = parts.length == 2
+                ? parseElementType(parts[1].strip()) : VectorElementType.FLOAT;
         return new VectorType(dimension, elementType);
     }
 
@@ -240,10 +241,10 @@ public final class PangrovaTypeMapping {
         }
     }
 
-    private static VectorType.ElementType parseElementType(String raw) {
+    private static VectorElementType parseElementType(String raw) {
         return switch (raw.toUpperCase(Locale.ROOT)) {
-            case "FLOAT" -> VectorType.ElementType.FLOAT;
-            case "DOUBLE" -> VectorType.ElementType.DOUBLE;
+            case "FLOAT" -> VectorElementType.FLOAT;
+            case "DOUBLE" -> VectorElementType.DOUBLE;
             default -> throw new IllegalArgumentException(
                     "Unsupported VECTOR element type: " + raw + ". Expected FLOAT or DOUBLE");
         };

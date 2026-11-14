@@ -1,8 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.invalidation;
 
 import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
-
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.control.ai;
 
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -145,7 +147,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
         assertThat(receipt.declaration().hasGeneratedColumns()).isFalse();
         var scope = DeferredAuthorizationScopeCodec.decode(receipt.authorizationScope());
         assertThat(scope.permissions()).containsExactly(new DeferredAuthorizationScope.TablePermission(
-                TABLE, Set.of(), Privilege.INSERT, DeferredAuthorizationScope.ReadMode.NONE,
+                TABLE, Set.of(), Privilege.INSERT, AuthorizedReadMode.NONE,
                 DeferredAuthorizationScope.PolicySnapshot.empty()));
         assertThat(scope.definitionSnapshot().orElseThrow().models()).isEmpty();
         assertThat(grants.revokeGrants(ROLE, Privilege.INSERT, TABLE.catalog(), TABLE.schema(), TABLE.table()))
@@ -174,7 +176,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
     private void createTable(boolean generated) {
         var columns = List.of(new ConnectorTableMetadata.Column("title", PangrovaType.VARCHAR),
                 new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR, OptionalInt.empty(),
-                        new VectorType(3, VectorType.ElementType.FLOAT)));
+                        new VectorType(3, VectorElementType.FLOAT)));
         metadata.createTable(SESSION, new ConnectorTableMetadata(SOURCE,
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns,
                 generated ? GeneratedColumnMetadataCodec.encode(definitions()) : Map.of()));

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import java.util.Optional;
 
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
@@ -100,7 +102,7 @@ class CoordinatorRegistryIntegrationTest {
 
         // After stepDown, the HA service role is STANDBY in memory.
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                .isEqualTo(CoordinatorRole.STANDBY);
 
         // close() will unregister, so let's verify the coordinator is still
         // registered before close and the role can be updated manually.

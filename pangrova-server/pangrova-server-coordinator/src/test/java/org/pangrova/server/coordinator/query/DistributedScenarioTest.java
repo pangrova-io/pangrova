@@ -51,7 +51,7 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 /**
@@ -101,7 +101,7 @@ class DistributedScenarioTest {
                         receiver, queryManager, null, null, null, null, null, null));
         coordinatorServer.start();
         statusReporter = new RemoteTaskStatusReporter(
-                "http://127.0.0.1:" + coordinatorServer.getPort(), TestObservability.TRACING, null);
+                "http://127.0.0.1:" + coordinatorServer.getPort(), TestObservability.TRACING, TestObservability.METRICS, null);
         nativeWorker.deliverReportsTo(statusReporter::report);
     }
 

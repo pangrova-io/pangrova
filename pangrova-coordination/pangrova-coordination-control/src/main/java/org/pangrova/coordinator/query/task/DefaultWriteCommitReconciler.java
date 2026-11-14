@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
@@ -61,19 +63,19 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     }
 
     @Override
-    public RecoveryOutcome reconcile(WriteCommitEntry entry) {
+    public WriteRecoveryOutcome reconcile(WriteCommitEntry entry) {
         Optional<CopyFilePublication> recorded = entry.copyFile() == null
                 ? Optional.empty() : journal.findCopyFilePublication(entry);
         if (isCommittedCopyMissingPublication(entry, recorded)) {
             LOG.error("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
                     + "reason=committed_copy_missing_publication", entry.queryId());
-            return RecoveryOutcome.QUARANTINED;
+            return WriteRecoveryOutcome.QUARANTINED;
         }
         SchemaTableName table = parseTable(entry.tableName());
         if (table == null) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=unparseable_identity", entry.queryId(), entry.tableName());
-            return RecoveryOutcome.QUARANTINED;
+            return WriteRecoveryOutcome.QUARANTINED;
         }
         ConnectorSession session = new RecoveryConnectorSession(
                 entry.catalogName(), table.schema(), entry.tenantId(), entry.principal());
@@ -81,14 +83,14 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         if (catalog == null) {
             LOG.warn("event=write_commit_reconcile queryId={} catalog={} outcome=QUARANTINED "
                     + "reason=unknown_catalog", entry.queryId(), entry.catalogName());
-            return RecoveryOutcome.QUARANTINED;
+            return WriteRecoveryOutcome.QUARANTINED;
         }
         try {
             ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
             var metadata = catalog.getMetadata(session);
             if (recorded.isPresent()) {
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
-                return RecoveryOutcome.COMMITTED;
+                return WriteRecoveryOutcome.COMMITTED;
             }
             RequiredWritePublication.commit(journal, metadata, session, handle, entry);
             if (entry.copyFile() != null) {
@@ -100,11 +102,11 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             }
             LOG.info("event=write_commit_reconciled queryId={} table={} mode={} outcome=COMMITTED",
                     entry.queryId(), table, entry.writeMode());
-            return RecoveryOutcome.COMMITTED;
+            return WriteRecoveryOutcome.COMMITTED;
         } catch (UnsupportedOperationException e) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=connector_cannot_decode", entry.queryId(), table);
-            return RecoveryOutcome.QUARANTINED;
+            return WriteRecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
             if (mayConfirmOrdinaryAbort(entry, e)) {
                 try {
@@ -115,23 +117,23 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                             || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
                         throw new IllegalStateException("Durable abort receipt differs from journal intent");
                     }
-                    return RecoveryOutcome.ABORTED;
+                    return WriteRecoveryOutcome.ABORTED;
                 } catch (RuntimeException barrierFailure) {
                     LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
                             + "reason=source_abort_unconfirmed error={}",
                             entry.queryId(), barrierFailure.toString());
-                    return RecoveryOutcome.QUARANTINED;
+                    return WriteRecoveryOutcome.QUARANTINED;
                 }
             }
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());
-            return RecoveryOutcome.QUARANTINED;
+            return WriteRecoveryOutcome.QUARANTINED;
         }
     }
 
     private static boolean isCommittedCopyMissingPublication(
             WriteCommitEntry entry, Optional<CopyFilePublication> recorded) {
-        return entry.copyFile() != null && entry.state() == WriteCommitEntry.State.COMMITTED
+        return entry.copyFile() != null && entry.state() == WriteCommitState.COMMITTED
                 && recorded.isEmpty();
     }
 

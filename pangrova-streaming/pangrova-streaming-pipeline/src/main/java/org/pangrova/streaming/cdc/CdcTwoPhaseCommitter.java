@@ -14,8 +14,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Stages and publishes one source batch, persists its complete checkpoint, then
- * acknowledges source offsets. Catalog publication and JDBC do not share a
+ * Stages and publishes one source batch and persists its complete checkpoint. Catalog publication and JDBC do not share a
  * transaction: ambiguous catalog outcomes still require durable reconciliation.
  */
 final class CdcTwoPhaseCommitter {
@@ -25,13 +24,16 @@ final class CdcTwoPhaseCommitter {
     private final CdcPipelineConfig config;
     private final CdcPipelineLoopContext deps;
 
-    CdcTwoPhaseCommitter(CdcPipelineConfig config, CdcPipelineLoopContext deps) {
+    private final CdcPipelineMetrics metrics;
+
+    CdcTwoPhaseCommitter(CdcPipelineConfig config, CdcPipelineLoopContext deps, CdcPipelineMetrics metrics) {
+        this.metrics = metrics;
         this.config = config;
         this.deps = deps;
     }
 
-    /** Publishes one complete batch before acknowledging any source offsets. */
-    void commitWithTwoPhaseProtocol(List<CdcEnvelope> envelopes, CdcBatchCheckpoint checkpoint) {
+    /** Returning permits the polling loop to acknowledge the complete batch. */
+    void publish(List<CdcEnvelope> envelopes, CdcBatchCheckpoint checkpoint) {
         CdcCommitCoordinator coordinator = deps.commitCoordinator();
         SourceId source = config.sourceId();
         var write = new TableWriteParticipant(envelopes);
@@ -40,13 +42,10 @@ final class CdcTwoPhaseCommitter {
             LOG.info("event=cdc_batch_dedup_skipped stream={} partitions={}",
                     config.streamName(), checkpoint.ranges().size());
         }
-        // JDBC now records publication and all source ranges. If acknowledgement
-        // fails, restart seeks to this checkpoint without publishing the rows again.
-        deps.sourceReader().commitOffsets(checkpoint.nextOffsets());
     }
 
     /** Estimates the batch size in bytes for quota enforcement accounting. */
-    long estimateBatchBytes(List<CdcEnvelope> envelopes) {
+    static long estimateBatchBytes(List<CdcEnvelope> envelopes) {
         if (envelopes.isEmpty()) {
             return 0L;
         }
@@ -85,7 +84,12 @@ final class CdcTwoPhaseCommitter {
             long estimatedBytes = estimateBatchBytes(envelopes);
             deps.quotaEnforcer().onWriteStart(estimatedBytes);
             try {
-                staged = deps.writeSink().stage(envelopes);
+                long started = System.nanoTime();
+                try {
+                    staged = deps.writeSink().stage(envelopes);
+                } finally {
+                    metrics.recordWriteDuration(System.nanoTime() - started);
+                }
                 if (staged == null) {
                     throw new IllegalStateException(
                             "CdcWriteSink.stage(...) returned null; cannot proceed to 2PC commit");

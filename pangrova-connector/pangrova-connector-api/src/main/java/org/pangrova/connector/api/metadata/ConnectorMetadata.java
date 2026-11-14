@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.api.metadata.BranchCreationOptions;
 import org.pangrova.connector.api.enums.MetadataTableKind;
 import org.pangrova.connector.api.metadata.MetadataTableListing;
@@ -55,7 +56,7 @@ public interface ConnectorMetadata
      */
     default ConnectorTableReadMetadata getTableReadMetadata(ConnectorSession session, ConnectorTableHandle table) {
         return new ConnectorTableReadMetadata(getTableMetadata(session, table),
-                ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
+                TableDeclarationEvidence.UNAVAILABLE);
     }
 
     /**
@@ -67,7 +68,7 @@ public interface ConnectorMetadata
             ConnectorSession session, ConnectorTableHandle table) {
         return new org.pangrova.connector.api.metadata.table.ConnectorReadBinding(table,
                 getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
-                org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.UNVERSIONED,
+                org.pangrova.connector.api.enums.ReadSnapshotState.UNVERSIONED,
                 java.util.OptionalLong.empty(), "", java.util.Optional.empty());
     }
 
@@ -78,8 +79,7 @@ public interface ConnectorMetadata
      */
     default void validateReadBinding(ConnectorSession session,
             org.pangrova.connector.api.metadata.table.ConnectorReadBinding binding) {
-        if (binding.state() != org.pangrova.connector.api.metadata.table.ConnectorReadBinding
-                .SnapshotState.UNVERSIONED) {
+        if (binding.state() != org.pangrova.connector.api.enums.ReadSnapshotState.UNVERSIONED) {
             throw new UnsupportedOperationException("Connector cannot validate selected read evidence");
         }
     }

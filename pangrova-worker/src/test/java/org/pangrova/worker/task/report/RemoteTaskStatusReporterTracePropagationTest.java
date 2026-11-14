@@ -11,7 +11,7 @@ import org.pangrova.observability.api.tracing.TextMapGetter;
 import org.pangrova.observability.api.tracing.TextMapSetter;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.junit.jupiter.api.Test;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 
 /**
  * Validates that RemoteTaskStatusReporter injects trace context into outgoing HTTP headers.
@@ -24,7 +24,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
         RecordingTracingProvider recorder = new RecordingTracingProvider();
         // Port 0 means unreachable — report is best-effort, errors are logged
         try (var reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", recorder, null)) {
+                "http://localhost:0", recorder, TestObservability.METRICS, null)) {
             reporter.report(dummyReport());
 
             assertThat(recorder.injectCalled).isTrue();
@@ -35,7 +35,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
     void report_usesHttpRequestBuilderAsCarrier() {
         RecordingTracingProvider recorder = new RecordingTracingProvider();
         try (var reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", recorder, null)) {
+                "http://localhost:0", recorder, TestObservability.METRICS, null)) {
             reporter.report(dummyReport());
 
             assertThat(recorder.lastSetter).isNotNull();
@@ -45,7 +45,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
     @Test
     void noOpTracingProvider_doesNotThrow() {
         try (var reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", TestObservability.TRACING, null)) {
+                "http://localhost:0", TestObservability.TRACING, TestObservability.METRICS, null)) {
             // Should not throw — best-effort reporting with NoOp tracing
             reporter.report(dummyReport());
         }

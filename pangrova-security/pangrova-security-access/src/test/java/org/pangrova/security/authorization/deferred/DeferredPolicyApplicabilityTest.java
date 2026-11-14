@@ -1,17 +1,13 @@
 package org.pangrova.security.authorization.deferred;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentGrantReader;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentPolicyReader;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
-
-
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
-
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
-
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
-
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -90,10 +86,10 @@ class DeferredPolicyApplicabilityTest extends ContainerTestBase {
         assertThat(rowPolicy ? filter : mask).isPresent();
         var transformed = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("email"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new DeferredAuthorizationScope.PolicySnapshot(filter, Map.of("email", mask))),
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of(), Privilege.ALTER,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
                 Optional.empty());
 
         assertThatThrownBy(() -> requireCurrent(raw)).isInstanceOf(AuthorizationDeniedException.class)

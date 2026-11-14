@@ -1,5 +1,6 @@
 package org.pangrova.ai.http;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 
 import java.net.http.HttpRequest;
@@ -37,7 +38,7 @@ final class AiSingleSendBodyPublisher implements HttpRequest.BodyPublisher {
                 });
         subscriber.onError(
                 new AiInvocationException(
-                        AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                        AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                         false,
                         "HTTP transport attempted an ungoverned entity replay"));
     }

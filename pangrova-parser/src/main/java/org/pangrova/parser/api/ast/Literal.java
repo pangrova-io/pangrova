@@ -1,25 +1,12 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.LiteralType;
 import org.pangrova.parser.api.enums.ExpressionType;
 
 /**
  * Represents a literal value (integer, decimal, string, boolean, null, date, timestamp).
  */
 public record Literal(LiteralValue value, LiteralType literalType) implements Expression {
-
-    public enum LiteralType {
-        INTEGER,
-        DECIMAL,
-        STRING,
-        BOOLEAN,
-        NULL,
-        DATE,
-        TIMESTAMP,
-        TIMESTAMP_WITH_TIME_ZONE,
-        INTERVAL,
-        BINARY_HEX,
-        UUID
-    }
 
     public static Literal ofInteger(long value) {
         return new Literal(new LiteralValue.IntegerValue(value), LiteralType.INTEGER);

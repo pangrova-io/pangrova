@@ -1,5 +1,6 @@
 package org.pangrova.planner.validation;
 
+import org.pangrova.planner.enums.UnsupportedNodeKind;
 import org.pangrova.planner.enums.ValidationStatus;
 
 import io.substrait.expression.Expression;
@@ -130,7 +131,7 @@ public final class SubstraitPlanValidator {
                     unsupportedDetail
                             ? "Extension detail not supported by native engine"
                             : "Rel type not supported by native engine",
-                    depth, UnsupportedNode.Kind.RELATION));
+                    depth, UnsupportedNodeKind.RELATION));
         }
 
         // Validate expressions embedded in this Rel.
@@ -158,7 +159,7 @@ public final class SubstraitPlanValidator {
             unsupported.add(new UnsupportedNode(
                     registryName != null ? registryName : className,
                     "Expression type not supported by native engine",
-                    depth, UnsupportedNode.Kind.EXPRESSION));
+                    depth, UnsupportedNodeKind.EXPRESSION));
         }
 
         // Function-level validation: check if the specific function is supported.
@@ -183,7 +184,7 @@ public final class SubstraitPlanValidator {
             unsupported.add(new UnsupportedNode(
                     functionName,
                     "Function not supported by native engine",
-                    depth, UnsupportedNode.Kind.FUNCTION));
+                    depth, UnsupportedNodeKind.FUNCTION));
         }
     }
 
@@ -351,7 +352,7 @@ public final class SubstraitPlanValidator {
         }
         // Count how many Rel nodes (not expressions) are unsupported.
         long unsupportedRelCount = unsupported.stream()
-                .filter(n -> n.kind() == UnsupportedNode.Kind.RELATION)
+                .filter(n -> n.kind() == UnsupportedNodeKind.RELATION)
                 .count();
         if (totalRelCount > 0 && unsupportedRelCount >= totalRelCount) {
             return new PlanValidationResult(ValidationStatus.JAVA_ONLY, unsupported);

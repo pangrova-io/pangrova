@@ -1,5 +1,7 @@
 package org.pangrova.worker.property.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.jqwik.api.Arbitraries;
@@ -98,7 +100,7 @@ class SchemaInferenceNonConsumptivePropertyTest {
         byte[] batchData = buildIpc(rowCount);
         registry.put(queryId, new OneShotBatch(batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
 
         // Step 1: call getFlightInfo — must NOT consume data
         FlightDescriptor descriptor = FlightDescriptor.command(ticket.serialize());
@@ -122,7 +124,7 @@ class SchemaInferenceNonConsumptivePropertyTest {
         byte[] batchData = buildIpc(rowCount);
         registry.put(queryId, new OneShotBatch(batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
 
         assertThat(received).isNotNull();

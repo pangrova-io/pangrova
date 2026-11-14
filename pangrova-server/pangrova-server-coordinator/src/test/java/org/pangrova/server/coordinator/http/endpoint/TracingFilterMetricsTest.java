@@ -15,7 +15,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.UriInfo;
 
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

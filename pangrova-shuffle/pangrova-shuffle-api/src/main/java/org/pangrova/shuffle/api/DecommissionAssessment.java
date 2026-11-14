@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.api;
 
+import org.pangrova.shuffle.api.enums.DecommissionReadiness;
+
 import java.util.List;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -19,35 +21,17 @@ import java.util.Objects;
  */
 @Experimental(reason = "G-RES-08: decommission assessment for safe scale-down")
 public record DecommissionAssessment(
-        Readiness readiness,
+        DecommissionReadiness readiness,
         List<ShuffleDataRef> ephemeralData,
         long ephemeralBytes) {
 
-    /** Readiness level for worker decommission. */
-    public enum Readiness {
-        /** Inventory coverage, ownership or effective failure guarantee is not established. */
-        UNKNOWN,
-
-        /** Current complete, fenced evidence supports removal; not inferred from retention. */
-        SAFE,
-
-        /** Removal requires a verified drain while admission and evidence remain fenced. */
-        SAFE_WITH_DRAIN,
-
-        /**
-         * Current evidence establishes that selected live outputs cannot survive removal.
-         * Recovery must be authorized and completed, or removal remains blocked.
-         */
-        REQUIRES_RE_EXECUTION
-    }
-
     /** No removal guarantee is established; never interpreted as success or a timed drain. */
     public static final DecommissionAssessment UNKNOWN =
-            new DecommissionAssessment(Readiness.UNKNOWN, List.of(), 0);
+            new DecommissionAssessment(DecommissionReadiness.UNKNOWN, List.of(), 0);
 
     /** Advisory result for implementations that established complete, current evidence. */
     public static final DecommissionAssessment SAFE =
-            new DecommissionAssessment(Readiness.SAFE, List.of(), 0);
+            new DecommissionAssessment(DecommissionReadiness.SAFE, List.of(), 0);
 
     public DecommissionAssessment {
         Objects.requireNonNull(readiness, "readiness must not be null");
@@ -61,16 +45,16 @@ public record DecommissionAssessment(
 
     /** Returns true if the worker can be decommissioned without losing shuffle data. */
     public boolean isSafe() {
-        return readiness == Readiness.SAFE;
+        return readiness == DecommissionReadiness.SAFE;
     }
 
     /** Returns whether the assessment supports removal after the required verified drain. */
     public boolean isSafeWithDrain() {
-        return readiness == Readiness.SAFE || readiness == Readiness.SAFE_WITH_DRAIN;
+        return readiness == DecommissionReadiness.SAFE || readiness == DecommissionReadiness.SAFE_WITH_DRAIN;
     }
 
     /** Returns true if decommission would lose live shuffle data. */
     public boolean requiresReExecution() {
-        return readiness == Readiness.REQUIRES_RE_EXECUTION;
+        return readiness == DecommissionReadiness.REQUIRES_RE_EXECUTION;
     }
 }

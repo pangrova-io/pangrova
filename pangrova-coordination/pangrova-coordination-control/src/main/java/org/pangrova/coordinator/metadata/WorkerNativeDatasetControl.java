@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.connector.api.enums.SourceObjectPurpose;
+import org.pangrova.connector.api.enums.NativeWriteOperation;
+import org.pangrova.connector.api.enums.NativeWritePreparationOutcome;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
@@ -153,7 +156,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             for (var object : batch.objects()) {
                 request.addObjects(org.pangrova.protocol.v2.PreparedSourceObject.newBuilder()
                         .setRelativePath(object.relativePath()).setSizeBytes(object.sizeBytes())
-                        .setPurpose(object.purpose() == SourceObjectPage.Purpose.SOURCE
+                        .setPurpose(object.purpose() == SourceObjectPurpose.SOURCE
                                 ? org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_SOURCE
                                 : org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR));
             }
@@ -219,7 +222,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                         throw new IllegalArgumentException("Prepared candidate has no actual SDK join proof");
                     }
                     return new NativeWritePreparation(
-                            NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                            NativeWritePreparationOutcome.UNKNOWN, java.util.Optional.empty());
                 }
                 if (page != null) {
                     requireIssuedPage(page.objects(), pageIndex, after);
@@ -231,11 +234,11 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             } catch (NativeDatasetControlRpcException uncertain) {
                 LOG.warn("event=native_preparation_unknown queryId={} fingerprint={} page={}",
                         context.executionId(), context.commitFingerprint(), pageIndex, uncertain);
-                return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                return new NativeWritePreparation(NativeWritePreparationOutcome.UNKNOWN, java.util.Optional.empty());
             }
             if (page == null) {
                 return new NativeWritePreparation(
-                        NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                        NativeWritePreparationOutcome.UNKNOWN, java.util.Optional.empty());
             }
             requireOwner(fencer, anchor, context.executionId());
             if (first == null) {
@@ -245,7 +248,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             }
             sourceCatalog.registerObjects(reservation, page.publication(), page.objects());
             if (page.objects().last()) {
-                return new NativeWritePreparation(NativeWritePreparation.Outcome.PREPARED,
+                return new NativeWritePreparation(NativeWritePreparationOutcome.PREPARED,
                         java.util.Optional.of(page.publication()));
             }
             after = page.objects().lastPath();
@@ -372,7 +375,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         }
     }
 
-    private static LanceWriteOperation operation(NativeWriteAllocation.Operation operation) {
+    private static LanceWriteOperation operation(NativeWriteOperation operation) {
         return switch (operation) {
             case CREATE -> LanceWriteOperation.LANCE_WRITE_OPERATION_CREATE;
             case APPEND -> LanceWriteOperation.LANCE_WRITE_OPERATION_APPEND;
@@ -531,10 +534,10 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             throw new IllegalArgumentException("Native metadata requires exact SHA-256 evidence");
         }
     }
-    private static SourceObjectPage.Purpose objectPurpose(org.pangrova.protocol.v2.SourceObjectPurpose value) {
+    private static SourceObjectPurpose objectPurpose(org.pangrova.protocol.v2.SourceObjectPurpose value) {
         return switch (value) {
-            case SOURCE_OBJECT_PURPOSE_SOURCE -> SourceObjectPage.Purpose.SOURCE;
-            case SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR -> SourceObjectPage.Purpose.WINNER_SIDECAR;
+            case SOURCE_OBJECT_PURPOSE_SOURCE -> SourceObjectPurpose.SOURCE;
+            case SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR -> SourceObjectPurpose.WINNER_SIDECAR;
             default -> throw new IllegalArgumentException("SDK object purpose is absent or unknown");
         };
     }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.result;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -114,6 +116,6 @@ class CoordinatorDataProducerNotFoundPropertyTest {
     }
 
     private static DataTicket resultTicket(String queryId) {
-        return new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        return new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
     }
 }

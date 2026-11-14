@@ -1,7 +1,6 @@
 package org.pangrova.shuffle.server;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
-
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
 import java.security.MessageDigest;
@@ -9,6 +8,8 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
+import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
@@ -26,14 +27,12 @@ import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
-import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
-import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
-import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
-import org.pangrova.shuffle.server.error.FailureKind;
-import org.pangrova.shuffle.server.error.ShuffleServiceFailure;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
+import org.pangrova.shuffle.server.enums.FailureKind;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 import org.pangrova.shuffle.transport.CompleteWriteBatch;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
@@ -181,7 +180,7 @@ final class ShuffleServiceEngine implements AutoCloseable {
                 request.getConsumerAttempt(), request.getAccessCapability());
         ShuffleAccessControl.requireConsumerAttempt(allocation, request.getConsumerAttempt());
         if (request.getDeadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceFailure(FailureKind.DEADLINE,
+            throw new ShuffleServiceException(FailureKind.DEADLINE,
                     "shuffle read deadline has expired");
         }
         if (request.getPartitionId() < 0
@@ -191,20 +190,30 @@ final class ShuffleServiceEngine implements AutoCloseable {
         }
         FinalizeResult finalization = lifecycle.findFinalization(request.getShuffleId())
                 .orElseThrow(() -> new IllegalStateException("shuffle is not finalized"));
+        long last = finalization.partitions().stream()
+                .filter(partition -> partition.partitionId() == request.getPartitionId())
+                .findFirst().orElseThrow(() -> new IllegalStateException("finalized partition missing"))
+                .committedLastSequence();
+        if (request.getStartSequence() - 1 > last) {
+            throw new IllegalArgumentException("read start sequence exceeds partition end");
+        }
+        long readUntil = Math.min(request.getDeadlineEpochMs(), request.getAccessCapability().getExpiresAtEpochMs());
+        var pin = lifecycle.pinRead(allocation.identity().queryId(), allocation.owner(), readUntil,
+                config.objectStorage().apiCallTimeout().toMillis());
         return new ReadResult(allocation, finalization,
                 request.getPartitionId(), request.getStartSequence(),
                 request.getDeadlineEpochMs(),
-                request.getAccessCapability().getExpiresAtEpochMs());
+                request.getAccessCapability().getExpiresAtEpochMs(), pin, lifecycle);
     }
 
     List<StoredBatch> readPage(ReadResult result, long offset) {
         requireReadLease(result);
         if (result.deadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceFailure(FailureKind.DEADLINE,
+            throw new ShuffleServiceException(FailureKind.DEADLINE,
                     "shuffle read deadline expired during metadata retrieval");
         }
-        lifecycle.requireLiveOwner(result.allocation().identity().queryId(),
-                result.allocation().owner());
+        lifecycle.requirePinnedRead(result.allocation().identity().queryId(),
+                result.allocation().owner(), result.pin());
         return batches.readFinalizedPage(result.allocation().identity().shuffleId(),
                 result.partitionId(), offset, BATCH_PAGE_SIZE);
     }
@@ -212,11 +221,16 @@ final class ShuffleServiceEngine implements AutoCloseable {
     byte[] readPayload(ReadResult result, StoredBatch batch) {
         requireReadLease(result);
         if (result.deadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceFailure(FailureKind.DEADLINE,
+            throw new ShuffleServiceException(FailureKind.DEADLINE,
                     "shuffle read deadline expired during object retrieval");
         }
-        lifecycle.requireLiveOwner(result.allocation().identity().queryId(),
-                result.allocation().owner());
+        lifecycle.requirePinnedRead(result.allocation().identity().queryId(),
+                result.allocation().owner(), result.pin());
+        // The owner check can block. Recheck time before starting the bounded object GET.
+        requireReadLease(result);
+        if (result.deadlineEpochMs() <= clock.millis()) {
+            throw new ShuffleServiceException(FailureKind.DEADLINE, "shuffle read deadline expired before object GET");
+        }
         byte[] payload = objects.get(batch.objectKey());
         requireDigest(payload, batch.checksum(), "stored batch");
         return payload;
@@ -393,7 +407,7 @@ final class ShuffleServiceEngine implements AutoCloseable {
 
     private static void requireDigest(byte[] payload, byte[] expected, String subject) {
         if (!MessageDigest.isEqual(ShuffleChecksums.sha256(payload), expected)) {
-            throw new ShuffleServiceFailure(FailureKind.CORRUPT,
+            throw new ShuffleServiceException(FailureKind.CORRUPT,
                     subject + " checksum does not match metadata");
         }
     }
@@ -434,5 +448,11 @@ final class ShuffleServiceEngine implements AutoCloseable {
             int partitionId,
             long startSequence,
             long deadlineEpochMs,
-            long capabilityExpiresAtMs) {}
+            long capabilityExpiresAtMs,
+            java.util.UUID pin, ShuffleLifecycleStore owner) implements AutoCloseable {
+        @Override
+        public void close() {
+            owner.releaseRead(pin);
+        }
+    }
 }

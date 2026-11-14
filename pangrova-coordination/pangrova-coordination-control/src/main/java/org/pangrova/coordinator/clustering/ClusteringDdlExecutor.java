@@ -20,6 +20,7 @@ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
 import java.util.List;
 
 /**
@@ -140,7 +141,7 @@ public final class ClusteringDdlExecutor {
             return ClusteringMode.INTERLEAVE;
         }
         try {
-            return ClusteringMode.valueOf(modeStr.toUpperCase());
+            return ClusteringMode.valueOf(modeStr.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Unknown clustering mode: " + modeStr);

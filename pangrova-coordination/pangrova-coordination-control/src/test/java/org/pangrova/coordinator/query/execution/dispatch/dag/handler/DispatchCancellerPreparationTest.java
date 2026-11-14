@@ -1,10 +1,11 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;
 
@@ -20,7 +21,7 @@ class DispatchCancellerPreparationTest {
     private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
     private final org.pangrova.coordinator.scheduler.RemoteTaskDispatcher remote =
             new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
-                    org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(), org.pangrova.testing.testkit.TestObservability.TRACING);
+                    org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(), org.pangrova.testing.testkit.constants.TestObservability.TRACING);
     private final DispatchCanceller canceller = new DispatchCanceller(remote, tracker);
 
     @org.junit.jupiter.api.AfterEach void close() { remote.close(); }
@@ -32,7 +33,7 @@ class DispatchCancellerPreparationTest {
                 .active(WORKER_ID, "localhost", 8080, 8081));
 
         assertThat(tracker.getTaskState(QUERY_ID, TASK_ID))
-                .isEqualTo(TaskStateMachine.State.SCHEDULED);
+                .isEqualTo(ScheduledTaskState.SCHEDULED);
         assertThat(tracker.getTaskRequest(TASK_ID)).isEqualTo(request);
         assertThat(tracker.getWorkerForTask(TASK_ID)).isEqualTo(WORKER_ID);
 
@@ -43,7 +44,7 @@ class DispatchCancellerPreparationTest {
                         new ResultEndpoint("localhost", 9091, "ticket", "grpc")),
                 WORKER_ID);
         assertThat(tracker.getTaskState(QUERY_ID, TASK_ID))
-                .isEqualTo(TaskStateMachine.State.RUNNING);
+                .isEqualTo(ScheduledTaskState.RUNNING);
     }
 
     @Test

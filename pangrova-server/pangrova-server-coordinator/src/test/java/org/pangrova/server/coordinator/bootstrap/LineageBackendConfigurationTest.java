@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.governance.api.enums.LineageDeliveryMode;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageBackendFactory;
@@ -38,7 +40,7 @@ class LineageBackendConfigurationTest {
     }
 
     private record UnopenedFactory(String providerId, int apiVersion) implements LineageBackendFactory {
-        @Override public Delivery delivery() { return Delivery.TRANSIENT; }
+        @Override public LineageDeliveryMode delivery() { return LineageDeliveryMode.TRANSIENT; }
         @Override public LineageBackend create(String namespace) { throw new AssertionError("invalid factory used"); }
     }
 }

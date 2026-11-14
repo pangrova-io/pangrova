@@ -44,6 +44,7 @@ publishing. Release artifacts have distinct names from validation artifacts.
 | Development artifact hygiene | `check-dev-artifacts.sh`, once in lightweight lint; rejects tracked/staged caches and a recreated `docs/internal/` |
 | Java structure and bug patterns | One `verify -Pstatic-analysis`, Checkstyle + SpotBugs/FindSecBugs |
 | Native compilation/tests | Warnings-as-errors + CTest; Linux on runtime PRs, all classifiers for native/boundary/build inputs and protected pushes/releases |
+| Native include dependencies | `check-native-boundaries.sh` rejects file cycles and new directed edges inside cyclic component groups; resolved edges must be removed from the recorded set |
 | Native memory/undefined behavior | ASan + UBSan for native/boundary/build inputs and protected pushes/releases |
 | Production execution | Same-source Bake image, source/image identity, staged JNI/runtime manifest, `native-runtime,full-regression verify` |
 

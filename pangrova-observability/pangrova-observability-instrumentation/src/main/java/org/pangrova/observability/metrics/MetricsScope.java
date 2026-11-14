@@ -1,16 +1,19 @@
 package org.pangrova.observability.metrics;
 
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.function.Supplier;
-import org.pangrova.observability.api.metrics.DoubleHistogram;
-import org.pangrova.observability.api.metrics.LongCounter;
-import org.pangrova.observability.api.metrics.LongUpDownCounter;
-import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
-import org.pangrova.observability.api.metrics.MetricsProvider;
 
 /**
  * Owns gauge registrations created through a borrowed provider. A process or component
@@ -35,10 +38,20 @@ public final class MetricsScope implements MetricsProvider, AutoCloseable {
     public synchronized ObservableDoubleGauge createGauge(
             String name, String description, String unit, Supplier<Double> supplier) {
         requireOpen();
-        var registration = new Registration(Objects.requireNonNull(
-                delegate.createGauge(name, description, unit, supplier), "gauge registration"));
+        return own(delegate.createGauge(name, description, unit, supplier));
+    }
+
+    private ObservableDoubleGauge own(ObservableDoubleGauge gauge) {
+        var registration = new Registration(Objects.requireNonNull(gauge, "gauge registration"));
         registrations.add(registration);
         return registration;
+    }
+
+    @Override
+    public synchronized ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+            MetricAttributes attributes, Supplier<OptionalDouble> sample) {
+        requireOpen();
+        return own(delegate.createObservedGauge(name, description, unit, attributes, sample));
     }
 
     @Override

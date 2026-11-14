@@ -37,7 +37,7 @@ import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchResponse;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.CoordinatorPeerInterceptor;
-import org.pangrova.shuffle.server.error.ShuffleServiceFailure;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 import org.pangrova.shuffle.transport.BatchStreamAssembler;
 import org.pangrova.shuffle.transport.CompleteWriteBatch;
 import org.pangrova.shuffle.transport.RejectedWriteStream;
@@ -174,7 +174,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
             status = Status.PERMISSION_DENIED;
         } else if (failure instanceof IllegalArgumentException) {
             status = Status.INVALID_ARGUMENT;
-        } else if (failure instanceof ShuffleServiceFailure serviceFailure) {
+        } else if (failure instanceof ShuffleServiceException serviceFailure) {
             status = switch (serviceFailure.kind()) {
                 case NOT_FOUND -> Status.NOT_FOUND;
                 case DEADLINE -> Status.DEADLINE_EXCEEDED;

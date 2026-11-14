@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
+import org.pangrova.coordinator.enums.VectorIndexHealthLevel;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.descriptor.IndexDescriptorTransitions;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -83,7 +84,7 @@ public final class VectorIndexHealthAssessor {
             throw new IllegalArgumentException("Not a vector index: " + descriptor.indexType());
         }
         if (descriptor.state() == IndexState.DROPPED) {
-            return new HealthAssessment(descriptor.indexId(), HealthLevel.HEALTHY, 0.0,
+            return new HealthAssessment(descriptor.indexId(), VectorIndexHealthLevel.HEALTHY, 0.0,
                     "Index is dropped", false);
         }
         if (descriptor.state() == IndexState.BUILDING) {
@@ -93,29 +94,29 @@ public final class VectorIndexHealthAssessor {
                         (double) buildAge.toSeconds() / SECONDS_PER_MINUTE, MAX_BUILD_DURATION.toMinutes());
                 LOG.warn("event=vector_index_build_stuck indexId={} buildAgeMin={}",
                         descriptor.indexId(), buildAge.toMinutes());
-                return new HealthAssessment(descriptor.indexId(), HealthLevel.CRITICAL, 1.0, msg, true);
+                return new HealthAssessment(descriptor.indexId(), VectorIndexHealthLevel.CRITICAL, 1.0, msg, true);
             }
-            return new HealthAssessment(descriptor.indexId(), HealthLevel.HEALTHY, 0.0,
+            return new HealthAssessment(descriptor.indexId(), VectorIndexHealthLevel.HEALTHY, 0.0,
                     "Index is currently building", false);
         }
         if (totalDataFiles == 0) {
-            return new HealthAssessment(descriptor.indexId(), HealthLevel.HEALTHY, 0.0,
+            return new HealthAssessment(descriptor.indexId(), VectorIndexHealthLevel.HEALTHY, 0.0,
                     "Table has no data files", false);
         }
 
         long unindexedFiles = totalDataFiles - Math.min(indexedDataFiles, totalDataFiles);
         double stalenessRatio = (double) unindexedFiles / totalDataFiles;
 
-        HealthLevel level;
+        VectorIndexHealthLevel level;
         boolean rebuildRecommended;
         if (stalenessRatio > criticalThreshold) {
-            level = HealthLevel.CRITICAL;
+            level = VectorIndexHealthLevel.CRITICAL;
             rebuildRecommended = true;
         } else if (stalenessRatio > warningThreshold) {
-            level = HealthLevel.WARNING;
+            level = VectorIndexHealthLevel.WARNING;
             rebuildRecommended = false;
         } else {
-            level = HealthLevel.HEALTHY;
+            level = VectorIndexHealthLevel.HEALTHY;
             rebuildRecommended = false;
         }
 
@@ -139,7 +140,7 @@ public final class VectorIndexHealthAssessor {
      */
     public List<HealthAssessment> filterUnhealthy(List<HealthAssessment> assessments) {
         return assessments.stream()
-                .filter(a -> a.level() != HealthLevel.HEALTHY)
+                .filter(a -> a.level() != VectorIndexHealthLevel.HEALTHY)
                 .toList();
     }
 
@@ -152,7 +153,7 @@ public final class VectorIndexHealthAssessor {
      * @return updated descriptor if transitioned, original otherwise
      */
     public IndexDescriptor applyHealthTransition(IndexDescriptor descriptor, HealthAssessment assessment) {
-        if (assessment.level() == HealthLevel.CRITICAL
+        if (assessment.level() == VectorIndexHealthLevel.CRITICAL
                 && descriptor.state() == IndexState.READY) {
             String reason = String.format("Auto-staled: %.1f%% data unindexed (threshold %.0f%%)",
                     assessment.stalenessRatio() * 100, criticalThreshold * 100);
@@ -162,15 +163,9 @@ public final class VectorIndexHealthAssessor {
         return descriptor;
     }
 
-    public enum HealthLevel {
-        HEALTHY,
-        WARNING,
-        CRITICAL
-    }
-
     public record HealthAssessment(
             String indexId,
-            HealthLevel level,
+            VectorIndexHealthLevel level,
             double stalenessRatio,
             String message,
             boolean rebuildRecommended) {

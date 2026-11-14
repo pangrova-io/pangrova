@@ -6,7 +6,7 @@ import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -103,15 +103,15 @@ final class LimitPruningStrategy {
     private static boolean allRowsSatisfyPredicate(
             IndexPredicate predicate, FileColumnStatistics stats) {
         if (predicate instanceof EqualTo eq) {
-            return stats.allRowsSatisfy(ComparisonOp.EQUAL, eq.value());
+            return stats.allRowsSatisfy(ColumnComparisonOperator.EQUAL, eq.value());
         }
         if (predicate instanceof RangeQuery rq) {
             boolean lowerOk = rq.lower() == null || stats.allRowsSatisfy(
-                    rq.lowerInclusive() ? ComparisonOp.GREATER_THAN_OR_EQUAL
-                            : ComparisonOp.GREATER_THAN, rq.lower());
+                    rq.lowerInclusive() ? ColumnComparisonOperator.GREATER_THAN_OR_EQUAL
+                            : ColumnComparisonOperator.GREATER_THAN, rq.lower());
             boolean upperOk = rq.upper() == null || stats.allRowsSatisfy(
-                    rq.upperInclusive() ? ComparisonOp.LESS_THAN_OR_EQUAL
-                            : ComparisonOp.LESS_THAN, rq.upper());
+                    rq.upperInclusive() ? ColumnComparisonOperator.LESS_THAN_OR_EQUAL
+                            : ColumnComparisonOperator.LESS_THAN, rq.upper());
             return lowerOk && upperOk;
         }
         return false;

@@ -9,11 +9,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
+
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.api.adaptive.AdaptiveDecision;
-import org.pangrova.query.api.task.TaskRetryCallback;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
@@ -59,10 +58,33 @@ public final class Stage {
     /** Per-task retry counters for task-level retry before stage-level retry. */
     private final ConcurrentHashMap<String, AtomicInteger> taskRetryCounters =
             new ConcurrentHashMap<>();
-    public static final int MAX_TASK_RETRIES = 3;
-    private volatile TaskRetryCallback taskRetryCallback;
-    /** Callback to cancel all running tasks for this stage before retry. */
-    private volatile Consumer<List<String>> taskCancelCallback;
+    /** Protected by this Stage. State listeners run after this lock is released. */
+    private boolean terminalDecisionClaimed;
+    private boolean clientResultPublished;
+    private boolean replayUnsafeWrite;
+    private boolean consumerAdmitted;
+
+    /** Pins this generation when a consumer begins to bind its issued producer records. */
+    public synchronized boolean admitDownstream() {
+        if (terminalDecisionClaimed && !failedTaskIds.isEmpty()) return false;
+        StageState state = stateMachine.getState();
+        if (state != StageState.RUNNING && state != StageState.FLUSHING && state != StageState.FINISHED) {
+            return false;
+        }
+        if (!exchangeReadyForConsumers()) return false;
+        consumerAdmitted = true;
+        return true;
+    }
+
+    /** A client can already hold this endpoint; transparent retries cannot redirect a Flight stream. */
+    public synchronized void markClientResultPublished() {
+        clientResultPublished = true;
+    }
+
+    /** Previously collected write fragments are keyed by physical attempt. They cannot be replayed as a set. */
+    public synchronized void markWriteAttempt() {
+        replayUnsafeWrite = true;
+    }
 
     public Stage(StageNode plan, StageStateMachine stateMachine, StageRetryPolicy retryPolicy) {
         this.plan = checkNotNull(plan, "plan must not be null");
@@ -78,7 +100,7 @@ public final class Stage {
     }
 
     /** Register a task ID belonging to this Stage. */
-    public void addTaskId(String taskId) {
+    public synchronized void addTaskId(String taskId) {
         checkNotNull(taskId, "taskId must not be null");
         taskIds.add(taskId);
     }
@@ -92,21 +114,7 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFinished(String taskId, int generation) {
-        checkNotNull(taskId, "taskId must not be null");
-        if (generation != attemptGeneration.get()) {
-            return; // stale callback from a previous attempt — discard
-        }
-        if (!taskIds.contains(taskId)) {
-            return; // replaced by a prepared task retry; the replacement owns the slot
-        }
-        finishedTaskIds.add(taskId);
-        failedTaskIds.remove(taskId);
-        if (allTasksFinished()) {
-            stateMachine.tryTransitionTo(StageState.FLUSHING);
-            stateMachine.tryTransitionTo(StageState.FINISHED);
-        } else if (allTasksReported() && !failedTaskIds.isEmpty()) {
-            stateMachine.tryTransitionTo(StageState.FAILED);
-        }
+        applyTaskReport(taskId, generation, true, null);
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -123,18 +131,29 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFailed(String taskId, QueryFailure error, int generation) {
+        applyTaskReport(taskId, generation, false, error);
+    }
+
+    private void applyTaskReport(String taskId, int generation, boolean success, QueryFailure error) {
         checkNotNull(taskId, "taskId must not be null");
-        if (generation != attemptGeneration.get()) {
-            return; // stale callback from a previous attempt — discard
+        boolean allSucceeded;
+        synchronized (this) {
+            if (generation != attemptGeneration.get() || !taskIds.contains(taskId) || terminalDecisionClaimed
+                    || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return;
+            if (success) {
+                finishedTaskIds.add(taskId);
+            } else {
+                failedTaskIds.add(taskId);
+                lastError = error;
+            }
+            if (!allTasksReported()) return;
+            terminalDecisionClaimed = true;
+            allSucceeded = failedTaskIds.isEmpty();
         }
-        if (!taskIds.contains(taskId)) {
-            return; // replaced by a prepared task retry; the replacement owns the slot
-        }
-        failedTaskIds.add(taskId);
-        this.lastError = error;
-        if (allTasksReported()) {
-            // Always transition to FAILED; RetryStageHandler (via DAGDispatchEngine
-            // state listener) will decide whether to retry and reset to PLANNED.
+        // State listeners can retire the query, dispatch the next stage or synchronously retry.
+        if (allSucceeded) {
+            if (stateMachine.tryTransitionTo(StageState.FLUSHING)) stateMachine.tryTransitionTo(StageState.FINISHED);
+        } else {
             stateMachine.tryTransitionTo(StageState.FAILED);
         }
     }
@@ -144,30 +163,16 @@ public final class Stage {
         onTaskFailed(taskId, error, attemptGeneration.get());
     }
 
-    /** Returns true if the Stage can be retried based on its retry policy. */
-    public boolean shouldRetry() {
-        return retryPolicy.canRetry(retryCount.get());
-    }
-
-    /**
-     * Atomically checks retry eligibility and prepares for a new attempt.
-     * Returns true if retry was prepared, false if retry limit is exhausted.
-     * Merges shouldRetry+prepareRetry into a single synchronized operation
-     * to prevent concurrent callers from both seeing canRetry=true and
-     * exceeding maxRetries.
-     *
-     * <p>Cancels all tasks from the previous attempt before clearing state,
-     * preventing stale tasks from continuing to consume Worker resources
-     * or writing to shuffle partitions concurrently with the new attempt.</p>
-     */
-    public synchronized boolean tryPrepareRetry() {
-        if (!retryPolicy.canRetry(retryCount.get())) {
+    /** Advances only a classified failed generation whose output has not been bound to a reader. */
+    public synchronized boolean tryRestartFailedGeneration(int generation, int maxRetries, String expectedErrorCode) {
+        if (clientResultPublished || replayUnsafeWrite || consumerAdmitted
+                || generation != attemptGeneration.get() || stateMachine.getState() != StageState.FAILED
+                || retryCount.get() >= maxRetries || !retryPolicy.canRetry(retryCount.get())
+                || lastError == null || !expectedErrorCode.equals(lastError.errorCode()) || !stateMachine.reset()) {
             return false;
         }
-        // Cancel old tasks before incrementing generation to prevent
-        // concurrent writes from stale and new tasks to the same
-        // shuffle partitions.
-        cancelOldTasks();
+        terminalDecisionClaimed = false;
+        lastError = null;
         retryCount.incrementAndGet();
         attemptGeneration.incrementAndGet();
         finishedTaskIds.clear();
@@ -177,25 +182,12 @@ public final class Stage {
         return true;
     }
 
-    private void cancelOldTasks() {
-        Consumer<List<String>> callback = this.taskCancelCallback;
-        if (callback != null && !taskIds.isEmpty()) {
-            List<String> tasksToCancel = List.copyOf(taskIds);
-            try {
-                callback.accept(tasksToCancel);
-            } catch (Exception e) {
-                LOG.warn("event=cancel_old_tasks_failed stageId={} taskCount={} error={}",
-                        stageId(), tasksToCancel.size(), e.getMessage());
-            }
-        }
-    }
-
     /**
      * Reserves one task slot for a retry of {@code failedTaskId} before the
      * replacement is dispatched. The stage keeps the same size, so a report for
      * the dead task can no longer complete (or fail) the stage prematurely.
      *
-     * <p>Unlike {@link #tryPrepareRetry()} this does not increment the stage
+     * <p>Unlike a whole-stage restart this does not increment the stage
      * generation or clear sibling state: only one logical task is being
      * replaced, not the whole stage. The retry budget follows the lineage by
      * transferring the counter to the new id.</p>
@@ -210,7 +202,8 @@ public final class Stage {
         if (maxRetries < 0) {
             throw new IllegalArgumentException("maxRetries must not be negative");
         }
-        if (!taskIds.contains(failedTaskId)) {
+        if (clientResultPublished || replayUnsafeWrite || terminalDecisionClaimed || stateMachine.isTerminal() || finishedTaskIds.contains(failedTaskId)
+                || failedTaskIds.contains(failedTaskId) || taskIds.contains(retryTaskId) || !taskIds.contains(failedTaskId)) {
             return false;
         }
         AtomicInteger counter = taskRetryCounters.computeIfAbsent(failedTaskId, ignored -> new AtomicInteger());
@@ -229,9 +222,10 @@ public final class Stage {
     }
 
     /** Reverts an uncommitted {@link #tryPrepareTaskRetry} after dispatch failed. */
-    public synchronized void rollbackTaskRetry(String failedTaskId, String retryTaskId) {
-        if (!taskIds.remove(retryTaskId)) {
-            return;
+    public synchronized boolean rollbackTaskRetry(String failedTaskId, String retryTaskId) {
+        if (terminalDecisionClaimed || finishedTaskIds.contains(retryTaskId) || failedTaskIds.contains(retryTaskId)
+                || !taskIds.remove(retryTaskId)) {
+            return false;
         }
         AtomicInteger counter = taskRetryCounters.remove(retryTaskId);
         if (counter != null) {
@@ -239,39 +233,9 @@ public final class Stage {
             taskRetryCounters.put(failedTaskId, counter);
         }
         taskIds.add(failedTaskId);
-        failedTaskIds.add(failedTaskId);
         LOG.info("event=stage_task_retry_rolled_back stageId={} failedTaskId={} retryTaskId={}",
                 stageId(), failedTaskId, retryTaskId);
-    }
-
-    /** Sets the callback for task-level retry dispatch. */
-    public void setTaskRetryCallback(TaskRetryCallback callback) {
-        this.taskRetryCallback = callback;
-    }
-
-    /** Returns the task retry callback, or null if not set. */
-    public TaskRetryCallback taskRetryCallback() {
-        return taskRetryCallback;
-    }
-
-    /**
-     * Sets the callback invoked to cancel all running tasks before a
-     * stage-level retry. The callback receives the list of task IDs
-     * from the previous attempt that should be cancelled on their
-     * respective Workers.
-     */
-    public void setTaskCancelCallback(Consumer<List<String>> callback) {
-        this.taskCancelCallback = callback;
-    }
-
-    /**
-     * Increments and returns the retry count for a specific task.
-     * Thread-safe via ConcurrentHashMap + AtomicInteger.
-     */
-    public int incrementTaskRetryCount(String taskId) {
-        return taskRetryCounters
-                .computeIfAbsent(taskId, k -> new AtomicInteger(0))
-                .incrementAndGet();
+        return true;
     }
 
     /** Returns the current attempt generation for dispatch-time capture. */
@@ -433,10 +397,6 @@ public final class Stage {
 
     public int stageId() {
         return plan.stageId();
-    }
-
-    private boolean allTasksFinished() {
-        return !taskIds.isEmpty() && finishedTaskIds.containsAll(taskIds);
     }
 
     private boolean allTasksReported() {

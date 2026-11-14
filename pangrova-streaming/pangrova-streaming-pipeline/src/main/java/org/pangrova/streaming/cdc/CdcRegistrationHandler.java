@@ -5,7 +5,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.pangrova.streaming.api.cdc.CdcRegistration;
-import org.pangrova.streaming.api.cdc.CdcRegistration.CdcStreamState;
+import org.pangrova.streaming.api.enums.CdcStreamState;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
 
 import java.time.Instant;

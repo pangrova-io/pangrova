@@ -1,5 +1,9 @@
 package org.pangrova.config;
 
+import org.pangrova.config.constants.WorkerOptions;
+
+import org.pangrova.config.constants.CommonOptions;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -201,12 +205,12 @@ class WorkerOptionsTest {
 
     @Test
     void observabilityServiceNameHasNoDefault() {
-        assertThat(WorkerOptions.OBSERVABILITY_SERVICE_NAME.defaultValue()).isNull();
+        assertThat(CommonOptions.OBSERVABILITY_SERVICE_NAME.defaultValue()).isNull();
     }
 
     @Test
     void observabilityOtlpEndpointHasNoDefault() {
-        assertThat(WorkerOptions.OBSERVABILITY_OTLP_ENDPOINT.defaultValue()).isNull();
+        assertThat(CommonOptions.OBSERVABILITY_OTLP_ENDPOINT.defaultValue()).isNull();
     }
 
     // ---- R1.3: Empty config enables feature flags except security ----

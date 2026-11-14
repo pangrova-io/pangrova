@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.resilience.breaker;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,7 +43,7 @@ class CircuitBreakerTest {
         @DisplayName("Initial state is CLOSED")
         void initialStateIsClosed() {
             CircuitBreaker breaker = createBreaker(0.5, 5, 1000, 3);
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test
@@ -69,7 +71,7 @@ class CircuitBreakerTest {
                 breaker.onFailure();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -88,7 +90,7 @@ class CircuitBreakerTest {
                 breaker.onFailure();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test
@@ -99,12 +101,12 @@ class CircuitBreakerTest {
 
             // Before wait duration - should stay OPEN
             assertThat(breaker.allowRequest()).isFalse();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
             // After wait duration - should transition to HALF_OPEN
             clock.advance(Duration.ofMillis(1001));
             assertThat(breaker.allowRequest()).isTrue();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
         }
 
         @Test
@@ -118,7 +120,7 @@ class CircuitBreakerTest {
                 breaker.onSuccess();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test
@@ -129,7 +131,7 @@ class CircuitBreakerTest {
 
             breaker.onFailure();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -138,22 +140,22 @@ class CircuitBreakerTest {
             CircuitBreaker breaker = createBreaker(0.5, 5, 1000, 3);
 
             // Start CLOSED
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
 
             // Transition to OPEN
             transitionToOpen(breaker);
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
             // Transition to HALF_OPEN
             clock.advance(Duration.ofMillis(1001));
             breaker.allowRequest();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
 
             // Transition back to CLOSED
             for (int i = 0; i < 3; i++) {
                 breaker.onSuccess();
             }
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test
@@ -164,11 +166,11 @@ class CircuitBreakerTest {
             transitionToOpen(breaker);
             clock.advance(Duration.ofMillis(1001));
             breaker.allowRequest();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
 
             // Failure in HALF_OPEN returns to OPEN
             breaker.onFailure();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
     }
 
@@ -192,7 +194,7 @@ class CircuitBreakerTest {
                 breaker.onFailure();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -210,7 +212,7 @@ class CircuitBreakerTest {
                 breaker.onSuccess();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test
@@ -224,13 +226,13 @@ class CircuitBreakerTest {
                 breaker.onFailure();
             }
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
 
             // 10th call triggers evaluation
             breaker.allowRequest();
             breaker.onFailure();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -243,13 +245,13 @@ class CircuitBreakerTest {
                 breaker.allowRequest();
                 breaker.onSuccess();
             }
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
 
             // 5th call is a failure - should open (0% threshold)
             breaker.allowRequest();
             breaker.onFailure();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -264,7 +266,7 @@ class CircuitBreakerTest {
             }
 
             // 100% failure rate >= 100% threshold triggers OPEN
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -301,7 +303,7 @@ class CircuitBreakerTest {
             breaker2.onFailure();
 
             // 5 failures, 1 success = 83.3% < 100%
-            assertThat(breaker2.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker2.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
     }
 
@@ -343,7 +345,7 @@ class CircuitBreakerTest {
             breaker.onSuccess();
             breaker.onSuccess();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
 
             // Trigger another cycle
             transitionToOpen(breaker);
@@ -351,7 +353,7 @@ class CircuitBreakerTest {
 
             // Should allow probes again
             assertThat(breaker.allowRequest()).isTrue();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
         }
 
         @Test
@@ -362,12 +364,12 @@ class CircuitBreakerTest {
 
             // Failure returns to OPEN
             breaker.onFailure();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
             // Wait and transition to HALF_OPEN again
             clock.advance(Duration.ofMillis(1001));
             assertThat(breaker.allowRequest()).isTrue();
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
 
             // Should have fresh probe count
             assertThat(breaker.allowRequest()).isTrue();
@@ -414,7 +416,7 @@ class CircuitBreakerTest {
             doneLatch.await(5, TimeUnit.SECONDS);
             executor.shutdown();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         }
 
         @Test
@@ -447,7 +449,7 @@ class CircuitBreakerTest {
             doneLatch.await(5, TimeUnit.SECONDS);
             executor.shutdown();
 
-            assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+            assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
         }
 
         @Test

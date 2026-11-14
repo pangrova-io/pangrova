@@ -366,8 +366,6 @@ coordinator:
     heartbeat-timeout: "30s"
     max-retry: 3
 
-state-store:
-  type: JDBC
 
 metadata:
   enabled: true

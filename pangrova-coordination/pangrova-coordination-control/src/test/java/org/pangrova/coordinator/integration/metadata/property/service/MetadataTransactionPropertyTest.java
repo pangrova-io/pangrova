@@ -7,7 +7,7 @@ import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStor
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSplitManager;
 
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -56,7 +56,7 @@ class MetadataTransactionPropertyTest {
     void beginQueryIsIdempotent(
             @ForAll @AlphaChars @StringLength(min = 1, max = 30) String queryId) {
         CountingConnectorMetadata counting = new CountingConnectorMetadata();
-        DefaultMetadataService service = buildService(counting);
+        CatalogMetadata service = buildService(counting);
         var query = new org.pangrova.coordinator.task.TestConnectorQuery(queryId);
 
         service.beginQuery(query.metadataSession());
@@ -75,7 +75,7 @@ class MetadataTransactionPropertyTest {
     void cleanupQueryIsIdempotent(
             @ForAll @AlphaChars @StringLength(min = 1, max = 30) String queryId) {
         CountingConnectorMetadata counting = new CountingConnectorMetadata();
-        DefaultMetadataService service = buildService(counting);
+        CatalogMetadata service = buildService(counting);
         var query = new org.pangrova.coordinator.task.TestConnectorQuery(queryId);
 
         service.beginQuery(query.metadataSession());
@@ -98,7 +98,7 @@ class MetadataTransactionPropertyTest {
     void cleanupQueryOnUnknownIdIsNoOp(
             @ForAll @AlphaChars @StringLength(min = 1, max = 30) String queryId) {
         CountingConnectorMetadata counting = new CountingConnectorMetadata();
-        DefaultMetadataService service = buildService(counting);
+        CatalogMetadata service = buildService(counting);
         var query = new org.pangrova.coordinator.task.TestConnectorQuery(queryId);
 
         query.seal();
@@ -116,7 +116,7 @@ class MetadataTransactionPropertyTest {
     void queryCanBeRestarted(
             @ForAll @AlphaChars @StringLength(min = 1, max = 30) String queryId) {
         CountingConnectorMetadata counting = new CountingConnectorMetadata();
-        DefaultMetadataService service = buildService(counting);
+        CatalogMetadata service = buildService(counting);
         var query = new org.pangrova.coordinator.task.TestConnectorQuery(queryId);
 
         service.beginQuery(query.metadataSession());
@@ -135,7 +135,7 @@ class MetadataTransactionPropertyTest {
 
     // ── Test infrastructure ──
 
-    private DefaultMetadataService buildService(CountingConnectorMetadata metadata) {
+    private CatalogMetadata buildService(CountingConnectorMetadata metadata) {
         EmptyCatalogDeployments store = new EmptyCatalogDeployments();
         ConnectorHandleFactory chf = desc ->
                 new ConnectorCatalogHandle(desc, new StubConnector(metadata));
@@ -146,7 +146,7 @@ class MetadataTransactionPropertyTest {
         registry.register(descriptor);
         registry.initialize();
 
-        return new DefaultMetadataService(
+        return new CatalogMetadata(
                 registry,
                 new TieredMetadataCache(),
                 new MetadataEventDispatcher(),

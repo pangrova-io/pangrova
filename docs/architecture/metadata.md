@@ -17,9 +17,8 @@ Federation factory providers implement `org.pangrova.metadata.api.catalog.Federa
 
 The generic object-dependency component separates contracts and values in
 `metadata.api.relation`, ordering and policy orchestration in
-`metadata.core.relation`, the in-memory provider in
-`metadata.provider.memory.relation`, and PostgreSQL persistence in
-`metadata.store.jdbc.object`. Both providers use iterative postorder traversal:
+`metadata.relation`, a memory fixture in the Metadata Catalog test sources,
+and PostgreSQL persistence in `persistence.catalog.postgresql.dependency`. Both providers use iterative postorder traversal:
 for an acyclic graph, every dependent precedes every reachable parent, including
 shortcut edges and shared descendants. Revisited nodes are skipped; cyclic input
 terminates without duplication but cannot have a topological order. Cascade
@@ -225,7 +224,7 @@ We follow Apache Gravitino's Catalog Federation approach, with the following sim
 │  This document (07)                    Referenced architecture docs              │
 │  ─────────────                  ──────────────                                   │
 │  MetadataService         ←→    01: Coordinator HA, Shared State Layer            │
-│  CatalogRegistry         ←→    04: Connector Design (ConnectorSPI, PluginManager)│
+│  CatalogRegistry         ←→    04: Connector Design (ConnectorFactory, ConnectorPluginInventory)│
 │  MetadataCache           ←→    09: Cache Layer (Redis)                           │
 │  CatalogFederation       ←→    this doc §3.8 FederatedCatalog SPI (authoritative) │
 │  TenantCatalogBinding    ←→    13: Multi-Tenancy (Namespace Isolation)           │
@@ -599,7 +598,7 @@ public class CatalogRegistry {
 
     private final ConcurrentMap<String, CatalogHandle> catalogs = new ConcurrentHashMap<>();
     private final CatalogStore catalogStore;           // PostgreSQL persistence
-    private final PluginManager pluginManager;         // Connector loading (connectors.md §2.3)
+    private final ConnectorHandleFactory connectorHandleFactory;         // Connector loading (connectors.md §2.3)
     private final CuratorFramework curator;            // ZK synchronization
     private final CatalogHealthMonitor healthMonitor;
 
@@ -698,16 +697,10 @@ public class CatalogRegistry {
 
     /**
      * Load a Connector-backed Catalog
-     * Reuses the ClassLoader isolation mechanism of PluginManager (connectors.md §2.3)
+     * Resolves catalog handles through the role-owned connector inventory (connectors.md §2.3)
      */
     private CatalogHandle loadConnectorCatalog(CatalogDescriptor descriptor) {
-        ConnectorFactory factory = pluginManager.getConnectorFactory(descriptor.getProvider());
-        if (factory == null) {
-            throw new CatalogProviderNotFoundException(descriptor.getProvider());
-        }
-        Connector connector = factory.create(
-            descriptor.getName(), descriptor.getProperties(), createContext());
-        return new ConnectorCatalogHandle(descriptor, connector);
+        return connectorHandleFactory.create(descriptor);
     }
 
     /**
@@ -1053,180 +1046,21 @@ Error category mapping from connector exceptions to Pangrova error model
 | `UnsupportedOperationException` | `NOT_SUPPORTED_ERROR` | No |
 
 
-### 3.5 MetadataCache — Tiered Metadata Cache
+### 3.5 Metadata cache
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                         Metadata Cache Architecture                                                              │
-├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                                                  │
-│  Difference from the data cache (caching.md):                                                             │
-│  • The 08 cache is a data-plane cache (Row Group level, C++ layer, RAM/SSD)                                      │
-│  • This section cache is a control-plane cache (metadata level, Java layer, Caffeine/Redis)                      │
-│                                                                                                                  │
-│  Two-tier cache:                                                                                                 │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐                                │
-│  │                                                                              │                                │
-│  │ ┌─────────────────────┐  Hit                                                 │                                │
-│  │ │  L1: Caffeine       │ ────────────────────► Return Metadata                │                                │
-│  │ │  (JVM-local)        │                                                      │                                │
-│  │ │  TTL: 60s           │                                                      │                                │
-│  │ └──────┬──────────────┘                                                      │                                │
-│  │        │ Miss                                                                │                                │
-│  │        ▼                                                                     │                                │
-│  │ ┌─────────────────────┐  Hit                                                 │                                │
-│  │ │  L2: Redis          │ ──► Fill L1 ────────► Return Metadata                │                                │
-│  │ │  (cross-Coordinator │                                                      │                                │
-│  │ │   shared)           │                                                      │                                │
-│  │ │  TTL: 300s          │                                                      │                                │
-│  │ └──────┬──────────────┘                                                      │                                │
-│  │        │ Miss                                                                │                                │
-│  │        ▼                                                                     │                                │
-│  │ ┌─────────────────────┐                                                      │                                │
-│  │ │  Metastore          │ ──► Fill L2 + L1 ───► Return Metadata                │                                │
-│  │ │  (PostgreSQL)       │                                                      │                                │
-│  │ └──────┬──────────────┘                                                      │                                │
-│  │        │ Miss                                                                │                                │
-│  │        ▼                                                                     │                                │
-│  │ FederatedCatalog (external backend) ──► Fill Metastore + L2 + L1               │                                │
-│  │                                                                              │                                │
-│  └──────────────────────────────────────────────────────────────────────────────┘                                │
-│                                                                                                                  │
-│  Invalidation policy:                                                                                            │
-│  • DDL operations: immediately invalidate L1 + L2 (broadcast via Redis Pub/Sub)                                  │
-│  • Security-policy changes: invalidate the cache of affected tables (see security.md)                         │
-│  • Tenant changes: invalidate the Catalog cache bound to the tenant (see multi-tenancy.md)                    │
-│  • TTL expiry: refresh asynchronously without blocking reads                                                     │
-│                                                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+`MetadataCacheDeployment` selects the Coordinator's L2 provider and creates a bounded Caffeine L1. `PluginFederationHandleFactory` shares this cache with the metadata subsystem. During query planning, a federation handle reads its deployed catalog through `CachingFederatedCatalog`. Synchronization and health checks read the original external catalog. Connector query snapshots and permission checks retain their own authority.
 
+A cache entry identifies the catalog, schema, table and deployment incarnation/revision. Each backend reads a group generation, table generation and serialized value atomically. When a load crosses a table or catalog invalidation, the backend rejects that fill. A replaced deployment has a different variant even if a new catalog reuses its old name. Local L1 eviction and invalidation also remove decoded projections. PostgreSQL's committed invalidation log drives cross-Coordinator L1 eviction. A remote L1 may still serve its prior projection until its poller receives the event or the L1 TTL expires.
 
-```java
-/**
- * Two-tier metadata cache
- *
- * L1: Caffeine (JVM-local, low latency, visible to a single Coordinator)
- * L2: Redis (shared across Coordinators; see distributed.md §3.4)
- *
- * Invalidation broadcast: Redis Pub/Sub ensures L1 is invalidated consistently across all Coordinators
- */
-public class TieredMetadataCache implements MetadataCache {
+| `metadata.cache.l2.provider` | Configuration and ownership |
+|---|---|
+| `disabled` (default) | Uses only local L1. Provider settings must be absent. |
+| `memory` | In-process Caffeine store. Optional `metadata.cache.l2.properties.max-entries` defaults to 50000. Each serialized entry expires after five minutes. |
+| `redis` | Requires `metadata.cache.l2.properties.url` and `metadata.cache.l2.properties.namespace`. Use a unique namespace per independent cluster. A standalone Redis server supports `redis://` and TLS `rediss://`. Jedis is packaged with this provider. Startup checks connectivity. Redis errors propagate to the operation. |
 
-    private final Cache<String, List<String>> schemaCache;     // L1 schema list
-    private final Cache<String, TableMetadata> tableCache;     // L1 table metadata
-    private final RedisTemplate<String, String> redis;         // L2
-    private final ObjectMapper objectMapper;
-    private final MetricsProvider metrics;
+The Java `getStats()` and `getCatalogIndexStats()` methods expose local Caffeine statistics. Redis hit/miss metric exports and a SQL cache statistics system table are pending.
 
-    private static final String CACHE_PREFIX = "pangrova:metadata:";
-    private static final String INVALIDATION_CHANNEL = "pangrova:metadata:invalidation";
-
-    public TieredMetadataCache(MetadataCacheConfig config,
-                                RedisTemplate<String, String> redis,
-                                MetricsProvider metrics) {
-        this.schemaCache = Caffeine.newBuilder()
-            .maximumSize(config.getMaxSize())
-            .expireAfterWrite(config.getTtlSeconds(), TimeUnit.SECONDS)
-            .refreshAfterWrite(config.getRefreshAfterWriteSeconds(), TimeUnit.SECONDS)
-            .recordStats()
-            .build();
-        this.tableCache = Caffeine.newBuilder()
-            .maximumSize(config.getMaxSize())
-            .expireAfterWrite(config.getTtlSeconds(), TimeUnit.SECONDS)
-            .refreshAfterWrite(config.getRefreshAfterWriteSeconds(), TimeUnit.SECONDS)
-            .recordStats()
-            .build();
-        this.redis = redis;
-        this.metrics = metrics;
-
-        // subscribe to invalidation broadcasts
-        subscribeInvalidation();
-    }
-
-    @Override
-    public Optional<TableMetadata> getTable(String catalog, String schema, String table) {
-        String key = buildKey(catalog, schema, table);
-
-        // L1 lookup
-        TableMetadata cached = tableCache.getIfPresent(key);
-        if (cached != null) {
-            metrics.createCounter("metadata.cache.l1.hits", "L1 cache hits", "1").add(1);
-            return Optional.of(cached);
-        }
-
-        // L2 lookup
-        String json = redis.opsForValue().get(CACHE_PREFIX + key);
-        if (json != null) {
-            metrics.createCounter("metadata.cache.l2.hits", "L2 cache hits", "1").add(1);
-            TableMetadata metadata = deserialize(json);
-            tableCache.put(key, metadata);  // backfill L1
-            return Optional.of(metadata);
-        }
-
-        metrics.createCounter("metadata.cache.misses", "Cache misses", "1").add(1);
-        return Optional.empty();
-    }
-
-    @Override
-    public void putTable(String catalog, String schema, String table, TableMetadata metadata) {
-        String key = buildKey(catalog, schema, table);
-        tableCache.put(key, metadata);                                    // L1
-        redis.opsForValue().set(CACHE_PREFIX + key, serialize(metadata),
-            Duration.ofSeconds(300));                                      // L2
-    }
-
-    @Override
-    public void invalidateTable(String catalog, String schema, String table) {
-        String key = buildKey(catalog, schema, table);
-        tableCache.invalidate(key);                                       // L1 local
-        redis.delete(CACHE_PREFIX + key);                                 // L2
-        redis.convertAndSend(INVALIDATION_CHANNEL, key);                  // broadcast to other Coordinators
-    }
-
-    @Override
-    public void invalidateCatalog(String catalog) {
-        // clear all cache under this Catalog
-        String pattern = catalog + ".*";
-        tableCache.asMap().keySet().removeIf(k -> k.startsWith(catalog + "."));
-        schemaCache.invalidate(catalog);
-
-        // Redis: scan and delete
-        Set<String> keys = redis.keys(CACHE_PREFIX + pattern);
-        if (keys != null && !keys.isEmpty()) {
-            redis.delete(keys);
-        }
-        redis.convertAndSend(INVALIDATION_CHANNEL, "catalog:" + catalog);
-    }
-
-    /**
-     * Subscribe to Redis invalidation broadcasts and apply invalidations from other Coordinators to the local L1
-     */
-    private void subscribeInvalidation() {
-        redis.getConnectionFactory().getConnection().subscribe(
-            (message, pattern) -> {
-                String key = new String(message.getBody());
-                if (key.startsWith("catalog:")) {
-                    String catalog = key.substring("catalog:".length());
-                    tableCache.asMap().keySet().removeIf(k -> k.startsWith(catalog + "."));
-                    schemaCache.invalidate(catalog);
-                } else {
-                    tableCache.invalidate(key);
-                }
-            },
-            INVALIDATION_CHANNEL.getBytes());
-    }
-
-    @Override
-    public CacheStats getStats() {
-        com.github.benmanes.caffeine.cache.stats.CacheStats l1Stats = tableCache.stats();
-        return new CacheStats(
-            l1Stats.hitCount(), l1Stats.missCount(),
-            l1Stats.evictionCount(), tableCache.estimatedSize());
-    }
-}
-```
-
+A catalog or table invalidation changes its generation. Obsolete serialized values expire under their original TTL. The Metadata subsystem closes the selected store after catalog use and event dispatch have stopped. A Coordinator closes its own Redis client pool and leaves other Coordinators' entries intact.
 
 ### 3.6 MetadataSyncService — Metadata Synchronization
 
@@ -1532,15 +1366,14 @@ public class MetadataModelConverter {
 /**
  * A source hint for one table. Optional metadata can diagnose a stale change feed.
  */
-public record MetadataChange(ChangeType type, QualifiedTableRef tableRef, TableMetadata metadata) {
-    public enum ChangeType { ADD, UPDATE, DELETE }
-}
+public record MetadataChange(MetadataChangeType type, QualifiedTableRef tableRef, TableMetadata metadata) {}
 
 /**
  * Synchronization result
  */
 public record SyncResult(
     String catalogName,
+    String syncType,
     Instant syncTime,
     int changesApplied,
     int errors,
@@ -1658,7 +1491,7 @@ Pangrova may write, drop, or maintain it.
   releases the source name. An ambiguous connector exception retains the intent and
   reservations until the outcome can be proved.
 - Ownership is checked before the connector is touched: `DdlExecutor` for DROP/ALTER,
-  `DefaultMetadataService` for the REST/metadata path, and `QuerySchedulingEngine` for
+  `CatalogMetadata` for the REST/metadata path, and `QuerySchedulingEngine` for
   distributed DML. Connectors are never asked to infer writability from catalog type.
 - Capabilities are a separate, fail-closed contract. A connector returns `TableCapabilities`
   from `getTableCapabilities`; the default (`TableCapabilities.UNSUPPORTED`) declares nothing,
@@ -1910,13 +1743,6 @@ SELECT * FROM system.metadata.catalog_health;
 -- | iceberg_prod   | ACTIVE   | 2024-06-15T12:30:00Z | 0                    |
 -- | glue_analytics | DEGRADED | 2024-06-15T12:30:00Z | 5                    |
 
--- view cache statistics
-SELECT * FROM system.metadata.cache_stats;
--- output:
--- | level | hits   | misses | evictions | hit_rate | size  |
--- |-------|--------|--------|-----------|----------|-------|
--- | L1    | 125000 | 3200   | 800       | 97.5%    | 8500  |
--- | L2    | 2800   | 400    | 200       | 87.5%    | 9200  |
 ```
 
 ### 6.3 Schema Evolution DDL
@@ -1956,8 +1782,6 @@ All metrics are exposed to Prometheus via the MetricsProvider SPI (see [observab
 |--------|------|------|
 | `pangrova.metadata.cache.l1.hits` | Counter | L1 (Caffeine) cache hits |
 | `pangrova.metadata.cache.l1.misses` | Counter | L1 cache misses |
-| `pangrova.metadata.cache.l2.hits` | Counter | L2 (Redis) cache hits |
-| `pangrova.metadata.cache.l2.misses` | Counter | L2 cache misses |
 | `pangrova.metadata.cache.evictions` | Counter | cache evictions |
 | `pangrova.metadata.cache.size` | Gauge | current number of cache entries |
 | `pangrova.metadata.catalog.health` | Gauge | Catalog health status (1=ACTIVE, 0.5=DEGRADED, 0=DOWN) |
@@ -2062,10 +1886,13 @@ metadata:
 
   # ── Metadata cache ──
   cache:
-    max-size: 10000                                # max number of L1 entries
-    ttl-seconds: 300                               # L2 (Redis) TTL
-    l1-ttl-seconds: 60                             # L1 (Caffeine) TTL
-    refresh-after-write-seconds: 60                # async refresh interval
+    l1-max-size: 10000
+    l1-ttl: 60s
+    l2:
+      provider: redis
+      properties:
+        url: redis://redis:6379
+        namespace: production-a
 
   # ── Metadata sync ──
   sync:
@@ -2236,7 +2063,7 @@ public record ValidationResult(boolean compatible, List<String> errors, List<Str
 │  External backend unreachable (sync)  │ Exponential-backoff retry (3x) │ Log error, skip               │
 │  External backend unreachable (DDL)   │ Throw CatalogBackendException  │ Do not update Metastore       │
 │  Metastore DB connection failure      │ Throw MetastoreException       │ Cache only                    │
-│  Redis connection failure             │ Fall back to L1-only cache     │ Skip L2 read/write            │
+│  Redis connection failure             │ Surface the backend failure   │ Reconnect to configured Redis │
 │  Incompatible schema change           │ Return ValidationResult        │ Do not apply change           │
 │  JSON deserialization failure         │ Throw SerializationException   │ Re-fetch from external backend│
 │  Duplicate Catalog name               │ Throw AlreadyExistsException   │ Keep the existing Catalog     │
@@ -2314,14 +2141,14 @@ Metadata management emits the following spans (see [14 §4](./observability.md) 
 > **FederatedCatalog Authoritative Location**: FederatedCatalog SPI is defined in §3.8 of this document (07). All former references to "11 §6.2" have been corrected to point here. See also [00 §5.1](./overview.md) SPI summary table.
 
 
-> **MetadataService implementation:** `MetadataService` is an interface and
-> `DefaultMetadataService` is its current implementation. The traced decorator in
-> §7.2 is proposed and is not present in the source tree.
+The production implementation of `MetadataService` is `metadata.catalog.CatalogMetadata`. Planner borrows the public interface to enumerate the visible catalogs for its Calcite schema. The installed registry supplies schemas and selected table handles under the authenticated connector session.
+
+`CatalogTableResolution` owns the read cache and `CatalogTableDdl` owns physical DDL and invalidation. `MetadataQueryScopes` accounts for catalog admission and release under the exact issued query authority. Failed cleanup retains that scope for a retry. `CatalogColumnTags` verifies the column type and stable table identity before passing the operation to the Governance-owned bindings.
 
 
 ### Engine creation declarations
 
-`DefaultMetadataService.createTable` forwards typed scalar declarations to connector
+`CatalogMetadata.createTable` forwards typed scalar declarations to connector
 schema builders. DECIMAL uses the supplied precision and scale; VARCHAR retains its
 optional length. Missing/invalid parameters, unknown types and structured declarations
 that the Metadata model cannot represent are rejected before physical creation. The

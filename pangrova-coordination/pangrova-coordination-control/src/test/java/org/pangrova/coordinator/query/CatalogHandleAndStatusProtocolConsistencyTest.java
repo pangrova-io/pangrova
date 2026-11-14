@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
@@ -10,7 +11,6 @@ import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -84,14 +84,14 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
     void runningStateMapsToRunning() {
         CoordinatorTaskTracker tracker = scheduledTask("q1", "t1");
         tracker.updateTaskState("q1", "t1", "RUNNING");
-        assertEquals(TaskStateMachine.State.RUNNING, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.RUNNING, tracker.getTaskState("q1", "t1"));
     }
 
     @Test
     void flushingStateMapsToRunning() {
         CoordinatorTaskTracker tracker = scheduledTask("q1", "t1");
         tracker.updateTaskState("q1", "t1", "FLUSHING");
-        assertEquals(TaskStateMachine.State.RUNNING, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.RUNNING, tracker.getTaskState("q1", "t1"));
     }
 
     @Test
@@ -99,7 +99,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         CoordinatorTaskTracker tracker = scheduledTask("q1", "t1");
         tracker.updateTaskState("q1", "t1", "RUNNING");
         tracker.updateTaskState("q1", "t1", "FINISHED");
-        assertEquals(TaskStateMachine.State.FINISHED, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.FINISHED, tracker.getTaskState("q1", "t1"));
     }
 
     @Test
@@ -107,7 +107,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         CoordinatorTaskTracker tracker = scheduledTask("q1", "t1");
         tracker.updateTaskState("q1", "t1", "RUNNING");
         tracker.updateTaskState("q1", "t1", "FAILED");
-        assertEquals(TaskStateMachine.State.FAILED, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.FAILED, tracker.getTaskState("q1", "t1"));
     }
 
     @Test
@@ -115,7 +115,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         CoordinatorTaskTracker tracker = scheduledTask("q1", "t1");
         tracker.updateTaskState("q1", "t1", "RUNNING");
         tracker.updateTaskState("q1", "t1", "CANCELLED");
-        assertEquals(TaskStateMachine.State.FAILED, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.FAILED, tracker.getTaskState("q1", "t1"));
     }
 
     @Test
@@ -195,7 +195,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         receiver.onTaskStatus(report);
 
-        assertEquals(TaskStateMachine.State.RUNNING, tracker.getTaskState("q1", "t1"));
+        assertEquals(ScheduledTaskState.RUNNING, tracker.getTaskState("q1", "t1"));
     }
 
     @Test

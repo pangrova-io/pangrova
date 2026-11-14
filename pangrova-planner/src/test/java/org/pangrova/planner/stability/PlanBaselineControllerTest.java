@@ -1,5 +1,6 @@
 package org.pangrova.planner.stability;
 
+import org.pangrova.planner.enums.PlanBaselineVerdict;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.PlanResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,7 @@ class PlanBaselineControllerTest {
 
         assertThat(sr.queryHash()).isNotNull().hasSize(64);
         assertThat(sr.observedPlanHash()).isNotNull().hasSize(64);
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.NO_BASELINE);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.NO_BASELINE);
         assertThat(sr.isRegression()).isFalse();
         assertThat(captureRegistry.totalRecorded()).isEqualTo(1);
     }
@@ -61,7 +62,7 @@ class PlanBaselineControllerTest {
         PlanBaselineController.StabilityResult sr =
                 manager.onPlanOptimized("SELECT 1 + 1", result.plan());
 
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.MATCH);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.MATCH);
         assertThat(sr.isRegression()).isFalse();
         assertThat(baselineRegistry.matchCount()).isEqualTo(1);
     }
@@ -78,7 +79,7 @@ class PlanBaselineControllerTest {
         PlanBaselineController.StabilityResult sr =
                 manager.onPlanOptimized("SELECT 1", result.plan());
 
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.MISMATCH);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.MISMATCH);
         assertThat(sr.isRegression()).isTrue();
         assertThat(sr.baselinePlanHash()).isEqualTo("fake-plan-hash-that-wont-match");
         assertThat(baselineRegistry.mismatchCount()).isEqualTo(1);
@@ -113,7 +114,7 @@ class PlanBaselineControllerTest {
                 mgr.onPlanOptimized("SELECT 1", result.plan());
 
         // Even though baseline is set, comparison is skipped
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.NO_BASELINE);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.NO_BASELINE);
         assertThat(sr.isRegression()).isFalse();
         // But capture still works
         assertThat(captureRegistry.totalRecorded()).isEqualTo(1);
@@ -132,7 +133,7 @@ class PlanBaselineControllerTest {
         PlanBaselineController.StabilityResult sr =
                 manager.onPlanOptimized("SELECT 2 + 3", result2.plan());
 
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.MATCH);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.MATCH);
     }
 
     @Test
@@ -197,7 +198,7 @@ class PlanBaselineControllerTest {
         PlanBaselineController.StabilityResult sr =
                 mgr.onPlanOptimized("SELECT 1", result.plan());
 
-        assertThat(sr.verdict()).isEqualTo(PlanBaselineRegistry.Verdict.NO_BASELINE);
+        assertThat(sr.verdict()).isEqualTo(PlanBaselineVerdict.NO_BASELINE);
         assertThat(disabledCapture.totalRecorded()).isZero();
     }
 }

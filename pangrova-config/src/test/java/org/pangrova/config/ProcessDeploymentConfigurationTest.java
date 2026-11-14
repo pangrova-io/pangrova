@@ -1,5 +1,9 @@
 package org.pangrova.config;
 
+import org.pangrova.config.constants.WorkerOptions;
+
+import org.pangrova.config.constants.CoordinatorOptions;
+
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;

@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -392,7 +393,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         // V78 restarts above every legacy cached range and disables sequence caching.
         // Uniqueness alone is insufficient: Workers reject a replacement token below its predecessor.
         String product = connection.getMetaData().getDatabaseProductName();
-        String sql = product != null && product.toLowerCase().contains("h2")
+        String sql = product != null && product.toLowerCase(Locale.ROOT).contains("h2")
                 ? "SELECT NEXT VALUE FOR execution_anchor_token_seq"
                 : "SELECT nextval('execution_anchor_token_seq')";
         try (PreparedStatement statement = connection.prepareStatement(sql);

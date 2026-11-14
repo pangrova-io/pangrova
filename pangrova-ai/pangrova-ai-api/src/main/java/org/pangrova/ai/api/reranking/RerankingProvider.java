@@ -13,12 +13,13 @@
  */
 package org.pangrova.ai.api.reranking;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
-
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.List;
 import java.util.Set;
@@ -58,13 +59,13 @@ public interface RerankingProvider {
         return Set.of(new AiCapabilityDescriptor(
                 "reranking:" + modelName(),
                 modelVersion(),
-                AiCapabilityDescriptor.Operation.RERANKING,
+                AiOperation.RERANKING,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "DOUBLE", List.of("VARCHAR", "VARCHAR"))),
                 Set.of(
-                        AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                        AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC),
                 Set.of(Modality.TEXT),
                 maxBatchSize(),
                 resourceLimits(),

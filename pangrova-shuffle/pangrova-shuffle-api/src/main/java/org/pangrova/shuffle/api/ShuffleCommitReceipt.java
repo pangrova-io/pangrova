@@ -1,8 +1,9 @@
 package org.pangrova.shuffle.api;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
 
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -14,7 +15,6 @@ import org.pangrova.common.api.annotation.Experimental;
 @Experimental(reason = "Exchange publication across providers")
 public record ShuffleCommitReceipt(ShufflePublication publication, int producerCount,
         String producerSetSha256, Map<Integer, Partition> partitions) {
-    private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
 
     public ShuffleCommitReceipt {
         Objects.requireNonNull(publication, "publication");
@@ -42,7 +42,7 @@ public record ShuffleCommitReceipt(ShufflePublication publication, int producerC
     }
 
     private static void requireSha256(String digest) {
-        if (digest == null || !SHA256.matcher(digest).matches()) {
+        if (!DigestUtils.isSha256Hex(digest)) {
             throw new IllegalArgumentException("Expected canonical lowercase SHA-256 hex");
         }
     }

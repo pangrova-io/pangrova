@@ -1,6 +1,7 @@
 package org.pangrova.parser.parse;
 
-
+import org.pangrova.parser.api.enums.WindowFrameBoundType;
+import org.pangrova.parser.api.enums.WindowFrameType;
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.WindowedFunctionCall;
 import org.junit.jupiter.api.Test;
@@ -70,7 +71,7 @@ class NamedWindowAndRangeFrameTest {
         assertThat(q.windowDefinitions()).hasSize(1);
         NamedWindow w = q.windowDefinitions().get(0);
         assertThat(w.frame()).isPresent();
-        assertThat(w.frame().get().frameType()).isEqualTo(WindowSpec.FrameType.ROWS);
+        assertThat(w.frame().get().frameType()).isEqualTo(WindowFrameType.ROWS);
     }
 
     // ── RANGE frame type ──
@@ -89,9 +90,9 @@ class NamedWindowAndRangeFrameTest {
 
         assertThat(wfc.window().frame()).isPresent();
         WindowSpec.WindowFrame frame = wfc.window().frame().get();
-        assertThat(frame.frameType()).isEqualTo(WindowSpec.FrameType.RANGE);
-        assertThat(frame.lowerBound().type()).isEqualTo(WindowSpec.FrameBoundType.UNBOUNDED_PRECEDING);
-        assertThat(frame.upperBound().type()).isEqualTo(WindowSpec.FrameBoundType.CURRENT_ROW);
+        assertThat(frame.frameType()).isEqualTo(WindowFrameType.RANGE);
+        assertThat(frame.lowerBound().type()).isEqualTo(WindowFrameBoundType.UNBOUNDED_PRECEDING);
+        assertThat(frame.upperBound().type()).isEqualTo(WindowFrameBoundType.CURRENT_ROW);
     }
 
     @Test
@@ -107,10 +108,10 @@ class NamedWindowAndRangeFrameTest {
 
         assertThat(wfc.window().frame()).isPresent();
         WindowSpec.WindowFrame frame = wfc.window().frame().get();
-        assertThat(frame.frameType()).isEqualTo(WindowSpec.FrameType.RANGE);
-        assertThat(frame.lowerBound().type()).isEqualTo(WindowSpec.FrameBoundType.EXPR_PRECEDING);
+        assertThat(frame.frameType()).isEqualTo(WindowFrameType.RANGE);
+        assertThat(frame.lowerBound().type()).isEqualTo(WindowFrameBoundType.EXPR_PRECEDING);
         assertThat(frame.lowerBound().offset()).isPresent();
-        assertThat(frame.upperBound().type()).isEqualTo(WindowSpec.FrameBoundType.EXPR_FOLLOWING);
+        assertThat(frame.upperBound().type()).isEqualTo(WindowFrameBoundType.EXPR_FOLLOWING);
         assertThat(frame.upperBound().offset()).isPresent();
     }
 
@@ -127,8 +128,8 @@ class NamedWindowAndRangeFrameTest {
 
         assertThat(wfc.window().frame()).isPresent();
         WindowSpec.WindowFrame frame = wfc.window().frame().get();
-        assertThat(frame.frameType()).isEqualTo(WindowSpec.FrameType.RANGE);
-        assertThat(frame.lowerBound().type()).isEqualTo(WindowSpec.FrameBoundType.EXPR_PRECEDING);
+        assertThat(frame.frameType()).isEqualTo(WindowFrameType.RANGE);
+        assertThat(frame.lowerBound().type()).isEqualTo(WindowFrameBoundType.EXPR_PRECEDING);
         assertThat(frame.lowerBound().offset()).isPresent();
     }
 
@@ -143,9 +144,9 @@ class NamedWindowAndRangeFrameTest {
         assertThat(q.windowDefinitions()).hasSize(1);
         NamedWindow w = q.windowDefinitions().get(0);
         assertThat(w.frame()).isPresent();
-        assertThat(w.frame().get().frameType()).isEqualTo(WindowSpec.FrameType.RANGE);
-        assertThat(w.frame().get().lowerBound().type()).isEqualTo(WindowSpec.FrameBoundType.UNBOUNDED_PRECEDING);
-        assertThat(w.frame().get().upperBound().type()).isEqualTo(WindowSpec.FrameBoundType.UNBOUNDED_FOLLOWING);
+        assertThat(w.frame().get().frameType()).isEqualTo(WindowFrameType.RANGE);
+        assertThat(w.frame().get().lowerBound().type()).isEqualTo(WindowFrameBoundType.UNBOUNDED_PRECEDING);
+        assertThat(w.frame().get().upperBound().type()).isEqualTo(WindowFrameBoundType.UNBOUNDED_FOLLOWING);
     }
 
     // ── Existing ROWS frame still works ──
@@ -163,7 +164,7 @@ class NamedWindowAndRangeFrameTest {
 
         assertThat(wfc.window().frame()).isPresent();
         WindowSpec.WindowFrame frame = wfc.window().frame().get();
-        assertThat(frame.frameType()).isEqualTo(WindowSpec.FrameType.ROWS);
+        assertThat(frame.frameType()).isEqualTo(WindowFrameType.ROWS);
     }
 
     // ── WINDOW clause position (after QUALIFY, before ORDER BY) ──

@@ -1,6 +1,8 @@
 package org.pangrova.metadata.catalog.federation;
 
 import org.pangrova.metadata.api.catalog.FederatedCatalog;
+import org.pangrova.metadata.cache.TieredMetadataCache;
+import org.pangrova.metadata.catalog.handle.CachingFederatedCatalog;
 import org.pangrova.metadata.api.catalog.FederatedCatalogFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -26,8 +28,11 @@ public final class PluginFederationHandleFactory implements FederationHandleFact
 
     private final Map<String, FederatedCatalogFactory> factories;
     private final SecretResolver secretResolver;
+    private final TieredMetadataCache cache;
 
-    public PluginFederationHandleFactory(ClassLoader classLoader, SecretResolver secretResolver) {
+    public PluginFederationHandleFactory(ClassLoader classLoader, SecretResolver secretResolver,
+            TieredMetadataCache cache) {
+        this.cache = Objects.requireNonNull(cache);
         this.secretResolver = Objects.requireNonNull(secretResolver, "secretResolver");
         factories = discoverFactories(classLoader);
     }
@@ -40,7 +45,8 @@ public final class PluginFederationHandleFactory implements FederationHandleFact
         FederatedCatalog adapter = Objects.requireNonNull(factory.create(resolvedProps),
                 "Federated catalog provider returned null: " + provider);
         LOG.info("event=federation_catalog_created catalog={} provider={}", descriptor.name(), provider);
-        return new FederationCatalogHandle(descriptor, adapter);
+        return new FederationCatalogHandle(descriptor, adapter, new CachingFederatedCatalog(
+                adapter, cache, descriptor.identity()));
     }
 
     private Map<String, String> resolveProperties(Map<String, String> properties) {

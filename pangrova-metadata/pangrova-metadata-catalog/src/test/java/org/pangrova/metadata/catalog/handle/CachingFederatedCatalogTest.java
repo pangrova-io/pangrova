@@ -32,7 +32,7 @@ class CachingFederatedCatalogTest {
     void setUp() {
         backing = new CountingFederatedCatalog();
         cache = new TieredMetadataCache();
-        caching = new CachingFederatedCatalog(backing, cache, "fed_cat");
+        caching = new CachingFederatedCatalog(backing, cache, new org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity("fed_cat", "incarnation", 1));
     }
 
     @Test

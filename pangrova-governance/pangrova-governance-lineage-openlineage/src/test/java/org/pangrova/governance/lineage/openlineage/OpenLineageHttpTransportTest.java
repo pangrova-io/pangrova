@@ -1,5 +1,6 @@
 package org.pangrova.governance.lineage.openlineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 
@@ -33,7 +34,7 @@ class OpenLineageHttpTransportTest {
     static void closeReferenceBackend() { if (backend != null) backend.close(); }
 
     private static LineageEvent event(String runId) {
-        return new LineageEvent(LineageEvent.EventType.START, runId, "pangrova-query", "SELECT 1",
+        return new LineageEvent(LineageEventType.START, runId, "pangrova-query", "SELECT 1",
                 List.of(new DatasetRef("pangrova", "db.t_in", List.of())),
                 List.of(new DatasetRef("pangrova", "db.t_out", List.of())),
                 Map.of(), Instant.now());

@@ -1,5 +1,6 @@
 package org.pangrova.parser.lexical;
 
+import org.pangrova.parser.api.enums.KeywordCategory;
 import org.pangrova.parser.api.enums.SqlDialect;
 
 import java.util.Collections;
@@ -11,7 +12,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
- * Classifies SQL keywords as {@link Category#RESERVED} or {@link Category#NON_RESERVED}
+ * Classifies SQL keywords as {@link KeywordCategory#RESERVED} or {@link KeywordCategory#NON_RESERVED}
  * according to the Pangrova SQL grammar ({@code PangrovaSql.g4}).
  *
  * <h3>Terminology</h3>
@@ -41,25 +42,6 @@ import java.util.stream.Collectors;
  */
 public final class ReservedWordPolicy {
 
-    /**
-     * Keyword classification.
-     */
-    public enum Category {
-        /**
-         * The keyword is reserved: it cannot be used as an unquoted identifier.
-         * Must be quoted (double-quotes or backticks, per dialect) to use as an
-         * identifier.
-         */
-        RESERVED,
-
-        /**
-         * The keyword is non-reserved: it is recognized as a keyword in certain
-         * syntactic positions but can also be used as an unquoted identifier
-         * without quoting.
-         */
-        NON_RESERVED
-    }
-
     /** Singleton instance — the keyword classification is derived from the grammar. */
     public static final ReservedWordPolicy INSTANCE = new ReservedWordPolicy();
 
@@ -80,7 +62,7 @@ public final class ReservedWordPolicy {
     private static final Set<String> NON_RESERVED_WORDS;
 
     /** Combined map: keyword (upper-case) -> category. */
-    private static final Map<String, Category> KEYWORD_MAP;
+    private static final Map<String, KeywordCategory> KEYWORD_MAP;
 
     static {
         // ── Reserved keywords ──
@@ -212,12 +194,12 @@ public final class ReservedWordPolicy {
         NON_RESERVED_WORDS = Collections.unmodifiableSet(nonReserved);
 
         // Build combined map
-        Map<String, Category> map = new LinkedHashMap<>();
+        Map<String, KeywordCategory> map = new LinkedHashMap<>();
         for (String word : reserved) {
-            map.put(word.toUpperCase(Locale.ROOT), Category.RESERVED);
+            map.put(word.toUpperCase(Locale.ROOT), KeywordCategory.RESERVED);
         }
         for (String word : nonReserved) {
-            map.put(word.toUpperCase(Locale.ROOT), Category.NON_RESERVED);
+            map.put(word.toUpperCase(Locale.ROOT), KeywordCategory.NON_RESERVED);
         }
         KEYWORD_MAP = Collections.unmodifiableMap(map);
     }
@@ -278,7 +260,7 @@ public final class ReservedWordPolicy {
      * @param word the word to check
      * @return the category, or null if not a keyword
      */
-    public Category classify(String word) {
+    public KeywordCategory classify(String word) {
         if (word == null || word.isEmpty()) {
             return null;
         }
@@ -314,7 +296,7 @@ public final class ReservedWordPolicy {
     /**
      * Returns the full keyword map: keyword (upper-case) to category.
      */
-    public Map<String, Category> keywordMap() {
+    public Map<String, KeywordCategory> keywordMap() {
         return KEYWORD_MAP;
     }
 

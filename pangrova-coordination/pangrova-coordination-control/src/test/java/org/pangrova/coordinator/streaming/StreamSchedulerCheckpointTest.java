@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamScheduler;
 import org.pangrova.streaming.coordinator.StreamSchedulerContext;
@@ -88,7 +90,7 @@ class StreamSchedulerCheckpointTest extends ContainerTestBase {
             }
         };
         var context = new StreamSchedulerContext(
-                new StreamSchedulerWatermarkCleanupTest.InMemoryStreamStateStore(),
+                TestObservability.METRICS, new StreamSchedulerWatermarkCleanupTest.InMemoryStreamStateStore(),
                 new StreamSchedulerWatermarkCleanupTest.InMemoryStreamOffsetStore(), coordinator,
                 new CdcRecordConverterRegistry(List.of(converter)),
                 new WatermarkTracker(new StreamSchedulerWatermarkCleanupTest.InMemoryWatermarkStore()),

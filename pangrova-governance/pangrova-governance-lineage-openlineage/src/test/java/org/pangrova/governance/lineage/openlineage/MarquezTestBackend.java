@@ -1,7 +1,7 @@
 package org.pangrova.governance.lineage.openlineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.enums.ColumnDerivationKind;
-
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 
@@ -35,9 +35,9 @@ public final class MarquezTestBackend implements AutoCloseable {
                     ColumnDerivationKind.values())
                     .map(kind -> new DatasetRef.ColumnLineage(kind.name(), List.of(source), kind)).toList();
             var output = new DatasetRef(namespace, "readiness.target", columns);
-            transport.send(new LineageEvent(LineageEvent.EventType.START, runId, "fixture-readiness",
+            transport.send(new LineageEvent(LineageEventType.START, runId, "fixture-readiness",
                     "SELECT 1", List.of(input), List.of(output), java.util.Map.of(), time));
-            transport.send(new LineageEvent(LineageEvent.EventType.COMPLETE, runId, "fixture-readiness",
+            transport.send(new LineageEvent(LineageEventType.COMPLETE, runId, "fixture-readiness",
                     null, List.of(input), List.of(output), java.util.Map.of(), time.plusMillis(1)));
             var accepted = events(runId);
             if (accepted.size() != 2 || !"START".equals(accepted.get(0).path("eventType").asText())

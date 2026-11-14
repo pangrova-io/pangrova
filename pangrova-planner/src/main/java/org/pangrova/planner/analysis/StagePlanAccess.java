@@ -1,5 +1,6 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
@@ -11,10 +12,8 @@ import java.util.List;
 /** One opaque stage contract for live query planning and exact durable serialized replay. */
 @Internal
 public interface StagePlanAccess {
-    /** Replay is immutable: no adaptive reoptimization or fresh connector split enumeration. */
-    enum Mode { LIVE_QUERY, DURABLE_REPLAY }
 
-    Mode mode();
+    StagePlanMode mode();
 
     /**
      * Exact coordinates for durable replay; live plans return empty until fragmented.

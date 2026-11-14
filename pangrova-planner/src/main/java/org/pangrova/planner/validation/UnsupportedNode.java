@@ -1,5 +1,7 @@
 package org.pangrova.planner.validation;
 
+import org.pangrova.planner.enums.UnsupportedNodeKind;
+
 /**
  * Describes a single Substrait node that is not supported by the native engine.
  *
@@ -12,7 +14,6 @@ public record UnsupportedNode(
         String nodeType,
         String reason,
         int depth,
-        Kind kind
+        UnsupportedNodeKind kind
 ) {
-    public enum Kind { RELATION, EXPRESSION, FUNCTION }
 }

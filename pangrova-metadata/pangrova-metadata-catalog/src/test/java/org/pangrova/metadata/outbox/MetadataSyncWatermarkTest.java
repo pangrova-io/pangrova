@@ -1,5 +1,6 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -103,7 +104,7 @@ class MetadataSyncWatermarkTest {
                 Map.of(), BOUND, BOUND);
         projectionFixture.saveTable(existing);
         var storedBefore = tables.loadTable("other", "schema", "protected");
-        var deletion = new MetadataChange(MetadataChange.ChangeType.DELETE,
+        var deletion = new MetadataChange(MetadataChangeType.DELETE,
                 new QualifiedTableRef("other", "schema", "protected"), null);
         var source = new Inventory(new MetadataChangeBatch(List.of(deletion), Optional.of(BOUND)));
 
@@ -116,7 +117,7 @@ class MetadataSyncWatermarkTest {
 
     @Test
     void malformedIncrementalTargetRejectsWholeBatchBeforeEarlierValidWrites() {
-        var mismatched = new MetadataChange(MetadataChange.ChangeType.UPDATE,
+        var mismatched = new MetadataChange(MetadataChangeType.UPDATE,
                 new QualifiedTableRef("catalog", "schema", "expected"), change("wrong-table").metadata());
         var source = new Inventory(new MetadataChangeBatch(List.of(change("valid-first"), mismatched), Optional.of(BOUND)));
         assertThatThrownBy(() -> service.syncWithRetry(deployment, source))
@@ -132,7 +133,7 @@ class MetadataSyncWatermarkTest {
         var source = new Inventory(new MetadataChangeBatch(List.of(), Optional.empty()));
         source.beforeFetch = () -> { throw new AssertionError("Foreign target must not be fetched"); };
         service.subscribeToPushNotifications(deployment, source);
-        assertThatThrownBy(() -> source.listener.onChange(new MetadataChange(MetadataChange.ChangeType.DELETE,
+        assertThatThrownBy(() -> source.listener.onChange(new MetadataChange(MetadataChangeType.DELETE,
                 new QualifiedTableRef("other", "schema", "one"), null)))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionScopeException.class);
     }
@@ -163,7 +164,7 @@ class MetadataSyncWatermarkTest {
 
     @Test
     void partialFailureRetainsCheckpointAndReplaysFailedRange() {
-        var invalid = new MetadataChange(MetadataChange.ChangeType.ADD,
+        var invalid = new MetadataChange(MetadataChangeType.ADD,
                 new QualifiedTableRef("catalog", "schema", "broken"), null);
         var source = new Inventory(new MetadataChangeBatch(List.of(change("one"), invalid), Optional.of(BOUND)));
         source.unavailable = "broken";
@@ -261,7 +262,7 @@ class MetadataSyncWatermarkTest {
         var source = new Inventory(new MetadataChangeBatch(List.of(), Optional.empty()));
         source.absent = true;
         service.subscribeToPushNotifications(deployment, source);
-        source.listener.onChange(new MetadataChange(MetadataChange.ChangeType.DELETE,
+        source.listener.onChange(new MetadataChange(MetadataChangeType.DELETE,
                 new QualifiedTableRef("catalog", "schema", "one"), null));
         assertThat(tables.loadTable("catalog", "schema", "one")).isEmpty();
     }
@@ -348,7 +349,7 @@ class MetadataSyncWatermarkTest {
 
     @Test
     void delayedDeleteRechecksRecreatedTableAndLookupFailurePreservesIt() throws Exception {
-        var hint = new MetadataChange(MetadataChange.ChangeType.DELETE,
+        var hint = new MetadataChange(MetadataChangeType.DELETE,
                 new QualifiedTableRef("catalog", "schema", "one"), null);
         var source = new Inventory(new MetadataChangeBatch(List.of(hint), Optional.of(BOUND)));
         var prior = new TableMetadata("catalog", "schema", "one", List.of(), Map.of(), List.of(),
@@ -421,7 +422,7 @@ class MetadataSyncWatermarkTest {
 
     private static MetadataChange change(String table) {
         var metadata = new TableMetadata("catalog", "schema", table, List.of(), Map.of(), List.of(), Map.of(), BOUND, BOUND);
-        return new MetadataChange(MetadataChange.ChangeType.ADD, new QualifiedTableRef("catalog", "schema", table), metadata);
+        return new MetadataChange(MetadataChangeType.ADD, new QualifiedTableRef("catalog", "schema", table), metadata);
     }
 
     private static final class Inventory implements FederatedCatalog {

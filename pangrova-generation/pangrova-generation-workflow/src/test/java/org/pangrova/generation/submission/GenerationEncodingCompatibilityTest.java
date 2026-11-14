@@ -1,10 +1,11 @@
 package org.pangrova.generation.submission;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
-
-
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
@@ -33,9 +34,9 @@ class GenerationEncodingCompatibilityTest {
                 new byte[]{1, 2}, template, List.of("lake.源"), List.of("id", "value"), false);
         var terminal = GenerationStageGraph.StagePlan.of(0, 3, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{7, 8}, template, List.of(), List.of("id", "value"), true);
-        var edge = new GenerationStageGraph.Exchange("edge-1", 5, 0, GenerationStageGraph.Exchange.Distribution.HASH,
+        var edge = new GenerationStageGraph.Exchange("edge-1", 5, 0, GenerationExchangeDistribution.HASH,
                 List.of(0), 3, "BATCH_SERDE_ARROW_BATCH", true);
-        return new GenerationStageGraph(2, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        return new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(source, terminal), List.of(edge),
                 List.of(new ModelSnapshot("model-文本", "incarnation", 7, "deployment-v1", "a".repeat(64))));
     }
@@ -83,7 +84,7 @@ class GenerationEncodingCompatibilityTest {
         var terminal = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of("x".repeat(16 * 1024 * 1024)), true);
-        var oversized = new GenerationStageGraph(2, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        var oversized = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(terminal), List.of(), List.of());
         assertThatThrownBy(() -> GenerationStageGraphCodec.encode(oversized)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size limit");

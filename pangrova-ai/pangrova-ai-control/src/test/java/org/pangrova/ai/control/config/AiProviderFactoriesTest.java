@@ -4,7 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.provider.AiProviderFactory;
 
@@ -39,7 +39,7 @@ class AiProviderFactoriesTest {
     private record Factory(int apiVersion) implements AiProviderFactory {
         @Override public Set<String> dialects() { return Set.of("test"); }
 
-        @Override public void validate(String dialect, URI endpoint, Set<Operation> capabilities,
+        @Override public void validate(String dialect, URI endpoint, Set<AiOperation> capabilities,
                 Set<Modality> modalities, int maxBatchSize, String modelName) {
             throw new AssertionError("Discovery must not validate an unconfigured model");
         }

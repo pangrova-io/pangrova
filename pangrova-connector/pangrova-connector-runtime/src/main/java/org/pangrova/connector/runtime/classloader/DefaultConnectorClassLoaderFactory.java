@@ -15,13 +15,7 @@ import java.util.Set;
  * time from the configured {@link SharedPackagePolicy} and optional custom
  * packages, then reuses that set for every classloader it creates.
  *
- * <p>Configuration properties (typically read from {@code coordinator.yml}):
- * <ul>
- *   <li>{@code connector.classloader.policy} — one of {@code BROAD} (default),
- *       {@code NARROW}, or {@code CUSTOM}.</li>
- *   <li>{@code connector.classloader.shared-packages} — comma-separated list
- *       of package prefixes; required when policy is {@code CUSTOM}.</li>
- * </ul>
+ * <p>Role-owned external connector inventories select the narrow policy.
  */
 public final class DefaultConnectorClassLoaderFactory implements ConnectorClassLoaderFactory {
 
@@ -47,9 +41,9 @@ public final class DefaultConnectorClassLoaderFactory implements ConnectorClassL
     }
 
     @Override
-    public ClassLoader createClassLoader(String pluginName, URL[] pluginUrls,
+    public PluginClassLoader createClassLoader(String pluginName, URL[] pluginUrls,
                                          ClassLoader spiClassLoader) {
-        return AccessController.doPrivileged((PrivilegedAction<ClassLoader>) () ->
+        return AccessController.doPrivileged((PrivilegedAction<PluginClassLoader>) () ->
                 new PluginClassLoader(pluginName, pluginUrls, spiClassLoader, sharedPackages));
     }
 

@@ -1,11 +1,9 @@
 package org.pangrova.ai.control.config;
 
 import org.pangrova.ai.api.model.AiModelDescriptor;
-
 import org.pangrova.common.api.annotation.Experimental;
-
 import org.pangrova.ai.api.capability.AiRequestConstraints;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import java.net.URI;
@@ -143,10 +141,10 @@ public final class AiModelConfigParser {
         int maxBatchSize = positiveInt(properties, "max-batch-size", 16, modelName);
         Set<Modality> modalities = parseModalities(properties.get("modalities"), modelName);
         String rawCapabilities = required(properties, "capabilities", modelName);
-        Set<Operation> operations = AiCapabilityConfigParser.operations(rawCapabilities, modelName);
+        Set<AiOperation> operations = AiCapabilityConfigParser.operations(rawCapabilities, modelName);
         AiCapabilityDescriptor.ResourceLimits limits = resourceLimits(
                 properties, modelName, operations);
-        boolean embedding = operations.contains(Operation.EMBEDDING);
+        boolean embedding = operations.contains(AiOperation.EMBEDDING);
         factories.require(provider, modelName).validate(
                 provider, URI.create(endpoint), operations, modalities, maxBatchSize, modelName);
         List<AiCapabilityDescriptor> capabilities = AiCapabilityConfigParser.parse(
@@ -278,19 +276,19 @@ public final class AiModelConfigParser {
     }
 
     private static AiCapabilityDescriptor.ResourceLimits resourceLimits(
-            Map<String, String> properties, String modelName, Set<Operation> operations) {
+            Map<String, String> properties, String modelName, Set<AiOperation> operations) {
         long maxInputTokens = positiveLong(properties, "max-input-tokens", modelName);
         int maxConcurrency = positiveInt(properties, "max-concurrency", -1, modelName);
         long maxItems = positiveLong(properties, "max-provider-items-per-task", modelName);
         long maxAttempts = positiveLong(properties, "max-provider-attempts-per-task", modelName);
         long maxRequestBytes = positiveLong(properties, "max-request-bytes", modelName);
         long maxResponseBytes = positiveLong(properties, "max-response-bytes", modelName);
-        boolean generates = operations.contains(Operation.TEXT_GENERATION)
-                || operations.contains(Operation.MULTIMODAL_GENERATION);
+        boolean generates = operations.contains(AiOperation.TEXT_GENERATION)
+                || operations.contains(AiOperation.MULTIMODAL_GENERATION);
         long maxOutputTokens = generates
                 ? positiveLong(properties, "max-output-tokens", modelName)
                 : optionalNonNegativeLong(properties, "max-output-tokens", modelName);
-        long maxMediaBytes = operations.contains(Operation.MULTIMODAL_GENERATION)
+        long maxMediaBytes = operations.contains(AiOperation.MULTIMODAL_GENERATION)
                 ? positiveLong(properties, "max-media-bytes", modelName)
                 : optionalNonNegativeLong(properties, "max-media-bytes", modelName);
         return new AiCapabilityDescriptor.ResourceLimits(

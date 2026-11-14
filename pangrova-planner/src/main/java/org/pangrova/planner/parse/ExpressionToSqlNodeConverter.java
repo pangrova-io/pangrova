@@ -1,5 +1,7 @@
 package org.pangrova.planner.parse;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.WindowFrameType;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Literal;
@@ -47,6 +49,7 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -162,7 +165,7 @@ final class ExpressionToSqlNodeConverter {
     SqlNode convertFunctionCall(FunctionCall fn) {
         SqlIdentifier name = new SqlIdentifier(fn.name().parts(), POS);
         SqlNode[] operands = fn.arguments().stream().map(this::convert).toArray(SqlNode[]::new);
-        String fnName = String.join(".", fn.name().parts()).toUpperCase();
+        String fnName = String.join(".", fn.name().parts()).toUpperCase(Locale.ROOT);
         SqlOperator op = resolveAggOperator(fnName);
         if (op instanceof SqlUnresolvedFunction) {
             op = new SqlUnresolvedFunction(
@@ -198,7 +201,7 @@ final class ExpressionToSqlNodeConverter {
     }
 
     private SqlNode buildStarAggCall(Identifier name) {
-        String fnName = String.join(".", name.parts()).toUpperCase();
+        String fnName = String.join(".", name.parts()).toUpperCase(Locale.ROOT);
         return new SqlBasicCall(resolveAggOperator(fnName), new SqlNode[]{SqlIdentifier.star(POS)}, POS);
     }
 
@@ -267,7 +270,7 @@ final class ExpressionToSqlNodeConverter {
         }
         SqlWindow sqlWindow = SqlWindow.create(
                 null, null, partitionList, orderList, SqlLiteral.createBoolean(
-                        window.frame().map(frame -> frame.frameType() == WindowSpec.FrameType.ROWS)
+                        window.frame().map(frame -> frame.frameType() == WindowFrameType.ROWS)
                                 .orElse(false), POS),
                 lowerBound, upperBound, null, POS);
         return SqlStdOperatorTable.OVER.createCall(POS, agg, sqlWindow);
@@ -508,7 +511,7 @@ final class ExpressionToSqlNodeConverter {
 
     // ── Operator mapping ──
 
-    static SqlOperator mapBinaryOperator(BinaryExpression.Operator op) {
+    static SqlOperator mapBinaryOperator(BinaryExpressionOperator op) {
         return switch (op) {
             case ADD -> SqlStdOperatorTable.PLUS;
             case SUBTRACT -> SqlStdOperatorTable.MINUS;

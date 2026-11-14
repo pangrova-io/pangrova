@@ -1,11 +1,12 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
+
 import io.substrait.proto.Rel;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.analysis.PangrovaPlanner;
-import org.pangrova.planner.api.lineage.ColumnDerivation;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
 import org.pangrova.planner.validation.SubstraitPlanValidator;
 import org.pangrova.planner.enums.ValidationStatus;
@@ -58,7 +59,7 @@ class GenerateSeriesNativePlanTest {
         assertThat(columns).hasSize(1);
         assertThat(columns.get(0).sourceColumns()).isEmpty();
         assertThat(columns.get(0).expression())
-                .isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+                .isEqualTo(ColumnDerivationKind.TRANSFORM);
     }
 
     @Test
@@ -70,7 +71,7 @@ class GenerateSeriesNativePlanTest {
         assertThat(columns.get(0).outputColumn()).isEqualTo("next_n");
         assertThat(columns.get(0).sourceColumns()).isEmpty();
         assertThat(columns.get(0).expression())
-                .isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+                .isEqualTo(ColumnDerivationKind.TRANSFORM);
     }
 
     @Test

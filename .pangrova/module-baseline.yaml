@@ -6,6 +6,8 @@ reactor:
     path: pangrova-ai
   - artifactId: pangrova-bom
     path: .
+  - artifactId: pangrova-cache
+    path: pangrova-cache
   - artifactId: pangrova-client
     path: pangrova-client
   - artifactId: pangrova-connector
@@ -184,6 +186,8 @@ artifacts:
       - org.pangrova.ai.worker.config
       - org.pangrova.ai.worker.context
       - org.pangrova.ai.worker.embedding
+      - org.pangrova.ai.worker.enums
+      - org.pangrova.ai.worker.exception
       - org.pangrova.ai.worker.function
       - org.pangrova.ai.worker.function.file
       - org.pangrova.ai.worker.governance
@@ -267,16 +271,60 @@ artifacts:
         - pangrova-common
         - pangrova-types
     exportedPackages:
+      - org.pangrova.batch.api.block
       - org.pangrova.batch.api.enums
       - org.pangrova.batch.api.page
       - org.pangrova.batch.api.reader
       - org.pangrova.batch.arrow
     providers:
       {}
+  pangrova-cache-api:
+    path: pangrova-cache/pangrova-cache-api
+    mainPackages:
+      - org.pangrova.cache.api
+    pomDependencies: []
+    imports:
+      main: []
+      test: []
+    exportedPackages:
+      - org.pangrova.cache.api
+    providers:
+      {}
+  pangrova-cache-memory:
+    path: pangrova-cache/pangrova-cache-memory
+    mainPackages:
+      - org.pangrova.cache.memory
+    pomDependencies:
+      pangrova-cache-api: compile
+    imports:
+      main:
+        - pangrova-cache-api
+      test: []
+    exportedPackages:
+      - org.pangrova.cache.memory
+    providers:
+      "org.pangrova.cache.api.CacheStoreFactory":
+        - org.pangrova.cache.memory.MemoryCacheStoreFactory
+  pangrova-cache-redis:
+    path: pangrova-cache/pangrova-cache-redis
+    mainPackages:
+      - org.pangrova.cache.redis
+    pomDependencies:
+      pangrova-cache-api: compile
+    imports:
+      main:
+        - pangrova-cache-api
+      test:
+        - pangrova-cache-api
+    exportedPackages: []
+    providers:
+      "org.pangrova.cache.api.CacheStoreFactory":
+        - org.pangrova.cache.redis.RedisCacheStoreFactory
   pangrova-client-cli:
     path: pangrova-client/pangrova-client-cli
     mainPackages:
       - org.pangrova.client.cli
+      - org.pangrova.client.cli.exception
     pomDependencies:
       pangrova-client-http: compile
       pangrova-common: compile
@@ -298,6 +346,7 @@ artifacts:
     mainPackages:
       - org.pangrova.client.http
       - org.pangrova.client.http.authentication
+      - org.pangrova.client.http.enums
     pomDependencies:
       pangrova-common: compile
       pangrova-testing-kit: test
@@ -313,12 +362,14 @@ artifacts:
     exportedPackages:
       - org.pangrova.client.http
       - org.pangrova.client.http.authentication
+      - org.pangrova.client.http.enums
     providers:
       {}
   pangrova-client-jdbc:
     path: pangrova-client/pangrova-client-jdbc
     mainPackages:
       - org.pangrova.client.jdbc
+      - org.pangrova.client.jdbc.enums
       - org.pangrova.client.jdbc.value
     pomDependencies:
       pangrova-client-http: compile
@@ -349,6 +400,7 @@ artifacts:
       - org.pangrova.common.annotation
       - org.pangrova.common.api.annotation
       - org.pangrova.common.bloom
+      - org.pangrova.common.client.constants
       - org.pangrova.common.client.enums
       - org.pangrova.common.client.error
       - org.pangrova.common.client.exception
@@ -356,7 +408,6 @@ artifacts:
       - org.pangrova.common.client.query
       - org.pangrova.common.client.result
       - org.pangrova.common.client.session
-      - org.pangrova.common.client.version
       - org.pangrova.common.concurrent
       - org.pangrova.common.connector
       - org.pangrova.common.enums
@@ -380,6 +431,7 @@ artifacts:
       - org.pangrova.common.annotation
       - org.pangrova.common.api.annotation
       - org.pangrova.common.bloom
+      - org.pangrova.common.client.constants
       - org.pangrova.common.client.enums
       - org.pangrova.common.client.error
       - org.pangrova.common.client.exception
@@ -387,7 +439,6 @@ artifacts:
       - org.pangrova.common.client.query
       - org.pangrova.common.client.result
       - org.pangrova.common.client.session
-      - org.pangrova.common.client.version
       - org.pangrova.common.concurrent
       - org.pangrova.common.connector
       - org.pangrova.common.enums
@@ -407,16 +458,17 @@ artifacts:
     path: pangrova-config
     mainPackages:
       - org.pangrova.config
+      - org.pangrova.config.constants
       - org.pangrova.config.enums
       - org.pangrova.config.exception
     pomDependencies:
       pangrova-common: compile
     imports:
-      main:
-        - pangrova-common
+      main: []
       test: []
     exportedPackages:
       - org.pangrova.config
+      - org.pangrova.config.constants
       - org.pangrova.config.enums
     providers:
       {}
@@ -528,6 +580,7 @@ artifacts:
         - pangrova-types
     exportedPackages:
       - org.pangrova.connector.iceberg
+      - org.pangrova.connector.iceberg.enums
       - org.pangrova.connector.iceberg.handle
       - org.pangrova.connector.iceberg.index
     providers:
@@ -588,6 +641,7 @@ artifacts:
     path: pangrova-connector/pangrova-connector-paimon
     mainPackages:
       - org.pangrova.connector.paimon
+      - org.pangrova.connector.paimon.enums
       - org.pangrova.connector.paimon.fs
       - org.pangrova.connector.paimon.handle
       - org.pangrova.connector.paimon.index
@@ -683,9 +737,9 @@ artifacts:
         - pangrova-streaming-api
         - pangrova-types
     exportedPackages:
-      - org.pangrova.connector.runtime.classloader
       - org.pangrova.connector.runtime.codec
       - org.pangrova.connector.runtime.discovery
+      - org.pangrova.connector.runtime.lifecycle
       - org.pangrova.connector.runtime.scan
     providers:
       {}
@@ -718,17 +772,16 @@ artifacts:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
-      - org.pangrova.coordinator.cache
       - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
+      - org.pangrova.coordinator.enums
       - org.pangrova.coordinator.exception
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.generation
       - org.pangrova.coordinator.generation.read
       - org.pangrova.coordinator.generation.runtime
       - org.pangrova.coordinator.generation.template
-      - org.pangrova.coordinator.governance
       - org.pangrova.coordinator.indexing
       - org.pangrova.coordinator.indexing.ai.lifecycle
       - org.pangrova.coordinator.indexing.connector
@@ -774,7 +827,6 @@ artifacts:
       - org.pangrova.coordinator.query.task.report
       - org.pangrova.coordinator.query.task.write
       - org.pangrova.coordinator.resilience.breaker
-      - org.pangrova.coordinator.resilience.checkpoint
       - org.pangrova.coordinator.resilience.config
       - org.pangrova.coordinator.resilience.degradation
       - org.pangrova.coordinator.resilience.idempotency
@@ -1028,6 +1080,7 @@ artifacts:
       - org.pangrova.coordinator.ai.layout
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
+      - org.pangrova.coordinator.enums
       - org.pangrova.coordinator.exception
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.file
@@ -1072,7 +1125,6 @@ artifacts:
       - org.pangrova.coordinator.resilience.degradation
       - org.pangrova.coordinator.resilience.idempotency
       - org.pangrova.coordinator.resilience.resilience4j
-      - org.pangrova.coordinator.resilience.retry
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
       - org.pangrova.coordinator.scheduler.placement
@@ -1134,6 +1186,7 @@ artifacts:
       - org.pangrova.execution.split
       - org.pangrova.execution.stage
       - org.pangrova.execution.stage.binding
+      - org.pangrova.execution.stage.enums
       - org.pangrova.execution.task
       - org.pangrova.execution.write
     pomDependencies:
@@ -1175,6 +1228,7 @@ artifacts:
       - org.pangrova.execution.deadline
       - org.pangrova.execution.stage
       - org.pangrova.execution.stage.binding
+      - org.pangrova.execution.stage.enums
       - org.pangrova.execution.task
       - org.pangrova.execution.write
     providers:
@@ -1416,6 +1470,7 @@ artifacts:
       - org.pangrova.generation.execution.template
       - org.pangrova.generation.execution.validation
       - org.pangrova.generation.publication
+      - org.pangrova.generation.publication.enums
       - org.pangrova.generation.publication.read
       - org.pangrova.generation.submission
     pomDependencies:
@@ -1451,6 +1506,7 @@ artifacts:
       - org.pangrova.generation.execution.binding
       - org.pangrova.generation.execution.template
       - org.pangrova.generation.publication
+      - org.pangrova.generation.publication.enums
       - org.pangrova.generation.publication.read
       - org.pangrova.generation.submission
     providers:
@@ -1542,7 +1598,6 @@ artifacts:
     path: pangrova-governance/pangrova-governance-runtime
     mainPackages:
       - org.pangrova.governance.runtime
-      - org.pangrova.governance.runtime.audit
       - org.pangrova.governance.runtime.classification
       - org.pangrova.governance.runtime.lineage
       - org.pangrova.governance.runtime.quality
@@ -1569,6 +1624,7 @@ artifacts:
         - pangrova-security-api
         - pangrova-table
       test:
+        - pangrova-common
         - pangrova-connector-api
         - pangrova-governance-api
         - pangrova-persistence-security-api
@@ -1596,7 +1652,6 @@ artifacts:
       - org.pangrova.indexing.api.evaluation
       - org.pangrova.indexing.api.exception
       - org.pangrova.indexing.api.pruning
-      - org.pangrova.indexing.api.publication
       - org.pangrova.indexing.api.statistics
       - org.pangrova.indexing.api.strategy
       - org.pangrova.indexing.api.vector
@@ -1627,7 +1682,6 @@ artifacts:
       - org.pangrova.indexing.api.evaluation
       - org.pangrova.indexing.api.exception
       - org.pangrova.indexing.api.pruning
-      - org.pangrova.indexing.api.publication
       - org.pangrova.indexing.api.statistics
       - org.pangrova.indexing.api.strategy
       - org.pangrova.indexing.api.vector
@@ -1725,6 +1779,7 @@ artifacts:
       - org.pangrova.indexing.build
       - org.pangrova.indexing.config
       - org.pangrova.indexing.descriptor
+      - org.pangrova.indexing.enums
       - org.pangrova.indexing.evaluation
       - org.pangrova.indexing.evolution
       - org.pangrova.indexing.planner.vector
@@ -1796,6 +1851,7 @@ artifacts:
       - org.pangrova.materialization.api.domain
       - org.pangrova.materialization.api.enums
       - org.pangrova.materialization.api.exception
+      - org.pangrova.materialization.api.identity
       - org.pangrova.materialization.api.policy
       - org.pangrova.materialization.api.port
       - org.pangrova.materialization.api.refresh
@@ -1815,6 +1871,7 @@ artifacts:
       - org.pangrova.materialization.api.domain
       - org.pangrova.materialization.api.enums
       - org.pangrova.materialization.api.exception
+      - org.pangrova.materialization.api.identity
       - org.pangrova.materialization.api.policy
       - org.pangrova.materialization.api.port
       - org.pangrova.materialization.api.refresh
@@ -1824,6 +1881,7 @@ artifacts:
   pangrova-materialization-lifecycle:
     path: pangrova-materialization/pangrova-materialization-lifecycle
     mainPackages:
+      - org.pangrova.materialization.enums
       - org.pangrova.materialization.extension
       - org.pangrova.materialization.usecase
     pomDependencies:
@@ -1922,6 +1980,7 @@ artifacts:
     path: pangrova-metadata/pangrova-metadata-catalog
     mainPackages:
       - org.pangrova.metadata.cache
+      - org.pangrova.metadata.catalog
       - org.pangrova.metadata.catalog.federation
       - org.pangrova.metadata.catalog.handle
       - org.pangrova.metadata.catalog.handle.internal
@@ -1931,12 +1990,14 @@ artifacts:
       - org.pangrova.metadata.event
       - org.pangrova.metadata.governance
       - org.pangrova.metadata.outbox
+      - org.pangrova.metadata.query
       - org.pangrova.metadata.relation
       - org.pangrova.metadata.resolution
       - org.pangrova.metadata.schema
       - org.pangrova.metadata.security
-      - org.pangrova.metadata.service
     pomDependencies:
+      pangrova-cache-api: compile
+      pangrova-cache-memory: test
       pangrova-common: compile
       pangrova-connector-api: compile
       pangrova-execution-api: test
@@ -1964,7 +2025,6 @@ artifacts:
       pangrova-persistence-query-postgresql: test
       pangrova-persistence-security-api: compile
       pangrova-persistence-security-postgresql: test
-      pangrova-persistence-streaming-postgresql: test
       pangrova-persistence-table-api: compile
       pangrova-persistence-table-memory: test
       pangrova-persistence-table-postgresql: test
@@ -1977,13 +2037,12 @@ artifacts:
       pangrova-security-codec: compile
       pangrova-security-secrets: compile
       pangrova-shuffle-api: test
-      pangrova-streaming-api: test
-      pangrova-streaming-pipeline: test
       pangrova-table: compile
       pangrova-testing-kit: test
       pangrova-types: compile
     imports:
       main:
+        - pangrova-cache-api
         - pangrova-common
         - pangrova-connector-api
         - pangrova-governance-api
@@ -2000,6 +2059,8 @@ artifacts:
         - pangrova-table
         - pangrova-types
       test:
+        - pangrova-cache-api
+        - pangrova-cache-memory
         - pangrova-common
         - pangrova-connector-api
         - pangrova-execution-api
@@ -2024,7 +2085,6 @@ artifacts:
         - pangrova-persistence-query-api
         - pangrova-persistence-query-postgresql
         - pangrova-persistence-security-postgresql
-        - pangrova-persistence-streaming-postgresql
         - pangrova-persistence-table-api
         - pangrova-persistence-table-memory
         - pangrova-persistence-table-postgresql
@@ -2035,12 +2095,12 @@ artifacts:
         - pangrova-security-api
         - pangrova-security-codec
         - pangrova-shuffle-api
-        - pangrova-streaming-api
         - pangrova-table
         - pangrova-testing-kit
         - pangrova-types
     exportedPackages:
       - org.pangrova.metadata.cache
+      - org.pangrova.metadata.catalog
       - org.pangrova.metadata.catalog.federation
       - org.pangrova.metadata.catalog.handle.internal
       - org.pangrova.metadata.catalog.registry
@@ -2048,10 +2108,10 @@ artifacts:
       - org.pangrova.metadata.event
       - org.pangrova.metadata.governance
       - org.pangrova.metadata.outbox
+      - org.pangrova.metadata.relation
       - org.pangrova.metadata.resolution
       - org.pangrova.metadata.schema
       - org.pangrova.metadata.security
-      - org.pangrova.metadata.service
       - org.pangrova.metadata.testinfra
     providers:
       {}
@@ -2204,7 +2264,8 @@ artifacts:
       main:
         - pangrova-common
         - pangrova-observability-api
-      test: []
+      test:
+        - pangrova-common
     exportedPackages:
       - org.pangrova.operations.recovery
       - org.pangrova.operations.scaling
@@ -2342,6 +2403,7 @@ artifacts:
     mainPackages:
       - org.pangrova.persistence.catalog.postgresql.catalog
       - org.pangrova.persistence.catalog.postgresql.dependency
+      - org.pangrova.persistence.catalog.postgresql.enums
       - org.pangrova.persistence.catalog.postgresql.invalidation
       - org.pangrova.persistence.catalog.postgresql.projection
       - org.pangrova.persistence.catalog.postgresql.source
@@ -2476,6 +2538,7 @@ artifacts:
       - org.pangrova.persistence.file.api.claim
       - org.pangrova.persistence.file.api.copy
       - org.pangrova.persistence.file.api.directory
+      - org.pangrova.persistence.file.api.enums
       - org.pangrova.persistence.file.api.profile
       - org.pangrova.persistence.file.api.space
     pomDependencies:
@@ -2501,6 +2564,7 @@ artifacts:
       - org.pangrova.persistence.file.api.claim
       - org.pangrova.persistence.file.api.copy
       - org.pangrova.persistence.file.api.directory
+      - org.pangrova.persistence.file.api.enums
       - org.pangrova.persistence.file.api.profile
       - org.pangrova.persistence.file.api.space
     providers:
@@ -2570,6 +2634,7 @@ artifacts:
       pangrova-generation-api: compile
       pangrova-persistence-query-api: compile
       pangrova-security-api: test
+      pangrova-shuffle-api: test
       pangrova-types: test
     imports:
       main:
@@ -2585,6 +2650,7 @@ artifacts:
         - pangrova-generation-api
         - pangrova-persistence-query-api
         - pangrova-security-api
+        - pangrova-shuffle-api
         - pangrova-types
     exportedPackages:
       - org.pangrova.persistence.generation.api.exception
@@ -2851,6 +2917,7 @@ artifacts:
     mainPackages:
       - org.pangrova.persistence.query.api.commit
       - org.pangrova.persistence.query.api.coordination
+      - org.pangrova.persistence.query.api.enums
       - org.pangrova.persistence.query.api.exception
       - org.pangrova.persistence.query.api.lifecycle
       - org.pangrova.persistence.query.api.lineage
@@ -2879,6 +2946,7 @@ artifacts:
     exportedPackages:
       - org.pangrova.persistence.query.api.commit
       - org.pangrova.persistence.query.api.coordination
+      - org.pangrova.persistence.query.api.enums
       - org.pangrova.persistence.query.api.exception
       - org.pangrova.persistence.query.api.lifecycle
       - org.pangrova.persistence.query.api.lineage
@@ -2924,6 +2992,8 @@ artifacts:
       - org.pangrova.persistence.query.postgresql.audit
       - org.pangrova.persistence.query.postgresql.coordination
       - org.pangrova.persistence.query.postgresql.event
+      - org.pangrova.persistence.query.postgresql.exception
+      - org.pangrova.persistence.query.postgresql.journal
       - org.pangrova.persistence.query.postgresql.lineage
       - org.pangrova.persistence.query.postgresql.shuffle
       - org.pangrova.persistence.query.postgresql.state
@@ -2932,6 +3002,7 @@ artifacts:
       pangrova-common: compile
       pangrova-connector-api: compile
       pangrova-execution-api: compile
+      pangrova-governance-api: compile
       pangrova-persistence-jdbc-api: compile
       pangrova-persistence-query-api: compile
       pangrova-query: compile
@@ -2944,6 +3015,7 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-execution-api
+        - pangrova-governance-api
         - pangrova-persistence-jdbc-api
         - pangrova-persistence-query-api
         - pangrova-query
@@ -2956,6 +3028,7 @@ artifacts:
     exportedPackages:
       - org.pangrova.persistence.query.postgresql.audit
       - org.pangrova.persistence.query.postgresql.coordination
+      - org.pangrova.persistence.query.postgresql.event
       - org.pangrova.persistence.query.postgresql.lineage
       - org.pangrova.persistence.query.postgresql.shuffle
       - org.pangrova.persistence.query.postgresql.state
@@ -3024,6 +3097,7 @@ artifacts:
     mainPackages:
       - org.pangrova.persistence.security.postgresql.audit
       - org.pangrova.persistence.security.postgresql.codec
+      - org.pangrova.persistence.security.postgresql.exception
       - org.pangrova.persistence.security.postgresql.grant
       - org.pangrova.persistence.security.postgresql.mask
       - org.pangrova.persistence.security.postgresql.policy
@@ -3035,6 +3109,7 @@ artifacts:
       pangrova-common: compile
       pangrova-connector-api: compile
       pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
       pangrova-persistence-security-api: compile
       pangrova-security-api: compile
       pangrova-testing-kit: test
@@ -3043,6 +3118,7 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
         - pangrova-persistence-security-api
         - pangrova-security-api
       test:
@@ -3149,8 +3225,8 @@ artifacts:
     path: pangrova-persistence/pangrova-persistence-table-memory
     mainPackages:
       - org.pangrova.persistence.table.memory.control
-      - org.pangrova.persistence.table.memory.governancebinding
       - org.pangrova.persistence.table.memory.maintenance
+      - org.pangrova.persistence.table.memory.policy
       - org.pangrova.persistence.table.memory.provider
       - org.pangrova.persistence.table.memory.statistics
     pomDependencies:
@@ -3171,8 +3247,8 @@ artifacts:
         - pangrova-table
     exportedPackages:
       - org.pangrova.persistence.table.memory.control
-      - org.pangrova.persistence.table.memory.governancebinding
       - org.pangrova.persistence.table.memory.maintenance
+      - org.pangrova.persistence.table.memory.policy
       - org.pangrova.persistence.table.memory.provider
       - org.pangrova.persistence.table.memory.statistics
     providers:
@@ -3182,8 +3258,8 @@ artifacts:
     path: pangrova-persistence/pangrova-persistence-table-postgresql
     mainPackages:
       - org.pangrova.persistence.table.postgresql.control
-      - org.pangrova.persistence.table.postgresql.governancebinding
       - org.pangrova.persistence.table.postgresql.maintenance
+      - org.pangrova.persistence.table.postgresql.policy
       - org.pangrova.persistence.table.postgresql.provider
       - org.pangrova.persistence.table.postgresql.statistics
     pomDependencies:
@@ -3208,8 +3284,8 @@ artifacts:
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.persistence.table.postgresql.control
-      - org.pangrova.persistence.table.postgresql.governancebinding
       - org.pangrova.persistence.table.postgresql.maintenance
+      - org.pangrova.persistence.table.postgresql.policy
       - org.pangrova.persistence.table.postgresql.provider
       - org.pangrova.persistence.table.postgresql.statistics
     providers:
@@ -3316,6 +3392,7 @@ artifacts:
       - org.pangrova.planner.api.result
       - org.pangrova.planner.api.retrieval
       - org.pangrova.planner.api.statistics
+      - org.pangrova.planner.constants
       - org.pangrova.planner.cost
       - org.pangrova.planner.cost.aggregate
       - org.pangrova.planner.cost.convention
@@ -3355,6 +3432,7 @@ artifacts:
       pangrova-connector-api: compile
       pangrova-function-api: compile
       pangrova-generation-codec: compile
+      pangrova-governance-api: compile
       pangrova-metadata-api: compile
       pangrova-parser: compile
       pangrova-persistence-security-api: test
@@ -3374,6 +3452,7 @@ artifacts:
         - pangrova-connector-api
         - pangrova-function-api
         - pangrova-generation-codec
+        - pangrova-governance-api
         - pangrova-metadata-api
         - pangrova-parser
         - pangrova-protocol
@@ -3385,6 +3464,7 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-generation-codec
+        - pangrova-governance-api
         - pangrova-parser
         - pangrova-persistence-security-api
         - pangrova-protocol
@@ -3407,6 +3487,7 @@ artifacts:
       - org.pangrova.planner.api.lineage
       - org.pangrova.planner.api.result
       - org.pangrova.planner.api.retrieval
+      - org.pangrova.planner.constants
       - org.pangrova.planner.cost
       - org.pangrova.planner.cost.distribution
       - org.pangrova.planner.enums
@@ -3435,6 +3516,7 @@ artifacts:
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
       - org.pangrova.protocol.checksum
+      - org.pangrova.protocol.constants
       - org.pangrova.protocol.descriptor
       - org.pangrova.protocol.enums
       - org.pangrova.protocol.exception
@@ -3485,6 +3567,7 @@ artifacts:
         - pangrova-types
       test:
         - pangrova-common
+        - pangrova-execution-api
         - pangrova-types
     exportedPackages:
       - org.pangrova.protocol
@@ -3492,6 +3575,7 @@ artifacts:
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
       - org.pangrova.protocol.checksum
+      - org.pangrova.protocol.constants
       - org.pangrova.protocol.descriptor
       - org.pangrova.protocol.enums
       - org.pangrova.protocol.exception
@@ -3647,7 +3731,6 @@ artifacts:
     path: pangrova-scheduler/pangrova-scheduler-policy
     mainPackages:
       - org.pangrova.scheduler.admission
-      - org.pangrova.scheduler.control
       - org.pangrova.scheduler.enums
       - org.pangrova.scheduler.placement
       - org.pangrova.scheduler.resource
@@ -3682,7 +3765,6 @@ artifacts:
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.scheduler.admission
-      - org.pangrova.scheduler.control
       - org.pangrova.scheduler.enums
       - org.pangrova.scheduler.placement
       - org.pangrova.scheduler.resource
@@ -3951,8 +4033,8 @@ artifacts:
     exportedPackages:
       - org.pangrova.security.secret.env
     providers:
-      "org.pangrova.security.api.secret.SecretProvider":
-        - org.pangrova.security.secret.env.EnvSecretProvider
+      "org.pangrova.security.api.secret.SecretProviderFactory":
+        - org.pangrova.security.secret.env.EnvSecretProviderFactory
   pangrova-security-secret-file:
     path: pangrova-security/pangrova-security-secret-file
     mainPackages:
@@ -3970,8 +4052,8 @@ artifacts:
     exportedPackages:
       - org.pangrova.security.secret.file
     providers:
-      "org.pangrova.security.api.secret.SecretProvider":
-        - org.pangrova.security.secret.file.FileSecretProvider
+      "org.pangrova.security.api.secret.SecretProviderFactory":
+        - org.pangrova.security.secret.file.FileSecretProviderFactory
   pangrova-security-secrets:
     path: pangrova-security/pangrova-security-secrets
     mainPackages:
@@ -4045,6 +4127,7 @@ artifacts:
       - org.pangrova.server.coordinator.bootstrap.query.state
       - org.pangrova.server.coordinator.embedding
       - org.pangrova.server.coordinator.enums
+      - org.pangrova.server.coordinator.exception
       - org.pangrova.server.coordinator.http
       - org.pangrova.server.coordinator.http.endpoint
       - org.pangrova.server.coordinator.http.endpoint.catalog
@@ -4060,6 +4143,9 @@ artifacts:
       pangrova-ai-openai: runtime
       pangrova-ai-qwen: runtime
       pangrova-batch: compile
+      pangrova-cache-api: compile
+      pangrova-cache-memory: runtime
+      pangrova-cache-redis: runtime
       pangrova-common: compile
       pangrova-config: compile
       pangrova-connector-api: compile
@@ -4159,6 +4245,7 @@ artifacts:
     imports:
       main:
         - pangrova-ai-control
+        - pangrova-cache-api
         - pangrova-common
         - pangrova-config
         - pangrova-connector-api
@@ -4232,6 +4319,7 @@ artifacts:
         - pangrova-types
       test:
         - pangrova-batch
+        - pangrova-cache-api
         - pangrova-common
         - pangrova-config
         - pangrova-connector-api
@@ -4330,6 +4418,7 @@ artifacts:
       pangrova-filesystem-local: runtime
       pangrova-filesystem-oss: runtime
       pangrova-filesystem-s3: runtime
+      pangrova-observability-sdk: compile
       pangrova-security-access: compile
       pangrova-security-secret-env: runtime
       pangrova-server-bootstrap: compile
@@ -4339,6 +4428,7 @@ artifacts:
     imports:
       main:
         - pangrova-config
+        - pangrova-observability-sdk
         - pangrova-security-access
         - pangrova-server-bootstrap
         - pangrova-shuffle-api
@@ -4358,6 +4448,7 @@ artifacts:
       - org.pangrova.shuffle.api.capability
       - org.pangrova.shuffle.api.coordinator
       - org.pangrova.shuffle.api.descriptor
+      - org.pangrova.shuffle.api.enums
       - org.pangrova.shuffle.api.exception
       - org.pangrova.shuffle.api.identity
       - org.pangrova.shuffle.api.spool
@@ -4374,6 +4465,7 @@ artifacts:
       - org.pangrova.shuffle.api.capability
       - org.pangrova.shuffle.api.coordinator
       - org.pangrova.shuffle.api.descriptor
+      - org.pangrova.shuffle.api.enums
       - org.pangrova.shuffle.api.exception
       - org.pangrova.shuffle.api.identity
       - org.pangrova.shuffle.api.spool
@@ -4384,6 +4476,7 @@ artifacts:
     path: pangrova-shuffle/pangrova-shuffle-exchange
     mainPackages:
       - org.pangrova.shuffle.exchange
+      - org.pangrova.shuffle.exchange.enums
       - org.pangrova.shuffle.scheduling
       - org.pangrova.shuffle.skew
     pomDependencies:
@@ -4402,6 +4495,7 @@ artifacts:
         - pangrova-shuffle-local
     exportedPackages:
       - org.pangrova.shuffle.exchange
+      - org.pangrova.shuffle.exchange.enums
       - org.pangrova.shuffle.skew
     providers:
       {}
@@ -4451,6 +4545,7 @@ artifacts:
       - org.pangrova.shuffle.pangrova.client.coordinator
       - org.pangrova.shuffle.pangrova.client.exception
       - org.pangrova.shuffle.pangrova.client.security
+      - org.pangrova.shuffle.pangrova.enums
     pomDependencies:
       pangrova-common: compile
       pangrova-protocol: compile
@@ -4482,13 +4577,16 @@ artifacts:
       - org.pangrova.shuffle.config
       - org.pangrova.shuffle.deployment
       - org.pangrova.shuffle.security
+      - org.pangrova.shuffle.security.enums
       - org.pangrova.shuffle.server
       - org.pangrova.shuffle.server.authority
-      - org.pangrova.shuffle.server.error
+      - org.pangrova.shuffle.server.enums
+      - org.pangrova.shuffle.server.exception
       - org.pangrova.shuffle.server.persistence
       - org.pangrova.shuffle.transport
     pomDependencies:
       pangrova-common: compile
+      pangrova-persistence-jdbc-support: compile
       pangrova-protocol: compile
       pangrova-schema-migrations: runtime
       pangrova-shuffle-api: compile
@@ -4496,6 +4594,7 @@ artifacts:
     imports:
       main:
         - pangrova-common
+        - pangrova-persistence-jdbc-support
         - pangrova-protocol
       test:
         - pangrova-protocol
@@ -4601,6 +4700,7 @@ artifacts:
       pangrova-common: compile
       pangrova-connector-api: compile
       pangrova-observability-api: compile
+      pangrova-observability-noop: test
       pangrova-parser: compile
       pangrova-persistence-streaming-memory: test
       pangrova-streaming-api: compile
@@ -4618,6 +4718,7 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-persistence-streaming-memory
         - pangrova-streaming-api
         - pangrova-types
@@ -4653,6 +4754,7 @@ artifacts:
   pangrova-streaming-writers-builtin:
     path: pangrova-streaming/pangrova-streaming-writers-builtin
     mainPackages:
+      - org.pangrova.streaming.writer.enums
       - org.pangrova.streaming.writer.incremental
       - org.pangrova.streaming.writer.lake
       - org.pangrova.streaming.writer.mergetree
@@ -4727,6 +4829,7 @@ artifacts:
     path: pangrova-testing/pangrova-testing-benchmark
     mainPackages:
       - org.pangrova.testing.benchmark
+      - org.pangrova.testing.benchmark.enums
       - org.pangrova.testing.benchmark.jmh
     pomDependencies:
       pangrova-client-http: compile
@@ -4745,6 +4848,7 @@ artifacts:
     path: pangrova-testing/pangrova-testing-fuzzer
     mainPackages:
       - org.pangrova.testing.fuzzer
+      - org.pangrova.testing.fuzzer.enums
     pomDependencies:
       pangrova-common: compile
       pangrova-testing-kit: compile
@@ -4880,6 +4984,7 @@ artifacts:
         - pangrova-ai-api
         - pangrova-ai-control
         - pangrova-ai-worker
+        - pangrova-batch
         - pangrova-client-cli
         - pangrova-client-http
         - pangrova-common
@@ -4977,7 +5082,9 @@ artifacts:
     mainPackages:
       - org.pangrova.testing.testkit
       - org.pangrova.testing.testkit.architecture
+      - org.pangrova.testing.testkit.constants
       - org.pangrova.testing.testkit.coordination.admission
+      - org.pangrova.testing.testkit.enums
       - org.pangrova.testing.testkit.file
       - org.pangrova.testing.testkit.function
       - org.pangrova.testing.testkit.lineage
@@ -5039,7 +5146,9 @@ artifacts:
         - pangrova-security-api
     exportedPackages:
       - org.pangrova.testing.testkit
+      - org.pangrova.testing.testkit.constants
       - org.pangrova.testing.testkit.coordination.admission
+      - org.pangrova.testing.testkit.enums
       - org.pangrova.testing.testkit.file
       - org.pangrova.testing.testkit.function
       - org.pangrova.testing.testkit.lineage
@@ -5159,6 +5268,7 @@ artifacts:
       - org.pangrova.worker.catalog
       - org.pangrova.worker.clustering
       - org.pangrova.worker.connector.session
+      - org.pangrova.worker.constants
       - org.pangrova.worker.copy
       - org.pangrova.worker.dataset
       - org.pangrova.worker.enums

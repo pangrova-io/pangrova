@@ -1,5 +1,6 @@
 package org.pangrova.ai.api.capability;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.junit.jupiter.api.Test;
 
@@ -61,7 +62,7 @@ class AiRequestConstraintsTest {
 
     private static void assertRejected(Runnable action, String direction) {
         assertThatThrownBy(action::run).isInstanceOfSatisfying(AiInvocationException.class, failure -> {
-            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+            assertThat(failure.category()).isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
             assertThat(failure.retryable()).isFalse();
         }).hasMessageContaining(direction + " body");
     }

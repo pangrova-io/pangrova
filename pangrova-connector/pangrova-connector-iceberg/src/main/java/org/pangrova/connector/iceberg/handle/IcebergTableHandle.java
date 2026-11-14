@@ -59,7 +59,7 @@ public record IcebergTableHandle(
                             "snapshots", "history", "refs"),
                     java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
                             "REWRITE_MANIFESTS", "REMOVE_ORPHAN_FILES"),
-                    org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.connector.api.enums.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     /** Connector-owned evidence for an immutable selected read, not a caller's time-travel hint. */

@@ -27,7 +27,7 @@ public final class AdaptiveStagePlanResolver {
 
     /** Returns the plan after applying every available upstream decision. */
     public StageNode apply(StageNode initialPlan, StageDAG dag) {
-        if (initialPlan.stagePlan().mode() == org.pangrova.planner.analysis.StagePlanAccess.Mode.DURABLE_REPLAY) {
+        if (initialPlan.stagePlan().mode() == org.pangrova.planner.enums.StagePlanMode.DURABLE_REPLAY) {
             return initialPlan;
         }
         StageNode plan = initialPlan;
@@ -45,7 +45,7 @@ public final class AdaptiveStagePlanResolver {
     /** Production AQE obtains its optimizer from the immutable query scope. */
     public StageNode apply(StageNode initialPlan, StageDAG dag,
                            org.pangrova.planner.analysis.SqlCompiler compiler) {
-        if (initialPlan.stagePlan().mode() == org.pangrova.planner.analysis.StagePlanAccess.Mode.DURABLE_REPLAY) {
+        if (initialPlan.stagePlan().mode() == org.pangrova.planner.enums.StagePlanMode.DURABLE_REPLAY) {
             return initialPlan;
         }
         SubPlanReoptimizer optimizer = subPlanReoptimizer != null

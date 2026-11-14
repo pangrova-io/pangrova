@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -12,7 +13,7 @@ final class AiInvocationFailures {
 
     static AiInvocationException modelNotFound(AiInvocationRequest request) {
         return new AiInvocationException(
-                AiInvocationException.Category.MODEL_NOT_FOUND,
+                AiFailureCategory.MODEL_NOT_FOUND,
                 false,
                 "No provider registered for exact model "
                         + request.modelName() + "@" + request.modelVersion());
@@ -21,7 +22,7 @@ final class AiInvocationFailures {
     static AiInvocationException invalidInput(
             AiInvocationRequest request, String detail) {
         return new AiInvocationException(
-                AiInvocationException.Category.INVALID_REQUEST,
+                AiFailureCategory.INVALID_REQUEST,
                 false,
                 "Invalid AI invocation request " + request.requestId() + ": " + detail);
     }
@@ -47,11 +48,11 @@ final class AiInvocationFailures {
             return classified;
         }
         if (cause instanceof PangrovaException pangrova) {
-            AiInvocationException.Category category = map(pangrova.getErrorCode());
+            AiFailureCategory category = map(pangrova.getErrorCode());
             if (category != null) {
                 return new AiInvocationException(
                         category,
-                        category == AiInvocationException.Category.PROVIDER_UNAVAILABLE,
+                        category == AiFailureCategory.PROVIDER_UNAVAILABLE,
                         pangrova.getMessage(),
                         failure);
             }
@@ -67,44 +68,44 @@ final class AiInvocationFailures {
         if (cause instanceof IllegalArgumentException
                 || cause instanceof ArithmeticException) {
             return new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                    AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                     false,
                     message,
                     failure);
         }
         if (cause instanceof SecurityException) {
             return new AiInvocationException(
-                    AiInvocationException.Category.AUTHORIZATION,
+                    AiFailureCategory.AUTHORIZATION,
                     false,
                     message,
                     failure);
         }
         if (cause instanceof IllegalStateException) {
             return new AiInvocationException(
-                    AiInvocationException.Category.INTERNAL,
+                    AiFailureCategory.INTERNAL,
                     false,
                     message,
                     failure);
         }
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_UNAVAILABLE,
+                AiFailureCategory.PROVIDER_UNAVAILABLE,
                 true,
                 message,
                 failure);
     }
 
-    private static AiInvocationException.Category map(PangrovaErrorCode errorCode) {
+    private static AiFailureCategory map(PangrovaErrorCode errorCode) {
         return switch (errorCode) {
             case AI_INVOCATION_AUTHORIZATION_DENIED,
                     AI_EMBEDDING_ACCESS_DENIED,
-                    ACCESS_DENIED -> AiInvocationException.Category.AUTHORIZATION;
+                    ACCESS_DENIED -> AiFailureCategory.AUTHORIZATION;
             case AI_EMBEDDING_DIMENSION_MISMATCH ->
-                    AiInvocationException.Category.PROVIDER_RESPONSE_INVALID;
-            case AI_BLOB_SIZE_EXCEEDED -> AiInvocationException.Category.BUDGET_EXCEEDED;
+                    AiFailureCategory.PROVIDER_RESPONSE_INVALID;
+            case AI_BLOB_SIZE_EXCEEDED -> AiFailureCategory.BUDGET_EXCEEDED;
             case AI_EMBEDDING_PROVIDER_UNAVAILABLE,
                     AI_INFERENCE_PROVIDER_UNAVAILABLE,
                     AI_MODEL_SERVICE_UNAVAILABLE ->
-                    AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+                    AiFailureCategory.PROVIDER_UNAVAILABLE;
             default -> null;
         };
     }

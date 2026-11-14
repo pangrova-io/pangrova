@@ -1,5 +1,6 @@
 package org.pangrova.client.http.authentication;
 
+import org.pangrova.client.http.enums.AuthenticationScheme;
 import org.pangrova.client.http.PangrovaRestClient;
 
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,7 @@ class ClientAuthenticationTest {
     @Test
     void basicEncodingRetainsUtf8AndPasswordColons() {
         var auth = ClientAuthentication.basic("读者😀", "密碼:a&b");
-        assertThat(auth.scheme()).isEqualTo(ClientAuthentication.Scheme.BASIC);
+        assertThat(auth.scheme()).isEqualTo(AuthenticationScheme.BASIC);
         assertThat(new String(Base64.getDecoder().decode(auth.authorizationHeader().substring(6)),
                 StandardCharsets.UTF_8)).isEqualTo("读者😀:密碼:a&b");
         assertThat(auth.toString()).doesNotContain("读者", "密碼", "a&b", auth.authorizationHeader());

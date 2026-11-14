@@ -1,8 +1,8 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.invocation.ClientExchange;
 import org.pangrova.ai.api.invocation.ExchangeRegistration;
-
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
@@ -262,7 +262,7 @@ final class AiTaskBudget {
 
     private static AiInvocationException authorization(String message) {
         return new AiInvocationException(
-                AiInvocationException.Category.AUTHORIZATION, false, message);
+                AiFailureCategory.AUTHORIZATION, false, message);
     }
 
     record Binding(OperatorBudget operator, ModelTaskBudget model) {}

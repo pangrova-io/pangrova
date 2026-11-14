@@ -33,6 +33,36 @@ class IcebergConnectorShutdownTest {
     }
 
     @Test
+    void accessorsShareConnectorIoUntilItsOwnerCloses() throws Exception {
+        var closes = new java.util.concurrent.atomic.AtomicInteger();
+        var conf = new Configuration();
+        var io = new org.apache.iceberg.hadoop.HadoopFileIO(conf) {
+            @Override public void close() { closes.incrementAndGet(); }
+        };
+        var directory = java.nio.file.Files.createDirectory(warehouse.resolve("index"));
+        var connector = new IcebergConnector("index", new HadoopCatalog(conf, warehouse.toString()),
+                io, java.util.Set.of());
+        try {
+            var support = connector.getMetadata(null).getIndexSupport().orElseThrow();
+            try (var first = support.getFileSystemAccessor().orElseThrow();
+                 var second = support.getFileSystemAccessor().orElseThrow()) {
+                try (var out = first.openOutputStream(directory.resolve("part").toString())) { out.write(42); }
+                java.nio.file.Files.createDirectories(directory.resolve("child"));
+                java.nio.file.Files.write(directory.resolve("child/nested"), new byte[] {10});
+                assertThat(second.listFiles(directory.toString())).singleElement()
+                        .asString().endsWith("/index/part");
+                assertThatThrownBy(() -> second.listFiles(directory.resolve("missing").toString()))
+                        .isInstanceOf(java.io.IOException.class);
+            }
+            assertThat(closes.get()).isZero();
+        } finally {
+            connector.shutdown();
+        }
+        connector.shutdown();
+        assertThat(closes.get()).isOne();
+    }
+
+    @Test
     void interruptedJoinReportsFailureAndRetainsTheOwnerForRetry() throws Exception {
         var connector = connector();
         var scheduler = connector.pinEvictionExecutor();

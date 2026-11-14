@@ -11,6 +11,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EmbeddedWorkerTest {
 
     @Test
+    void configuredConnectorsReachEmbeddedAndIndependentWorkerSettings(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root) {
+        var settings = PangrovaConfiguration.fromYaml(Map.of("connector.plugin-directory", root.toString()));
+        assertThat(EmbeddedWorker.buildConfig(settings, 18080).pluginDirectory()).contains(root);
+    }
+
+    @Test
     void standalonePreservesConfiguredShuffleCacheFunctionAndCopyTransport() {
         var settings = PangrovaConfiguration.fromYaml(Map.of(
                 "worker.shuffle.mode", "REMOTE",

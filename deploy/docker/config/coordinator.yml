@@ -7,8 +7,6 @@ coordinator:
   internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
   ha:
     enabled: false
-state-store:
-  type: JDBC
 metadata:
   enabled: true
   jdbc-url: "jdbc:postgresql://metadata:5432/pangrova_meta"

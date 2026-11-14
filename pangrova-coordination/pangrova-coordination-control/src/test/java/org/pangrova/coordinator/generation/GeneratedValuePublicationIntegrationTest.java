@@ -1,14 +1,12 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver;
-
-
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
@@ -111,7 +109,7 @@ class GeneratedValuePublicationIntegrationTest {
                 List.of(read, sink.toBuilder().setOutputArtifact(output).build())), List.of());
         var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.SOURCE_MAP,
                 plan, template, List.of(SOURCE_ID), List.of("embedding"), true);
-        var graph = new GenerationStageGraph(2, GenerationStageGraph.Purpose.ARTIFACT_GENERATION,
+        var graph = new GenerationStageGraph(2, GenerationGraphPurpose.ARTIFACT_GENERATION,
                 List.of(stage), List.of(), List.of());
         String consumerJob = "same-connection-consumer";
         var spec = GenerationDispatchSpecFactory.create(consumerJob, graph, TENANT, "alice", original.authorizationScope(),
@@ -224,7 +222,7 @@ class GeneratedValuePublicationIntegrationTest {
                 SNAPSHOT, List.of(encodedSplit))
                 .orElseThrow();
         assertThat(template.getCapability().getCapabilityId())
-                .isEqualTo(BuiltInCapabilityCatalog.GENERATED_VALUES_OVERLAY_ID);
+                .isEqualTo(BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_ID);
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
         var manifest = buildStore.findPublishedGeneration(TENANT, ARTIFACT_ID, GENERATION, SNAPSHOT).orElseThrow();
         assertThat(manifest.objectCount()).isEqualTo(4);
@@ -246,7 +244,7 @@ class GeneratedValuePublicationIntegrationTest {
         assertThat(new PublishedGenerationBindingResolver(buildStore).resolveTemplate(
                 new PublishedGenerationBindingResolver.GenerationResolutionIntent(TENANT, ARTIFACT_ID,
                         GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, GENERATION, SOURCE_ID, SNAPSHOT,
-                        PublishedGenerationBindingResolver.SourceCoverage.COMPLETE_GENERATION),
+                        GenerationSourceCoverage.COMPLETE_GENERATION),
                 List.of(encodedSplit))).isEmpty();
         String changedSource = java.util.Base64.getEncoder().encodeToString(split.toBuilder()
                 .setOpaqueLocation("s3://warehouse/replaced-object.parquet")
@@ -306,7 +304,7 @@ class GeneratedValuePublicationIntegrationTest {
                 .build();
         return GenerationDispatchSpecFactory.create(
                 JOB_ID, new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                        GenerationStageGraph.Purpose.ARTIFACT_GENERATION,
+                        GenerationGraphPurpose.ARTIFACT_GENERATION,
                         List.of(GenerationStageGraph.StagePlan.of(
                                 0, 2, GenerationPageKind.SOURCE_MAP, new byte[] {1},
                                 GenerationStageTemplate.of(OperatorBindingSet.newBuilder().addBindings(sink).build().toByteArray(), List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),

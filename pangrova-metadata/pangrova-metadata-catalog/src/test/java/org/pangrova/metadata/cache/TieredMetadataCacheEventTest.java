@@ -24,23 +24,20 @@ class TieredMetadataCacheEventTest {
     }
 
     @Test
-    void validateOnHitEvictsStaleEntryAfterVersionBump() {
-        // A-CACHE-01: markTableChanged bumps the table version WITHOUT removing the L1 entry; the
-        // now-stale cached schema must be evicted on the next getTable (validate-on-hit), never served.
+    void invalidatedTableCannotReappearOnSubsequentReads() {
         cache.putTable("cat", "s", "orders", sampleMetadata());
         assertThat(cache.getTable("cat", "s", "orders")).as("fresh entry hits").isPresent();
 
-        cache.markTableChanged("cat", "s", "orders");
+        cache.invalidateTable("cat", "s", "orders");
 
         assertThat(cache.getTable("cat", "s", "orders")).as("stale entry evicted on hit").isEmpty();
         assertThat(cache.getTable("cat", "s", "orders")).as("stays evicted").isEmpty();
     }
 
     @Test
-    void validateOnHitDoesNotEvictUnrelatedTable() {
-        // A-CACHE-01: a version bump on a different table must not evict this entry.
+    void tableInvalidationDoesNotEvictUnrelatedTable() {
         cache.putTable("cat", "s", "orders", sampleMetadata());
-        cache.markTableChanged("cat", "s", "customers");
+        cache.invalidateTable("cat", "s", "customers");
         assertThat(cache.getTable("cat", "s", "orders")).as("unrelated change must not evict").isPresent();
     }
 

@@ -18,7 +18,7 @@ import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.enums.SecurityMode;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TargetLag;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.PublishedMaterialization;

@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,7 +32,7 @@ class RoleBasedDeploymentTest {
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-1", 0,
                         CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorRole.QUERY, "0.0.0.0"),
+                        CoordinatorDeploymentRole.QUERY, "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
@@ -57,7 +57,7 @@ class RoleBasedDeploymentTest {
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-2", 0,
                         CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorRole.QUERY, "0.0.0.0"),
+                        CoordinatorDeploymentRole.QUERY, "0.0.0.0"),
                 // Enable streaming + indexing flags — but QUERY role should skip them
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, false, false, false, false,
@@ -90,23 +90,23 @@ class RoleBasedDeploymentTest {
     }
 
     @Test
-    @DisplayName("CoordinatorRole.QUERY returns isQuery=true, isMaintenance=false")
+    @DisplayName("CoordinatorDeploymentRole.QUERY returns isQuery=true, isMaintenance=false")
     void queryRolePredicates() {
-        assertThat(CoordinatorRole.QUERY.isQuery()).isTrue();
-        assertThat(CoordinatorRole.QUERY.isMaintenance()).isFalse();
+        assertThat(CoordinatorDeploymentRole.QUERY.isQuery()).isTrue();
+        assertThat(CoordinatorDeploymentRole.QUERY.isMaintenance()).isFalse();
     }
 
     @Test
-    @DisplayName("CoordinatorRole.MAINTENANCE returns isQuery=false, isMaintenance=true")
+    @DisplayName("CoordinatorDeploymentRole.MAINTENANCE returns isQuery=false, isMaintenance=true")
     void maintenanceRolePredicates() {
-        assertThat(CoordinatorRole.MAINTENANCE.isQuery()).isFalse();
-        assertThat(CoordinatorRole.MAINTENANCE.isMaintenance()).isTrue();
+        assertThat(CoordinatorDeploymentRole.MAINTENANCE.isQuery()).isFalse();
+        assertThat(CoordinatorDeploymentRole.MAINTENANCE.isMaintenance()).isTrue();
     }
 
     @Test
-    @DisplayName("CoordinatorRole.COMBINED returns both true")
+    @DisplayName("CoordinatorDeploymentRole.COMBINED returns both true")
     void combinedRolePredicates() {
-        assertThat(CoordinatorRole.COMBINED.isQuery()).isTrue();
-        assertThat(CoordinatorRole.COMBINED.isMaintenance()).isTrue();
+        assertThat(CoordinatorDeploymentRole.COMBINED.isQuery()).isTrue();
+        assertThat(CoordinatorDeploymentRole.COMBINED.isMaintenance()).isTrue();
     }
 }

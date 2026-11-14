@@ -34,6 +34,7 @@ import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.api.ast.SetSessionStatement;
+import org.pangrova.coordinator.query.execution.dispatch.task.SetSessionTask;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
@@ -406,7 +407,7 @@ final class QueryExecutionBootstrap {
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.CreateSchemaStatement.class, createSchemaTask);
         CatalogStatementTasks.register(tasks, ddlExecutor, showDescribeExecutor);
-        tasks.put(SetSessionStatement.class, new org.pangrova.coordinator.query.execution.dispatch.task.SetSessionTask());
+        tasks.put(SetSessionStatement.class, new SetSessionTask());
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(

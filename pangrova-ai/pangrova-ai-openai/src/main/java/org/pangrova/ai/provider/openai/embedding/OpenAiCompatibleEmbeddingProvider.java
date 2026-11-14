@@ -1,5 +1,7 @@
 package org.pangrova.ai.provider.openai.embedding;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -154,7 +156,7 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         }
         if (!(request.inputs().get(0) instanceof EmbeddingBatchRequest.TextInput)) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "OpenAI-compatible /v1/embeddings accepts only text input");
         }
@@ -195,14 +197,14 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
             return sendOnce(inputs);
         } catch (IOException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Embedding provider POST outcome is unknown",
                     failure);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Embedding provider POST was interrupted with unknown outcome",
                     failure);
@@ -344,13 +346,13 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
     }
 
     static AiInvocationException responseFailure(int statusCode) {
-        AiInvocationException.Category category = switch (statusCode) {
-            case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
-            case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
+        AiFailureCategory category = switch (statusCode) {
+            case HTTP_UNAUTHORIZED -> AiFailureCategory.AUTHENTICATION;
+            case HTTP_FORBIDDEN -> AiFailureCategory.AUTHORIZATION;
             case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
-                            AiInvocationException.Category.TIMEOUT;
-            case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
-            default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+                            AiFailureCategory.TIMEOUT;
+            case HTTP_TOO_MANY_REQUESTS -> AiFailureCategory.RATE_LIMIT;
+            default -> AiFailureCategory.PROVIDER_UNAVAILABLE;
         };
         return new AiInvocationException(
                 category, false, "Embedding provider returned HTTP " + statusCode);
@@ -362,14 +364,14 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
 
     private static AiInvocationException invalidResponse(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID, false, message, cause);
+                AiFailureCategory.PROVIDER_RESPONSE_INVALID, false, message, cause);
     }
 
     private static void sleep(long millis) {
         ThreadUtils.sleepQuietly(AiProviderCallContext.remainingWaitMillis(Math.max(1, millis)));
         if (Thread.currentThread().isInterrupted()) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
+                    AiFailureCategory.TIMEOUT,
                     false,
                     "Embedding rate admission was interrupted");
         }

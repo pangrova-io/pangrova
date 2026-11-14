@@ -21,7 +21,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.types.value.TypedRow;
@@ -172,7 +172,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
         routingStatusReporter = new RemoteTaskStatusReporter(
                 "http://localhost:" + coordinatorServer.getPort(),
-                TestObservability.TRACING, E2E_INTERNAL_AUTH_SECRET);
+                TestObservability.TRACING, TestObservability.METRICS, E2E_INTERNAL_AUTH_SECRET);
         configureVirtualRoutingStatusDelivery(
                 VirtualWorkerRoutingIntegrationTestBase::deliverStatusToOwningCoordinator);
 

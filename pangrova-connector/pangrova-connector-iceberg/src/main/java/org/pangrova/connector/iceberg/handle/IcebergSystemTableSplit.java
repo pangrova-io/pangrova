@@ -3,6 +3,7 @@ package org.pangrova.connector.iceberg.handle;
 import java.util.Map;
 import java.util.Objects;
 
+import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -12,7 +13,7 @@ import org.pangrova.connector.api.metadata.ConnectorSplit;
 /** One pinned Iceberg metadata object scanned by a Native Worker. */
 public record IcebergSystemTableSplit(
         String tableName,
-        IcebergSystemTableHandle.Kind kind,
+        IcebergSystemTableKind kind,
         String metadataLocation,
         long metadataLength) implements ConnectorSplit {
 

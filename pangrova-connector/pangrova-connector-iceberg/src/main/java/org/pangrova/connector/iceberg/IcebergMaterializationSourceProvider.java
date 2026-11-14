@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.common.util.DigestUtils;
 
 import java.math.BigDecimal;
@@ -119,7 +120,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         long snapshotId = parseSnapshotToken(snapshotToken, source);
         if (table.snapshot(snapshotId) == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Iceberg snapshot " + snapshotId + " of " + source.canonicalName()
                             + " is not available");
         }
@@ -137,14 +138,14 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         Table table = load(source);
         if (table.currentSnapshot() != null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg source " + source.canonicalName()
                             + " gained a data snapshot since planning");
         }
         String identity = emptyIdentity(table);
         if (!identity.equals(sourceIdentity)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg empty identity of " + source.canonicalName()
                             + " changed since planning");
         }
@@ -167,14 +168,14 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         long snapshotId = parseSnapshot(expected, source);
         if (table.snapshot(snapshotId) == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Iceberg snapshot " + snapshotId + " of " + source.canonicalName()
                             + " is no longer available");
         }
         String actualSchema = schemaFingerprint(table);
         if (!actualSchema.equals(expected.schemaFingerprint())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg source " + source.canonicalName()
                             + " changed schema since planning");
         }
@@ -188,7 +189,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                         .setMaxRefAgeMs(tag, Long.MAX_VALUE).commit();
             } catch (RuntimeException failure) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                        MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                         "Could not pin Iceberg snapshot " + snapshotId
                                 + " of " + source.canonicalName(), failure);
             }
@@ -202,21 +203,21 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             SourceSnapshotRef expected, String pinOwner, Table table) {
         if (table.currentSnapshot() != null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg source " + source.canonicalName()
                             + " gained a data snapshot since planning");
         }
         String identity = emptyIdentity(table);
         if (!expected.snapshotToken().equals(SourceSnapshotRef.EMPTY_TOKEN_PREFIX + identity)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg empty identity of " + source.canonicalName()
                             + " changed since planning");
         }
         String actualSchema = schemaFingerprint(table);
         if (!actualSchema.equals(expected.schemaFingerprint())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg source " + source.canonicalName()
                             + " changed schema since planning");
         }
@@ -230,13 +231,13 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         requireSource(source);
         if (from.snapshot().isEmptySource() || to.snapshot().isEmptySource()) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                     "Iceberg source " + source.canonicalName()
                             + " has no change-set interval from an empty snapshot");
         }
         if (!from.snapshot().hasSameShape(to.snapshot())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Iceberg source " + source.canonicalName()
                             + " changed schema or policy shape inside the change interval");
         }
@@ -257,7 +258,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         } else {
             throw unsupported(source, mode);
         }
-        String fingerprint = sha256("iceberg-change-set-v2|" + source.canonicalName()
+        String fingerprint = DigestUtils.sha256Hex("iceberg-change-set-v2|" + source.canonicalName()
                 + '|' + fromId + '|' + toId + '|' + mode.name()
                 + '|' + partitionFingerprint(changedPartitions));
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
@@ -280,7 +281,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             complete = appendOnly(table, fromId, toId, source);
         }
         return new ChangeProof(source, Long.toString(fromId), Long.toString(toId),
-                plan.mode(), sha256(plan.planFingerprint() + "|verified|" + complete),
+                plan.mode(), DigestUtils.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
                 STRATEGY_VERSION, Instant.now(), complete);
     }
 
@@ -302,7 +303,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             table.manageSnapshots().removeTag(tag).commit();
         } catch (RuntimeException failure) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                    MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                     "Could not release Iceberg pin " + tag + " of "
                             + pinned.source().canonicalName(), failure);
         }
@@ -312,7 +313,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         long snapshotId = parseSnapshot(pinned.snapshot(), pinned.source());
         if (table.snapshot(snapshotId) == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Iceberg snapshot " + snapshotId + " of "
                             + pinned.source().canonicalName() + " is no longer available");
         }
@@ -328,7 +329,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             return Long.parseLong(token);
         } catch (NumberFormatException invalid) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Invalid Iceberg snapshot token for " + source.canonicalName()
                             + ": " + token, invalid);
         }
@@ -348,7 +349,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             Table table, long fromId, long toId, SourceRef source) {
         if (!appendOnly(table, fromId, toId, source)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PROOF_INCOMPLETE,
+                    MaterializationSourceFailureReason.PROOF_INCOMPLETE,
                     "Iceberg change interval " + fromId + ".." + toId + " of "
                             + source.canonicalName() + " is not append-only");
         }
@@ -375,7 +376,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         Snapshot current = table.snapshot(toId);
         if (current == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Iceberg snapshot " + toId + " of " + source.canonicalName()
                             + " is no longer available");
         }
@@ -387,7 +388,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         }
         if (current == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                     "Iceberg snapshot " + fromId + " is not an ancestor of " + toId
                             + " for " + source.canonicalName());
         }
@@ -403,7 +404,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
     private static void requirePartitionReplaceable(Table table, SourceRef source) {
         if (!partitionReplaceSupported(table)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                     "Iceberg source " + source.canonicalName()
                             + " has no identity-partitioned spec for partition replacement");
         }
@@ -444,7 +445,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         for (ContentFile<?> file : files) {
             if (file.specId() != spec.specId()) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                        MaterializationSourceFailureReason.SHAPE_MISMATCH,
                         "Iceberg content file of " + source.canonicalName()
                                 + " uses partition spec " + file.specId()
                                 + " instead of " + spec.specId());
@@ -455,7 +456,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                 String column = table.schema().findColumnName(field.sourceId());
                 if (column == null) {
                     throw new MaterializationSourceException(
-                            MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                            MaterializationSourceFailureReason.SHAPE_MISMATCH,
                             "Iceberg partition field " + field.name() + " of "
                                     + source.canonicalName() + " has no source column");
                 }
@@ -482,7 +483,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             case BOOLEAN -> ((Boolean) value) ? "TRUE" : "FALSE";
             case DECIMAL -> ((BigDecimal) value).toPlainString();
             default -> throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                     "Iceberg partition type " + field.type() + " of " + source.canonicalName()
                             + " cannot be expressed as a SQL literal");
         };
@@ -509,7 +510,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
             return table;
         } catch (RuntimeException failure) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Iceberg table " + source.canonicalName() + " is not readable", failure);
         }
     }
@@ -553,33 +554,33 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                     .append(field.fieldId()).append(':').append(field.name())
                     .append(':').append(field.transform());
         }
-        return sha256(canonical.toString());
+        return DigestUtils.sha256Hex(canonical.toString());
     }
 
     private static String emptyIdentity(Table table) {
         if (!(table instanceof HasTableOperations operations)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Iceberg table " + table.name() + " has no table operations");
         }
         String uuid = operations.operations().current().uuid();
         if (uuid == null || uuid.isBlank()) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Iceberg table " + table.name() + " has no table UUID");
         }
-        return sha256(uuid + "\0" + table.location() + "\0EMPTY");
+        return DigestUtils.sha256Hex(uuid + "\0" + table.location() + "\0EMPTY");
     }
 
     private static String tagName(String pinOwner, long snapshotId) {
-        return TAG_PREFIX + sha256(pinOwner).substring(0, 32) + '_' + snapshotId;
+        return TAG_PREFIX + DigestUtils.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
     }
 
     private static void requireExact(
             SnapshotRef reference, long snapshotId, String tag) {
         if (reference == null || !reference.isTag() || reference.snapshotId() != snapshotId) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                    MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                     "Iceberg materialization pin " + tag + " differs from snapshot " + snapshotId);
         }
     }
@@ -587,12 +588,8 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
     private static MaterializationSourceException unsupported(
             SourceRef source, ChangeSetMode mode) {
         return new MaterializationSourceException(
-                MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                 "Iceberg source " + source.canonicalName()
                         + " does not support change-set mode " + mode);
-    }
-
-    private static String sha256(String value) {
-        return DigestUtils.sha256Hex(value);
     }
 }

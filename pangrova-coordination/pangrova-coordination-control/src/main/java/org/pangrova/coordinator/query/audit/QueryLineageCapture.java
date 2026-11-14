@@ -13,7 +13,6 @@
  */
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.governance.api.enums.ColumnDerivationKind;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.analysis.PlannedQuery;
@@ -119,17 +118,12 @@ public final class QueryLineageCapture {
         var inputs = info.sourceTables().stream().map(name ->
                 new QueryLineageMetadata.Dataset(
                         "pangrova", name, List.of())).toList();
-        var columns = info.columnDerivations().stream().map(column -> {
-            var kind = switch (column.expression()) {
-                case DIRECT -> ColumnDerivationKind.DIRECT;
-                case TRANSFORM -> ColumnDerivationKind.TRANSFORM;
-                case AGGREGATE -> ColumnDerivationKind.AGGREGATE;
-            };
-            return new QueryLineageMetadata.Column(column.outputColumn(),
-                    column.sourceColumns().stream().map(source ->
-                            new QueryLineageMetadata.SourceColumn(
-                                    "pangrova", source.table(), source.column())).toList(), kind);
-        }).toList();
+        var columns = info.columnDerivations().stream().map(column ->
+                new QueryLineageMetadata.Column(column.outputColumn(),
+                        column.sourceColumns().stream().map(source ->
+                                new QueryLineageMetadata.SourceColumn(
+                                        "pangrova", source.table(), source.column())).toList(),
+                        column.expression())).toList();
         var outputs = info.targetTables().stream().map(name ->
                 new QueryLineageMetadata.Dataset(
                         "pangrova", name, columns)).toList();

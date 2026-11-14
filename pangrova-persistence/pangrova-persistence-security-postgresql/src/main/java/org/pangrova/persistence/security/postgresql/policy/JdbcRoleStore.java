@@ -1,5 +1,7 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
 
 import org.pangrova.security.api.policy.GroupRoleMapping;
@@ -16,6 +18,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -130,7 +133,7 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
                 }
                 return affected > 0;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {
@@ -322,6 +325,6 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
             return true;
         }
         String msg = e.getMessage();
-        return msg != null && (msg.contains("Duplicate") || msg.toLowerCase().contains("unique"));
+        return msg != null && (msg.contains("Duplicate") || msg.toLowerCase(Locale.ROOT).contains("unique"));
     }
 }

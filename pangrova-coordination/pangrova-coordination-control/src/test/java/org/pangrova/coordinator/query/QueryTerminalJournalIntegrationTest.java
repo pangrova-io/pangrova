@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.query.api.enums.QueryState;
 
 import java.sql.SQLException;
@@ -26,7 +27,7 @@ class QueryTerminalJournalIntegrationTest {
             assertThatThrownBy(() -> control.manager.onAllTasksFinished(id))
                     .isInstanceOf(JournalWriteException.class)
                     .satisfies(error -> assertThat(((JournalWriteException) error).admissionOutcome())
-                            .isEqualTo(JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED))
+                            .isEqualTo(JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED))
                     .hasRootCauseInstanceOf(SQLException.class)
                     .rootCause()
                     .satisfies(error -> assertThat(((SQLException) error).getSQLState()).isEqualTo("42501"))

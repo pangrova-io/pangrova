@@ -51,6 +51,7 @@ public final class ConnectorFactoryRegistry {
     public static ConnectorFactoryRegistry of(
             Iterable<ConnectorFactory> discovered, ConnectorRole role) {
         Map<String, ConnectorFactory> byName = new LinkedHashMap<>();
+        Map<String, ConnectorFactory> declarations = new LinkedHashMap<>();
         for (ConnectorFactory factory : discovered) {
             if (factory == null) {
                 throw invalid("ConnectorFactory must not be null");
@@ -60,25 +61,33 @@ public final class ConnectorFactoryRegistry {
                 throw invalid("ConnectorFactory name must not be blank: "
                         + factory.getClass().getName());
             }
-            if (factory.apiVersion() != ConnectorFactoryContract.CURRENT_API_VERSION) {
+            int version;
+            try {
+                version = factory.apiVersion();
+            } catch (AbstractMethodError incompatibleFactory) {
+                throw new ConfigurationException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                        "ConnectorFactory '" + name + "' does not implement the current factory contract", incompatibleFactory);
+            }
+            if (version != ConnectorFactoryContract.CURRENT_API_VERSION) {
                 throw invalid("ConnectorFactory '" + name + "' declares API version "
-                        + factory.apiVersion() + " but runtime requires "
+                        + version + " but runtime requires "
                         + ConnectorFactoryContract.CURRENT_API_VERSION);
             }
             Set<ConnectorRole> roles = factory.roles();
             if (roles == null || roles.isEmpty()) {
                 throw invalid("ConnectorFactory '" + name + "' must declare at least one role");
             }
+            ConnectorFactory previous = declarations.putIfAbsent(name, factory);
+            if (previous != null) {
+                throw invalid("Duplicate ConnectorFactory name '" + name + "': "
+                        + previous.getClass().getName() + " and " + factory.getClass().getName());
+            }
             if (role != null && !roles.contains(role)) {
                 LOG.info("event=connector_factory_role_excluded factory={} role={}",
                         name, role);
                 continue;
             }
-            ConnectorFactory previous = byName.putIfAbsent(name, factory);
-            if (previous != null) {
-                throw invalid("Duplicate ConnectorFactory name '" + name + "': "
-                        + previous.getClass().getName() + " and " + factory.getClass().getName());
-            }
+            byName.put(name, factory);
             LOG.info("event=connector_factory_discovered factory={} class={} role={}",
                     name, factory.getClass().getName(), role);
         }

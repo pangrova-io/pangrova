@@ -12,10 +12,9 @@ import java.util.Optional;
  * here. Subsequent queries resolve the table to the specified branch version.
  * {@code USE BRANCH MAIN ON table} removes the routing (reverts to main branch).</p>
  *
- * <p>Clients send their per-table selection to the Coordinator using the
+ * <p>Branch routing state propagates to Workers via session properties using the
  * key prefix {@value #PROPERTY_PREFIX}. Each entry is serialized as
- * {@code branch.routing.<qualified_table_name> = <branch_name>}. The planner binds the
- * selected branch to an exact snapshot for Worker execution.</p>
+ * {@code branch.routing.<qualified_table_name> = <branch_name>}.</p>
  *
  * <p>This class is immutable. Mutation methods return new instances.</p>
  */

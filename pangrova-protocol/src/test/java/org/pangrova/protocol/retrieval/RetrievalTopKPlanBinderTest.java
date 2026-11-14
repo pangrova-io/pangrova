@@ -1,5 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import java.util.List;
 
 import io.substrait.proto.Expression;
@@ -187,7 +189,7 @@ class RetrievalTopKPlanBinderTest {
         assertThat(filter.getFilter().getCondition().getLiteral().getBoolean()).isTrue();
         Rel read = filter.getFilter().getInput();
         assertThat(read.getRead().getBaseSchema().getNamesList())
-                .endsWith(BuiltInCapabilityCatalog.MATERIALIZED_RETRIEVAL_SCORE_COLUMN);
+                .endsWith(BuiltInCapabilityIdentifiers.MATERIALIZED_RETRIEVAL_SCORE_COLUMN);
         assertThat(read.getRead().getBaseSchema().getStruct().getTypesList())
                 .last().satisfies(type -> assertThat(type.hasFp64()).isTrue());
         assertThat(bound.operatorBindings()).singleElement().satisfies(operator -> {

@@ -7,6 +7,10 @@ import org.pangrova.streaming.api.cdc.CdcRecordConverter;
  * Factory discovery and decoder construction must not acquire external resources. */
 @Experimental
 public interface CdcFormatFactory {
+    int API_VERSION = 1;
+
+    int apiVersion();
+
     /** Stable nonblank, case-sensitive SQL FORMAT value, unique within the Coordinator. */
     String identifier();
 

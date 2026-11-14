@@ -1,10 +1,11 @@
 package org.pangrova.planner.embedding;
 
+import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
+
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
 import org.junit.jupiter.api.Test;
-import org.pangrova.planner.generation.GeneratedValueGenerationPlanBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,7 +16,7 @@ class GeneratedColumnSourceEncodingTest {
         var project = (LogicalProject) modify.getInput();
         var embedding = (RexCall) project.getProjects().get(7);
         var source = (RexCall) embedding.getOperands().get(1);
-        assertThat(GeneratedValueGenerationPlanBuilder.SOURCE_ENCODING).isEqualTo(GeneratedColumnSourceEncoding.NAME);
+        assertThat(GeneratedColumnSourceEncoding.NAME).isEqualTo("ordered-unit-separator-v1");
         assertThat(RexLiteral.stringValue(source.getOperands().get(1))).isEqualTo(GeneratedColumnSourceEncoding.SEPARATOR);
         assertThat(source.getType().isNullable()).isTrue();
     }

@@ -58,7 +58,7 @@ public final class CdcPipelineLoop implements Runnable {
 
     private final CdcPipelineConfig config;
     private final CdcPipelineLoopContext deps;
-    private final CdcTwoPhaseCommitter twoPhaseCommitter;
+    private CdcPipelineMetrics metrics;
     private final Map<TopicPartitionOffset, Long> initialOffsets;
     private volatile boolean running = true;
     private volatile Thread pipelineThread;
@@ -86,6 +86,7 @@ public final class CdcPipelineLoop implements Runnable {
     // Retain the exact polled batch until publication and acknowledgement succeed.
     // Polling again after a write failure can advance past uncommitted records.
     private List<SourceRecord> pendingBatch = List.of();
+    private List<CdcEnvelope> acknowledgedEnvelopes;
 
     /**
      * Offsets that caused the previous failure. Compared against
@@ -110,7 +111,6 @@ public final class CdcPipelineLoop implements Runnable {
                             Map<TopicPartitionOffset, Long> initialOffsets) {
         this.config = config;
         this.deps = deps;
-        this.twoPhaseCommitter = new CdcTwoPhaseCommitter(config, deps);
         this.initialOffsets = initialOffsets != null ? Map.copyOf(initialOffsets) : Map.of();
     }
 
@@ -123,7 +123,9 @@ public final class CdcPipelineLoop implements Runnable {
                 config.streamName(), config.targetTable());
         Throwable primary = null;
         try {
-            if (!running || !restoreCheckpoint()) {
+            if (!running) return;
+            metrics = new CdcPipelineMetrics(deps.runtimeHooks().metricsProvider(), config.streamName());
+            if (!restoreCheckpoint()) {
                 return;
             }
             runPipelineLoop();
@@ -132,9 +134,11 @@ public final class CdcPipelineLoop implements Runnable {
             throw failure;
         } finally {
             pendingBatch = List.of();
+            acknowledgedEnvelopes = null;
             // The polling thread owns the reader, including shutdown after cancellation.
             try {
                 ResourceCloser.closeAll(primary,
+                        ResourceCloser.present(metrics, CdcPipelineMetrics::close),
                         deps.writeSink()::close, deps.sourceReader()::close);
             } finally {
                 synchronized (threadLifecycleLock) {
@@ -153,6 +157,8 @@ public final class CdcPipelineLoop implements Runnable {
             restoreInitialOffsets();
             return true;
         } catch (RuntimeException failure) {
+            if (!running) return false;
+            metrics.onFailure();
             running = false;
             LOG.error("event=pipeline_recovery_failed stream={}", config.streamName(), failure);
             deps.listener().onFailed(failure);
@@ -199,6 +205,8 @@ public final class CdcPipelineLoop implements Runnable {
             try {
                 executeCycle();
             } catch (RuntimeException e) {
+                if (!running) return;
+                metrics.onFailure();
                 handleFailure(e);
                 if (!running) {
                     return;
@@ -234,11 +242,21 @@ public final class CdcPipelineLoop implements Runnable {
     private void executeCycle() {
         // Reset before pollBatch so a poll failure is not attributed to a stale
         // set of offsets from a previous cycle.
+        // The source already acknowledged this range; retry only its watermark update.
+        if (acknowledgedEnvelopes != null) {
+            completeCycle();
+            return;
+        }
         currentCycleOffsets = Map.of();
 
         if (pendingBatch.isEmpty()) {
-            pendingBatch = List.copyOf(deps.sourceReader().pollBatch(
-                    config.batchSize(), config.pollTimeout()));
+            long started = System.nanoTime();
+            try {
+                pendingBatch = List.copyOf(deps.sourceReader().pollBatch(config.batchSize(), config.pollTimeout()));
+            } finally {
+                metrics.recordPollDuration(System.nanoTime() - started);
+            }
+            metrics.onPolled(pendingBatch, deps.sourceReader()::currentLag);
         }
         List<SourceRecord> batch = pendingBatch;
         if (batch.isEmpty()) {
@@ -252,16 +270,25 @@ public final class CdcPipelineLoop implements Runnable {
 
         List<CdcEnvelope> envelopes = convertBatch(batch);
         if (deps.commitCoordinator() != null) {
-            twoPhaseCommitter.commitWithTwoPhaseProtocol(envelopes, checkpoint);
-            propagateWatermark(envelopes);
-        } else {
-            if (!envelopes.isEmpty()) {
-                writeAndNotify(envelopes);
-            }
-            deps.sourceReader().commitOffsets(currentCycleOffsets);
-            propagateWatermark(envelopes);
+            new CdcTwoPhaseCommitter(config, deps, metrics).publish(envelopes, checkpoint);
+        } else if (!envelopes.isEmpty()) {
+            writeAndNotify(envelopes);
         }
 
+        long started = System.nanoTime();
+        try {
+            deps.sourceReader().commitOffsets(currentCycleOffsets);
+            acknowledgedEnvelopes = envelopes;
+        } finally {
+            metrics.recordCommitDuration(System.nanoTime() - started);
+        }
+        metrics.onBatchProcessed();
+        completeCycle();
+    }
+
+    private void completeCycle() {
+        propagateWatermark(acknowledgedEnvelopes);
+        acknowledgedEnvelopes = null;
         pendingBatch = List.of();
         consecutiveFailures = 0;
         retriesAtCurrentOffset = 0;
@@ -287,10 +314,16 @@ public final class CdcPipelineLoop implements Runnable {
     }
 
     private void writeAndNotify(List<CdcEnvelope> envelopes) {
-        long estimatedBytes = twoPhaseCommitter.estimateBatchBytes(envelopes);
+        long estimatedBytes = CdcTwoPhaseCommitter.estimateBatchBytes(envelopes);
         deps.quotaEnforcer().onWriteStart(estimatedBytes);
         try {
-            CdcWriteResult result = deps.writeSink().writeBatch(envelopes);
+            long started = System.nanoTime();
+            CdcWriteResult result;
+            try {
+                result = deps.writeSink().writeBatch(envelopes);
+            } finally {
+                metrics.recordWriteDuration(System.nanoTime() - started);
+            }
 
             WriteResult maintenanceResult = new WriteResult(
                 config.targetTable(),

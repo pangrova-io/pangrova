@@ -11,6 +11,7 @@ import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -256,7 +257,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     /** Detects file format from path extension. */
     private static String detectFormat(String path) {
         if (path == null) return "unknown";
-        String lower = path.toLowerCase();
+        String lower = path.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".parquet")) return "parquet";
         if (lower.endsWith(".orc")) return "orc";
         if (lower.endsWith(".avro")) return "avro";

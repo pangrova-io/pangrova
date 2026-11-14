@@ -21,6 +21,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-observability-noop</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-streaming-memory</artifactId>
             <scope>test</scope>
         </dependency>

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.ai.branch;
 
+import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -15,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -229,7 +231,7 @@ public final class BranchTtlCleanupTask implements AutoCloseable {
 
     private boolean isExpiredBranch(ConnectorMetadata metadata, ConnectorSession session,
                                     SchemaTableName tableName, SnapshotReference ref, Instant cutoff) {
-        if (ref.type() != SnapshotReference.Type.BRANCH || MAIN_BRANCH.equals(ref.name())) {
+        if (ref.type() != SnapshotReferenceType.BRANCH || MAIN_BRANCH.equals(ref.name())) {
             return false;
         }
         Instant createdAt = resolveSnapshotTimestamp(metadata, session, tableName, ref.snapshotId());
@@ -281,7 +283,7 @@ public final class BranchTtlCleanupTask implements AutoCloseable {
         if (value == null || value.isBlank()) {
             return null;
         }
-        String trimmed = value.trim().toLowerCase();
+        String trimmed = value.trim().toLowerCase(Locale.ROOT);
         Matcher matcher = DURATION_PATTERN.matcher(trimmed);
         if (!matcher.matches()) {
             return null;

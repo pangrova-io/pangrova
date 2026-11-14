@@ -33,6 +33,7 @@ public class IcebergConnector implements Connector {
 
     private final String catalogName;
     private final Catalog catalog;
+    private final FileIO ownedFileIO;
     private final IcebergMetadata metadata;
     private final IcebergSplitManager splitManager;
     private final IcebergPageSourceProvider pageSourceProvider;
@@ -41,6 +42,7 @@ public class IcebergConnector implements Connector {
     private final ScheduledExecutorService pinEvictionScheduler;
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean();
     private volatile boolean catalogClosed;
+    private boolean fileIOClosed;
 
     public IcebergConnector(String catalogName, Catalog catalog) {
         this(catalogName, catalog, null, java.util.Set.of());
@@ -56,7 +58,7 @@ public class IcebergConnector implements Connector {
      *
      * @param catalogName the catalog name this connector serves
      * @param catalog the live Iceberg catalog
-     * @param fileIO optional FileIO override, or null to use the catalog default
+     * @param fileIO separately owned FileIO transferred to this connector on success, or null for the catalog default
      * @param accessibleEncryptionKeys encryption keys this connector is allowed to read
      */
     public IcebergConnector(String catalogName, Catalog catalog,
@@ -64,6 +66,7 @@ public class IcebergConnector implements Connector {
                             java.util.Set<String> accessibleEncryptionKeys) {
         this.catalogName = catalogName;
         this.catalog = catalog;
+        this.ownedFileIO = fileIO;
         this.metadata = new IcebergMetadata(catalog, catalogName,
                 IcebergMetadata.DEFAULT_PIN_TTL_MS, IcebergMetadata.DEFAULT_COMMIT_TIMEOUT_MS,
                 accessibleEncryptionKeys, fileIO);
@@ -73,8 +76,13 @@ public class IcebergConnector implements Connector {
         this.materializationSourceProvider = new IcebergMaterializationSourceProvider(catalogName, catalog);
         this.pinEvictionScheduler = ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("iceberg-pin-eviction");
-        metadata.startPinEviction(pinEvictionScheduler);
-        metadata.setSplitCacheInvalidator(splitManager::invalidateManifestCache);
+        try {
+            metadata.setSplitCacheInvalidator(splitManager::invalidateManifestCache);
+            metadata.startPinEviction(pinEvictionScheduler);
+        } catch (RuntimeException | Error failure) {
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure, pinEvictionScheduler::shutdownNow);
+            throw failure;
+        }
     }
 
     @Override
@@ -127,13 +135,12 @@ public class IcebergConnector implements Connector {
             throw new IllegalStateException("Iceberg connector shutdown is still in progress");
         }
         try {
-            if (catalogClosed) return;
+            if (catalogClosed && fileIOClosed) return;
             pinEvictionScheduler.shutdownNow();
             if (!pinEvictionScheduler.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Iceberg pin eviction has not terminated");
             }
-            if (catalog instanceof AutoCloseable closeable) closeable.close();
-            catalogClosed = true;
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(null, this::closeFileIO, this::closeCatalog);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TRANSIENT_ERROR,
@@ -143,6 +150,22 @@ public class IcebergConnector implements Connector {
                     "Iceberg connector shutdown failed: " + catalogName, failure);
         } finally {
             shutdownInProgress.set(false);
+        }
+    }
+
+    private void closeFileIO() {
+        if (fileIOClosed) return;
+        if (ownedFileIO != null) ownedFileIO.close();
+        fileIOClosed = true;
+    }
+
+    private void closeCatalog() {
+        if (catalogClosed) return;
+        try {
+            if (catalog instanceof AutoCloseable closeable) closeable.close();
+            catalogClosed = true;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Failed to close Iceberg catalog " + catalogName, failure);
         }
     }
 

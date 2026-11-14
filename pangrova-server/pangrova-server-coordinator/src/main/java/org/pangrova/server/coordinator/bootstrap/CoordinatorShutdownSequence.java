@@ -255,7 +255,6 @@ final class CoordinatorShutdownSequence {
         Set<String> unrecoveredQueries = new LinkedHashSet<>();
         int retried = retryOrFailDeadWorkerTasks(
                 workerId, taskTracker, retrier, unrecoveredQueries);
-        markDeadWorkerTasksFailed(workerId, taskTracker);
         failAffectedQueries(workerId, unrecoveredQueries, queryManager);
         logDeadWorkerDrain(workerId, affectedQueries, retried, unrecoveredQueries);
     }
@@ -273,9 +272,13 @@ final class CoordinatorShutdownSequence {
             for (String taskId : entry.getValue()) {
                 boolean replacement = retrier != null
                         && retrier.retry(queryId, taskId, workerId);
+                // A final Worker report can beat loss detection after the active-task snapshot.
+                // A successful physical completion wins that race; only an actual failed task
+                // without a replacement makes the query unrecoverable.
+                boolean failed = taskTracker.markLostTaskFailed(queryId, taskId);
                 if (replacement) {
                     retried++;
-                } else {
+                } else if (failed) {
                     recovered = false;
                 }
             }
@@ -284,28 +287,6 @@ final class CoordinatorShutdownSequence {
             }
         }
         return retried;
-    }
-
-    /**
-     * Marks all non-terminal tasks on the dead worker as FAILED in the tracker.
-     * This ensures internal state consistency: tasks on a dead worker should not
-     * remain in RUNNING state after the worker is declared dead.
-     */
-    private static void markDeadWorkerTasksFailed(String workerId,
-                                                   CoordinatorTaskTracker taskTracker) {
-        if (taskTracker == null) return;
-        Map<String, Set<String>> tasksByQuery = taskTracker.getActiveTasksByQueryForWorker(workerId);
-        int count = 0;
-        for (Map.Entry<String, Set<String>> entry : tasksByQuery.entrySet()) {
-            String queryId = entry.getKey();
-            for (String taskId : entry.getValue()) {
-                taskTracker.updateTaskState(queryId, taskId, "FAILED");
-                count++;
-            }
-        }
-        if (count > 0) {
-            LOG.info("Marked {} tasks as FAILED for dead worker {}", count, workerId);
-        }
     }
 
     private static Set<String> drainDeadWorkerQueries(String workerId,
@@ -318,10 +299,6 @@ final class CoordinatorShutdownSequence {
                                               Set<String> queryIds,
                                               QueryManager queryManager) {
         if (queryManager == null || queryIds.isEmpty()) return;
-        // The first argument is what RetryStageHandler classifies on, and it
-        // compares against PangrovaErrorCode.getCode() ("WORKER-0002"), not the
-        // enum name. A bare "WORKER_LOST" string here was silently unclassifiable,
-        // so the retry whitelist was never reached.
         QueryFailure error = new QueryFailure(
                 org.pangrova.common.enums.PangrovaErrorCode.WORKER_LOST.getCode(), "WORKER_LOST",
                 "Worker " + workerId + " declared dead — failing query");

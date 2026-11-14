@@ -1,15 +1,27 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import java.net.InetAddress;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Objects;
+import org.pangrova.security.api.audit.AuditEventWriter;
+import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.filesystem.api.blob.BlobStorageFactory;
+import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
+import org.pangrova.filesystem.api.blob.ManagedBlobStorageFactory;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.WorkerComponents;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.copy.CopyStageLeases;
+import org.pangrova.worker.dataset.NativeDatasetControlService;
+import org.pangrova.worker.file.FileSpaceFileResource;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerHealthConditions;
@@ -58,11 +70,14 @@ public final class WorkerHttpBootstrap {
                             copyTaskTls(config.transportSecurityConfig()));
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint(started, refs);
             ExchangeTransport exchangeTransport = refs.exchangeTransport();
-            var control = datasetControl(refs);
-            var stageLeases = copyStageLeases(config);
-            var fileSpace = buildFileSpaceResource(config, fileAudit);
+            NativeDatasetControlService control = null;
+            CopyStageLeases stageLeases = null;
+            FileSpaceFileResource fileSpace = null;
             WorkerHttpServer server;
             try {
+                control = datasetControl(refs);
+                stageLeases = copyStageLeases(config);
+                fileSpace = buildFileSpaceResource(config, fileAudit);
                 server = new WorkerHttpServer(
                             httpConfig,
                             refs.taskManager(),
@@ -74,32 +89,11 @@ public final class WorkerHttpBootstrap {
                             stageLeases,
                             fileSpace);
             } catch (RuntimeException | Error failure) {
-                if (stageLeases != null) {
-                    try {
-                        stageLeases.close();
-                    } catch (Exception cleanup) {
-                        failure.addSuppressed(cleanup);
-                    }
-                }
-                if (fileSpace != null) {
-                    try {
-                        fileSpace.close();
-                    } catch (Exception cleanup) {
-                        failure.addSuppressed(cleanup);
-                    }
-                }
+                closeAfterFailure(failure, fileSpace, stageLeases, control);
                 throw failure;
             }
-            try {
-                server.start();
-            } catch (Exception failure) {
-                try {
-                    server.stop();
-                } catch (Exception cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
-                throw failure;
-            }
+            // The server owns each endpoint once constructed, including failed starts.
+            server.start();
             refs.setHttpServer(server);
             refs.setWorker(new PangrovaWorker(new WorkerComponents(refs.taskManager())));
             LOG.info(
@@ -115,40 +109,60 @@ public final class WorkerHttpBootstrap {
      * The public file plane is served only when descriptors can be authenticated; without the
      * shared secret there is no way to tell a coordinator-issued descriptor from a forged one.
      */
-    private static org.pangrova.worker.file.FileSpaceFileResource buildFileSpaceResource(
+    private static FileSpaceFileResource buildFileSpaceResource(
             WorkerBootstrapConfig config, AuditEventWriter fileAudit) {
         String secret = config.internalAuthSecret();
         if (secret == null || secret.isBlank()) {
             LOG.warn("event=file_space_disabled reason=internal_auth_secret_missing");
             return null;
         }
-        return new org.pangrova.worker.file.FileSpaceFileResource(
-                org.pangrova.worker.file.ObjectStoreAccessorFactory.discover(), secret, fileAudit);
+        var accessors = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
+        try {
+            return new FileSpaceFileResource(accessors, secret, fileAudit);
+        } catch (RuntimeException | Error failure) {
+            closeAfterFailure(failure, accessors);
+            throw failure;
+        }
     }
 
-    private static org.pangrova.worker.copy.CopyStageLeases copyStageLeases(            WorkerBootstrapConfig config) {
+    private static CopyStageLeases copyStageLeases(WorkerBootstrapConfig config) {
         if (config.transportSecurityConfig().copyTaskTlsPort() == 0) return null;
         var file = config.nativeFunctionConfig().configForPlugin("ai-inference");
-        if (!"s3".equals(file.get("file.storage-backend"))) {
-            throw new IllegalArgumentException(
-                    "COPY stage listener requires managed S3 FILE storage");
-        }
         String stagingRoot = file.get("file.storage-staging-root");
         if (stagingRoot == null || stagingRoot.isBlank()) {
             throw new IllegalArgumentException("COPY stage listener requires a staging root");
         }
-        var storage = org.pangrova.filesystem.s3.blob.S3BlobStorage.forCopyStaging(
-                org.pangrova.filesystem.s3.blob.S3BlobStorageSettingsParser.parse(file));
+        var storage = copyStorage(file, ServiceLoader.load(BlobStorageFactory.class,
+                WorkerHttpBootstrap.class.getClassLoader()));
         try {
             var command = new org.pangrova.worker.copy.CopySourceStagingCommand(
                     new org.pangrova.worker.copy.CopySourceReadClient(
                             config.coordinatorUrl(), config.internalAuthSecret()),
-                    storage, java.nio.file.Path.of(stagingRoot).resolve("copy-source"),
+                    storage, Path.of(stagingRoot).resolve("copy-source"),
                     1024L * 1024 * 1024);
-            return new org.pangrova.worker.copy.CopyStageLeases(command, storage);
-        } catch (RuntimeException failure) {
-            storage.close();
+            return new CopyStageLeases(command, storage);
+        } catch (RuntimeException | Error failure) {
+            closeAfterFailure(failure, storage);
             throw failure;
+        }
+    }
+
+    static ManagedBlobStorage copyStorage(Map<String, String> configuration, Iterable<BlobStorageFactory> factories) {
+        var factory = BlobStorageFactory.select(configuration, factories);
+        if (!(factory instanceof ManagedBlobStorageFactory managed)) {
+            throw new IllegalArgumentException("FILE backend does not support managed COPY staging: " + factory.providerId());
+        }
+        return Objects.requireNonNull(managed.createForCopy(configuration), "COPY storage factory returned null");
+    }
+
+    static void closeAfterFailure(Throwable failure, AutoCloseable... resources) {
+        for (var resource : resources) {
+            if (resource == null) continue;
+            try {
+                resource.close();
+            } catch (Exception | Error cleanup) {
+                if (failure != cleanup) failure.addSuppressed(cleanup);
+            }
         }
     }
 
@@ -163,11 +177,11 @@ public final class WorkerHttpBootstrap {
                 security.copyTaskTlsPort());
     }
 
-    private static org.pangrova.worker.dataset.NativeDatasetControlService datasetControl(
+    private static NativeDatasetControlService datasetControl(
             WorkerComponentRefs refs) {
         if (refs.catalogResourceResolver()
                 instanceof org.pangrova.worker.catalog.WorkerCatalogRuntime catalogs) {
-            return new org.pangrova.worker.dataset.NativeDatasetControlService(
+            return new NativeDatasetControlService(
                     refs.taskManager(), catalogs);
         }
         return null;
@@ -228,6 +242,6 @@ public final class WorkerHttpBootstrap {
     static HealthCheckEndpoint buildHealthEndpoint(
             AtomicBoolean started, WorkerComponentRefs refs) {
         return new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER, new WorkerHealthConditions(started, refs));
+                ClusterNodeType.WORKER, new WorkerHealthConditions(started, refs));
     }
 }

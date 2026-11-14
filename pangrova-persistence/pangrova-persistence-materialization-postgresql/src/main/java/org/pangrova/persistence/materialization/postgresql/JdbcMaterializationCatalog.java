@@ -18,7 +18,7 @@ import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
@@ -143,11 +143,11 @@ public final class JdbcMaterializationCatalog implements MaterializationCatalog 
 
     private static RefreshKind refreshKind(String value) {
         return switch (value) {
-            case "FULL" -> RefreshKind.Full.INSTANCE;
-            case "INCREMENTAL_APPEND_ONLY" -> RefreshKind.IncrementalAppendOnly.INSTANCE;
-            case "INCREMENTAL_PARTITION_REPLACE" -> RefreshKind.IncrementalPartitionReplace.INSTANCE;
-            case "INCREMENTAL_AFFECTED_KEY" -> RefreshKind.IncrementalAffectedKey.INSTANCE;
-            case "INCREMENTAL_CDC" -> RefreshKind.IncrementalCdc.INSTANCE;
+            case "FULL" -> RefreshKind.FULL;
+            case "INCREMENTAL_APPEND_ONLY" -> RefreshKind.INCREMENTAL_APPEND_ONLY;
+            case "INCREMENTAL_PARTITION_REPLACE" -> RefreshKind.INCREMENTAL_PARTITION_REPLACE;
+            case "INCREMENTAL_AFFECTED_KEY" -> RefreshKind.INCREMENTAL_AFFECTED_KEY;
+            case "INCREMENTAL_CDC" -> RefreshKind.INCREMENTAL_CDC;
             default -> throw MaterializationJson.corrupt("unknown refresh kind " + value);
         };
     }

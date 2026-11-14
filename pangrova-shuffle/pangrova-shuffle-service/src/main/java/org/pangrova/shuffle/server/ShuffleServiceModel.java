@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -11,11 +13,6 @@ final class ShuffleServiceModel {
 
     private ShuffleServiceModel() {}
 
-    enum AllocationState {
-        REGISTERED,
-        FINALIZED,
-        CLEANING
-    }
 
     record AllocationIdentity(
             String shuffleId,
@@ -44,7 +41,7 @@ final class ShuffleServiceModel {
             long capabilityExpiresAtMs,
             long cleanupExpiresAtMs,
             long metadataVersion,
-            AllocationState state) {}
+            ShuffleAllocationState state) {}
 
     record RegisterCommand(
             String requestedShuffleId,

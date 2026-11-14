@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.generation.template;
+
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.api.fragment.StageCoordinates;
 
 import org.pangrova.generation.execution.template.FrozenStageBindings;
@@ -32,8 +34,8 @@ public final class PersistedStagePlan implements StagePlanAccess {
     }
 
     @Override
-    public Mode mode() {
-        return Mode.DURABLE_REPLAY;
+    public StagePlanMode mode() {
+        return StagePlanMode.DURABLE_REPLAY;
     }
 
     @Override

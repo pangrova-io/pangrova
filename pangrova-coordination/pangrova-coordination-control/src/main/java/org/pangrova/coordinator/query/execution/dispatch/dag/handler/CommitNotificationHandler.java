@@ -7,7 +7,7 @@ import java.util.List;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

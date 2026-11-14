@@ -82,6 +82,7 @@ class KafkaCdcSourceReaderIntegrationTest extends ContainerTestBase {
 
     @Test
     void truncatedRecordsAreNotLost() {
+        assertThat(reader.currentLag()).isEmpty();
         int totalRecords = 10;
         int maxRecordsPerPoll = 5;
 
@@ -110,6 +111,7 @@ class KafkaCdcSourceReaderIntegrationTest extends ContainerTestBase {
                         totalRecords, maxRecordsPerPoll)
                 .hasSize(totalRecords);
 
+        assertThat(reader.currentLag()).hasValue(0L);
         List<String> values = allConsumed.stream()
                 .map(r -> new String(r.value(), StandardCharsets.UTF_8))
                 .toList();

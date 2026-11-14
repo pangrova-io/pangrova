@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 
@@ -280,7 +281,7 @@ public record PaimonSplit(
         if (readMode == null) {
             return PaimonReadMode.PAIMON_READ_MODE_UNSPECIFIED;
         }
-        return switch (readMode.toUpperCase()) {
+        return switch (readMode.toUpperCase(Locale.ROOT)) {
             case "APPEND" -> PaimonReadMode.PAIMON_READ_MODE_APPEND;
             case "PRIMARY_KEY" -> PaimonReadMode.PAIMON_READ_MODE_PRIMARY_KEY;
             case "CHANGELOG" -> PaimonReadMode.PAIMON_READ_MODE_CHANGELOG;
@@ -293,7 +294,7 @@ public record PaimonSplit(
         if (mergeEngine == null) {
             return PaimonMergeEngine.PAIMON_MERGE_ENGINE_DEDUPLICATE;
         }
-        return switch (mergeEngine.toUpperCase()) {
+        return switch (mergeEngine.toUpperCase(Locale.ROOT)) {
             case "PARTIAL_UPDATE" -> PaimonMergeEngine.PAIMON_MERGE_ENGINE_PARTIAL_UPDATE;
             case "AGGREGATION" -> PaimonMergeEngine.PAIMON_MERGE_ENGINE_AGGREGATION;
             case "FIRST_ROW" -> PaimonMergeEngine.PAIMON_MERGE_ENGINE_FIRST_ROW;
@@ -305,7 +306,7 @@ public record PaimonSplit(
         if (changelogProducer == null) {
             return PaimonChangelogProducer.PAIMON_CHANGELOG_PRODUCER_NONE;
         }
-        return switch (changelogProducer.toUpperCase()) {
+        return switch (changelogProducer.toUpperCase(Locale.ROOT)) {
             case "INPUT" -> PaimonChangelogProducer.PAIMON_CHANGELOG_PRODUCER_INPUT;
             case "LOOKUP" -> PaimonChangelogProducer.PAIMON_CHANGELOG_PRODUCER_LOOKUP;
             case "FULL_COMPACTION" ->

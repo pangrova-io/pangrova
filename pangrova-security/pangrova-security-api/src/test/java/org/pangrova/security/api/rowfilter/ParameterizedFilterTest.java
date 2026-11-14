@@ -1,9 +1,8 @@
 package org.pangrova.security.api.rowfilter;
 
 import org.pangrova.security.api.rowfilter.ParameterizedFilter;
-
 import org.pangrova.security.api.rowfilter.ParameterizedFilter.BoundParameter;
-import org.pangrova.security.api.rowfilter.ParameterizedFilter.ParameterType;
+import org.pangrova.security.api.enums.FilterParameterType;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -23,7 +22,7 @@ class ParameterizedFilterTest {
     void singleParameterReplacement() {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(owner = $1)",
-                List.of(new BoundParameter("current_user", "alice", ParameterType.STRING)));
+                List.of(new BoundParameter("current_user", "alice", FilterParameterType.STRING)));
 
         assertThat(filter.toSafeExpression()).isEqualTo("(owner = 'alice')");
     }
@@ -33,8 +32,8 @@ class ParameterizedFilterTest {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(owner = $1 AND dept = $2)",
                 List.of(
-                        new BoundParameter("current_user", "alice", ParameterType.STRING),
-                        new BoundParameter("department", "engineering", ParameterType.STRING)));
+                        new BoundParameter("current_user", "alice", FilterParameterType.STRING),
+                        new BoundParameter("department", "engineering", FilterParameterType.STRING)));
 
         assertThat(filter.toSafeExpression())
                 .isEqualTo("(owner = 'alice' AND dept = 'engineering')");
@@ -54,7 +53,7 @@ class ParameterizedFilterTest {
 
         List<BoundParameter> params = new ArrayList<>();
         for (int i = 1; i <= 12; i++) {
-            params.add(new BoundParameter("p" + i, "value" + i, ParameterType.STRING));
+            params.add(new BoundParameter("p" + i, "value" + i, FilterParameterType.STRING));
         }
 
         ParameterizedFilter filter = new ParameterizedFilter(template, params);
@@ -82,7 +81,7 @@ class ParameterizedFilterTest {
         String template = "$1$10";
         List<BoundParameter> params = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
-            params.add(new BoundParameter("p" + i, "v" + i, ParameterType.STRING));
+            params.add(new BoundParameter("p" + i, "v" + i, FilterParameterType.STRING));
         }
 
         ParameterizedFilter filter = new ParameterizedFilter(template, params);
@@ -95,7 +94,7 @@ class ParameterizedFilterTest {
     void duplicatePlaceholderReferencesResolveCorrectly() {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(a = $1 OR b = $1)",
-                List.of(new BoundParameter("user", "bob", ParameterType.STRING)));
+                List.of(new BoundParameter("user", "bob", FilterParameterType.STRING)));
 
         assertThat(filter.toSafeExpression()).isEqualTo("(a = 'bob' OR b = 'bob')");
     }
@@ -105,8 +104,8 @@ class ParameterizedFilterTest {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(a = $1 AND b = $3)",
                 List.of(
-                        new BoundParameter("p1", "v1", ParameterType.STRING),
-                        new BoundParameter("p2", "v2", ParameterType.STRING)));
+                        new BoundParameter("p1", "v1", FilterParameterType.STRING),
+                        new BoundParameter("p2", "v2", FilterParameterType.STRING)));
 
         assertThatThrownBy(filter::toSafeExpression)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -118,7 +117,7 @@ class ParameterizedFilterTest {
     void zeroIndexParameterThrows() {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(a = $0)",
-                List.of(new BoundParameter("p1", "v1", ParameterType.STRING)));
+                List.of(new BoundParameter("p1", "v1", FilterParameterType.STRING)));
 
         assertThatThrownBy(filter::toSafeExpression)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -139,7 +138,7 @@ class ParameterizedFilterTest {
         ParameterizedFilter filter = new ParameterizedFilter(
                 "(role IN ($1))",
                 List.of(new BoundParameter("groups", "admin,user,viewer",
-                        ParameterType.STRING_LIST)));
+                        FilterParameterType.STRING_LIST)));
 
         assertThat(filter.toSafeExpression()).isEqualTo("(role IN ('admin,user,viewer'))");
     }

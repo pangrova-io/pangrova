@@ -2,8 +2,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.degradation.DegradationManager;
-import org.pangrova.coordinator.resilience.degradation.DegradationManager.DegradationLevel;
-import org.pangrova.coordinator.resilience.retry.StageRetryManager;
+import org.pangrova.coordinator.enums.DegradationLevel;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -19,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Integration points verified:
  * <ul>
  *   <li>CircuitBreaker → RemoteTaskDispatcher (via CircuitBreakerPolicy SPI)</li>
- *   <li>StageRetryManager → QueryDispatcher (via QueryDispatcherContext)</li>
  *   <li>DegradationManager → QueryManager (via QueryManagerContext)</li>
  * </ul>
  */
@@ -103,30 +101,6 @@ class ResilienceModuleIntegrationTest {
     }
 
     @Test
-    void stageRetryManager_retryableErrorTriggersRetry() {
-        StageRetryManager retryManager = new StageRetryManager();
-        retryManager.registerStage("s-1", 3);
-
-        boolean shouldRetry = retryManager.onTaskFailure(
-                "s-1", "t-1",
-                org.pangrova.common.enums.PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
-
-        assertThat(shouldRetry).isTrue();
-    }
-
-    @Test
-    void stageRetryManager_nonRetryableErrorSkipsRetry() {
-        StageRetryManager retryManager = new StageRetryManager();
-        retryManager.registerStage("s-2", 3);
-
-        boolean shouldRetry = retryManager.onTaskFailure(
-                "s-2", "t-1",
-                org.pangrova.common.enums.PangrovaErrorCode.PARSER_SYNTAX_ERROR);
-
-        assertThat(shouldRetry).isFalse();
-    }
-
-    @Test
     void circuitBreakerPolicy_noOpAllowsAllRequests() {
         CircuitBreakerPolicy noOp = CircuitBreakerPolicy.noOp();
 
@@ -156,7 +130,7 @@ class ResilienceModuleIntegrationTest {
 
     private static CoordinatorBootstrapConfig buildResilienceConfig() {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

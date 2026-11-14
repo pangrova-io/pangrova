@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.api.model;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.common.api.annotation.Experimental;
@@ -87,13 +89,13 @@ public record AiModelDescriptor(
      * @throws AiInvocationException if the model does not advertise the capability
      */
     public AiCapabilityDescriptor requireCapability(
-            AiCapabilityDescriptor.Operation operation, String capabilityVersion) {
+            AiOperation operation, String capabilityVersion) {
         return capabilities.stream()
                 .filter(capability -> capability.operation() == operation)
                 .filter(capability -> capability.version().equals(capabilityVersion))
                 .findFirst()
                 .orElseThrow(() -> new AiInvocationException(
-                        AiInvocationException.Category.CAPABILITY_MISMATCH,
+                        AiFailureCategory.CAPABILITY_MISMATCH,
                         false,
                         "Model '" + name + "' version '" + version
                                 + "' does not provide " + operation

@@ -25,9 +25,11 @@
 
 namespace pangrova::jni {
 
-class HandleRegistry {
+class HandleRegistry final : public executor::TaskFailureReporter {
  public:
   static HandleRegistry& instance();
+  void reportExecutionError(int64_t handle, const protocol::v2::ExecutionError& error) const override;
+  void reportResultStreamFailure(int64_t handle, const std::string& message) const override;
 
   // Register an executor and return a unique handle.
   // The handle encodes the current generation for staleness detection.

@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.scheduler.api.enums.HealthState;
@@ -173,7 +174,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             try {
                 haB.start("coordinator-b");
 
-                assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(haB.getRole()).isEqualTo(CoordinatorRole.LEADER);
                 assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                 // loadFromRegistry recovers 3 workers (triggered by start→tryBecomeLeader→failover callback)

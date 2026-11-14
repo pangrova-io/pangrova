@@ -1,5 +1,7 @@
 package org.pangrova.ai.provider.openai.embedding;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -109,15 +111,15 @@ class OpenAiCompatibleEmbeddingProviderTest {
             assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isFalse();
         }
         assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(429).category())
-                .isEqualTo(AiInvocationException.Category.RATE_LIMIT);
+                .isEqualTo(AiFailureCategory.RATE_LIMIT);
     }
 
     @Test
     void authenticationAndAuthorizationFailuresAreTerminal() {
         assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(401).category())
-                .isEqualTo(AiInvocationException.Category.AUTHENTICATION);
+                .isEqualTo(AiFailureCategory.AUTHENTICATION);
         assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(403).category())
-                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                .isEqualTo(AiFailureCategory.AUTHORIZATION);
         for (int status : List.of(400, 401, 403, 404)) {
             assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isFalse();
         }
@@ -127,7 +129,7 @@ class OpenAiCompatibleEmbeddingProviderTest {
     void timeoutFailuresHaveExplicitCategory() {
         for (int status : List.of(408, 504)) {
             assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).category())
-                    .isEqualTo(AiInvocationException.Category.TIMEOUT);
+                    .isEqualTo(AiFailureCategory.TIMEOUT);
         }
     }
 
@@ -157,7 +159,7 @@ class OpenAiCompatibleEmbeddingProviderTest {
             assertThatThrownBy(() -> provider(3, 10).parseResponse(
                     "{\"data\":[{\"embedding\":[1,2," + coordinate + "],\"index\":0}]}", 1, ""))
                     .isInstanceOf(AiInvocationException.class).extracting("category")
-                    .isEqualTo(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID);
+                    .isEqualTo(AiFailureCategory.PROVIDER_RESPONSE_INVALID);
         }
     }
 
@@ -234,7 +236,7 @@ class OpenAiCompatibleEmbeddingProviderTest {
         assertThatThrownBy(() -> provider(3, 10).embed(EmbeddingBatchRequest.blob(
                 EmbeddingPurpose.DOCUMENT, List.of(reference))))
                 .isInstanceOf(AiInvocationException.class).extracting("category")
-                .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
     }
 
     private static OpenAiCompatibleEmbeddingProvider provider(int dimension, int maxBatchSize) {

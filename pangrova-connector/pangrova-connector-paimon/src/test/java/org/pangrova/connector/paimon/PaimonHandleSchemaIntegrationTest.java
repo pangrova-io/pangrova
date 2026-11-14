@@ -129,8 +129,8 @@ class PaimonHandleSchemaIntegrationTest {
         assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
         assertThat(column.name()).isEqualTo("embedding");
         assertThat(column.logicalType()).isEqualTo(new org.pangrova.types.VectorType(7,
-                doubled ? org.pangrova.types.VectorType.ElementType.DOUBLE
-                        : org.pangrova.types.VectorType.ElementType.FLOAT).getTypeSignature());
+                doubled ? org.pangrova.types.enums.VectorElementType.DOUBLE
+                        : org.pangrova.types.enums.VectorElementType.FLOAT).getTypeSignature());
         assertThat(column.nullable()).isEqualTo(nullable);
         assertThat(column.declaredType().children()).singleElement().satisfies(child -> {
             assertThat(child.nullable()).isEqualTo(elementNullable);

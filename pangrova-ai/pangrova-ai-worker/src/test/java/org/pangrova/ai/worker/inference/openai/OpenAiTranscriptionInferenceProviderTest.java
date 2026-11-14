@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 import org.pangrova.ai.provider.openai.inference.OpenAiTranscriptionInferenceProvider;
 
@@ -92,7 +93,7 @@ class OpenAiTranscriptionInferenceProviderTest {
                     GenerationParameters.DEFAULTS))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                    .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
         }
     }
 
@@ -118,7 +119,7 @@ class OpenAiTranscriptionInferenceProviderTest {
                     parameters))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                    .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
         }
         assertThat(loaded).isFalse();
     }

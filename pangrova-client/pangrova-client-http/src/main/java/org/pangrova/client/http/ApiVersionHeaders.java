@@ -1,6 +1,6 @@
 package org.pangrova.client.http;
 
-import org.pangrova.common.client.version.ApiVersion;
+import org.pangrova.common.client.constants.ApiVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

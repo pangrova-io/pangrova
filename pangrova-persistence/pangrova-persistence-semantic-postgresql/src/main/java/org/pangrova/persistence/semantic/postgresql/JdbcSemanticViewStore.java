@@ -17,6 +17,8 @@
  */
 package org.pangrova.persistence.semantic.postgresql;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.semantic.api.exception.SemanticStoreException;
 import org.pangrova.semantic.api.identity.SemanticViewId;
 import org.pangrova.semantic.api.publication.SemanticViewPublication;
@@ -240,7 +242,7 @@ public final class JdbcSemanticViewStore implements SemanticViewStore {
                                 publishedBy, canonicalInstant(publishedAt)))
                         : Optional.empty();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -346,14 +348,6 @@ public final class JdbcSemanticViewStore implements SemanticViewStore {
     private static void requireVersion(long version) {
         if (version <= 0) {
             throw new IllegalArgumentException("version must be positive");
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 }

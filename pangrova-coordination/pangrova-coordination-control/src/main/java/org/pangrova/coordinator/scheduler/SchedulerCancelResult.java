@@ -3,6 +3,8 @@
 
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.enums.SchedulerCancellationStatus;
+
 /**
  * Structured result of a task cancellation attempt.
  *
@@ -10,35 +12,29 @@ package org.pangrova.coordinator.scheduler;
  * @param errorMessage human-readable error detail (null on success)
  * @param retryable    whether the caller may retry the cancel
  */
-public record SchedulerCancelResult(Status status, String errorMessage, boolean retryable,
+public record SchedulerCancelResult(SchedulerCancellationStatus status, String errorMessage, boolean retryable,
         org.pangrova.protocol.v2.TaskReport executionDrainReceipt) {
 
-    public enum Status {
-        DRAINED,
-        PENDING,
-        FAILED
-    }
-
     public SchedulerCancelResult {
-        if (status == Status.DRAINED && executionDrainReceipt == null
-                || status != Status.DRAINED && executionDrainReceipt != null) {
+        if (status == SchedulerCancellationStatus.DRAINED && executionDrainReceipt == null
+                || status != SchedulerCancellationStatus.DRAINED && executionDrainReceipt != null) {
             throw new IllegalArgumentException("Only actual drained cancellation carries its canonical receipt");
         }
     }
 
     public static SchedulerCancelResult drained(org.pangrova.protocol.v2.TaskReport receipt) {
-        return new SchedulerCancelResult(Status.DRAINED, null, false, receipt);
+        return new SchedulerCancelResult(SchedulerCancellationStatus.DRAINED, null, false, receipt);
     }
 
     public static SchedulerCancelResult pending() {
-        return new SchedulerCancelResult(Status.PENDING, "Execution owner has not drained", true, null);
+        return new SchedulerCancelResult(SchedulerCancellationStatus.PENDING, "Execution owner has not drained", true, null);
     }
 
     public static SchedulerCancelResult failed(String message, boolean retryable) {
-        return new SchedulerCancelResult(Status.FAILED, message, retryable, null);
+        return new SchedulerCancelResult(SchedulerCancellationStatus.FAILED, message, retryable, null);
     }
 
     public boolean isSuccess() {
-        return status == Status.DRAINED;
+        return status == SchedulerCancellationStatus.DRAINED;
     }
 }

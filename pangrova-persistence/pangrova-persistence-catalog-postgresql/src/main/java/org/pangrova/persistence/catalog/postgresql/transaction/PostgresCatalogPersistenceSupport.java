@@ -3,7 +3,7 @@ package org.pangrova.persistence.catalog.postgresql.transaction;
 import org.pangrova.common.json.CanonicalJsonMapper;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;
@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
-
 import org.pangrova.common.api.annotation.Internal;
 
 /**

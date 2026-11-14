@@ -1,5 +1,7 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,21 +40,21 @@ import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.domain.IncarnationId;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.PolicySnapshot;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.enums.SecurityMode;
@@ -146,7 +148,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
 
         assertThat(repository.findObject(object)).get()
                 .satisfies(found -> {
-                    assertThat(found.state()).isEqualTo(ObjectState.Creating.INSTANCE);
+                    assertThat(found.state()).isEqualTo(ObjectState.CREATING);
                     assertThat(found.revision()).isZero();
                     assertThat(found.incarnation()).isEqualTo(incarnation);
                 });
@@ -164,10 +166,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         AttemptId attemptId = AttemptId.random();
         GenerationId generationId = GenerationId.random();
         RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, header, definition, requester,
-                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.FULL,
                         vector, TriggerKind.CREATION, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, object, incarnation, 1,
-                attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector, now);
+                attemptId, Optional.empty(), candidateTable, RefreshKind.FULL, vector, now);
         MaterializationWriteCapability capability = new MaterializationWriteCapability(object,
                 incarnation, 1, attemptId, candidateTable, generationId, vector.canonicalHash(),
                 definer, CONTROL_EPOCH, now, now.plus(Duration.ofMinutes(10)));
@@ -187,7 +189,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(found -> assertThat(found.id()).isEqualTo(attemptId));
         assertThat(repository.findGeneration(generationId)).get()
                 .satisfies(found -> assertThat(found.state())
-                        .isEqualTo(GenerationState.Candidate.INSTANCE));
+                        .isEqualTo(GenerationState.CANDIDATE));
 
         CommitEvidence evidence = new CommitEvidence("iceberg", "d".repeat(64), MANIFEST_HASH,
                 "iceberg-v3", now);
@@ -202,11 +204,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(found -> {
                     assertThat(found.evidence()).contains(evidence);
                     assertThat(found.state()).isEqualTo(
-                            org.pangrova.materialization.api.domain.AttemptState.Committed.INSTANCE);
+                            org.pangrova.materialization.api.enums.AttemptState.COMMITTED);
                 });
         assertThat(repository.findGeneration(generationId)).get()
                 .satisfies(found -> assertThat(found.state())
-                        .isEqualTo(GenerationState.Committed.INSTANCE));
+                        .isEqualTo(GenerationState.COMMITTED));
 
         // The creation command owns both admission and publication: publishing must
         // upgrade its admission receipt instead of replaying it.
@@ -219,9 +221,9 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 publishedAt));
 
         assertThat(published.newlyPublished()).isTrue();
-        assertThat(published.object().state()).isEqualTo(ObjectState.Active.INSTANCE);
+        assertThat(published.object().state()).isEqualTo(ObjectState.ACTIVE);
         assertThat(published.object().publishedGeneration()).contains(generationId);
-        assertThat(published.generation().state()).isEqualTo(GenerationState.Published.INSTANCE);
+        assertThat(published.generation().state()).isEqualTo(GenerationState.PUBLISHED);
 
         MaterializationObject head = repository.findObject(object).orElseThrow();
         assertThat(head.revision()).isEqualTo(1);
@@ -233,13 +235,13 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 });
         assertThat(repository.findAttempt(attemptId)).get()
                 .satisfies(found -> assertThat(found.state())
-                        .isEqualTo(org.pangrova.materialization.api.domain.AttemptState.Published.INSTANCE));
+                        .isEqualTo(org.pangrova.materialization.api.enums.AttemptState.PUBLISHED));
 
         PublishedMaterialization projection = catalog.findPublished(object).orElseThrow();
         assertThat(projection.generation()).isEqualTo(generationId);
         assertThat(projection.physicalTable().qualifiedName())
                 .isEqualTo(candidateTable.qualifiedName());
-        assertThat(projection.refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(projection.refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(projection.sources()).containsExactly(source);
         assertThat(catalog.listPublished(new TenantId(tenant))).containsExactly(projection);
         assertThat(catalog.registryEpoch(new TenantId(tenant))).isGreaterThan(epochAfterCreate);
@@ -254,8 +256,8 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(replayed.newlyPublished()).isFalse();
         assertThat(replayed.object().revision()).isEqualTo(1);
         assertThat(replayed.generation().id()).isEqualTo(generationId);
-        assertReaderNamespacesIsolated(repository, generationId, now);
         assertReaderPinFailure(dataSource, repository, generationId, now, failure, rollbackFailure);
+        assertReaderNamespacesIsolated(repository, generationId, now);
         assertThat(repository.findObject(object).orElseThrow().revision()).isEqualTo(1);
 
         PublishCommand stale = new PublishCommand(object, 0, candidate, attempt, evidence, fence,
@@ -484,10 +486,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         GenerationId generationId = GenerationId.random();
         RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, header,
                 definition(object, source, definer, now), requester,
-                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.FULL,
                         vector, TriggerKind.MANUAL, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, object, incarnation, 1,
-                attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector, now);
+                attemptId, Optional.empty(), candidateTable, RefreshKind.FULL, vector, now);
         MaterializationWriteCapability capability = new MaterializationWriteCapability(object,
                 incarnation, 1, attemptId, candidateTable, generationId, vector.canonicalHash(),
                 definer, CONTROL_EPOCH, now, now.plus(Duration.ofMinutes(10)));
@@ -530,10 +532,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
 
         MaterializationObject head = repository.findObject(object).orElseThrow();
         assertThat(head.revision()).isZero();
-        assertThat(head.state()).isEqualTo(ObjectState.Creating.INSTANCE);
+        assertThat(head.state()).isEqualTo(ObjectState.CREATING);
         assertThat(repository.findGeneration(generationId)).get()
                 .satisfies(found -> assertThat(found.state())
-                        .isEqualTo(GenerationState.Committed.INSTANCE));
+                        .isEqualTo(GenerationState.COMMITTED));
     }
 
     @Test
@@ -605,10 +607,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         GenerationId generationId = GenerationId.random();
         RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, upstreamHeader,
                 definition(upstream, source, definer, now), requester,
-                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.FULL,
                         vector, TriggerKind.MANUAL, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, upstream, incarnation, 1,
-                attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector,
+                attemptId, Optional.empty(), candidateTable, RefreshKind.FULL, vector,
                 now);
         MaterializationWriteCapability capability = new MaterializationWriteCapability(upstream,
                 incarnation, 1, attemptId, candidateTable, generationId, vector.canonicalHash(),
@@ -647,7 +649,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(entry -> {
                     assertThat(entry.object()).isEqualTo(upstream);
                     assertThat(entry.generation()).isEqualTo(generationId);
-                    assertThat(entry.state()).isEqualTo(GcLedgerEntry.GcState.PENDING);
+                    assertThat(entry.state()).isEqualTo(GcState.PENDING);
                 });
     }
 

@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata.table;
 
+import org.pangrova.connector.api.enums.WriterFenceKind;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Locale;
@@ -36,15 +37,6 @@ public record TableCapabilities(
         Set<String> allowedMaintenanceOperations,
         WriterFenceKind writerFenceKind) {
 
-    /** Evidence required to fence a write against a replaced physical table. */
-    public enum WriterFenceKind {
-        /** No fence is available; writes must not be admitted. */
-        NONE,
-        /** The handle must match the registered format identity. */
-        FORMAT_IDENTITY,
-        /** The handle must match the format identity and a pinned base version. */
-        FORMAT_IDENTITY_AND_BASE_VERSION
-    }
 
     /** Fail-closed default: nothing is supported. */
     public static final TableCapabilities UNSUPPORTED = new TableCapabilities(

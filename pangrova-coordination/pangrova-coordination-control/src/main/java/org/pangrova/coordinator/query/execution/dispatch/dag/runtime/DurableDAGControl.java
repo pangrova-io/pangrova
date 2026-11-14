@@ -39,7 +39,7 @@ public final class DurableDAGControl {
             lifecycle.registerQuery(state.queryId(), state.dag(), runtime.queryContext());
             schedule.accept(state);
         } catch (RuntimeException failure) {
-            lifecycle.failDispatch(state.queryId(), state.cancelled(), state.dispatched());
+            lifecycle.failDispatch(state.queryId(), state.dag(), state.cancelled(), state.dispatched());
             state.completion().completeExceptionally(failure);
         }
         return state.completion();
@@ -61,7 +61,7 @@ public final class DurableDAGControl {
     public void cancel(String executionId) {
         var state = executions.get(executionId);
         if (state != null) {
-            lifecycle.failDispatch(executionId, state.cancelled(), state.dispatched());
+            lifecycle.failDispatch(executionId, state.dag(), state.cancelled(), state.dispatched());
             state.completion().completeExceptionally(new CancellationException(
                     "Durable execution control stopped; persisted allocations remain available for recovery"));
         }

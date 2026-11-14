@@ -76,6 +76,8 @@ class EventDrivenQueryCompletionTest {
             }
         }
 
+        @Override public boolean ownsQueryCompletion(String queryId) { return true; }
+
         @Override
         public boolean isQueryComplete(String queryId) {
             return (finishedCount + failedCount + cancelledCount) >= expectedTaskCount;

@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.exception.CommitNotificationException;
+
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
@@ -239,7 +241,7 @@ class IcebergMetadataAtomicCommitTest {
 
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 SESSION, handle, List.of(fragment), context))
-                .isInstanceOf(IcebergCommitNotifier.NotificationFailure.class)
+                .isInstanceOf(CommitNotificationException.class)
                 .hasCauseInstanceOf(IllegalStateException.class);
         table.refresh();
         long committedSnapshot = table.currentSnapshot().snapshotId();

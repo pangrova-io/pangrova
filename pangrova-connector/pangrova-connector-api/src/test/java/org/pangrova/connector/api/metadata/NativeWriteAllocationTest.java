@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.NativeWriteOperation;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,9 +32,9 @@ class NativeWriteAllocationTest {
 
     @Test
     void operationAndVersionAreOneExactTransactionContract() {
-        for (var operation : NativeWriteAllocation.Operation.values()) {
+        for (var operation : NativeWriteOperation.values()) {
             for (long version : List.of(-1L, 0L, 1L, Long.MAX_VALUE)) {
-                boolean valid = version >= 0 && (operation == NativeWriteAllocation.Operation.CREATE) == (version == 0);
+                boolean valid = version >= 0 && (operation == NativeWriteOperation.CREATE) == (version == 0);
                 if (valid) {
                     assertThat(new NativeWriteAllocation("s3://warehouse/table.lance", operation, version, new byte[32],
                             "write-1", "staging/write-1", "generation-1", List.of("id")).readVersion()).isEqualTo(version);
@@ -117,20 +119,20 @@ class NativeWriteAllocationTest {
     @Test
     void datasetWriteAndGenerationIdentitiesRejectMissingValues() {
         for (String invalid : Arrays.asList(null, "", " ")) {
-            assertThatThrownBy(() -> new NativeWriteAllocation(invalid, NativeWriteAllocation.Operation.APPEND,
+            assertThatThrownBy(() -> new NativeWriteAllocation(invalid, NativeWriteOperation.APPEND,
                     1, new byte[32], "write", "stage", "generation", List.of("id")))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("datasetUri");
-            assertThatThrownBy(() -> new NativeWriteAllocation("dataset", NativeWriteAllocation.Operation.APPEND,
+            assertThatThrownBy(() -> new NativeWriteAllocation("dataset", NativeWriteOperation.APPEND,
                     1, new byte[32], invalid, "stage", "generation", List.of("id")))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("writeId");
-            assertThatThrownBy(() -> new NativeWriteAllocation("dataset", NativeWriteAllocation.Operation.APPEND,
+            assertThatThrownBy(() -> new NativeWriteAllocation("dataset", NativeWriteOperation.APPEND,
                     1, new byte[32], "write", "stage", invalid, List.of("id")))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("generation");
         }
     }
 
     private static NativeWriteAllocation allocation(long version, String prefix, List<String> columns, byte[] fence) {
-        return new NativeWriteAllocation("s3://warehouse/table.lance", NativeWriteAllocation.Operation.APPEND,
+        return new NativeWriteAllocation("s3://warehouse/table.lance", NativeWriteOperation.APPEND,
                 version, fence, "write-1", prefix, "generation-1", columns);
     }
 }

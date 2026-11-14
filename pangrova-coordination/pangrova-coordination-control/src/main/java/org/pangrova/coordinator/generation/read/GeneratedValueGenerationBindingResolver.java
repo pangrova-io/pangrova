@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.generation.read;
 
+import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
-
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
@@ -56,7 +56,7 @@ public final class GeneratedValueGenerationBindingResolver {
                                 GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                                 reference.generation(), reference.sourceId(),
                                 reference.sourceSnapshot(),
-                                PublishedGenerationBindingResolver.SourceCoverage.QUERY_SOURCE_SUBSET),
+                                GenerationSourceCoverage.QUERY_SOURCE_SUBSET),
                         serializedSplits)
                 .orElseThrow(() -> new IllegalStateException(
                         "Published generated values do not exactly cover the query source objects"));

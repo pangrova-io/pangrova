@@ -1,5 +1,6 @@
 package org.pangrova.worker.write;
 
+import org.pangrova.worker.enums.DmlOperation;
 import org.pangrova.worker.catalog.CatalogResourceResolver;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -530,7 +531,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
             ConnectorPageSinkProvider sinkProvider,
             org.pangrova.connector.api.session.ConnectorSession session,
             ConnectorOutputTableHandle outputHandle,
-            WriteDescriptor.DmlOperation dmlOperation) {
+            DmlOperation dmlOperation) {
         return switch (dmlOperation) {
             case INSERT ->
                     sinkProvider.createPageSink(

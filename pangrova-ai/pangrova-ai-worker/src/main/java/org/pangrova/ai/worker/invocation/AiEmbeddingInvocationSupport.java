@@ -13,6 +13,10 @@
  */
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.worker.enums.EmbeddingInputKind;
+
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import static org.pangrova.ai.worker.invocation.AiInvocationFailures.invalidInput;
 
 import java.util.List;
@@ -32,7 +36,6 @@ final class AiEmbeddingInvocationSupport {
 
     private AiEmbeddingInvocationSupport() {}
 
-    enum EmbeddingInputKind { TEXT, BLOB }
 
     record EmbeddingResult(EmbeddingBatchResult providerResult, long inputBytes) {}
 
@@ -66,7 +69,7 @@ final class AiEmbeddingInvocationSupport {
             AiPhysicalInvocationAdmission admission) {
         var purpose = request.embeddingPurpose().orElseThrow();
         if (!provider.supportedPurposes().contains(purpose)) {
-            throw new AiInvocationException(AiInvocationException.Category.CAPABILITY_MISMATCH,
+            throw new AiInvocationException(AiFailureCategory.CAPABILITY_MISMATCH,
                     false, "Exact embedding provider does not support purpose " + purpose);
         }
         List<EmbeddingBatchRequest.Input> inputs = request.inputs().stream()
@@ -95,7 +98,7 @@ final class AiEmbeddingInvocationSupport {
             EmbeddingBatchResult providerResult) {
         if (providerResult == null) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                    AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                     false,
                     "Embedding provider returned no result");
         }

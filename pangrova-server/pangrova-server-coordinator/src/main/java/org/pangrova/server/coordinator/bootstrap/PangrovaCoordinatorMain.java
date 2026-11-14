@@ -1,12 +1,17 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
+
 import java.nio.file.Path;
+import java.util.Locale;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.ConfigValidator;
-import org.pangrova.config.CoordinatorOptions;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.server.bootstrap.ServerConfigurationLoader;
 import org.slf4j.Logger;
@@ -90,12 +95,13 @@ public final class PangrovaCoordinatorMain {
     public static CoordinatorBootstrapConfig buildBootstrapConfig(PangrovaConfiguration config) {
         String coordinatorId = config.getString(CoordinatorOptions.COORDINATOR_ID);
         int httpPort = config.getInt(CoordinatorOptions.COORDINATOR_PORT);
-        org.pangrova.server.coordinator.enums.CoordinatorRole role = parseRole(
+        CoordinatorDeploymentRole role = parseRole(
                 config.getString(CoordinatorOptions.COORDINATOR_ROLE));
         var core = new CoordinatorBootstrapConfig.CoreConfig(
                 coordinatorId, httpPort,
                 CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                role, config.getString(CoordinatorOptions.COORDINATOR_HOST));
+                role, config.getString(CoordinatorOptions.COORDINATOR_HOST),
+                org.pangrova.config.constants.ConnectorOptions.pluginDirectory(config));
         var queryConfig = new CoordinatorBootstrapConfig.QueryConfig(
                 config.getDuration(CoordinatorOptions.QUERY_TIMEOUT).toSeconds(),
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS,
@@ -111,7 +117,7 @@ public final class PangrovaCoordinatorMain {
                 loadTransportConfig(config),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 loadMetadataJdbcConfig(config), SecurityConfigurationLoader.load(config),
-                loadObservabilityConfig(config));
+                ObservabilityConfig.fromDeployment(config).orElse(null));
         try {
             CoordinatorShuffleProviders.validate(bootstrap);
         } catch (IllegalArgumentException invalid) {
@@ -212,15 +218,7 @@ public final class PangrovaCoordinatorMain {
         }
         return new CoordinatorBootstrapConfig.MetadataJdbcConfig(jdbcUrl,
                 config.getString(CoordinatorOptions.METADATA_JDBC_USERNAME),
-                config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD));
-    }
-
-    private static CoordinatorBootstrapConfig.ObservabilityBootstrapConfig loadObservabilityConfig(
-            PangrovaConfiguration config) {
-        if (!config.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED)) {
-            return null;
-        }
-        return null;
+                config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD), MetadataCacheDeployment.from(config));
     }
 
     /**
@@ -243,15 +241,12 @@ public final class PangrovaCoordinatorMain {
         }
     }
 
-    private static org.pangrova.server.coordinator.enums.CoordinatorRole parseRole(String value) {
-        if (value == null || value.isBlank()) {
-            return org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED;
-        }
+    private static CoordinatorDeploymentRole parseRole(String value) {
         try {
-            return org.pangrova.server.coordinator.enums.CoordinatorRole.valueOf(value.trim().toUpperCase());
+            return CoordinatorDeploymentRole.valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            LOG.warn("event=invalid_coordinator_role value={} fallback=COMBINED", value);
-            return org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED;
+            throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                    "coordinator.role must be QUERY, MAINTENANCE or COMBINED", e);
         }
     }
 }

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
 import org.pangrova.scheduler.api.exception.CircuitBreakerOpenException;
 
 import java.time.Instant;
@@ -54,7 +55,7 @@ class RemoteTaskDispatcherCircuitBreakerTest {
                 .isInstanceOf(RuntimeException.class);
 
         // Circuit should still be CLOSED (only 1 failure, minimum 2 calls)
-        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
     }
 
     @Test
@@ -68,7 +69,7 @@ class RemoteTaskDispatcherCircuitBreakerTest {
         // minimumCalls=1, failureRate=0.01 → opens after 1 failure
         CircuitBreaker breaker = new CircuitBreaker(0.01, 1, 60_000, 3, java.time.Clock.systemUTC());
         breaker.onFailure();
-        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         return breaker;
     }
 

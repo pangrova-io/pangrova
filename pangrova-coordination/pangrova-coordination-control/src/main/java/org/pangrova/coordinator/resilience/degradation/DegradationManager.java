@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.resilience.degradation;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.coordinator.enums.DegradationLevel;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,8 +19,6 @@ import java.util.function.DoubleSupplier;
 public class DegradationManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(DegradationManager.class);
-
-    public enum DegradationLevel { NONE, LIGHT, MODERATE, SEVERE, CRITICAL }
 
     private final DegradationThresholds thresholds;
     private final DoubleSupplier workerRatioSupplier;

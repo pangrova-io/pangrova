@@ -1,7 +1,7 @@
 package org.pangrova.materialization.api.refresh;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 
 /**
  * Coordinator extension point for a refresh algorithm. One factory advertises one persisted kind.

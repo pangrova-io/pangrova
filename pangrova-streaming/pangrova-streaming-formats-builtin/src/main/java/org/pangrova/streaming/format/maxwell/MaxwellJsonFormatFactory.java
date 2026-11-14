@@ -6,6 +6,11 @@ import org.pangrova.streaming.api.format.CdcFormatFactory;
 /** Installs the Maxwell JSON decoder under its SQL FORMAT identifier. */
 public final class MaxwellJsonFormatFactory implements CdcFormatFactory {
     @Override
+    public int apiVersion() {
+        return API_VERSION;
+    }
+
+    @Override
     public String identifier() {
         return MaxwellJsonConverter.FORMAT_ID;
     }

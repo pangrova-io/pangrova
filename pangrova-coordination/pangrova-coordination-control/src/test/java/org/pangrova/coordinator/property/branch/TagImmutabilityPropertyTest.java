@@ -145,12 +145,32 @@ class TagImmutabilityPropertyTest {
         assertThat(connector.getTagSnapshot(tagName)).isEqualTo(snapshotAtCreation);
     }
 
+    @org.junit.jupiter.api.Test
+    void selectingOrClearingABranchRequiresTableSelectAndCurrentTenant() {
+        var connector = new TagTrackingConnector(SCHEMA, TABLE);
+        var statement = new org.pangrova.parser.api.ast.statement.UseBranchStatement(
+                "main", Identifier.of(CATALOG, SCHEMA, TABLE));
+        var writer = buildExecutor(connector);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> writer.selectBranch(statement, TEST_SESSION)))
+                .isInstanceOf(org.pangrova.security.api.exception.AccessDeniedException.class);
+        var reader = buildExecutor(connector, org.pangrova.security.api.enums.Privilege.SELECT);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                reader.selectBranch(statement, TEST_SESSION.withTenantId("other"))))
+                .isInstanceOf(org.pangrova.metadata.api.exception.CatalogAccessDeniedException.class);
+        assertThat(reader.selectBranch(statement, TEST_SESSION).branch()).isNull();
+    }
+
     // --- Test infrastructure ---
 
     private static BranchDdlExecutor buildExecutor(TagTrackingConnector connector) {
+        return buildExecutor(connector, org.pangrova.security.api.enums.Privilege.ALTER);
+    }
+
+    private static BranchDdlExecutor buildExecutor(TagTrackingConnector connector,
+                                                   org.pangrova.security.api.enums.Privilege privilege) {
         CatalogDescriptor descriptor = new CatalogDescriptor(
                 CATALOG, CatalogType.CONNECTOR, "test-provider",
-                CatalogState.ACTIVE, Map.of(), "", Set.of());
+                CatalogState.ACTIVE, Map.of(), "", Set.of("tenant-a"));
 
         CatalogRegistry registry = new CatalogRegistry(memoryTableStores(),
                 new InMemoryCatalogDeployments(),
@@ -163,7 +183,7 @@ class TagImmutabilityPropertyTest {
         roles.createRole(org.pangrova.security.api.policy.Role.of("owner"));
         roles.grantRoleToUser(org.pangrova.security.api.policy.UserRoleAssignment.of(TEST_USER.principal(), "owner"));
         var grants = new org.pangrova.testing.testkit.security.policy.StaticGrantStore(java.util.List.of(
-                org.pangrova.security.api.policy.PrivilegeGrant.of("owner", org.pangrova.security.api.enums.Privilege.ALTER,
+                org.pangrova.security.api.policy.PrivilegeGrant.of("owner", privilege,
                         "TABLE", CATALOG, SCHEMA, TABLE, null)));
         var authorization = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(
                 grants, roles, new org.pangrova.security.rowfilter.RowLevelSecurityFilter(

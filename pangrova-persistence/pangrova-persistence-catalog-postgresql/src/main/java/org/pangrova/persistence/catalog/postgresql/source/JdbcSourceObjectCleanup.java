@@ -1,5 +1,6 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
+import org.pangrova.connector.api.enums.SourceObjectPurpose;
 import org.pangrova.connector.api.metadata.SourceCleanupBatch;
 import org.pangrova.connector.api.metadata.SourceObjectPage;
 import org.pangrova.connector.api.metadata.SourcePublicationReservation;
@@ -57,7 +58,7 @@ final class JdbcSourceObjectCleanup {
             try (var result = statement.executeQuery()) {
                 while (result.next()) objects.add(new SourceObjectPage.ObjectReference(result.getString(1), result
                     .getLong(2),
-                    SourceObjectPage.Purpose.valueOf(result.getString(3))));
+                    SourceObjectPurpose.valueOf(result.getString(3))));
             }
         }
         if (objects.isEmpty()) return Optional.empty();
@@ -138,7 +139,7 @@ final class JdbcSourceObjectCleanup {
             try (var result = statement.executeQuery()) {
                 while (result.next()) objects.add(new SourceObjectPage.ObjectReference(result.getString(1), result
                     .getLong(2),
-                    SourceObjectPage.Purpose.valueOf(result.getString(3))));
+                    SourceObjectPurpose.valueOf(result.getString(3))));
             }
         }
         if (objects.size() != count) throw new IllegalStateException("Cleanup batch membership changed");

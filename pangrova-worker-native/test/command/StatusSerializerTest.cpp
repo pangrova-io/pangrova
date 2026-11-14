@@ -13,6 +13,7 @@
 #include <array>
 
 #include "command/StatusSerializer.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
@@ -71,7 +72,7 @@ facebook::velox::exec::OperatorStats makeOpStats(
 
 TEST_F(StatusSerializerTest, SerializeEmptyTaskStats) {
   facebook::velox::exec::TaskStats taskStats;
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -89,7 +90,7 @@ TEST_F(StatusSerializerTest, SerializeEmptyTaskStats) {
 
 TEST_F(StatusSerializerTest, SerializesActualPreScanIndexSplitDecisions) {
   facebook::velox::exec::TaskStats taskStats;
-  auto bytes = serializeNativeTaskStats(taskStats, 8, 7);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats, 8, 7);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -103,13 +104,13 @@ TEST_F(StatusSerializerTest, LiveConsumerDriverCountIsDistinctFromCompletedWaitM
       facebook::velox::exec::BlockingReason::kWaitForConsumer, 2);
   taskStats.numBlockedDrivers.emplace(
       facebook::velox::exec::BlockingReason::kWaitForConnector, 7);
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
   pangrova::protocol::v2::NativeTaskStats decoded;
   ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
   EXPECT_EQ(decoded.consumer_blocked_drivers(), 2);
   EXPECT_EQ(decoded.backpressure_wait_ms(), 0);
   taskStats.numBlockedDrivers.clear();
-  bytes = serializeNativeTaskStats(taskStats);
+  bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
   ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
   EXPECT_EQ(decoded.consumer_blocked_drivers(), 0);
 }
@@ -125,7 +126,7 @@ TEST_F(StatusSerializerTest, ConsumerWaitMetricDoesNotIncludeIoOrOtherBlockingRe
       facebook::velox::RuntimeMetric(990'000'000, facebook::velox::RuntimeCounter::Unit::kNanos));
   pipeline.operatorStats.push_back(std::move(op));
   taskStats.pipelineStats.push_back(std::move(pipeline));
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
   pangrova::protocol::v2::NativeTaskStats decoded;
   ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
   EXPECT_EQ(decoded.backpressure_wait_ms(), 7);
@@ -146,7 +147,7 @@ TEST_F(StatusSerializerTest, SerializeSingleOperator) {
       /*spill_bytes=*/0));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -199,7 +200,7 @@ TEST_F(StatusSerializerTest, SerializeMultiplePipelinesAndOperators) {
       3'000'000, 2'000'000, 4096, 8192, 16384));
   taskStats.pipelineStats.push_back(std::move(pipeline1));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -234,7 +235,7 @@ TEST_F(StatusSerializerTest, SerializeRoundTrip) {
       10'000'000, 8'000'000, 2048, 4096, 1024));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   // First deserialization.
   pangrova::protocol::v2::NativeTaskStats proto1;
@@ -268,7 +269,7 @@ TEST_F(StatusSerializerTest, AllMetricsNonNegative) {
       "TableScan", "0", 0, 0, 0, 0, 0, 0, 0, 0, 0));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));

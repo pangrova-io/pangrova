@@ -1,8 +1,11 @@
 package org.pangrova.connector.paimon.handle;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.List;
 import java.util.Objects;
 
+import org.pangrova.connector.paimon.enums.PaimonSystemTableKind;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
@@ -10,20 +13,10 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 /** A read-only Paimon metadata relation, bound to exact source objects before scheduling. */
 public record PaimonSystemTableHandle(
         PaimonTableHandle baseTable,
-        Kind kind,
+        PaimonSystemTableKind kind,
         List<MetadataObject> objects,
         String sourceIdentity) implements ConnectorTableHandle {
 
-    /** Native metadata readers supported by this handle. */
-    public enum Kind {
-        SNAPSHOTS("snapshots"), TAGS("tags"), OPTIONS("options"), SCHEMAS("schemas");
-
-        private final String suffix;
-
-        Kind(String suffix) { this.suffix = suffix; }
-
-        public String suffix() { return suffix; }
-    }
 
     /** One immutable Paimon snapshot or tag JSON object. */
     public record MetadataObject(long snapshotId, String tagName, long schemaId,
@@ -31,7 +24,7 @@ public record PaimonSystemTableHandle(
         public MetadataObject {
             if (!validIdentity(snapshotId, tagName, schemaId)
                     || uri == null || uri.isBlank() || length <= 0
-                    || sha256 == null || !sha256.matches("[0-9a-f]{64}")) {
+                    || !DigestUtils.isSha256Hex(sha256)) {
                 throw new IllegalArgumentException("Metadata object requires kind identity, URI, length and SHA-256");
             }
         }
@@ -56,9 +49,9 @@ public record PaimonSystemTableHandle(
             throw new IllegalArgumentException("Unbound metadata relation cannot carry objects");
         }
         for (MetadataObject object : objects) {
-            if ((kind == Kind.SNAPSHOTS && object.snapshotId() <= 0)
-                    || (kind == Kind.TAGS && object.tagName() == null)
-                    || ((kind == Kind.OPTIONS || kind == Kind.SCHEMAS)
+            if ((kind == PaimonSystemTableKind.SNAPSHOTS && object.snapshotId() <= 0)
+                    || (kind == PaimonSystemTableKind.TAGS && object.tagName() == null)
+                    || ((kind == PaimonSystemTableKind.OPTIONS || kind == PaimonSystemTableKind.SCHEMAS)
                             && object.schemaId() < 0)) {
                 throw new IllegalArgumentException("Paimon metadata object does not match relation kind");
             }
@@ -66,7 +59,7 @@ public record PaimonSystemTableHandle(
     }
 
     /** Selector produced during relation lookup, before the authorized read is bound. */
-    public static PaimonSystemTableHandle selector(PaimonTableHandle baseTable, Kind kind) {
+    public static PaimonSystemTableHandle selector(PaimonTableHandle baseTable, PaimonSystemTableKind kind) {
         return new PaimonSystemTableHandle(baseTable, kind, List.of(), "");
     }
 
@@ -80,7 +73,7 @@ public record PaimonSystemTableHandle(
 
     /** Paimon 1.4.1 system-table columns, independent of base-table columns. */
     public List<ConnectorTableMetadata.Column> typedColumns() {
-        if (kind == Kind.SCHEMAS) {
+        if (kind == PaimonSystemTableKind.SCHEMAS) {
             return List.of(
                     new ConnectorTableMetadata.Column("schema_id", PangrovaType.BIGINT),
                     new ConnectorTableMetadata.Column("fields", PangrovaType.VARCHAR),
@@ -90,12 +83,12 @@ public record PaimonSystemTableHandle(
                     new ConnectorTableMetadata.Column("comment", PangrovaType.VARCHAR),
                     new ConnectorTableMetadata.Column("update_time", PangrovaType.TIMESTAMP));
         }
-        if (kind == Kind.OPTIONS) {
+        if (kind == PaimonSystemTableKind.OPTIONS) {
             return List.of(
                     new ConnectorTableMetadata.Column("key", PangrovaType.VARCHAR),
                     new ConnectorTableMetadata.Column("value", PangrovaType.VARCHAR));
         }
-        if (kind == Kind.TAGS) {
+        if (kind == PaimonSystemTableKind.TAGS) {
             return List.of(
                 new ConnectorTableMetadata.Column("tag_name", PangrovaType.VARCHAR),
                 new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),

@@ -20,10 +20,10 @@ import org.pangrova.batch.api.page.NativePage;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
-import org.pangrova.shuffle.exchange.ExchangeChannelManager;
-import org.pangrova.shuffle.exchange.ExchangeSource;
-import org.pangrova.shuffle.exchange.ExchangeSink;
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+import org.pangrova.shuffle.exchange.ExchangeChannelManager;
+import org.pangrova.shuffle.exchange.ExchangeSink;
+import org.pangrova.shuffle.exchange.ExchangeSource;
 
 /**
  * Property-based tests for Exchange abstraction layer (columnar ArrowPage path).
@@ -164,7 +164,7 @@ class RemoteExchangeManagerPropertyTest {
         @Override
         public ExchangeSource createSource(
                 ExchangeChannelContext context,
-                org.pangrova.shuffle.exchange.ExchangeReadMode readMode) {
+                org.pangrova.shuffle.exchange.enums.ExchangeReadMode readMode) {
             return new InMemoryTestSource(
                     channels.computeIfAbsent(
                             context.queryId() + ":" + context.exchangePartitionId(),

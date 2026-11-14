@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.exception.TenantQuotaExceededException;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.pangrova.worker.resource.tenant.TenantResourceQuota;
@@ -119,10 +120,10 @@ public final class TenantExecutionQuotaEnforcer {
      * {@link TenantResourceTracker} as the quota source.
      *
      * <p>Called at task start and on each completion monitor poll cycle (stage boundary).
-     * Throws {@link TenantQuotaViolation} if any runtime quota is exceeded.</p>
+     * Throws {@link TenantQuotaExceededException} if any runtime quota is exceeded.</p>
      *
      * @param taskId the task identifier
-     * @throws TenantQuotaViolation if CPU time or scan bytes exceed tenant quota
+     * @throws TenantQuotaExceededException if CPU time or scan bytes exceed tenant quota
      */
     public void checkDuringExecution(String taskId) {
         TaskQuota tracked = taskQuotas.get(taskId);
@@ -136,7 +137,7 @@ public final class TenantExecutionQuotaEnforcer {
             if (cpuTimeMs > quota.maxCpuTimePerQueryMs()) {
                 LOG.warn("event=quota_cpu_time_exceeded taskId={} tenantId={} cpuTimeMs={} limitMs={}",
                         taskId, tenantId, cpuTimeMs, quota.maxCpuTimePerQueryMs());
-                throw new TenantQuotaViolation(tenantId, "CPU_TIME",
+                throw new TenantQuotaExceededException(tenantId, "CPU_TIME",
                         "CPU time exceeded: " + cpuTimeMs + "ms > " + quota.maxCpuTimePerQueryMs() + "ms");
             }
         }
@@ -147,7 +148,7 @@ public final class TenantExecutionQuotaEnforcer {
             if (scanBytes > quota.maxScanBytesPerQuery()) {
                 LOG.warn("event=quota_scan_bytes_exceeded taskId={} tenantId={} scanBytes={} limitBytes={}",
                         taskId, tenantId, scanBytes, quota.maxScanBytesPerQuery());
-                throw new TenantQuotaViolation(tenantId, "SCAN_BYTES",
+                throw new TenantQuotaExceededException(tenantId, "SCAN_BYTES",
                         "Scan bytes exceeded: " + scanBytes + " > " + quota.maxScanBytesPerQuery());
             }
         }
@@ -206,21 +207,4 @@ public final class TenantExecutionQuotaEnforcer {
         }
     }
 
-    /**
-     * Exception indicating a tenant quota violation during execution.
-     */
-    public static final class TenantQuotaViolation extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-        private final String tenantId;
-        private final String violationType;
-
-        public TenantQuotaViolation(String tenantId, String violationType, String message) {
-            super(message);
-            this.tenantId = tenantId;
-            this.violationType = violationType;
-        }
-
-        public String tenantId() { return tenantId; }
-        public String violationType() { return violationType; }
-    }
 }

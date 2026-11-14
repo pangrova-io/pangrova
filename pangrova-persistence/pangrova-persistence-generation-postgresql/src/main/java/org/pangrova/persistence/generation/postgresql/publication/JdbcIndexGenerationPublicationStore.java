@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
@@ -13,6 +15,7 @@ import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
+import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 
@@ -74,14 +77,14 @@ public final class JdbcIndexGenerationPublicationStore
                         outputValidator.loadAndValidate(connection, job);
                 Aggregate aggregate = aggregate(job, outputs);
                 DescriptorFence descriptor = lockDescriptor(connection, job.artifactId());
-                PublicationMode mode = validateDescriptorFence(connection, descriptor, job);
+                IndexPublicationMode mode = validateDescriptorFence(connection, descriptor, job);
                 long publicationEpoch = nextPublicationEpoch(connection, job.artifactId());
                 GenerationManifest manifest = manifest(job, aggregate, now);
 
                 retireActiveGeneration(connection, job.artifactId());
                 insertIndexGeneration(connection, manifest, publicationEpoch);
                 activateDescriptor(connection, descriptor, job, mode, now);
-                if (mode == PublicationMode.ONLINE_REPLACEMENT) {
+                if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
                     completeBuildingGeneration(connection, job, now);
                 }
                 publishArtifactJob(connection, job, aggregate, owner, ownerEpoch, now);
@@ -91,7 +94,7 @@ public final class JdbcIndexGenerationPublicationStore
                 connection.commit();
                 return manifest;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -235,7 +238,7 @@ public final class JdbcIndexGenerationPublicationStore
         }
     }
 
-    private static PublicationMode validateDescriptorFence(
+    private static IndexPublicationMode validateDescriptorFence(
             Connection connection, DescriptorFence descriptor,
             JobRow job) throws SQLException {
         if (descriptor.type() != requiredIndexType(job.artifactType())) {
@@ -243,28 +246,15 @@ public final class JdbcIndexGenerationPublicationStore
                     "Index type differs from the artifact generation type");
         }
         int generation = parseGeneration(job.generation());
-        if (isInitialBuild(descriptor, job, generation)) {
-            return PublicationMode.INITIAL_BUILD;
+        if (IndexPublicationMode.matchesInitialBuild(descriptor.state(), descriptor.generation(),
+                descriptor.updatedAt(), generation, job.publicationExpectedUpdatedAt())) {
+            return IndexPublicationMode.INITIAL_BUILD;
         }
-        if (isOnlineReplacement(connection, descriptor, job, generation)) {
-            return PublicationMode.ONLINE_REPLACEMENT;
+        if (IndexPublicationMode.isReplacementCandidate(descriptor.state(), descriptor.generation(), generation)
+                && hasBuildingGeneration(connection, job, descriptor.generation())) {
+            return IndexPublicationMode.ONLINE_REPLACEMENT;
         }
         throw new IllegalStateException("Index generation CAS fence differs from artifact job");
-    }
-
-    private static boolean isInitialBuild(
-            DescriptorFence descriptor, JobRow job, int generation) {
-        return descriptor.state() == IndexState.BUILDING
-                && descriptor.generation() == generation
-                && descriptor.updatedAt().equals(job.publicationExpectedUpdatedAt());
-    }
-
-    private static boolean isOnlineReplacement(
-            Connection connection, DescriptorFence descriptor, JobRow job, int generation)
-            throws SQLException {
-        return (descriptor.state() == IndexState.READY || descriptor.state() == IndexState.STALE)
-                && descriptor.generation() == generation - 1
-                && hasBuildingGeneration(connection, job, descriptor.generation());
     }
 
     private static IndexType requiredIndexType(String artifactType) {
@@ -349,7 +339,7 @@ public final class JdbcIndexGenerationPublicationStore
 
     private static void activateDescriptor(
             Connection connection, DescriptorFence descriptor, JobRow job,
-            PublicationMode mode, Instant now) throws SQLException {
+            IndexPublicationMode mode, Instant now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE index_descriptors SET state='READY', generation=?, "
                         + "build_snapshot_id=?, stale_reason=NULL, last_indexed_snapshot_id=?, "
@@ -364,7 +354,7 @@ public final class JdbcIndexGenerationPublicationStore
             setInstant(statement, 8, descriptor.updatedAt());
             if (statement.executeUpdate() != 1) {
                 throw new IllegalStateException(
-                        "Index activation fence was lost for " + mode.name().toLowerCase());
+                        "Index activation fence was lost for " + mode.name().toLowerCase(java.util.Locale.ROOT));
             }
         }
     }
@@ -426,16 +416,6 @@ public final class JdbcIndexGenerationPublicationStore
             throw new IllegalArgumentException("Index artifact generation must be a non-negative integer", failure);
         }
     }
-
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
-        }
-    }
-
-    private enum PublicationMode { INITIAL_BUILD, ONLINE_REPLACEMENT }
 
     private record DescriptorFence(
             IndexType type, IndexState state, int generation, Instant updatedAt) {}

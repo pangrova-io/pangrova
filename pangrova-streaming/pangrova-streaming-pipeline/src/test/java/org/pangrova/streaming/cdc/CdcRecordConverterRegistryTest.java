@@ -104,7 +104,20 @@ class CdcRecordConverterRegistryTest {
     }
 
     private static CdcFormatFactory factory(String id, Supplier<CdcRecordConverter> creator) {
+        return factory(id, CdcFormatFactory.API_VERSION, creator);
+    }
+
+    @Test
+    void incompatibleFormatRejectsAdmissionBeforeAnyDecoderIsCreated() {
+        Supplier<CdcRecordConverter> unexpected = () -> { throw new AssertionError("Decoder created"); };
+        assertThatThrownBy(() -> CdcRecordConverterRegistry.fromFactories(
+                List.of(factory("valid", unexpected), factory("future", 2, unexpected))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Incompatible CDC format factory: future");
+    }
+
+    private static CdcFormatFactory factory(String id, int version, Supplier<CdcRecordConverter> creator) {
         return new CdcFormatFactory() {
+            @Override public int apiVersion() { return version; }
             @Override public String identifier() { return id; }
             @Override public CdcRecordConverter create() { return creator.get(); }
         };

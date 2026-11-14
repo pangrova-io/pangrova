@@ -14,18 +14,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.kernel.MaterializationTestFixtures;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.materialization.api.port.CommitRecovery;
@@ -77,11 +77,11 @@ class MaterializationReconcilerTest {
         assertThat(report.examined()).isEqualTo(1);
         assertThat(report.adopted()).isEqualTo(1);
         MaterializationObject stored = storedObject();
-        assertThat(stored.state()).isEqualTo(ObjectState.Active.INSTANCE);
+        assertThat(stored.state()).isEqualTo(ObjectState.ACTIVE);
         assertThat(stored.revision()).isEqualTo(1);
         assertThat(stored.publishedGeneration()).contains(MaterializationTestFixtures.GENERATION_ID);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Published.INSTANCE);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Published.INSTANCE);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.PUBLISHED);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.PUBLISHED);
         assertThat(verifier.verified).hasSize(1);
         assertThat(fence.issued).isEqualTo(1);
         assertThat(repository.events())
@@ -93,7 +93,7 @@ class MaterializationReconcilerTest {
     void recoversExactCommitEvidenceFromAPreparingAttempt() {
         RefreshAttempt preparing = MaterializationTestFixtures.attempt(
                 object.id(), MaterializationTestFixtures.ATTEMPT_ID, candidateTable(),
-                RefreshKind.Full.INSTANCE, MaterializationTestFixtures.vector(
+                RefreshKind.FULL, MaterializationTestFixtures.vector(
                         MaterializationTestFixtures.source("orders")), Optional.empty());
         Generation candidate = candidateGeneration();
         givenAttemptInState(preparing, candidate);
@@ -102,8 +102,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.adopted()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Published.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Published.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.PUBLISHED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.PUBLISHED);
         assertThat(repository.findPublishedGeneration(object.id())).contains(storedGeneration());
     }
 
@@ -115,8 +115,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.abandoned()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Abandoned.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Candidate.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.ABANDONED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.CANDIDATE);
         assertThat(storedObject().publishedGeneration()).isEmpty();
         assertThat(verifier.verified).isEmpty();
     }
@@ -129,8 +129,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.quarantined()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Quarantined.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Quarantined.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.QUARANTINED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.QUARANTINED);
         assertThat(storedObject().publishedGeneration()).isEmpty();
     }
 
@@ -142,8 +142,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.superseded()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Superseded.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Committed.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.SUPERSEDED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.COMMITTED);
         MaterializationObject stored = storedObject();
         assertThat(stored.revision()).isEqualTo(1);
         assertThat(stored.publishedGeneration()).contains(OTHER_GENERATION);
@@ -159,8 +159,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.failed()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Building.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Candidate.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.BUILDING);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.CANDIDATE);
     }
 
     @Test
@@ -173,8 +173,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.adopted()).isEqualTo(1);
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Published.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Published.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.PUBLISHED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.PUBLISHED);
     }
 
     @Test
@@ -186,7 +186,7 @@ class MaterializationReconcilerTest {
 
         assertThat(report.examined()).isZero();
         assertThat(storedObject().publishedGeneration()).isEmpty();
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Committed.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.COMMITTED);
     }
 
     @Test
@@ -200,8 +200,8 @@ class MaterializationReconcilerTest {
         ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.examined()).isZero();
-        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Quarantined.INSTANCE);
-        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Quarantined.INSTANCE);
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.QUARANTINED);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.QUARANTINED);
         assertThat(fence.issued).isZero();
     }
 
@@ -213,7 +213,7 @@ class MaterializationReconcilerTest {
     private RefreshAttempt buildingAttempt() {
         return MaterializationTestFixtures.attempt(
                 object.id(), MaterializationTestFixtures.ATTEMPT_ID, candidateTable(),
-                RefreshKind.Full.INSTANCE, MaterializationTestFixtures.vector(
+                RefreshKind.FULL, MaterializationTestFixtures.vector(
                         MaterializationTestFixtures.source("orders")), Optional.empty())
                 .markBuilding(TRANSITION_AT);
     }
@@ -232,7 +232,7 @@ class MaterializationReconcilerTest {
         return MaterializationTestFixtures.candidateGeneration(
                 object.id(), MaterializationTestFixtures.GENERATION_ID,
                 MaterializationTestFixtures.ATTEMPT_ID, candidateTable(),
-                RefreshKind.Full.INSTANCE, MaterializationTestFixtures.vector(
+                RefreshKind.FULL, MaterializationTestFixtures.vector(
                         MaterializationTestFixtures.source("orders")), Optional.empty());
     }
 

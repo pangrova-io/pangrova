@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.connector.api.enums.NativeWritePreparationOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
@@ -35,7 +37,6 @@ import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.pangrova.connector.api.metadata.NativeWritePreparation;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -110,7 +111,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
                 ownershipRef.set(ownership);
                 assertRejectedPreparation(plane, session, execution, responseOverride, status);
                 var prepared = plane.prepareWrite(session, execution.output(), intent.fragments(), context, execution.reservation());
-                assertThat(prepared.outcome()).isEqualTo(NativeWritePreparation.Outcome.PREPARED);
+                assertThat(prepared.outcome()).isEqualTo(NativeWritePreparationOutcome.PREPARED);
                 assertThat(queries.writeCommitJournal().getEntry(intent.queryId()).orElseThrow().publication()).isNull();
                 assertThat(requestRef.get().getControlEpoch()).isEqualTo(ownership.getCurrentEpoch());
                 assertThat(requestRef.get().getExecutionOwner().getFencingToken()).isEqualTo(intent.executionFencingToken());
@@ -118,7 +119,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
                         ownership.requireExecutionAnchor(intent.queryId()).expiresAt().toEpochMilli());
                 var accepted = execution.accept();
                 var committed = queries.writeCommitJournal().getEntry(intent.queryId()).orElseThrow();
-                assertThat(committed.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+                assertThat(committed.state()).isEqualTo(WriteCommitState.COMMITTED);
                 assertThat(committed.publication().publishedVersion()).isEqualTo(accepted.getVersion()).isEqualTo(2);
                 assertThat(committed.publication().manifestSha256()).isEqualTo(accepted.getManifestSha256().getDigest().toByteArray());
                 assertThat(prepared.publication().orElseThrow().candidate().manifestSha256()).isEqualTo(committed.publication().manifestSha256());
@@ -163,7 +164,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
                 var descriptor = new PostgresCatalogDeploymentRepository(dataSource).getCatalogDescriptor(execution.catalog().getCatalogName()).orElseThrow();
                 var plane = bootstrap.forCatalog(descriptor).orElseThrow(); var intent = execution.intent(); var session = session(execution);
                 assertThat(plane.prepareWrite(session, execution.output(), intent.fragments(), intent.commitContext(), execution.reservation()).outcome())
-                        .isEqualTo(NativeWritePreparation.Outcome.PREPARED);
+                        .isEqualTo(NativeWritePreparationOutcome.PREPARED);
                 assertThat(requestRef.get().getInvocationId()).matches("[0-9a-f]{32}");
                 var accepted = execution.accept();
                 plane.cleanupSourceObjects(session, execution.reservation());
@@ -184,7 +185,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
                     } else assertThat(Files.size(path)).isEqualTo(object.getSizeBytes());
                 }
                 assertThat(sidecars).isEqualTo(1);
-                assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+                assertThat(execution.intent().state()).isEqualTo(WriteCommitState.COMMITTED);
                 assertThat(execution.intent().publication().manifestSha256()).isEqualTo(accepted.getManifestSha256().getDigest().toByteArray());
             } finally { server.stop(); queries.shutdown(); }
         }
@@ -202,7 +203,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
         assertThat(execution.intent().publication()).isNull();
         status.set(HttpURLConnection.HTTP_OK);
         var uncertain = plane.prepareWrite(session, execution.output(), intent.fragments(), context, execution.reservation());
-        assertThat(uncertain).isEqualTo(new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty()));
+        assertThat(uncertain).isEqualTo(new NativeWritePreparation(NativeWritePreparationOutcome.UNKNOWN, java.util.Optional.empty()));
         responseOverride.set(RuntimeCommandResponse.newBuilder().setSuccess(true)
                 .setPayload(Any.pack(DatasetSchemaFingerprintResult.getDefaultInstance())).build());
         assertThat(plane.prepareWrite(session, execution.output(), intent.fragments(), context, execution.reservation())).isEqualTo(uncertain);

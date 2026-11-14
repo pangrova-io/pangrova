@@ -270,7 +270,7 @@ public class CdcConsumer implements AutoCloseable {
                     .toList();
 
                 writer.write(tableName, writeRecords, WriteMode.UPSERT,
-                    new WriteContext(WriteContext.TransactionMode.SELF_MANAGED, Optional.empty()));
+                    new WriteContext(org.pangrova.connector.api.enums.WriteTransactionMode.SELF_MANAGED, Optional.empty()));
             }
 
             consumer.commitSync();
@@ -1238,11 +1238,11 @@ public class StreamingWriter implements AutoCloseable {
 
         // Delegate to TableWriter SPI — unified write path
         List<WriteRecord> writeRecords = toWrite.stream()
-            .map(r -> WriteRecord.fromClient(r.toMap(), WriteRecord.WriteOperation.INSERT))
+            .map(r -> WriteRecord.fromClient(r.toMap(), org.pangrova.connector.api.enums.WriteOperation.INSERT))
             .toList();
 
         tableWriter.write(tableName, writeRecords, WriteMode.APPEND,
-            new WriteContext(WriteContext.TransactionMode.SELF_MANAGED, Optional.empty()));
+            new WriteContext(org.pangrova.connector.api.enums.WriteTransactionMode.SELF_MANAGED, Optional.empty()));
 
         log.info("Flushed {} records to {} via TableWriter", toWrite.size(), tableName);
     }
@@ -1579,12 +1579,26 @@ This section defines the metrics and tracing integration points for the streamin
 
 ### 8.1 Metrics
 
-| Metric | Source Component | Description |
-|--------|-----------------|-------------|
-| `pangrova.cdc.records.consumed` | CdcConsumer | CDC records consumed |
-| `pangrova.cdc.records.written` | TableWriter | Records written via CDC path |
-| `pangrova.cdc.consumer.lag` | CdcConsumer | Kafka consumer lag |
-| `pangrova.cdc.commit.latency` | TableWriter | Write + commit latency |
+The Coordinator passes its configured metrics provider to each scheduled CDC loop. Instruments use a `stream` dimension. Both direct writes and checkpointed two-phase publication emit the following series.
+
+| Metric | Source component | Measurement |
+|--------|------------------|-------------|
+| `pangrova.streaming.cdc.records.consumed` | Source poll | Records returned in a fresh poll. Retrying the retained batch does not increment the counter. |
+| `pangrova.streaming.cdc.bytes.consumed` | Source poll | Sum of raw key and value lengths, in bytes. |
+| `pangrova.streaming.cdc.batches.processed` | Source acknowledgement | Batches whose next offsets were acknowledged successfully, including checkpointed replays. |
+| `pangrova.streaming.cdc.source.poll.duration` | Source reader | Duration of each poll attempt in seconds, including empty polls. |
+| `pangrova.streaming.cdc.write.duration` | Sink | Duration of the direct write or two-phase stage attempt in seconds. |
+| `pangrova.streaming.cdc.commit.duration` | Source reader | Duration of each offset acknowledgement attempt in seconds. |
+| `pangrova.streaming.cdc.failures` | Pipeline | Recovery and cycle failures observed while running. |
+| `pangrova.streaming.cdc.consumer.lag` | Kafka reader | Last sampled sum of assigned partition offset distances. Collection omits the point until all assigned distances are available. |
+| `pangrova.streaming.cdc.pipeline.uptime` | Pipeline executor | Elapsed seconds since this loop started. The loop unregisters both gauges on exit. |
+
+If a watermark update fails after the source acknowledges a batch, the running loop retries the watermark update before its next poll. The source acknowledgement and the watermark store have independent commits. A process loss between them can leave the persisted watermark behind the acknowledged offsets.
+
+Maintenance design measures are listed separately.
+
+| Metric | Source component | Measurement |
+|--------|------------------|-------------|
 | `pangrova.maintenance.tasks.submitted` | MaintenanceScheduler | Maintenance tasks submitted |
 | `pangrova.maintenance.tasks.completed` | MaintenanceScheduler | Maintenance tasks completed |
 | `pangrova.maintenance.compaction.bytes` | CompactionTask | Bytes compacted |

@@ -13,7 +13,6 @@
 #include "lance_c_ffi.h"
 
 #include "jni/RuntimeInitializer.h"
-#include "command/resource/HandleRegistry.h"
 #include "capabilities/artifact/ImmutableArtifactCache.h"
 #include "capabilities/capability/BuiltinFunctionRegistration.h"
 #include "capabilities/capability/FunctionCatalogPublication.h"
@@ -147,11 +146,11 @@ NativeEngineLifecycle& NativeEngineLifecycle::instance() {
 }
 
 void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
-                                       JNIEnv* env, jobject allocationListener) {
+                                       JNIEnv* env, jobject allocationListener, ExecutorDrain drain) {
   FunctionRetirement retirement;
   std::unique_lock<std::mutex> lock(mutex_);
   if (initialized_.load(std::memory_order_relaxed)) {
-    shutdownInternal(retirement);
+    shutdownInternal(retirement, drain);
   }
   try {
     initVeloxMemory(config, env, allocationListener);
@@ -160,7 +159,7 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
     // Runtime initialization is one atomic readiness transition. Tear down all
     // partially-created pools, caches, registrations and memory listeners so a
     // failed node can be repaired and retried without process restart.
-    shutdownInternal(retirement);
+    shutdownInternal(retirement, drain);
     lock.unlock();
     retirement.retire();
     throw;
@@ -176,17 +175,17 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
             << std::endl;
 }
 
-void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config) {
+void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config, ExecutorDrain drain) {
   FunctionRetirement retirement;
   std::unique_lock<std::mutex> lock(mutex_);
   if (initialized_.load(std::memory_order_relaxed)) {
-    shutdownInternal(retirement);
+    shutdownInternal(retirement, drain);
   }
   try {
     initVeloxMemoryTestMode(config);
     initCommon(config);
   } catch (...) {
-    shutdownInternal(retirement);
+    shutdownInternal(retirement, drain);
     lock.unlock();
     retirement.retire();
     throw;
@@ -200,13 +199,13 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config) {
             << std::endl;
 }
 
-void NativeEngineLifecycle::shutdown() {
+void NativeEngineLifecycle::shutdown(ExecutorDrain drain) {
   FunctionRetirement retirement;
   std::unique_lock<std::mutex> lock(mutex_);
   if (!initialized_.load(std::memory_order_relaxed)) {
     return;
   }
-  shutdownInternal(retirement);
+  shutdownInternal(retirement, drain);
   lock.unlock();
   retirement.retire();
 }
@@ -547,8 +546,8 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
   registerVeloxConnector(config);
 }
 
-void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement) {
-  HandleRegistry::instance().destroyAll();
+void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement, ExecutorDrain drain) {
+  drain();
 
   // Handle destruction closes exchange sources and cancels their Flight RPCs.
   // Drain the blocking-I/O pool before the CPU pool and memory bridge so no

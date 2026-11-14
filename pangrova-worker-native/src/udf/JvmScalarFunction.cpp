@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "jni/JniEntryPoints.h"
-#include "command/resource/HandleRegistry.h"
+#include "engine/executor/driver/TaskFailureReporter.h"
 #include "pangrova/protocol/v2/common.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/expression/DecodedArgs.h"
@@ -137,6 +137,12 @@ struct CallbackSnapshot {
 
 class JvmFunctionCallbacks {
  public:
+  explicit JvmFunctionCallbacks(const executor::TaskFailureReporter& failures) : failures_(failures) {}
+
+  void reportExecutionError(int64_t handle, const protocol::v2::ExecutionError& error) const {
+    failures_.reportExecutionError(handle, error);
+  }
+
   ~JvmFunctionCallbacks() {
     // Runtime shutdown drains execution before the JVM is unloaded. Factories
     // and in-flight batches may retain this generation beyond active publication.
@@ -308,6 +314,7 @@ class JvmFunctionCallbacks {
     doubleValue_ = nullptr;
   }
 
+  const executor::TaskFailureReporter& failures_;
   jobject callback_ = nullptr;
   jclass callbackClass_ = nullptr;
   jclass objectClass_ = nullptr;
@@ -859,8 +866,7 @@ class JvmScalarFunction final : public exec::VectorFunction {
             !error.GetReflection()->GetUnknownFields(error).empty()) {
           throw std::runtime_error("JVM AI failure projection is not canonical");
         }
-        pangrova::jni::HandleRegistry::instance()
-            .acquire(call.executor_handle)->recordExecutionError(error);
+        callbacks_->reportExecutionError(call.executor_handle, error);
       }
       env->Throw(failure);
       throw std::runtime_error(
@@ -940,8 +946,9 @@ class JvmScalarFunction final : public exec::VectorFunction {
 
 }  // namespace
 
-JvmFunctionCallbackOwner prepareJvmFunctionCallbacks(JNIEnv* env, jobject callback) {
-  auto owner = std::make_shared<JvmFunctionCallbacks>();
+JvmFunctionCallbackOwner prepareJvmFunctionCallbacks(
+    JNIEnv* env, jobject callback, const executor::TaskFailureReporter& failures) {
+  auto owner = std::make_shared<JvmFunctionCallbacks>(failures);
   owner->install(env, callback);
   return owner;
 }

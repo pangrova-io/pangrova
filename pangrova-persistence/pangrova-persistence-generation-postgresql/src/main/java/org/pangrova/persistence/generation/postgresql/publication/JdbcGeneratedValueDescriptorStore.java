@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
@@ -32,7 +34,7 @@ public final class JdbcGeneratedValueDescriptorStore {
                 registerWithinTransaction(connection, descriptor);
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -74,7 +76,7 @@ public final class JdbcGeneratedValueDescriptorStore {
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException retryFailure) {
@@ -217,14 +219,6 @@ public final class JdbcGeneratedValueDescriptorStore {
             throws SQLException {
         if (statement.executeUpdate() != 1) {
             throw new IllegalStateException(message);
-        }
-    }
-
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
         }
     }
 

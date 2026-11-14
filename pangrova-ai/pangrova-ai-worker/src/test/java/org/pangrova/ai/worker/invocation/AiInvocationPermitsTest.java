@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -44,7 +46,7 @@ class AiInvocationPermitsTest {
                 assertThat(semaphores[index].availablePermits()).isZero();
             }
             task.revoke();
-            assertThat(result.get(5, TimeUnit.SECONDS)).isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+            assertThat(result.get(5, TimeUnit.SECONDS)).isEqualTo(AiFailureCategory.AUTHORIZATION);
             assertThat(interrupted.get()).isTrue();
             for (int index = 0; index < semaphores.length; index++) {
                 assertThat(semaphores[index].availablePermits()).isEqualTo(index == blockedPosition ? 0 : 1);

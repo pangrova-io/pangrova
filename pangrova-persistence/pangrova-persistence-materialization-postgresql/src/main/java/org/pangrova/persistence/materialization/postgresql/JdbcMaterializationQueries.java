@@ -1,5 +1,8 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import org.pangrova.materialization.api.enums.GcState;
+import org.pangrova.materialization.api.enums.GcDecision;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -9,7 +12,6 @@ import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.DefinitionRevision;
 import org.pangrova.materialization.api.domain.Dependency;
 import org.pangrova.materialization.api.enums.DependencyKind;
-import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.domain.MaterializationId;
@@ -155,9 +157,9 @@ final class JdbcMaterializationQueries {
                         QualifiedName.parse(result.getString("object_name"))),
                 result.getObject("entry_id", UUID.class),
                 new GenerationId(result.getObject("generation_id", UUID.class)),
-                GcLedgerEntry.GcDecision.valueOf(result.getString("decision")),
+                GcDecision.valueOf(result.getString("decision")),
                 result.getString("evidence"),
-                GcLedgerEntry.GcState.valueOf(result.getString("state")),
+                GcState.valueOf(result.getString("state")),
                 getInstant(result, "created_at"),
                 getInstant(result, "updated_at")));
     }

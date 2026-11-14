@@ -1,10 +1,12 @@
 package org.pangrova.server.worker.bootstrap;
 
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
 import java.util.Map;
-import org.pangrova.config.AiFileOptions;
+import org.pangrova.config.constants.AiFileOptions;
 import org.pangrova.config.ConfigOption;
 import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.config.WorkerOptions;
+import org.pangrova.config.constants.WorkerOptions;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 /** Maps the resolved worker settings for both standalone and independent processes. */
@@ -25,7 +27,7 @@ public final class WorkerConfiguration {
         int resultRetentionSeconds = config.getInt(WorkerOptions.RESULT_RETENTION_SECONDS);
 
         var resourceConfig = loadResourceConfig(config);
-        var obsConfig = loadObservabilityConfig(config, observabilityEnabled);
+        var obsConfig = ObservabilityConfig.fromDeployment(config).orElse(null);
         var registrationRetryConfig = loadRegistrationRetryConfig(config);
         var cacheConfig = loadCacheConfig(config);
 
@@ -40,7 +42,8 @@ public final class WorkerConfiguration {
                 config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
                 config.getString(WorkerOptions.SHUFFLE_ADVERTISED_HOST),
                 loadNativeFunctionConfig(config),
-                loadTransportSecurityConfig(config), config.getString(WorkerOptions.ADMISSION_STATE_DIRECTORY));
+                loadTransportSecurityConfig(config), config.getString(WorkerOptions.ADMISSION_STATE_DIRECTORY),
+                org.pangrova.config.constants.ConnectorOptions.pluginDirectory(config));
     }
 
     private static WorkerBootstrapConfig.TransportSecurityConfig loadTransportSecurityConfig(
@@ -156,19 +159,6 @@ public final class WorkerConfiguration {
                         config.getInt(WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS),
                         config.getInt(WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS_PER_ENDPOINT)),
                 new WorkerBootstrapConfig.ShuffleProvider(provider, properties));
-    }
-
-    private static WorkerBootstrapConfig.ObservabilityBootstrapConfig loadObservabilityConfig(
-            PangrovaConfiguration config, boolean enabled) {
-        if (!enabled) {
-            return null;
-        }
-        String serviceName = config.getString(WorkerOptions.OBSERVABILITY_SERVICE_NAME);
-        String otlpEndpoint = config.getString(WorkerOptions.OBSERVABILITY_OTLP_ENDPOINT);
-        if (serviceName == null || otlpEndpoint == null) {
-            return null;
-        }
-        return new WorkerBootstrapConfig.ObservabilityBootstrapConfig(serviceName, otlpEndpoint);
     }
 
     private static WorkerBootstrapConfig.RegistrationRetryConfig loadRegistrationRetryConfig(

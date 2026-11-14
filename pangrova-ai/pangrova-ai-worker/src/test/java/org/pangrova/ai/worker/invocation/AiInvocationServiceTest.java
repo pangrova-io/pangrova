@@ -13,13 +13,15 @@
  */
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -55,7 +57,7 @@ class AiInvocationServiceTest {
 
     @Test
     void boundsDefaultGenerationBySignedProviderEnvelope() {
-        var request = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var request = request(AiOperation.TEXT_GENERATION, 1);
         var effective = AiInvocationService.boundedGenerationParameters(request,
                 models.inference().capabilities().iterator().next());
         assertThat(effective.maxTokens()).hasValue(500);
@@ -65,7 +67,7 @@ class AiInvocationServiceTest {
 
     @Test
     void preservesExplicitGenerationOptionsWithinEnvelope() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         var parameters = new GenerationParameters(OptionalDouble.of(0.3), OptionalInt.of(500),
                 java.util.Optional.of("json_object"));
         var requested = copy(base, base.modelVersion(), base.modelSignatureSha256(), base.capabilityVersion(),
@@ -76,42 +78,42 @@ class AiInvocationServiceTest {
 
     @Test
     void rejectsRequestedGenerationBeyondSignedEnvelopeBeforeProviderCall() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         var request = copy(base, base.modelVersion(), base.modelSignatureSha256(), base.capabilityVersion(),
                 new GenerationParameters(null, OptionalInt.of(501), null), base.deadline(), base.idempotencyKey());
-        assertFailure(request, AiInvocationException.Category.INVALID_REQUEST, "exceeds signed maxOutputTokens");
+        assertFailure(request, AiFailureCategory.INVALID_REQUEST, "exceeds signed maxOutputTokens");
     }
 
     @Test
     void rejectsVersionDriftWithoutCallingProvider() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         var drifted = copy(base, "wrong-version", base.modelSignatureSha256(), base.capabilityVersion(),
                 base.generationParameters(), base.deadline(), base.idempotencyKey());
-        assertFailure(drifted, AiInvocationException.Category.MODEL_NOT_FOUND, "different public identity");
+        assertFailure(drifted, AiFailureCategory.MODEL_NOT_FOUND, "different public identity");
     }
 
     @Test
     void rejectsModelSignatureDriftWithoutCallingProvider() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         byte[] signature = base.modelSignatureSha256();
         signature[0] ^= 1;
         var drifted = copy(base, base.modelVersion(), signature, base.capabilityVersion(),
                 base.generationParameters(), base.deadline(), base.idempotencyKey());
-        assertFailure(drifted, AiInvocationException.Category.MODEL_NOT_FOUND, "different public identity");
+        assertFailure(drifted, AiFailureCategory.MODEL_NOT_FOUND, "different public identity");
     }
 
     @Test
     void rejectsCapabilityVersionDriftBeforeProviderCall() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         var drifted = copy(base, base.modelVersion(), base.modelSignatureSha256(), "wrong-capability",
                 base.generationParameters(), base.deadline(), base.idempotencyKey());
-        assertFailure(drifted, AiInvocationException.Category.CAPABILITY_MISMATCH, "No exact TEXT_GENERATION");
+        assertFailure(drifted, AiFailureCategory.CAPABILITY_MISMATCH, "No exact TEXT_GENERATION");
     }
 
     @Test
     void authorizationIsFailClosedBeforeProviderDispatch() {
-        var request = request(AiCapabilityDescriptor.Operation.EMBEDDING, 1);
-        var denied = new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false, "denied");
+        var request = request(AiOperation.EMBEDDING, 1);
+        var denied = new AiInvocationException(AiFailureCategory.AUTHORIZATION, false, "denied");
         AtomicInteger authorizationCalls = new AtomicInteger();
         var service = models.service((value, capability) -> {
             authorizationCalls.incrementAndGet();
@@ -123,7 +125,7 @@ class AiInvocationServiceTest {
 
     @Test
     void observerFailureDoesNotReplacePrimaryAuthorizationFailure() {
-        var denied = new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false, "denied");
+        var denied = new AiInvocationException(AiFailureCategory.AUTHORIZATION, false, "denied");
         var auditFailure = new IllegalStateException("audit unavailable");
         var service = models.service((value, capability) -> { throw denied; },
                 new AiInvocationObserver() {
@@ -132,81 +134,81 @@ class AiInvocationServiceTest {
                         throw auditFailure;
                     }
                 });
-        assertThatThrownBy(() -> invoke(service, request(AiCapabilityDescriptor.Operation.EMBEDDING, 1)))
+        assertThatThrownBy(() -> invoke(service, request(AiOperation.EMBEDDING, 1)))
                 .isSameAs(denied).satisfies(failure ->
                         assertThat(failure.getSuppressed()).containsExactly(auditFailure));
     }
 
     @Test
     void rejectsExpiredInvocationBeforeProviderResolution() {
-        var base = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var base = request(AiOperation.TEXT_GENERATION, 1);
         var expired = copy(base, base.modelVersion(), base.modelSignatureSha256(), base.capabilityVersion(),
                 base.generationParameters(), Instant.EPOCH, base.idempotencyKey());
-        assertFailure(expired, AiInvocationException.Category.TIMEOUT, "deadline has expired");
+        assertFailure(expired, AiFailureCategory.TIMEOUT, "deadline has expired");
     }
 
     @Test
     void rejectsOversizedBatchBeforeProviderCall() {
-        assertFailure(request(AiCapabilityDescriptor.Operation.EMBEDDING, 9),
-                AiInvocationException.Category.INVALID_REQUEST, "exceeds capability maxBatchSize 8");
+        assertFailure(request(AiOperation.EMBEDDING, 9),
+                AiFailureCategory.INVALID_REQUEST, "exceeds capability maxBatchSize 8");
     }
 
     @Test
     void rejectsUnsupportedTextExecutionModeBeforeProviderCall() {
-        var request = models.request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, taskId,
-                AiCapabilityDescriptor.ExecutionMode.ASYNC, List.of(new AiInvocationRequest.TextInput("one")));
-        assertFailure(request, AiInvocationException.Category.CAPABILITY_MISMATCH,
+        var request = models.request(AiOperation.TEXT_GENERATION, taskId,
+                AiExecutionMode.ASYNC, List.of(new AiInvocationRequest.TextInput("one")));
+        assertFailure(request, AiFailureCategory.CAPABILITY_MISMATCH,
                 "does not support execution mode ASYNC");
     }
 
     @Test
     void textBatchRejectsInsufficientConcurrentProviderGrant() {
-        var request = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 2);
+        var request = request(AiOperation.TEXT_GENERATION, 2);
         var original = models.context(taskId);
         var context = envelope(original, 1, 8, 10000, 2000);
         assertThatThrownBy(() -> invoke(service(), request, context))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                        assertThat(failure.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION));
+                        assertThat(failure.category()).isEqualTo(AiFailureCategory.AUTHORIZATION));
     }
 
     @Test
     void rejectsCallbackGrantDifferentFromActualRegisteredTaskBeforeProviderCall() {
-        var request = request(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 1);
+        var request = request(AiOperation.TEXT_GENERATION, 1);
         var context = envelope(models.context(taskId), 1, 1, 999, 500);
         assertThatThrownBy(() -> invoke(service(), request, context))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                        assertThat(failure.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION))
+                        assertThat(failure.category()).isEqualTo(AiFailureCategory.AUTHORIZATION))
                 .hasMessageContaining("different authority or grant");
     }
 
     @Test
     void rejectsRequestDeadlineDifferentFromSignedTaskDeadline() {
-        var base = request(AiCapabilityDescriptor.Operation.EMBEDDING, 1);
+        var base = request(AiOperation.EMBEDDING, 1);
         var changed = copy(base, base.modelVersion(), base.modelSignatureSha256(), base.capabilityVersion(),
                 base.generationParameters(), base.deadline().plusSeconds(1), base.idempotencyKey());
-        assertFailure(changed, AiInvocationException.Category.AUTHORIZATION, "trusted native task context");
+        assertFailure(changed, AiFailureCategory.AUTHORIZATION, "trusted native task context");
     }
 
     @Test
     void rejectsIdempotencyIdentityBorrowedFromAnotherOperator() {
-        var base = request(AiCapabilityDescriptor.Operation.EMBEDDING, 1);
+        var base = request(AiOperation.EMBEDDING, 1);
         var changed = copy(base, base.modelVersion(), base.modelSignatureSha256(), base.capabilityVersion(),
                 base.generationParameters(), base.deadline(), "another-operator:" + "0".repeat(64));
-        assertFailure(changed, AiInvocationException.Category.AUTHORIZATION, "trusted native task context");
+        assertFailure(changed, AiFailureCategory.AUTHORIZATION, "trusted native task context");
     }
 
     @Test
     void rejectsNullProviderResultUsingProductionResultBoundary() {
         assertThatThrownBy(() -> AiEmbeddingInvocationSupport.requireEmbeddingResult(null))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
-                    assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID);
+                    assertThat(failure.category()).isEqualTo(AiFailureCategory.PROVIDER_RESPONSE_INVALID);
                     assertThat(failure.retryable()).isFalse();
                 }).hasMessageContaining("returned no result");
     }
 
     @Test
     void embeddingRejectsNullAndNonFiniteVectorsThroughProductionClassifier() {
-        var request = request(AiCapabilityDescriptor.Operation.EMBEDDING, 1);
+        var request = request(AiOperation.EMBEDDING, 1);
         for (float invalid : new float[]{Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY}) {
             float[] vector = new float[384];
             vector[0] = invalid;
@@ -219,7 +221,7 @@ class AiInvocationServiceTest {
 
     @Test
     void embeddingReturnsOrderedFirstClassDefensivelyOwnedVectors() {
-        var request = request(AiCapabilityDescriptor.Operation.EMBEDDING, 2);
+        var request = request(AiOperation.EMBEDDING, 2);
         float[] first = new float[384];
         float[] second = new float[384];
         Arrays.fill(first, 0.25f);
@@ -240,10 +242,10 @@ class AiInvocationServiceTest {
                 throw AiInvocationFailures.classify(failure);
             }
         }).isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID));
+                assertThat(failure.category()).isEqualTo(AiFailureCategory.PROVIDER_RESPONSE_INVALID));
     }
 
-    private void assertFailure(AiInvocationRequest request, AiInvocationException.Category category, String message) {
+    private void assertFailure(AiInvocationRequest request, AiFailureCategory category, String message) {
         assertThatThrownBy(() -> invoke(service(), request))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                     assertThat(failure.category()).isEqualTo(category);
@@ -255,11 +257,11 @@ class AiInvocationServiceTest {
         return models.service((request, capability) -> {}, AiInvocationObserver.noop());
     }
 
-    private AiInvocationRequest request(AiCapabilityDescriptor.Operation operation, int count) {
+    private AiInvocationRequest request(AiOperation operation, int count) {
         var inputs = java.util.stream.IntStream.range(0, count)
                 .mapToObj(index -> (AiInvocationRequest.Input) new AiInvocationRequest.TextInput("row " + index)).toList();
-        return models.request(operation, taskId, count == 1 ? AiCapabilityDescriptor.ExecutionMode.SCALAR
-                : AiCapabilityDescriptor.ExecutionMode.BATCH, inputs);
+        return models.request(operation, taskId, count == 1 ? AiExecutionMode.SCALAR
+                : AiExecutionMode.BATCH, inputs);
     }
 
     private AiInvocationResult invoke(AiInvocationService service, AiInvocationRequest request) {

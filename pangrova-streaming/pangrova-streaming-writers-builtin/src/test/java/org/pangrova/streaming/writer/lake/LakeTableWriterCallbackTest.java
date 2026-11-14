@@ -1,5 +1,6 @@
 package org.pangrova.streaming.writer.lake;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
@@ -28,7 +29,7 @@ class LakeTableWriterCallbackTest {
         try (LakeTableWriter writer = new LakeTableWriter(sink, "id", captured::add)) {
             WriteRecord record = new WriteRecord(
                     TypedRow.fromRawMap(Map.of("id", 1, "name", "a")),
-                    WriteRecord.WriteOperation.INSERT, Instant.now());
+                    WriteOperation.INSERT, Instant.now());
             WriteResult result = writer.write("test_table", List.of(record),
                     WriteMode.APPEND, WriteContext.selfManaged());
 
@@ -45,7 +46,7 @@ class LakeTableWriterCallbackTest {
         try (LakeTableWriter writer = new LakeTableWriter(sink, "id", null)) {
             WriteRecord record = new WriteRecord(
                     TypedRow.fromRawMap(Map.of("id", 1)),
-                    WriteRecord.WriteOperation.INSERT, Instant.now());
+                    WriteOperation.INSERT, Instant.now());
             WriteResult result = writer.write("t", List.of(record),
                     WriteMode.APPEND, WriteContext.selfManaged());
 

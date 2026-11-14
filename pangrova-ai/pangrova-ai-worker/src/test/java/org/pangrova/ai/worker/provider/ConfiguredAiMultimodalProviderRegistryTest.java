@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.provider;
 
+import org.pangrova.ai.api.enums.AiOperation;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 
@@ -48,7 +50,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
         assertThat(model.provider()).isEqualTo("openai-responses");
         assertThat(model.capabilities())
                 .extracting(AiCapabilityDescriptor::operation)
-                .containsExactly(AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                .containsExactly(AiOperation.MULTIMODAL_GENERATION);
         try (var registry = new ConfiguredAiProviderRegistry(
                 config, ignored -> "key", ignored -> new byte[0])) {
             assertThat(registry.resolveInference("media").supportedModalities())
@@ -129,8 +131,8 @@ class ConfiguredAiMultimodalProviderRegistryTest {
         assertThat(model.capabilities())
                 .extracting(AiCapabilityDescriptor::operation)
                 .containsExactlyInAnyOrder(
-                        AiCapabilityDescriptor.Operation.TEXT_GENERATION,
-                        AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                        AiOperation.TEXT_GENERATION,
+                        AiOperation.MULTIMODAL_GENERATION);
         try (var registry = new ConfiguredAiProviderRegistry(
                 config, reference -> "key", reference -> new byte[0])) {
             assertThat(registry.resolveInference("chat").supportedModalities())

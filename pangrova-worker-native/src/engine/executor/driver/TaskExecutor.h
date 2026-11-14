@@ -16,6 +16,7 @@
 #include "engine/shuffle/ShuffleControlGate.h"
 #include "engine/shuffle/ShuffleProducerRegistration.h"
 
+#include "engine/executor/driver/TaskFailureReporter.h"
 #include "engine/split/SplitConfig.h"
 #include "engine/executor/driver/PlanExecutionDriver.h"
 #include "engine/executor/driver/ReturnCodes.h"
@@ -131,6 +132,7 @@ struct TaskExecutorConfig {
   // Process-local identity assigned by HandleRegistry before start(). It is
   // never serialized into a plan or exposed as a network routing credential.
   int64_t executor_handle = 0;
+  const pangrova::executor::TaskFailureReporter* failure_reporter = nullptr;
   std::string task_id;
   std::string query_id;
   int32_t stage_id = 0;
@@ -221,7 +223,7 @@ class TaskExecutor {
 
   // Binds the process-local handle exactly once while the task is still NEW.
   // HandleRegistry calls this before publishing the executor to JNI callers.
-  void bindHandle(int64_t executor_handle);
+  void bindHandle(int64_t executor_handle, const TaskFailureReporter& failure_reporter);
 
   // Pull model — delegates to TaskOutputRouter.
   // Output path returns RowVectorPtr directly; Arrow C Data Interface export

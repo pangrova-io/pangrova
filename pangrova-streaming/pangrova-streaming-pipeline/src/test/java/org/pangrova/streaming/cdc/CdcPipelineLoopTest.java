@@ -1,5 +1,10 @@
 package org.pangrova.streaming.cdc;
 
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
+
 import org.pangrova.streaming.api.commit.SourceId;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.connector.api.write.WriteResult;
@@ -178,12 +183,128 @@ class CdcPipelineLoopTest {
             quotaEnforcer,
             new WatermarkTracker(new FakeWatermarkStore()),
             maintenance,
-            new CdcPipelineRuntimeHooks(listener, BackoffStrategy.retry(10, 100), null));
+            new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), listener, BackoffStrategy.retry(10, 100), null));
     }
 
     private SourceRecord record(String topic, int partition, long offset) {
         return new SourceRecord(topic, partition, offset,
             new byte[]{1}, new byte[]{2, 3}, System.currentTimeMillis());
+    }
+
+    @Test
+    void gaugeSetupFailureReleasesEarlierRegistrationAndBothPipelineResources() {
+        var events = new ArrayList<String>();
+        var failure = new IllegalStateException("lag registration rejected");
+        var metrics = new NoOpMetricsProvider() {
+            @Override
+            public ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+                    MetricAttributes attributes, java.util.function.Supplier<OptionalDouble> sample) {
+                if (name.endsWith(".lag")) throw failure;
+                return () -> events.add("uptime");
+            }
+        };
+        var sink = new FakeWriteSink() {
+            @Override public void close() { events.add("sink"); }
+        };
+        var reader = new FakeSourceReader() {
+            @Override public void close() { events.add("reader"); }
+        };
+        try (var maintenance = new FakeMaintenanceScheduler()) {
+            var deps = new CdcPipelineLoopContext(reader, new FakeConverter(), sink,
+                    new CdcQuotaEnforcer(10, 1_000_000), new WatermarkTracker(new FakeWatermarkStore()),
+                    maintenance, new CdcPipelineRuntimeHooks(metrics, e -> fail(e), BackoffStrategy.retry(1, 2), null));
+            assertSame(failure, assertThrows(IllegalStateException.class,
+                    () -> new CdcPipelineLoop(defaultConfig(), deps).run()));
+        }
+        assertEquals(List.of("uptime", "sink", "reader"), events);
+    }
+
+    @Test
+    void watermarkRetryAfterSourceAcknowledgementDoesNotRepublish() {
+        var advances = new AtomicInteger();
+        var store = new FakeWatermarkStore() {
+            @Override
+            public Instant advance(String table, Instant watermark) {
+                if (advances.incrementAndGet() == 1) throw new IllegalStateException("watermark unavailable");
+                return watermark;
+            }
+        };
+        var reader = new FakeSourceReader() {
+            @Override
+            public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+                if (advances.get() > 0) throw new IllegalStateException("end of test source");
+                return super.pollBatch(maxRecords, timeout);
+            }
+        };
+        reader.addBatch(List.of(record("topic", 0, 1)));
+        var sink = new FakeWriteSink();
+        try (var maintenance = new FakeMaintenanceScheduler()) {
+            var deps = new CdcPipelineLoopContext(reader, new FakeConverter(), sink,
+                    new CdcQuotaEnforcer(10, 1_000_000), new WatermarkTracker(store), maintenance,
+                    new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), failure -> {}, BackoffStrategy.retry(1, 2), null));
+            new CdcPipelineLoop(defaultConfig(), deps).run();
+        }
+        assertEquals(2, advances.get());
+        assertEquals(1, sink.writeCount.get());
+        assertEquals(1, ((FakeSourceReader) reader).committedOffsets.size());
+    }
+
+    @Test
+    void retriesRetainedBatchWithoutCountingAnotherPollAndReleasesStreamGauges() {
+        var counts = new HashMap<String, Long>();
+        var observations = new HashMap<String, java.util.function.Supplier<OptionalDouble>>();
+        var metrics = new NoOpMetricsProvider() {
+            @Override
+            public LongCounter createCounter(String name, String description, String unit) {
+                return new LongCounter() {
+                    public void add(long value) { fail("Missing stream dimensions"); }
+                    public void add(long value, MetricAttributes attributes) {
+                        assertEquals(Map.of("stream", STREAM_NAME), attributes.asMap());
+                        counts.merge(name, value, Long::sum);
+                    }
+                };
+            }
+
+            @Override
+            public ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+                    MetricAttributes attributes, java.util.function.Supplier<OptionalDouble> sample) {
+                assertEquals(Map.of("stream", STREAM_NAME), attributes.asMap());
+                observations.put(name, sample);
+                return () -> assertNotNull(observations.remove(name));
+            }
+        };
+        var acks = new AtomicInteger();
+        var reader = new FakeSourceReader() {
+            @Override
+            public OptionalLong currentLag() {
+                throw new IllegalStateException("lag temporarily unavailable");
+            }
+            @Override
+            public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
+                assertEquals(OptionalDouble.empty(), observations.get("pangrova.streaming.cdc.consumer.lag").get());
+                if (acks.incrementAndGet() == 1) throw new IllegalStateException("ack unavailable");
+            }
+            @Override
+            public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+                if (acks.get() == 2) throw new IllegalStateException("source unavailable");
+                return super.pollBatch(maxRecords, timeout);
+            }
+        };
+        reader.addBatch(List.of(record("topic", 0, 1)));
+        var terminal = new ArrayList<Exception>();
+        try (var maintenance = new FakeMaintenanceScheduler()) {
+            var deps = new CdcPipelineLoopContext(reader, new FakeConverter(), new FakeWriteSink(),
+                    new CdcQuotaEnforcer(10, 1_000_000), new WatermarkTracker(new FakeWatermarkStore()),
+                    maintenance, new CdcPipelineRuntimeHooks(metrics, terminal::add, BackoffStrategy.retry(1, 2), null));
+            new CdcPipelineLoop(defaultConfig(), deps).run();
+        }
+        assertEquals(2, acks.get());
+        assertEquals(1L, counts.get("pangrova.streaming.cdc.records.consumed"));
+        assertEquals(3L, counts.get("pangrova.streaming.cdc.bytes.consumed"));
+        assertEquals(1L, counts.get("pangrova.streaming.cdc.batches.processed"));
+        assertEquals(4L, counts.get("pangrova.streaming.cdc.failures"));
+        assertEquals(1, terminal.size());
+        assertTrue(observations.isEmpty());
     }
 
     // --- Tests ---
@@ -408,7 +529,7 @@ class CdcPipelineLoopTest {
         CdcPipelineLoopContext deps = new CdcPipelineLoopContext(
             blockingReader, new FakeConverter(), new FakeWriteSink(), quota,
             new WatermarkTracker(new FakeWatermarkStore()),
-            maintenance, new CdcPipelineRuntimeHooks(e -> {}, BackoffStrategy.retry(10, 100), null));
+            maintenance, new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), e -> {}, BackoffStrategy.retry(10, 100), null));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(defaultConfig(), deps);
 
@@ -463,7 +584,7 @@ class CdcPipelineLoopTest {
             reader, new FakeConverter(), conditionalSink, quota,
             new WatermarkTracker(new FakeWatermarkStore()),
             maintenance, new CdcPipelineRuntimeHooks(
-                e -> failedCalled.set(true), BackoffStrategy.retry(5, 50), null));
+                new NoOpMetricsProvider(), e -> failedCalled.set(true), BackoffStrategy.retry(5, 50), null));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(cfg, deps);
 

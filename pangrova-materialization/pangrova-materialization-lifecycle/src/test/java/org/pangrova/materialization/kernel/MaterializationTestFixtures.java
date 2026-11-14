@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.materialization.api.domain.AttemptId;
 import org.pangrova.materialization.api.domain.Binding;
 import org.pangrova.materialization.api.domain.ColumnDefinition;
@@ -28,11 +29,11 @@ import org.pangrova.materialization.api.domain.PolicySnapshot;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourceVector;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
@@ -347,21 +348,21 @@ public final class MaterializationTestFixtures {
             public PinnedSource pin(String tenant, SourceRef source, SourceSnapshotRef expected,
                     String pinOwner) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                        MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                         "snapshot " + expected.snapshotToken() + " is not pinnable");
             }
 
             @Override
             public ChangeSetPlan changeSet(PinnedSource from, PinnedSource to, ChangeSetMode mode) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                        MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                         "source does not support change sets");
             }
 
             @Override
             public ChangeProof verify(ChangeSetPlan plan) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                        MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                         "source does not support change proofs");
             }
 

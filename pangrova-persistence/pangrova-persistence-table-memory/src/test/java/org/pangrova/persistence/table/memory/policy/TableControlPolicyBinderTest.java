@@ -10,7 +10,7 @@ import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.policy.GovernanceBinding;
 import org.pangrova.table.api.enums.GovernanceBindingType;
-import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.policy.InMemoryTablePolicyRepository;
 import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 
 import org.junit.jupiter.api.Test;
@@ -35,21 +35,21 @@ class TableControlPolicyBinderTest {
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     private final InMemoryTableControlStore controlStore = new InMemoryTableControlStore();
-    private final InMemoryTableControlGovernanceBindingStore bindingStore =
-            new InMemoryTableControlGovernanceBindingStore();
+    private final InMemoryTablePolicyRepository bindingStore =
+            new InMemoryTablePolicyRepository();
     private final TableControlService control = new TableControlService(controlStore, name -> new CatalogDeploymentIdentity("test-deployment", 1),
             new TableControlSettings(true, true, Set.of()), CLOCK);
     private final TableControlPolicyBinder binder =
             new TableControlPolicyBinder(control, bindingStore, CLOCK);
 
     @Test
-    void persistedReceiptWinsOverThePreSaveObservation() {
+    void bindingUsesIdentityFromAtomicSaveWithoutAPreliminaryLookup() {
         var record = adopt("cat", "db", "external", "uuid-1");
         var winner = new GovernanceBinding(UUID.randomUUID(), record.tableId(),
                 GovernanceBindingType.QUALITY_RULE, "rule", Map.of(), "first-creator", NOW, NOW);
-        var raced = new org.pangrova.table.api.policy.TableControlGovernanceBindingStore() {
+        var raced = new org.pangrova.table.api.policy.TablePolicyRepository() {
             @Override public Optional<GovernanceBinding> find(UUID tableId, GovernanceBindingType type, String ref) {
-                return Optional.empty(); // The competing insert commits after this observation.
+                throw new AssertionError("An upsert must return the winning durable identity");
             }
             @Override public GovernanceBinding save(GovernanceBinding candidate) {
                 return winner.withConfig(candidate.config(), candidate.updatedAt());

@@ -15,7 +15,7 @@ import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.api.catalog.ConnectorHandleFactory;
 import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
-import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.policy.InMemoryTablePolicyRepository;
 import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 import org.pangrova.table.api.enums.GovernanceBindingType;
 import org.pangrova.table.api.enums.MaintenanceOperation;
@@ -24,8 +24,10 @@ import org.pangrova.table.maintenance.TableControlMaintenanceService;
 import org.pangrova.table.policy.TableControlPolicyBinder;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.config.TableControlSettings;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.governance.api.classification.TagChangedEvent;
+import org.pangrova.metadata.catalog.CatalogMetadata;
+import org.pangrova.metadata.cache.TieredMetadataCache;
+import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
 import org.pangrova.parser.parse.AntlrSqlParser;
@@ -50,6 +52,7 @@ import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.connector.api.metadata.table.TableVersionToken;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +71,7 @@ class DdlExecutorOwnershipTest {
     private TestCatalogRegistry registry;
     private DdlExecutor ddlExecutor;
     private TableControlMaintenanceService maintenanceService;
-    private InMemoryTableControlGovernanceBindingStore bindingStore;
+    private InMemoryTablePolicyRepository bindingStore;
     private TableControlPolicyBinder policyBinder;
     private AuditEventEmitter auditEmitter;
 
@@ -89,7 +92,7 @@ class DdlExecutorOwnershipTest {
         maintenanceService = new TableControlMaintenanceService(
                 new InMemoryTableControlMaintenanceStore());
         ddlExecutor.setMaintenancePolicyService(maintenanceService);
-        bindingStore = new InMemoryTableControlGovernanceBindingStore();
+        bindingStore = new InMemoryTablePolicyRepository();
         registry.setGovernanceBindingStore(bindingStore);
         policyBinder = registry.tableGovernance();
     }
@@ -517,8 +520,7 @@ class DdlExecutorOwnershipTest {
 
     @Test
     void columnTagRequiresAdoptionAndBindsToTheStableTableId() {
-        RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        List<TagChangedEvent> events = observeColumnTagEvents();
         var set = (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                 "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'");
         var unset = (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
@@ -527,7 +529,7 @@ class DdlExecutorOwnershipTest {
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(set, context()))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("OBSERVED");
-        assertThat(tags.tags).isEmpty();
+        assertThat(events).isEmpty();
 
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
@@ -537,7 +539,8 @@ class DdlExecutorOwnershipTest {
                 .find("test_cat", "default", "users").orElseThrow().tableId();
 
         ddlExecutor.executeAlterTable(set, context());
-        assertThat(tags.tags).containsEntry("test_cat|default|users|id|classification", "sensitive");
+        assertThat(events).containsExactly(new TagChangedEvent(
+                "test_cat", "default", "users", "id", "classification", null, "sensitive", tableId));
         assertThat(bindingStore.list(tableId)).singleElement()
                 .satisfies(binding -> {
                     assertThat(binding.bindingType()).isEqualTo(GovernanceBindingType.COLUMN_TAG);
@@ -546,14 +549,15 @@ class DdlExecutorOwnershipTest {
                 });
 
         ddlExecutor.executeAlterTable(unset, context());
-        assertThat(tags.tags).isEmpty();
+        assertThat(events).hasSize(2);
+        assertThat(events.get(1)).isEqualTo(new TagChangedEvent(
+                "test_cat", "default", "users", "id", "classification", "sensitive", null, tableId));
         assertThat(bindingStore.list(tableId)).isEmpty();
     }
 
     @Test
     void columnTagRejectsUnknownColumns() {
-        RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        List<TagChangedEvent> events = observeColumnTagEvents();
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
@@ -565,7 +569,7 @@ class DdlExecutorOwnershipTest {
                 context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("Column not found");
-        assertThat(tags.tags).isEmpty();
+        assertThat(events).isEmpty();
     }
 
     @Test
@@ -585,8 +589,7 @@ class DdlExecutorOwnershipTest {
 
     @Test
     void unlinkClearsDurableColumnTags() {
-        RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        List<TagChangedEvent> events = observeColumnTagEvents();
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
@@ -595,14 +598,19 @@ class DdlExecutorOwnershipTest {
                 (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'"),
                 context());
-        assertThat(tags.tags).isNotEmpty();
+        var tableId = registry.tableControl().find("test_cat", "default", "users").orElseThrow().tableId();
+        assertThat(bindingStore.list(tableId)).hasSize(1);
+        assertThat(events).hasSize(1);
 
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context());
 
-        assertThat(tags.tags).isEmpty();
+        assertThat(bindingStore.list(tableId)).isEmpty();
+        assertThat(events).hasSize(2);
+        assertThat(events.get(1)).isEqualTo(new TagChangedEvent(
+                "test_cat", "default", "users", "id", "classification", "sensitive", null, tableId));
     }
 
     private void registerManaged(String table) {
@@ -610,35 +618,12 @@ class DdlExecutorOwnershipTest {
                 "test_cat", "default", table, "alice", registry.requireCurrentCatalogIdentity("test_cat"));
     }
 
-    private final class RecordingMetadataService extends org.pangrova.metadata.service.DefaultMetadataService {
-        private final Map<String, String> tags = new LinkedHashMap<>();
-
-        RecordingMetadataService() {
-            super(registry, new org.pangrova.metadata.cache.TieredMetadataCache(), null,
-                    new org.pangrova.metadata.schema.SchemaEvolutionValidator());
-        }
-
-        @Override
-        public void setTag(MetadataSessionContext session, QualifiedTableRef table,
-                String column, String key, String value) {
-            super.setTag(session, table, column, key, value);
-            tags.put(table.catalog() + "|" + table.schema() + "|" + table.table() + "|" + column + "|" + key, value);
-        }
-
-        @Override
-        public int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
-            int removed = super.clearTableTags(session, tableId);
-            var retired = registry.tableControl().findById(tableId).orElseThrow();
-            String prefix = retired.catalog() + "|" + retired.schema() + "|" + retired.table() + "|";
-            tags.keySet().removeIf(key -> key.startsWith(prefix));
-            return removed;
-        }
-
-        @Override
-        public void unsetTag(MetadataSessionContext session, QualifiedTableRef table, String column, String key) {
-            super.unsetTag(session, table, column, key);
-            tags.remove(table.catalog() + "|" + table.schema() + "|" + table.table() + "|" + column + "|" + key);
-        }
+    private List<TagChangedEvent> observeColumnTagEvents() {
+        var catalog = new CatalogMetadata(registry, new TieredMetadataCache(), null, new SchemaEvolutionValidator());
+        List<TagChangedEvent> events = new ArrayList<>();
+        catalog.columnTags().columnTagEvents().addListener(events::add);
+        ddlExecutor.setMetadataService(catalog);
+        return events;
     }
 
     private static final class TestConnector implements Connector {

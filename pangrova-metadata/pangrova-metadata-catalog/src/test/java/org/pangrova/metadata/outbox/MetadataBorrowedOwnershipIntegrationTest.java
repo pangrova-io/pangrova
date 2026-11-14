@@ -6,7 +6,7 @@ import org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.cache.InMemoryL2CacheStore;
+import org.pangrova.cache.memory.MemoryCacheStoreFactory;
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -19,7 +19,7 @@ import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
@@ -49,7 +49,7 @@ class MetadataBorrowedOwnershipIntegrationTest {
     private TieredMetadataCache cache;
     private MetadataEventDispatcher dispatcher;
     private CatalogRegistry registry;
-    private DefaultMetadataService service;
+    private CatalogMetadata service;
     private MetadataSyncService sync;
     private PostgresCatalogDeploymentRepository sourceDeployments;
     private PostgresMetadataProjectionTransactions sourceProjections;
@@ -77,7 +77,7 @@ class MetadataBorrowedOwnershipIntegrationTest {
         registry = new CatalogRegistry(memoryTableStores(), deployments, null,
                 descriptor -> new FederationCatalogHandle(descriptor, source), dispatcher);
         registry.initialize();
-        service = new DefaultMetadataService(registry, cache, dispatcher, new SchemaEvolutionValidator());
+        service = new CatalogMetadata(registry, cache, dispatcher, new SchemaEvolutionValidator());
         sync = new MetadataSyncService(tables, projections, new PostgresMetadataSyncRepository(directory), cache, dispatcher);
     }
 
@@ -162,7 +162,7 @@ class MetadataBorrowedOwnershipIntegrationTest {
 
     @Test
     void tieredCacheUsesTheSameActualL2Adapter() {
-        var l2 = new InMemoryL2CacheStore();
+        var l2 = new MemoryCacheStoreFactory().open(java.util.Map.of());
         var writer = new TieredMetadataCache(100, 60, 10, l2);
         var reader = new TieredMetadataCache(100, 60, 10, l2);
         var metadata = table("cat", "shared", "actual");

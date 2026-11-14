@@ -8,7 +8,7 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Combinators;
 import org.pangrova.connector.api.index.predicate.InList;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 
 import java.util.List;
 
@@ -28,7 +28,7 @@ class L0PruningPropertyTest {
         FileColumnStatistics stats = new FileColumnStatistics(
                 "col", rv.min, rv.max, 0, 100, 10, 1024);
         // Value is within [min, max], so noRowsSatisfy(EQUAL, value) must be false
-        assertThat(stats.noRowsSatisfy(ComparisonOp.EQUAL, rv.contained))
+        assertThat(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, rv.contained))
                 .as("L0 must not prune when value %s is in [%s, %s]",
                         rv.contained, rv.min, rv.max)
                 .isFalse();
@@ -40,7 +40,7 @@ class L0PruningPropertyTest {
         FileColumnStatistics stats = new FileColumnStatistics(
                 "col", rv.min, rv.max, 0, 100, 10, 1024);
         // Value is outside [min, max], so noRowsSatisfy(EQUAL, value) must be true
-        assertThat(stats.noRowsSatisfy(ComparisonOp.EQUAL, rv.contained))
+        assertThat(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, rv.contained))
                 .as("L0 should prune when value %s is outside [%s, %s]",
                         rv.contained, rv.min, rv.max)
                 .isTrue();
@@ -54,14 +54,14 @@ class L0PruningPropertyTest {
         // Range [queryLower, queryUpper] overlaps [fileMin, fileMax]
         // So neither bound should cause pruning
         if (or.queryLower != null) {
-            boolean prunedByLower = stats.noRowsSatisfy(ComparisonOp.GREATER_THAN_OR_EQUAL, or.queryLower);
+            boolean prunedByLower = stats.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN_OR_EQUAL, or.queryLower);
             assertThat(prunedByLower)
                     .as("L0 must not prune overlapping range: file=[%s,%s] query>=%s",
                             or.fileMin, or.fileMax, or.queryLower)
                     .isFalse();
         }
         if (or.queryUpper != null) {
-            boolean prunedByUpper = stats.noRowsSatisfy(ComparisonOp.LESS_THAN_OR_EQUAL, or.queryUpper);
+            boolean prunedByUpper = stats.noRowsSatisfy(ColumnComparisonOperator.LESS_THAN_OR_EQUAL, or.queryUpper);
             assertThat(prunedByUpper)
                     .as("L0 must not prune overlapping range: file=[%s,%s] query<=%s",
                             or.fileMin, or.fileMax, or.queryUpper)
@@ -77,7 +77,7 @@ class L0PruningPropertyTest {
         // At least one value is in range, so not all values are out of range
         boolean allOut = true;
         for (Comparable<?> val : ils.values) {
-            if (!stats.noRowsSatisfy(ComparisonOp.EQUAL, val)) {
+            if (!stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, val)) {
                 allOut = false;
                 break;
             }
@@ -93,9 +93,9 @@ class L0PruningPropertyTest {
         // null min/max → conservative, never prune
         FileColumnStatistics stats = new FileColumnStatistics(
                 "col", null, null, 0, 100, 0, 1024);
-        assertThat(stats.noRowsSatisfy(ComparisonOp.EQUAL, 42L)).isFalse();
-        assertThat(stats.noRowsSatisfy(ComparisonOp.LESS_THAN, 42L)).isFalse();
-        assertThat(stats.noRowsSatisfy(ComparisonOp.GREATER_THAN, 42L)).isFalse();
+        assertThat(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, 42L)).isFalse();
+        assertThat(stats.noRowsSatisfy(ColumnComparisonOperator.LESS_THAN, 42L)).isFalse();
+        assertThat(stats.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN, 42L)).isFalse();
     }
 
     // --- Arbitraries ---

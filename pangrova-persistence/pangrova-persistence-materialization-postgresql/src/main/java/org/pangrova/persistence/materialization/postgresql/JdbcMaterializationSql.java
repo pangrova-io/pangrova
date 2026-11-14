@@ -1,5 +1,7 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -69,22 +71,14 @@ final class JdbcMaterializationSql {
                 connection.commit();
                 return result;
             } catch (SQLException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw MaterializationException.repositoryFailure(action + " failed", failure);
             } catch (RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
             throw MaterializationException.repositoryFailure(action + " failed", failure);
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 }

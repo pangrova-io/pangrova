@@ -1,5 +1,7 @@
 package org.pangrova.transport.flight;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.FlightStream;
@@ -153,7 +155,7 @@ class BatchStreamProducerFailureTest {
             try (FlightClient client = FlightClient.builder(allocator,
                     Location.forGrpcInsecure("127.0.0.1", server.getPort())).build();
                  FlightStream stream = client.getStream(new Ticket(new DataTicket(
-                         "cursor-failure", "result", 0, DataTicket.TicketType.RESULT).serialize()))) {
+                         "cursor-failure", "result", 0, DataTicketType.RESULT).serialize()))) {
                 assertion.verify(stream);
             }
         }

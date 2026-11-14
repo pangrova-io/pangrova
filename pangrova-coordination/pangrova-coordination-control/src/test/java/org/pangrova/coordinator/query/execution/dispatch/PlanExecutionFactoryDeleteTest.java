@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.query.dispatch.StatementResult;
 
 import java.util.stream.Stream;
@@ -112,7 +114,7 @@ class PlanExecutionFactoryDeleteTest {
     private static Stream<Arguments> nonconvertiblePredicates() {
         return Stream.of(false, true).flatMap(partitioned -> Stream.of(
                 arithmeticPredicate(),
-                new BinaryExpression(Identifier.of("id"), BinaryExpression.Operator.GREATER_THAN,
+                new BinaryExpression(Identifier.of("id"), BinaryExpressionOperator.GREATER_THAN,
                         Identifier.of("id")))
                 .map(predicate -> Arguments.of(partitioned, predicate)));
     }

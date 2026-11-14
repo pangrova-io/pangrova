@@ -168,7 +168,7 @@ class MemorySpillE2ETest extends PangrovaE2ETestBase {
 
     @Nested
     @DisplayName("Scenario 5: Arbitrator-Spill Bridge")
-    class ArbitratorSpillBridge {
+    class ArbitratorSpillAccounting {
 
         @Test
         @DisplayName("Window function with spill completes correctly")

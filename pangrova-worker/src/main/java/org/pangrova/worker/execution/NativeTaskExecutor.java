@@ -1,6 +1,8 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.worker.exception.NativeTaskCreationFailure;
+import org.pangrova.protocol.execution.AiTaskLifecycle;
+import org.pangrova.worker.function.WorkerCallbackProviders;
 
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -39,6 +41,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(NativeTaskExecutor.class);
 
     private final ShuffleProducerSession<TaskRequest> externalShuffleEgress;
+    private final AiTaskLifecycle aiLifecycle;
     private final NativeCreationOwners creationOwners = new NativeCreationOwners();
     private final NativeOperationLifetime globalOperations = new NativeOperationLifetime();
 
@@ -79,6 +82,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     /** Creates an executor with the sole external-shuffle JNI egress. */
     public NativeTaskExecutor(ShuffleProducerSession<TaskRequest> externalShuffleEgress) {
+        this.aiLifecycle = WorkerCallbackProviders.taskLifecycle(NativeTaskExecutor.class.getClassLoader());
         this.externalShuffleEgress = externalShuffleEgress;
     }
 
@@ -126,7 +130,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                 local = local.toBuilder().setWorkerLocalCopyInput(input).build();
             }
             prepareExternalShuffle(owner);
-            AiTaskLifecycleRegistry.current().registerTask(request);
+            aiLifecycle.registerTask(request);
             owner.aiRegistered = true;
             var trace = request.getTraceContext();
             byte[] localBytes = local.toByteArray();
@@ -196,7 +200,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             org.pangrova.protocol.v2.TaskRequest request) {
         try {
             taskIdentity(request);
-            return creationOwners.prepare(request);
+            return creationOwners.prepare(request, aiLifecycle);
         } catch (Throwable failure) {
             // No Native/callback operation has run in this local admission
             // section. A pre-existing exact owner must nevertheless be retained.
@@ -286,7 +290,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         }
         return mergeCopyReads(executorHandle, mergeProviderResources(
                         report,
-                        AiTaskLifecycleRegistry.current().usage(identity.tenantId(), identity.attempt())))
+                        aiLifecycle.usage(identity.tenantId(), identity.attempt())))
                 .toByteArray();
     }
 
@@ -334,7 +338,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             TaskIdentity identity = requireTaskIdentity(executorHandle, attempt);
             return mergeCopyReads(executorHandle, mergeProviderResources(
                             report,
-                            AiTaskLifecycleRegistry.current().usage(
+                            aiLifecycle.usage(
                                     identity.tenantId(), identity.attempt())))
                     .toByteArray();
         } finally {
@@ -408,7 +412,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     private void revokeAiTask(long executorHandle) {
         var owner = creationOwners.forHandle(executorHandle);
         if (owner != null && owner.aiRegistered) {
-            AiTaskLifecycleRegistry.current().cancelTask(
+            aiLifecycle.cancelTask(
                     owner.request.getSecurity().getTenantId(), owner.request.getAttempt());
         }
     }

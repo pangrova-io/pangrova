@@ -11,8 +11,9 @@ import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.connector.api.plugin.ConnectorFactory;
+import org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory;
+import java.nio.file.Path;
+import java.util.Optional;
 import org.pangrova.connector.api.enums.ConnectorRole;
 import org.pangrova.security.api.secret.SecretResolver;
 import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
@@ -31,24 +32,36 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class WorkerCatalogRuntime implements CatalogResourceResolver, AutoCloseable {
 
     private final WorkerCatalogRegistry catalogs;
+    private final ConnectorPluginInventory plugins;
     private final ConcurrentHashMap<String, TaskBinding> taskBindings = new ConcurrentHashMap<>();
 
     /** Creates a runtime from trusted deployment and plugin inventories. */
     private WorkerCatalogRuntime(
             CatalogDeploymentClient deployments,
-            List<ConnectorFactory> factories,
+            ConnectorPluginInventory plugins,
             SecretResolver secrets) {
-        catalogs = new WorkerCatalogRegistry(deployments, factories, secrets);
+        this.plugins = plugins;
+        catalogs = new WorkerCatalogRegistry(deployments, plugins, secrets);
     }
 
     /** Discovers connector and secret-provider plugins from the Worker class loader. */
     public static WorkerCatalogRuntime discover(
             String coordinatorUrl, String internalAuthSecret, ClassLoader classLoader) {
-        CatalogDeploymentClient client =
-                new CatalogDeploymentClient(coordinatorUrl, internalAuthSecret);
-        List<ConnectorFactory> factories =
-                List.copyOf(ConnectorFactoryRegistry.discover(classLoader, ConnectorRole.WORKER).factories().values());
-        return new WorkerCatalogRuntime(client, factories, SecretResolverRegistry.discover(classLoader));
+        return discover(coordinatorUrl, internalAuthSecret, classLoader, Optional.empty());
+    }
+
+    /** Opens a role-scoped inventory with separately deployed connector plugin JARs. */
+    public static WorkerCatalogRuntime discover(String coordinatorUrl, String internalAuthSecret,
+            ClassLoader classLoader, Optional<Path> pluginDirectory) {
+        var client = new CatalogDeploymentClient(coordinatorUrl, internalAuthSecret);
+        var secrets = SecretResolverRegistry.discover(classLoader);
+        var plugins = ConnectorPluginInventory.open(classLoader, ConnectorRole.WORKER, pluginDirectory);
+        try {
+            return new WorkerCatalogRuntime(client, plugins, secrets);
+        } catch (RuntimeException | Error failure) {
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure, plugins::close);
+            throw failure;
+        }
     }
 
     @Override
@@ -170,7 +183,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
 
     @Override
     public void close() {
+        // A failed drain remains retryable. Active leases still need their plugin classes.
         catalogs.close();
+        plugins.close();
     }
 
     public int cachedCatalogRevisionCount() {

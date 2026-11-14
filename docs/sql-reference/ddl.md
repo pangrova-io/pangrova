@@ -48,7 +48,7 @@ ALTER CATALOG lakehouse SET PROPERTIES (
 );
 ```
 
-Requires `ALTER_CATALOG` on the named catalog and a tenant admitted by that deployment. The supplied properties are merged with the current configuration. The connector provider is fixed for the catalog incarnation. Publication advances the revision and keeps its exact predecessor available to pinned tasks.
+Requires `ALTER_CATALOG` on the named catalog and a tenant admitted by that deployment. Audit, lineage and journal SQL text omit the contents of CREATE/ALTER CATALOG statements. The supplied properties are merged with the current configuration. The connector provider is fixed for the catalog incarnation. Publication advances the revision and keeps its exact predecessor available to pinned tasks.
 
 ### SHOW CATALOGS
 

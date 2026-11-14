@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -21,7 +23,6 @@ import static org.pangrova.shuffle.server.PostgresShuffleRecords.findExpiredClea
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireCleanupPageLimit;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireOwner;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationState;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
@@ -63,7 +64,7 @@ final class PostgresShuffleLifecycleTransitions {
                     connection, command.shuffleId(), true)
                     .orElseThrow(() -> new IllegalArgumentException("shuffle does not exist"));
             requireFinalizeFence(allocation, command);
-            if (allocation.state() == AllocationState.FINALIZED) {
+            if (allocation.state() == ShuffleAllocationState.FINALIZED) {
                 return readFinalization(connection, allocation);
             }
             PostgresShuffleRecords.requireRegistered(allocation);
@@ -81,7 +82,7 @@ final class PostgresShuffleLifecycleTransitions {
             Optional<Allocation> allocation = PostgresShuffleRecords.findAllocation(
                     connection, shuffleId, false);
             if (allocation.isEmpty()
-                    || allocation.orElseThrow().state() != AllocationState.FINALIZED) {
+                    || allocation.orElseThrow().state() != ShuffleAllocationState.FINALIZED) {
                 return Optional.empty();
             }
             ExecutionAnchorFence.requireLiveOwner(connection,
@@ -103,6 +104,7 @@ final class PostgresShuffleLifecycleTransitions {
             }
             PostgresShuffleStore.adoptOwnerIfFenced(
                     connection, command.queryId(), scope.owner(), command.owner());
+            requireNoActiveReads(connection, command.queryId());
             fenceUncertainWrites(connection, command.queryId());
             requireNoActiveWrites(connection, command.queryId());
             claimCleanup(connection, command.queryId(), scope.state(),
@@ -120,6 +122,7 @@ final class PostgresShuffleLifecycleTransitions {
             }
             PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(
                     connection, queryId);
+            requireNoActiveReads(connection, queryId);
             fenceUncertainWrites(connection, queryId);
             requireNoActiveWrites(connection, queryId);
             claimCleanup(connection, queryId, scope.state(),
@@ -211,6 +214,18 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
+    private static void requireNoActiveReads(Connection connection, String queryId) throws SQLException {
+        // pinRead and cleanup serialize on the same query scope row.
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM shuffle_read_pin WHERE query_id = ? "
+                        + "AND protect_until_ms > EXTRACT(EPOCH FROM clock_timestamp()) * 1000 LIMIT 1")) {
+            statement.setString(1, queryId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (result.next()) throw new IllegalStateException("shuffle reads are still in progress");
+            }
+        }
+    }
+
     private static void requireNoActiveWrites(Connection connection, String queryId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -279,7 +294,7 @@ final class PostgresShuffleLifecycleTransitions {
                         fence.producerSetChecksum())) {
             throw new SecurityException("shuffle finalization fence does not match allocation");
         }
-        if (allocation.state() != AllocationState.FINALIZED
+        if (allocation.state() != ShuffleAllocationState.FINALIZED
                 && allocation.metadataVersion() != fence.metadataVersion()) {
             throw new IllegalStateException("shuffle changed during finalization");
         }

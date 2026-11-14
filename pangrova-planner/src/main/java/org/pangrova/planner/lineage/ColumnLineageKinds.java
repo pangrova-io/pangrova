@@ -24,7 +24,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexOver;
 import org.apache.calcite.rex.RexSubQuery;
 
-import static org.pangrova.planner.api.lineage.ColumnDerivation.DerivationType;
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
 
 /** Propagates expression classification through actual relational outputs. */
 final class ColumnLineageKinds {
@@ -34,19 +34,19 @@ final class ColumnLineageKinds {
         this.correlations = java.util.Map.copyOf(correlations);
     }
 
-    DerivationType field(RelNode relation, int output) {
+    ColumnDerivationKind field(RelNode relation, int output) {
         relation = unwrap(relation);
         if (output < 0 || output >= relation.getRowType().getFieldCount()) {
             throw new IllegalArgumentException("Lineage classification field is outside the actual row type");
         }
         if (relation instanceof TableScan) {
-            return DerivationType.DIRECT;
+            return ColumnDerivationKind.DIRECT;
         }
         if (relation instanceof Values) {
-            return DerivationType.TRANSFORM;
+            return ColumnDerivationKind.TRANSFORM;
         }
         if (relation instanceof TableFunctionScan function && function.getInputs().isEmpty()) {
-            return DerivationType.TRANSFORM;
+            return ColumnDerivationKind.TRANSFORM;
         }
         if (relation instanceof Project project) {
             return expression(project.getInput(), project.getProjects().get(output));
@@ -58,11 +58,11 @@ final class ColumnLineageKinds {
         if (relation instanceof Aggregate aggregate) {
             return output < aggregate.getGroupCount()
                     ? field(aggregate.getInput(), aggregate.getGroupSet().asList().get(output))
-                    : DerivationType.AGGREGATE;
+                    : ColumnDerivationKind.AGGREGATE;
         }
         if (relation instanceof Window window) {
             return output < window.getInput().getRowType().getFieldCount()
-                    ? field(window.getInput(), output) : DerivationType.AGGREGATE;
+                    ? field(window.getInput(), output) : ColumnDerivationKind.AGGREGATE;
         }
         if (relation instanceof Join join) {
             return joinField(join, output);
@@ -74,17 +74,17 @@ final class ColumnLineageKinds {
             }
             var kind = field(correlate.getRight(), output - left);
             return correlate.getJoinType().generatesNullsOnRight()
-                    ? combine(kind, DerivationType.TRANSFORM) : kind;
+                    ? combine(kind, ColumnDerivationKind.TRANSFORM) : kind;
         }
         if (relation instanceof org.apache.calcite.rel.core.Uncollect uncollect) {
-            var kind = DerivationType.TRANSFORM;
+            var kind = ColumnDerivationKind.TRANSFORM;
             for (int input : UncollectColumnLayout.inputs(uncollect, output)) {
                 kind = combine(kind, field(uncollect.getInput(), input));
             }
             return kind;
         }
         if (relation instanceof SetOp set) {
-            DerivationType kind = DerivationType.DIRECT;
+            ColumnDerivationKind kind = ColumnDerivationKind.DIRECT;
             for (var input : set.getInputs()) {
                 kind = combine(kind, field(input, output));
             }
@@ -96,13 +96,13 @@ final class ColumnLineageKinds {
         throw new IllegalArgumentException("Column lineage has an unsupported relation: " + relation.getRelTypeName());
     }
 
-    private DerivationType joinField(Join join, int output) {
+    private ColumnDerivationKind joinField(Join join, int output) {
         int left = join.getLeft().getRowType().getFieldCount();
-        DerivationType kind = output < left ? field(join.getLeft(), output)
+        ColumnDerivationKind kind = output < left ? field(join.getLeft(), output)
                 : field(join.getRight(), output - left);
         boolean generatedNull = output < left ? join.getJoinType().generatesNullsOnLeft()
                 : join.getJoinType().generatesNullsOnRight();
-        return generatedNull ? combine(kind, DerivationType.TRANSFORM) : kind;
+        return generatedNull ? combine(kind, ColumnDerivationKind.TRANSFORM) : kind;
     }
 
     private static boolean passthrough(RelNode relation) {
@@ -111,12 +111,12 @@ final class ColumnLineageKinds {
                 || relation instanceof org.pangrova.planner.cost.distribution.PangrovaExchange;
     }
 
-    private DerivationType expression(RelNode input, RexNode expression) {
+    private ColumnDerivationKind expression(RelNode input, RexNode expression) {
         if (expression instanceof RexInputRef reference) {
             return field(input, reference.getIndex());
         }
         if (expression instanceof RexLiteral || expression instanceof RexDynamicParam) {
-            return DerivationType.TRANSFORM;
+            return ColumnDerivationKind.TRANSFORM;
         }
         if (expression instanceof RexFieldAccess access
                 && access.getReferenceExpr() instanceof org.apache.calcite.rex.RexCorrelVariable variable) {
@@ -124,11 +124,11 @@ final class ColumnLineageKinds {
             return field(owner, access.getField().getIndex());
         }
         if (expression instanceof RexFieldAccess access) {
-            return combine(DerivationType.TRANSFORM, expression(input, access.getReferenceExpr()));
+            return combine(ColumnDerivationKind.TRANSFORM, expression(input, access.getReferenceExpr()));
         }
         if (expression instanceof RexCall call && !(expression instanceof RexSubQuery)) {
-            DerivationType result = expression instanceof RexOver
-                    ? DerivationType.AGGREGATE : DerivationType.TRANSFORM;
+            ColumnDerivationKind result = expression instanceof RexOver
+                    ? ColumnDerivationKind.AGGREGATE : ColumnDerivationKind.TRANSFORM;
             for (var operand : call.getOperands()) {
                 result = combine(result, expression(input, operand));
             }
@@ -137,12 +137,12 @@ final class ColumnLineageKinds {
         throw new IllegalArgumentException("Lineage classification has an unresolved expression");
     }
 
-    static DerivationType combine(DerivationType left, DerivationType right) {
-        if (left == DerivationType.AGGREGATE || right == DerivationType.AGGREGATE) {
-            return DerivationType.AGGREGATE;
+    static ColumnDerivationKind combine(ColumnDerivationKind left, ColumnDerivationKind right) {
+        if (left == ColumnDerivationKind.AGGREGATE || right == ColumnDerivationKind.AGGREGATE) {
+            return ColumnDerivationKind.AGGREGATE;
         }
-        return left == DerivationType.TRANSFORM || right == DerivationType.TRANSFORM
-                ? DerivationType.TRANSFORM : DerivationType.DIRECT;
+        return left == ColumnDerivationKind.TRANSFORM || right == ColumnDerivationKind.TRANSFORM
+                ? ColumnDerivationKind.TRANSFORM : ColumnDerivationKind.DIRECT;
     }
 
     static RelNode unwrap(RelNode relation) {

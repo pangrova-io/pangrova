@@ -13,6 +13,8 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
+import org.pangrova.coordinator.enums.IndexRebuildAction;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
@@ -25,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.ThreadSafe;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -55,7 +58,7 @@ public final class IndexRebuildScheduler {
     private final DistributedLease distributedLease;
     private final String coordinatorId;
     private final VectorIndexHealthAssessor healthAssessor;
-    private final BiFunction<IndexDescriptor, RebuildAction, CompletableFuture<Void>> rebuildExecutor;
+    private final BiFunction<IndexDescriptor, IndexRebuildAction, CompletableFuture<Void>> rebuildExecutor;
     private final AtomicInteger activeRebuilds = new AtomicInteger(0);
     private final int maxConcurrentRebuilds;
 
@@ -64,7 +67,7 @@ public final class IndexRebuildScheduler {
                                  DistributedLease distributedLease,
                                  String coordinatorId,
                                  VectorIndexHealthAssessor healthAssessor,
-                                 BiFunction<IndexDescriptor, RebuildAction, CompletableFuture<Void>> rebuildExecutor,
+                                 BiFunction<IndexDescriptor, IndexRebuildAction, CompletableFuture<Void>> rebuildExecutor,
                                  int maxConcurrentRebuilds) {
         this.executor = executor;
         this.distributedLease = distributedLease;
@@ -81,7 +84,7 @@ public final class IndexRebuildScheduler {
                                  DistributedLease distributedLease,
                                  String coordinatorId,
                                  VectorIndexHealthAssessor healthAssessor,
-                                 BiFunction<IndexDescriptor, RebuildAction, CompletableFuture<Void>> rebuildExecutor) {
+                                 BiFunction<IndexDescriptor, IndexRebuildAction, CompletableFuture<Void>> rebuildExecutor) {
         this(executor, distributedLease, coordinatorId, healthAssessor, rebuildExecutor, 2);
     }
 
@@ -102,7 +105,7 @@ public final class IndexRebuildScheduler {
         }
         if (!assessment.rebuildRecommended()) {
             return CompletableFuture.completedFuture(
-                    new RebuildResult(descriptor.indexId(), RebuildAction.SKIPPED,
+                    new RebuildResult(descriptor.indexId(), IndexRebuildAction.SKIPPED,
                             "Rebuild not recommended by health assessment", 0));
         }
         if (activeRebuilds.get() >= maxConcurrentRebuilds) {
@@ -154,13 +157,13 @@ public final class IndexRebuildScheduler {
                 if (heldLease == null) {
                     LOG.warn("event=rebuild_lease_denied indexId={} coordinatorId={}",
                             descriptor.indexId(), coordinatorId);
-                    return new RebuildResult(descriptor.indexId(), RebuildAction.SKIPPED,
+                    return new RebuildResult(descriptor.indexId(), IndexRebuildAction.SKIPPED,
                             "Could not acquire rebuild lease; another coordinator may be rebuilding", 0);
                 }
                 LOG.info("event=rebuild_lease_acquired indexId={} coordinatorId={}",
                         descriptor.indexId(), coordinatorId);
             }
-            RebuildAction action = determineAction(descriptor);
+            IndexRebuildAction action = determineAction(descriptor);
             LOG.info("event=rebuild_started indexId={} action={} algorithm={} staleness={}%",
                     descriptor.indexId(), action,
                     descriptor.properties().getOrDefault("algorithm", "HNSW"),
@@ -172,7 +175,7 @@ public final class IndexRebuildScheduler {
             LOG.info("event=rebuild_completed indexId={} action={} durationMs={}",
                     descriptor.indexId(), action, durationMs);
             return new RebuildResult(descriptor.indexId(), action,
-                    "Rebuild " + action.name().toLowerCase() + " completed", durationMs);
+                    "Rebuild " + action.name().toLowerCase(Locale.ROOT) + " completed", durationMs);
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.error("event=rebuild_failed indexId={} durationMs={}",
@@ -189,32 +192,27 @@ public final class IndexRebuildScheduler {
         }
     }
 
-    private RebuildAction determineAction(IndexDescriptor descriptor) {
+    private IndexRebuildAction determineAction(IndexDescriptor descriptor) {
         String algorithmStr = descriptor.properties().getOrDefault("algorithm", "HNSW");
         CapabilityRef capability =
                 BuiltInCapabilityCatalog.vectorRetrievalPlanRef(algorithmStr);
         String capabilityId = capability.getCapabilityId();
-        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
-            return RebuildAction.FULL_REBUILD;
+        if (BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+            return IndexRebuildAction.FULL_REBUILD;
         }
-        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
-            return RebuildAction.FULL_REBUILD;
+        if (BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+            return IndexRebuildAction.FULL_REBUILD;
         }
-        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
-            return RebuildAction.FULL_REBUILD;
+        if (BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+            return IndexRebuildAction.FULL_REBUILD;
         }
         throw new IllegalArgumentException(
                 "Unsupported Native vector retrieval capability: " + capabilityId);
     }
 
-    public enum RebuildAction {
-        FULL_REBUILD,
-        SKIPPED
-    }
-
     public record RebuildResult(
             String indexId,
-            RebuildAction action,
+            IndexRebuildAction action,
             String message,
             long durationMs) {
 

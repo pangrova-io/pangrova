@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+
+import org.pangrova.planner.enums.PlannedDmlOperation;
 import org.pangrova.query.dispatch.StatementResult;
 
 import java.util.List;
@@ -45,7 +47,7 @@ class PlanExecutionFactoryDeleteCompilationTest {
                     fixture.metadata.getTableHandle(connectorSession, PlanExecutionFactoryDeleteTestSupport.TABLE));
             var definitions = org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec.decode(actual.properties());
             assertThat(write.dmlWriteTarget()).contains(
-                    new DmlWriteTarget(TABLE_NAME.parts(), DmlWriteTarget.DmlOperation.DELETE,
+                    new DmlWriteTarget(TABLE_NAME.parts(), PlannedDmlOperation.DELETE,
                             java.util.Optional.of(org.pangrova.connector.api.commit.WriteDeclarationSnapshot.capture(
                                     new org.pangrova.connector.api.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
                                             PlanExecutionFactoryDeleteTestSupport.TABLE.table()),

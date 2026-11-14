@@ -1,5 +1,7 @@
 package org.pangrova.worker.function;
 
+import org.pangrova.worker.enums.NativeFunctionType;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -29,21 +31,16 @@ public record NativeFunctionDescriptor(
         String name,
         String returnType,
         List<String> argumentTypes,
-        FunctionType functionType,
+        NativeFunctionType functionType,
         boolean deterministic,
         boolean defaultNullBehavior) {
 
     /** Pure functions use the unified strict NULL-input default. */
     public NativeFunctionDescriptor(String name, String returnType, List<String> argumentTypes,
-                                    FunctionType functionType, boolean deterministic) {
+                                    NativeFunctionType functionType, boolean deterministic) {
         this(name, returnType, argumentTypes, functionType, deterministic,
                 new org.pangrova.function.api.metadata.FunctionMetadata(name, returnType, argumentTypes)
                         .defaultNullBehavior());
-    }
-
-    public enum FunctionType {
-        SCALAR,
-        AGGREGATE
     }
 
     public NativeFunctionDescriptor {
@@ -70,7 +67,7 @@ public record NativeFunctionDescriptor(
         Builder builder = org.pangrova.protocol.v2.NativeFunctionDescriptor.newBuilder()
                 .setName(name)
                 .setReturnType(logicalType(returnType))
-                .setFunctionKind(functionType == FunctionType.SCALAR
+                .setFunctionKind(functionType == NativeFunctionType.SCALAR
                         ? NativeFunctionKind.NATIVE_FUNCTION_KIND_SCALAR
                         : NativeFunctionKind.NATIVE_FUNCTION_KIND_AGGREGATE)
                 .setDeterministic(deterministic)

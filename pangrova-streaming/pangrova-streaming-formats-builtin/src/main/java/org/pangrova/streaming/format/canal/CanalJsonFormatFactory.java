@@ -6,6 +6,11 @@ import org.pangrova.streaming.api.format.CdcFormatFactory;
 /** Installs the Canal JSON decoder under its SQL FORMAT identifier. */
 public final class CanalJsonFormatFactory implements CdcFormatFactory {
     @Override
+    public int apiVersion() {
+        return API_VERSION;
+    }
+
+    @Override
     public String identifier() {
         return CanalJsonConverter.FORMAT_ID;
     }

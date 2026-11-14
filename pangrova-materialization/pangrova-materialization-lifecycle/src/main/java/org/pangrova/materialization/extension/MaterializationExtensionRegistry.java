@@ -2,7 +2,7 @@ package org.pangrova.materialization.extension;
 
 import org.pangrova.materialization.api.definition.MaterializationKindHandler;
 import org.pangrova.materialization.api.policy.PolicyEvaluator;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
 import org.pangrova.materialization.api.refresh.RefreshStrategyFactory;
 import org.pangrova.materialization.api.rewrite.RewriteGuard;
@@ -16,7 +16,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.enums.MaterializationKind;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.connector.api.materialization.SourceRef;
 
 /**
@@ -54,7 +54,7 @@ public final class MaterializationExtensionRegistry {
                 throw new IllegalStateException("duplicate refresh strategy " + kind.strategyId().value());
             }
         }
-        if (!byKind.containsKey(RefreshKind.Full.INSTANCE)) {
+        if (!byKind.containsKey(RefreshKind.FULL)) {
             throw new IllegalStateException("missing FULL refresh strategy");
         }
         List<RefreshStrategy> strategies = new ArrayList<>(byKind.size());

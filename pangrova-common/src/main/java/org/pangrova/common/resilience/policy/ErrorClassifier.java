@@ -1,5 +1,6 @@
 package org.pangrova.common.resilience.policy;
 
+import org.pangrova.common.enums.ErrorCategory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 
 import java.util.Map;
@@ -24,15 +25,6 @@ import java.util.Map;
  * </ul>
  */
 public class ErrorClassifier {
-
-    public enum ErrorCategory {
-        USER_ERROR,
-        RESOURCE_ERROR,
-        INTERNAL_ERROR,
-        EXTERNAL_ERROR,
-        EXCHANGE_ERROR,
-        TIMEOUT
-    }
 
     private static final Map<String, ErrorCategory> PREFIX_MAP = Map.ofEntries(
             Map.entry("USER", ErrorCategory.USER_ERROR),

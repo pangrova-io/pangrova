@@ -147,8 +147,6 @@ config:
       worker:
         heartbeat-timeout: "30s"
         max-retry: 3
-    state-store:
-      type: JDBC
     metadata:
       enabled: true
       jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT}/${PANGROVA_DB_NAME}"

@@ -1,5 +1,7 @@
 package org.pangrova.observability.sdk.config;
 
+import org.pangrova.observability.sdk.enums.SamplingStrategy;
+
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.metrics.Meter;
@@ -82,13 +84,23 @@ public final class TelemetryInitializer implements AutoCloseable {
                         .put("process.pid", ProcessHandle.current().pid())
                         .build());
 
-        SdkTracerProvider tracerProvider = buildTracerProvider(config, resource);
-        SdkMeterProvider meterProvider = buildMeterProvider(config, resource);
-
-        return OpenTelemetrySdk.builder()
-                .setTracerProvider(tracerProvider)
-                .setMeterProvider(meterProvider)
-                .build();
+        byte[] trustedCertificates = readTrustedCertificates(config);
+        SdkTracerProvider tracerProvider = buildTracerProvider(config, resource, trustedCertificates);
+        try {
+            SdkMeterProvider meterProvider = buildMeterProvider(config, resource, trustedCertificates);
+            try {
+                return OpenTelemetrySdk.builder()
+                        .setTracerProvider(tracerProvider)
+                        .setMeterProvider(meterProvider)
+                        .build();
+            } catch (RuntimeException | Error failure) {
+                try { meterProvider.close(); } catch (RuntimeException suppressed) { failure.addSuppressed(suppressed); }
+                throw failure;
+            }
+        } catch (RuntimeException | Error failure) {
+            try { tracerProvider.close(); } catch (RuntimeException suppressed) { failure.addSuppressed(suppressed); }
+            throw failure;
+        }
     }
 
     private static String resolveHostName() {
@@ -100,10 +112,12 @@ public final class TelemetryInitializer implements AutoCloseable {
     }
 
     private static SdkTracerProvider buildTracerProvider(ObservabilityConfig config,
-                                                          Resource resource) {
+                                                          Resource resource, byte[] trustedCertificates) {
         OtlpGrpcSpanExporterBuilder exporterBuilder = OtlpGrpcSpanExporter.builder()
                 .setEndpoint(config.getOtlpEndpoint());
-        applyExporterConfig(exporterBuilder, config);
+        config.getOtlpHeaders().forEach(exporterBuilder::addHeader);
+        if ("gzip".equalsIgnoreCase(config.getOtlpCompression())) exporterBuilder.setCompression("gzip");
+        if (trustedCertificates != null) exporterBuilder.setTrustedCertificates(trustedCertificates);
         OtlpGrpcSpanExporter exporter = exporterBuilder.build();
 
         Sampler sampler = resolveSampler(config);
@@ -116,10 +130,12 @@ public final class TelemetryInitializer implements AutoCloseable {
     }
 
     private static SdkMeterProvider buildMeterProvider(ObservabilityConfig config,
-                                                        Resource resource) {
+                                                        Resource resource, byte[] trustedCertificates) {
         OtlpGrpcMetricExporterBuilder exporterBuilder = OtlpGrpcMetricExporter.builder()
                 .setEndpoint(config.getOtlpEndpoint());
-        applyMetricExporterConfig(exporterBuilder, config);
+        config.getOtlpHeaders().forEach(exporterBuilder::addHeader);
+        if ("gzip".equalsIgnoreCase(config.getOtlpCompression())) exporterBuilder.setCompression("gzip");
+        if (trustedCertificates != null) exporterBuilder.setTrustedCertificates(trustedCertificates);
         OtlpGrpcMetricExporter exporter = exporterBuilder.build();
 
         PeriodicMetricReader reader = PeriodicMetricReader.builder(exporter)
@@ -133,67 +149,21 @@ public final class TelemetryInitializer implements AutoCloseable {
     }
 
     private static Sampler resolveSampler(ObservabilityConfig config) {
-        if (config.getSamplingStrategy() == ObservabilityConfig.SamplingStrategy.RATE_LIMITING) {
-            // True rate-limiting: cap at N traces/second using a token-bucket sampler.
-            // samplingProbability is interpreted as maxTracesPerSecond in this mode.
-            double maxTracesPerSecond = Math.max(1.0, config.getSamplingProbability());
-            Sampler rateLimiter = new TokenBucketSampler(maxTracesPerSecond);
+        if (config.getSamplingStrategy() == SamplingStrategy.RATE_LIMITING) {
+            Sampler rateLimiter = new TokenBucketSampler(config.getTracesPerSecond());
             return Sampler.parentBased(rateLimiter);
         }
         return Sampler.traceIdRatioBased(config.getSamplingProbability());
     }
 
-    /**
-     * Applies shared exporter configuration (headers, compression, TLS) to a span exporter builder.
-     */
-    private static void applyExporterConfig(OtlpGrpcSpanExporterBuilder builder, ObservabilityConfig config) {
-        if (config.getOtlpHeaders() != null) {
-            for (String entry : config.getOtlpHeaders().split(",")) {
-                String[] kv = entry.split("=", 2);
-                if (kv.length == 2) {
-                    builder.addHeader(kv[0].trim(), kv[1].trim());
-                }
-            }
-        }
-        if ("gzip".equalsIgnoreCase(config.getOtlpCompression())) {
-            builder.setCompression("gzip");
-        }
-        if (config.getOtlpTlsCertPath() != null) {
-            try {
-                byte[] cert = Files.readAllBytes(Path.of(config.getOtlpTlsCertPath()));
-                builder.setTrustedCertificates(cert);
-            } catch (Exception e) {
-                throw new ConfigurationException(
-                        PangrovaErrorCode.OBS_SDK_INIT_FAILED,
-                        "Failed to read TLS certificate: " + config.getOtlpTlsCertPath(), e);
-            }
-        }
-    }
-
-    /**
-     * Applies shared exporter configuration (headers, compression, TLS) to a metric exporter builder.
-     */
-    private static void applyMetricExporterConfig(OtlpGrpcMetricExporterBuilder builder, ObservabilityConfig config) {
-        if (config.getOtlpHeaders() != null) {
-            for (String entry : config.getOtlpHeaders().split(",")) {
-                String[] kv = entry.split("=", 2);
-                if (kv.length == 2) {
-                    builder.addHeader(kv[0].trim(), kv[1].trim());
-                }
-            }
-        }
-        if ("gzip".equalsIgnoreCase(config.getOtlpCompression())) {
-            builder.setCompression("gzip");
-        }
-        if (config.getOtlpTlsCertPath() != null) {
-            try {
-                byte[] cert = Files.readAllBytes(Path.of(config.getOtlpTlsCertPath()));
-                builder.setTrustedCertificates(cert);
-            } catch (Exception e) {
-                throw new ConfigurationException(
-                        PangrovaErrorCode.OBS_SDK_INIT_FAILED,
-                        "Failed to read TLS certificate: " + config.getOtlpTlsCertPath(), e);
-            }
+    private static byte[] readTrustedCertificates(ObservabilityConfig config) {
+        String path = config.getOtlpTlsCertPath();
+        if (path == null) return null;
+        try {
+            return Files.readAllBytes(Path.of(path));
+        } catch (java.io.IOException failure) {
+            throw new ConfigurationException(PangrovaErrorCode.OBS_SDK_INIT_FAILED,
+                    "Failed to read TLS certificate: " + path, failure);
         }
     }
 
@@ -216,8 +186,8 @@ public final class TelemetryInitializer implements AutoCloseable {
 
         TokenBucketSampler(double maxTracesPerSecond) {
             this.maxTracesPerSecond = maxTracesPerSecond;
-            this.maxTokens = maxTracesPerSecond;
-            this.availableTokens = maxTracesPerSecond;
+            this.maxTokens = Math.max(1.0, maxTracesPerSecond);
+            this.availableTokens = maxTokens;
             this.lastRefillNanos = System.nanoTime();
         }
 

@@ -1,5 +1,7 @@
 package org.pangrova.streaming.writer.mergetree;
 
+import org.pangrova.connector.api.enums.WriteOperation;
+import org.pangrova.streaming.writer.enums.ChangelogRowKind;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
 import org.pangrova.connector.api.enums.WriteMode;
@@ -39,7 +41,7 @@ public class MergeTreeTableWriter implements TableWriter {
     public WriteResult write(String tableName, List<WriteRecord> records,
                              WriteMode writeMode, WriteContext context) {
         for (WriteRecord record : records) {
-            RowKind rowKind = mapToRowKind(record.operation());
+            ChangelogRowKind rowKind = mapToRowKind(record.operation());
             LOG.debug("event=write_record rowKind={} table={}", rowKind, tableName);
         }
         int dataFilesWritten = dataFileSink.writeRecords(tableName, records, writeMode);
@@ -67,11 +69,11 @@ public class MergeTreeTableWriter implements TableWriter {
     }
 
     /** Map WriteOperation to Paimon RowKind. */
-    public static RowKind mapToRowKind(WriteRecord.WriteOperation op) {
+    public static ChangelogRowKind mapToRowKind(WriteOperation op) {
         return switch (op) {
-            case INSERT -> RowKind.INSERT;
-            case UPDATE -> RowKind.UPDATE_AFTER;
-            case DELETE -> RowKind.DELETE;
+            case INSERT -> ChangelogRowKind.INSERT;
+            case UPDATE -> ChangelogRowKind.UPDATE_AFTER;
+            case DELETE -> ChangelogRowKind.DELETE;
         };
     }
 
@@ -81,11 +83,4 @@ public class MergeTreeTableWriter implements TableWriter {
         }
     }
 
-    /** Paimon RowKind representation. */
-    public enum RowKind {
-        INSERT,
-        UPDATE_BEFORE,
-        UPDATE_AFTER,
-        DELETE
-    }
 }

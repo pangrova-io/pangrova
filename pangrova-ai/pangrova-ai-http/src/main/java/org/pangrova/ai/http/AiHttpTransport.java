@@ -1,5 +1,6 @@
 package org.pangrova.ai.http;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiProviderCallContext;
 
@@ -58,7 +59,7 @@ public final class AiHttpTransport {
         } catch (IOException failure) {
             rethrowResourceFailure(failure);
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "AI provider POST outcome is unknown after transport failure",
                     failure);
@@ -93,7 +94,7 @@ public final class AiHttpTransport {
                 throw io;
             }
             if (cause instanceof AiInvocationException typed
-                    && typed.category() == AiInvocationException.Category.AUTHORIZATION) {
+                    && typed.category() == AiFailureCategory.AUTHORIZATION) {
                 throw new IOException("AI task authority was revoked after provider submission", typed);
             }
             if (cause instanceof RuntimeException runtime) {
@@ -109,7 +110,7 @@ public final class AiHttpTransport {
     private static void rethrowResourceFailure(IOException failure) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             if (cause instanceof AiInvocationException typed
-                    && typed.category() != AiInvocationException.Category.AUTHORIZATION) {
+                    && typed.category() != AiFailureCategory.AUTHORIZATION) {
                 throw typed;
             }
         }

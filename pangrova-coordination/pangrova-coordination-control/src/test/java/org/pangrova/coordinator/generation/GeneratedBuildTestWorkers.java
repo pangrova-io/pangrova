@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.scheduler.placement.ExactModelResolver;
@@ -30,7 +32,7 @@ final class GeneratedBuildTestWorkers {
 
     static WorkerInfo worker(boolean withMaterializer) {
         CapabilityRef ai = BuiltInCapabilityCatalog.aiEmbeddingPlanRef().toBuilder()
-                .setImplementationBuildId(BuiltInCapabilityCatalog.NATIVE_BUILD_ID)
+                .setImplementationBuildId(BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID)
                 .build();
         CapabilityInventory actual = org.pangrova.coordinator.worker
                 .TestWorkerInfoBuilder.canonicalInventory();

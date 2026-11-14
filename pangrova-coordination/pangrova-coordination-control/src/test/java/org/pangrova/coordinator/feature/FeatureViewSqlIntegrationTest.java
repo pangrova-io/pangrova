@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.feature;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import org.pangrova.metadata.testinfra.TestCatalogRegistry;
 
 import org.pangrova.coordinator.metadata.TestMetadataBootstrap;
@@ -133,9 +135,11 @@ class FeatureViewSqlIntegrationTest {
         var access = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks));
         compiler = new SqlCompiler().withSessionPlanner(scope -> new PangrovaPlanner(
-                metadata.buildCalciteSchema(scope), List.of(scope.getCatalog().orElseThrow(), scope.getSchema().orElseThrow())));
+                new MetadataSchemaBuilder(
+                        metadata.metadataService(), metadata.catalogRegistry())
+                        .buildRootSchema(scope), List.of(scope.getCatalog().orElseThrow(), scope.getSchema().orElseThrow())));
         transport = new RemoteTaskDispatcher(org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                org.pangrova.testing.testkit.TestObservability.TRACING);
+                org.pangrova.testing.testkit.constants.TestObservability.TRACING);
         taskTracker = new CoordinatorTaskTracker();
         var dispatcherContext = QueryDispatcherContext.withDefaults(compiler,
                 new AccessControlEnforcer(access), new ColumnMaskApplier(access), new RowFilterApplier(access),
@@ -158,7 +162,7 @@ class FeatureViewSqlIntegrationTest {
                 List.of(event -> completed.set(event.result())), access));
         queryDispatcher = new QueryDispatcher(dispatcherContext, statements);
         queryManager = new QueryManager(QueryManagerTestContexts.minimal(
-                queryDispatcher, org.pangrova.testing.testkit.TestObservability.TRACING));
+                queryDispatcher, org.pangrova.testing.testkit.constants.TestObservability.TRACING));
     }
 
     private void initializeSourceCatalog(PostgresCatalogDeploymentRepository store) {
@@ -179,7 +183,7 @@ class FeatureViewSqlIntegrationTest {
         registry.setTableControlService(new org.pangrova.table.ownership.TableControlService(
                 new org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore(dataSource),
                 registry::requireCurrentCatalogIdentity));
-        registry.setGovernanceBindingStore(new org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore(
+        registry.setGovernanceBindingStore(new org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository(
                 dataSource));
         var source = connectorMetadata.getTableHandle(sourceSession, new SchemaTableName("raw", "customers"));
         registry.tableControl().registrations().adopt("lake", "raw", "customers", USER.principal(),

@@ -61,7 +61,7 @@ public record GenerationStageTemplate(int version, String bindingsBase64, String
             for (String value : List.of(artifactId, generation, sourceId, sourceSnapshot)) {
                 if (value.isBlank()) throw new IllegalArgumentException("Published stage input identity must be exact");
             }
-            if (manifestSha256 == null || !manifestSha256.matches("[0-9a-f]{64}")) {
+            if (!DigestUtils.isSha256Hex(manifestSha256)) {
                 throw new IllegalArgumentException("Published stage input requires one exact manifest SHA-256");
             }
         }

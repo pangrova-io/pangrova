@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.StageTerminalPurpose;
+
 import io.substrait.proto.Plan;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -23,9 +25,9 @@ class AuthorizedStageSqlExchangeBindingTest {
         var node = compiled.plan();
         var exchange = new PangrovaExchange(node.getCluster(), node.getTraitSet(), node,
                 PangrovaDistribution.SINGLETON, 1);
-        var fragmented = PlanFragmenter.fragment(exchange, 1, AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+        var fragmented = PlanFragmenter.fragment(exchange, 1, StageTerminalPurpose.RELATIONAL_EXPORT);
         var graph = AuthorizedStageGraph.compile(fragmented, compiler, compiled.preOptimizationColumnNames(),
-                AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+                StageTerminalPurpose.RELATIONAL_EXPORT);
         assertThat(graph.transfers()).hasSize(1);
         var edge = graph.transfers().get(0);
         var source = graph.stages().stream().filter(stage -> stage.stageId() == edge.upstreamStageId()).findFirst().orElseThrow();

@@ -1,5 +1,6 @@
 package org.pangrova.metadata.connector;
 
+import org.pangrova.connector.api.enums.ConnectorHealthStatus;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -88,7 +89,7 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     }
 
     private CatalogHealthStatus mapHealthCheckResult(HealthCheckResult result) {
-        boolean healthy = result.status() == HealthCheckResult.HealthStatus.HEALTHY;
+        boolean healthy = result.status() == ConnectorHealthStatus.HEALTHY;
         return new CatalogHealthStatus(healthy, result.errorMessage());
     }
 }

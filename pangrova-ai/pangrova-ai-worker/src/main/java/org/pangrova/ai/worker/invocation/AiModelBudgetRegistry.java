@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
@@ -63,7 +65,7 @@ final class AiModelBudgetRegistry {
         private void requireSameLimit(int expected) {
             if (limit != expected) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.CAPABILITY_MISMATCH,
+                        AiFailureCategory.CAPABILITY_MISMATCH,
                         false,
                         "Exact model deployment changed its concurrency envelope");
             }

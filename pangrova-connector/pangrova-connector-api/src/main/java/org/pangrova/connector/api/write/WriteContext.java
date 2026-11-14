@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.write;
 
+import org.pangrova.connector.api.enums.WriteTransactionMode;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.common.session.SessionContext;
 
@@ -15,25 +16,24 @@ import java.util.Optional;
  */
 @Experimental
 public record WriteContext(
-        TransactionMode transactionMode,
+        WriteTransactionMode transactionMode,
         Optional<SessionContext> sessionContext,
         Map<String, String> commitProperties
 ) {
-    public enum TransactionMode { COORDINATOR_MANAGED, SELF_MANAGED }
 
     public WriteContext {
         commitProperties = commitProperties != null ? Map.copyOf(commitProperties) : Map.of();
     }
 
     public static WriteContext selfManaged() {
-        return new WriteContext(TransactionMode.SELF_MANAGED, Optional.empty(), Map.of());
+        return new WriteContext(WriteTransactionMode.SELF_MANAGED, Optional.empty(), Map.of());
     }
 
     public static WriteContext selfManagedWithProperties(Map<String, String> commitProperties) {
-        return new WriteContext(TransactionMode.SELF_MANAGED, Optional.empty(), commitProperties);
+        return new WriteContext(WriteTransactionMode.SELF_MANAGED, Optional.empty(), commitProperties);
     }
 
     public static WriteContext coordinatorManaged(SessionContext session) {
-        return new WriteContext(TransactionMode.COORDINATOR_MANAGED, Optional.of(session), Map.of());
+        return new WriteContext(WriteTransactionMode.COORDINATOR_MANAGED, Optional.of(session), Map.of());
     }
 }

@@ -1,6 +1,6 @@
 package org.pangrova.planner.lineage;
 
-import org.pangrova.planner.api.lineage.ColumnDerivation;
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Calc;
@@ -53,7 +53,7 @@ final class QueryColumnOrigins extends RelMetadataQuery {
         return super.getColumnOrigins(relation, field);
     }
 
-    ColumnDerivation.DerivationType classification(RelNode relation, int field) {
+    ColumnDerivationKind classification(RelNode relation, int field) {
         return kinds.field(relation, field);
     }
 

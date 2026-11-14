@@ -1,5 +1,6 @@
 package org.pangrova.worker.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.transport.flight.TransportServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,7 +77,7 @@ class TransportClientZeroCopyTest {
         byte[] ipc = buildBatchData(rowCount);
         dataRegistry.put("zc-1", ipc);
 
-        DataTicket ticket = new DataTicket("zc-1", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-1", "t1", 0, DataTicketType.SHUFFLE);
         List<Integer> rowCounts = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));
@@ -91,7 +92,7 @@ class TransportClientZeroCopyTest {
         byte[] ipc = buildBatchData(rowCount);
         dataRegistry.put("zc-2", ipc);
 
-        DataTicket ticket = new DataTicket("zc-2", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-2", "t1", 0, DataTicketType.SHUFFLE);
         List<String> names = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> {
@@ -113,7 +114,7 @@ class TransportClientZeroCopyTest {
         dataRegistry.put("zc-3", ipc);
 
         client.resetBytesTransferred();
-        DataTicket ticket = new DataTicket("zc-3", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-3", "t1", 0, DataTicketType.SHUFFLE);
 
         client.doGetStreamZeroCopy(ticket, batch -> { /* consume */ });
 
@@ -123,7 +124,7 @@ class TransportClientZeroCopyTest {
     @Test
     void zeroCopyStreamHandlesEmptyData() {
         dataRegistry.put("zc-empty", new byte[0]);
-        DataTicket ticket = new DataTicket("zc-empty", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-empty", "t1", 0, DataTicketType.SHUFFLE);
         List<Integer> rowCounts = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));
@@ -138,7 +139,7 @@ class TransportClientZeroCopyTest {
         try {
             byte[] ipc = buildBatchData(5);
             dataRegistry.put("zc-ext", ipc);
-            DataTicket ticket = new DataTicket("zc-ext", "t1", 0, DataTicket.TicketType.SHUFFLE);
+            DataTicket ticket = new DataTicket("zc-ext", "t1", 0, DataTicketType.SHUFFLE);
             List<Integer> rowCounts = new ArrayList<>();
 
             extClient.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));

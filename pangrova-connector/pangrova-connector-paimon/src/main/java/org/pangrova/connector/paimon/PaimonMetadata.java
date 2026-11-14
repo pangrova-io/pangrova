@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.enums.PaimonSystemTableKind;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -175,7 +177,7 @@ public class PaimonMetadata implements ConnectorMetadata {
             case "files" -> PaimonFilesTableHandle.selector(handle);
             case "branches" -> PaimonBranchTableHandle.selector(handle);
             default -> PaimonSystemTableHandle.selector(handle,
-                    PaimonSystemTableHandle.Kind.valueOf(suffix.toUpperCase(java.util.Locale.ROOT)));
+                    PaimonSystemTableKind.valueOf(suffix.toUpperCase(java.util.Locale.ROOT)));
         };
     }
 
@@ -240,7 +242,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     public ConnectorTableReadMetadata getTableReadMetadata(
             ConnectorSession session, ConnectorTableHandle table) {
         return new ConnectorTableReadMetadata(getTableMetadata(session, table),
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                TableDeclarationEvidence.EXACT);
     }
 
     @Override

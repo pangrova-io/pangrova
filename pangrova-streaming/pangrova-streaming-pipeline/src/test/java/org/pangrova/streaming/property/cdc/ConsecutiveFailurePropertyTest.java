@@ -1,5 +1,7 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.observability.noop.NoOpMetricsProvider;
+
 import org.pangrova.streaming.api.enums.CdcOperation;
 
 import org.pangrova.streaming.api.commit.SourceId;
@@ -156,7 +158,7 @@ class ConsecutiveFailurePropertyTest {
                 new CdcQuotaEnforcer(10, 1_000_000),
                 new WatermarkTracker(new InMemoryWatermarkStore()),
                 new StubMaintenanceScheduler(),
-                new CdcPipelineRuntimeHooks(listener, BackoffStrategy.retry(1, 10), null));
+                new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), listener, BackoffStrategy.retry(1, 10), null));
     }
 
     static class StubConverter implements CdcRecordConverter {

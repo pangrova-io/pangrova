@@ -21,7 +21,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

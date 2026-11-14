@@ -367,7 +367,6 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]SplitResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]StreamingResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]runtime[\\/]lifecycle[\\/]PluginManager\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]admission[\\/]FairScheduler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]task[\\/]TaskStateMachine\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]worker[\\/]WorkerHealthScheduler\.java$" checks="MissingJavadocMethod"/>

@@ -1,5 +1,7 @@
 package org.pangrova.worker.buffer;
 
+import org.pangrova.worker.enums.BackpressureAction;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.worker.buffer.BackpressureController.BackpressureResult;
@@ -40,12 +42,12 @@ public class OutputBufferBackpressure {
      */
     public BackpressureResult evaluate(long executorHandle, String queryId) {
         if (closed.get()) {
-            return new BackpressureResult(BackpressureController.Action.REJECT, java.time.Duration.ZERO);
+            return new BackpressureResult(BackpressureAction.REJECT, java.time.Duration.ZERO);
         }
         OutputBufferManager buffer = activeOutputBuffer.getForQuery(queryId);
         int pending = buffer.getBufferedCount();
         BackpressureResult result = controller.checkBackpressure(pending);
-        if (result.action() == BackpressureController.Action.REJECT) {
+        if (result.action() == BackpressureAction.REJECT) {
             LOG.warn("event=buffer_backpressure_reject pending={} executorHandle={} queryId={}",
                     pending, executorHandle, queryId);
         }

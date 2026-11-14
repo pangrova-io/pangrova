@@ -265,7 +265,7 @@ public API/SPI artifacts. Final target structure and outstanding work are tracke
 │  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │  │
 │  └───────────────────────────────┬───────────────────────────────────────┘  │
 │                                  │                                           │
-│                    JNI Bridge (Arrow C Data Interface)                       │
+│                    JNI Runtime (Arrow C Data Interface)                       │
 │                                  │                                           │
 │  ┌───────────────────────────────┴───────────────────────────────────────┐  │
 │  │                         C++ Layer (Velox)                              │  │
@@ -365,7 +365,7 @@ public class PangrovaWorker implements Lifecycle {
     private final WorkerConfig config;
     private final NativeRuntime nativeBridge;
     private final ResourceManager resourceManager;   // pangrova-worker resource module; see 11 §3
-    private final ConnectorManager connectorManager;
+    private WorkerCatalogRuntime catalogs;
     private final TaskManager taskManager;
     private final HttpServer httpServer;
     private final FlightServer flightServer;
@@ -374,6 +374,9 @@ public class PangrovaWorker implements Lifecycle {
 
     @Override
     public void start() {
+        catalogs = WorkerCatalogRuntime.discover(config.coordinatorUrl(), config.internalAuthSecret(),
+                getClass().getClassLoader(), config.pluginDirectory());
+
         // Phase 1: Native Engine Initialization
         nativeBridge.loadLibrary();                  // 1. JNI System.loadLibrary("pangrova_native")
         nativeBridge.initializeVelox(config);         // 2. Velox engine init (thread pools, memory pools)
@@ -383,7 +386,6 @@ public class PangrovaWorker implements Lifecycle {
 
         // Phase 2: Java Layer Initialization
         resourceManager.initialize(config);           // 3. Memory pools (JVM Heap + Off-Heap + Native budget)
-        connectorManager.loadPlugins(config);         // 4. Connector plugins (ClassLoader isolation)
         taskManager.initialize();                     // 5. Task queue + executor threads
 
         // Phase 3: Network Services
@@ -404,7 +406,7 @@ public class PangrovaWorker implements Lifecycle {
         httpServer.stop();                            // 3. Stop control plane
         flightServer.stop();                          // 4. Stop data plane
         metricsExporter.stop();                       // 5. Flush final metrics
-        connectorManager.shutdown();                  // 6. Close connector resources
+        catalogs.close();                             // Close connectors and their plugin loaders after drain
         nativeBridge.shutdown();                      // 7. Release native memory pools, destroy Velox engine
         resourceManager.shutdown();                   // 8. Final memory cleanup
     }
@@ -415,6 +417,7 @@ public class PangrovaWorker implements Lifecycle {
 
 ```
 PangrovaWorker.start()
+    ├── Open the Worker catalog inventory from bundled factories and configured plugin JARs
     │
     ├── Phase 1: Native Engine ──────────────────────────────────────────────
     │   ├── loadLibrary()              ← JNI: System.loadLibrary("pangrova_native")
@@ -430,8 +433,6 @@ PangrovaWorker.start()
     ├── Phase 2: Java Layer ─────────────────────────────────────────────────
     │   ├── resourceManager.initialize() ← Set Native memory limit (resource-management.md §2)
     │   │                                 Register JVM GC listener
-    │   ├── connectorManager.loadPlugins() ← Scan plugin directory, create isolated ClassLoader
-    │   │                                     (connectors.md §2.3)
     │   └── taskManager.initialize()   ← Create Task queue, Pull Loop threads
     │
     ├── Phase 3: Network Services ───────────────────────────────────────────

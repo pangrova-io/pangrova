@@ -1,5 +1,7 @@
 package org.pangrova.common.lifecycle;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,18 +14,18 @@ class HealthCheckEndpointTest {
     @Test
     void coordinatorReadyWhenAllConditionsMet() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestConditions(true, false, false, 1, 1));
 
         assertThat(endpoint.isReady()).isTrue();
         assertThat(endpoint.health().ready()).isTrue();
-        assertThat(endpoint.health().nodeType()).isEqualTo(HealthCheckEndpoint.NodeType.COORDINATOR);
+        assertThat(endpoint.health().nodeType()).isEqualTo(ClusterNodeType.COORDINATOR);
     }
 
     @Test
     void coordinatorNotReadyWithoutWorkers() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestConditions(true, false, false, 0, 1));
 
         assertThat(endpoint.isReady()).isFalse();
@@ -33,7 +35,7 @@ class HealthCheckEndpointTest {
     @Test
     void coordinatorNotReadyWithoutCatalogs() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestConditions(true, false, false, 1, 0));
 
         assertThat(endpoint.isReady()).isFalse();
@@ -42,17 +44,17 @@ class HealthCheckEndpointTest {
     @Test
     void workerReadyWhenAllConditionsMet() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new TestConditions(true, true, true, 0, 0));
 
         assertThat(endpoint.isReady()).isTrue();
-        assertThat(endpoint.health().nodeType()).isEqualTo(HealthCheckEndpoint.NodeType.WORKER);
+        assertThat(endpoint.health().nodeType()).isEqualTo(ClusterNodeType.WORKER);
     }
 
     @Test
     void workerNotReadyWithoutNative() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new TestConditions(true, true, false, 0, 0));
 
         assertThat(endpoint.isReady()).isFalse();
@@ -62,7 +64,7 @@ class HealthCheckEndpointTest {
     @Test
     void livenessFailsBeforeHttpStarts() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new TestConditions(false, true, true, 1, 1));
 
         assertThat(endpoint.isLive()).isFalse();
@@ -71,7 +73,7 @@ class HealthCheckEndpointTest {
     @Test
     void healthStatusContainsAllChecks() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new TestConditions(true, true, true, 0, 0));
 
         HealthStatus status = endpoint.health();

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.query.execution;
 import org.pangrova.planner.analysis.DmlWriteTarget;
-
 import org.pangrova.planner.substrait.CompiledScanSchemas;
 
 import io.substrait.proto.NamedStruct;
@@ -13,7 +12,7 @@ import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -66,7 +65,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 // A rewritten Dynamic Table scan defers to its logical identity, exactly as
                 // a query read does; the physical generation is never an authorization subject.
                 reads.add(new TablePermission(logicalByPhysical.getOrDefault(scan, scan), columns,
-                        Privilege.SELECT, ReadMode.SECURITY_TRANSFORMED, policies));
+                        Privilege.SELECT, AuthorizedReadMode.SECURITY_TRANSFORMED, policies));
             } catch (com.google.protobuf.InvalidProtocolBufferException exception) {
                 throw new IllegalArgumentException("Compiled write schema is malformed", exception);
             }

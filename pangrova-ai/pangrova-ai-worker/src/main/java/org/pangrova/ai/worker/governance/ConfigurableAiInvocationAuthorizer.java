@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.governance;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
@@ -235,11 +236,11 @@ public final class ConfigurableAiInvocationAuthorizer implements AiInvocationAut
 
     private static void deny(String message) {
         throw new AiInvocationException(
-                AiInvocationException.Category.AUTHORIZATION, false, message);
+                AiFailureCategory.AUTHORIZATION, false, message);
     }
 
     private static void budget(String message) {
         throw new AiInvocationException(
-                AiInvocationException.Category.BUDGET_EXCEEDED, false, message);
+                AiFailureCategory.BUDGET_EXCEEDED, false, message);
     }
 }

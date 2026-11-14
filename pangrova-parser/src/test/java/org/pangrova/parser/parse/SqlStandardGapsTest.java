@@ -1,8 +1,8 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.SqlJoinType;
+import org.pangrova.parser.api.enums.TableSamplingMethod;
 import org.pangrova.parser.api.enums.ExpressionType;
-
-
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.ParameterMarker;
 import org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement;
@@ -60,7 +60,7 @@ class SqlStandardGapsTest {
         Query q = (Query) stmt;
         assertThat(q.joins()).hasSize(1);
         JoinClause join = q.joins().get(0);
-        assertThat(join.joinType()).isEqualTo(JoinClause.JoinType.INNER);
+        assertThat(join.joinType()).isEqualTo(SqlJoinType.INNER);
         assertThat(join.usingColumns()).containsExactly("customer_id");
         assertThat(join.condition()).isEmpty();
     }
@@ -73,7 +73,7 @@ class SqlStandardGapsTest {
         Query q = (Query) stmt;
         assertThat(q.joins()).hasSize(1);
         JoinClause join = q.joins().get(0);
-        assertThat(join.joinType()).isEqualTo(JoinClause.JoinType.LEFT);
+        assertThat(join.joinType()).isEqualTo(SqlJoinType.LEFT);
         assertThat(join.usingColumns()).containsExactly("x", "y", "z");
     }
 
@@ -201,7 +201,7 @@ class SqlStandardGapsTest {
         TableRef ref = q.from().get(0);
         assertThat(ref.tableSample()).isPresent();
         TableSample sample = ref.tableSample().get();
-        assertThat(sample.method()).isEqualTo(TableSample.SamplingMethod.BERNOULLI);
+        assertThat(sample.method()).isEqualTo(TableSamplingMethod.BERNOULLI);
         assertThat(sample.seed()).isEmpty();
     }
 
@@ -214,7 +214,7 @@ class SqlStandardGapsTest {
         TableRef ref = q.from().get(0);
         assertThat(ref.tableSample()).isPresent();
         TableSample sample = ref.tableSample().get();
-        assertThat(sample.method()).isEqualTo(TableSample.SamplingMethod.SYSTEM);
+        assertThat(sample.method()).isEqualTo(TableSamplingMethod.SYSTEM);
         assertThat(sample.seed()).isEmpty();
     }
 
@@ -227,7 +227,7 @@ class SqlStandardGapsTest {
         TableRef ref = q.from().get(0);
         assertThat(ref.tableSample()).isPresent();
         TableSample sample = ref.tableSample().get();
-        assertThat(sample.method()).isEqualTo(TableSample.SamplingMethod.BERNOULLI);
+        assertThat(sample.method()).isEqualTo(TableSamplingMethod.BERNOULLI);
         assertThat(sample.seed()).isPresent();
     }
 

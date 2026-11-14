@@ -2,13 +2,13 @@ package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.NativeWriteOperation;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import java.nio.file.Path;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.util.Map;
@@ -43,9 +43,9 @@ class LanceFactoryAllocationIntegrationTest extends ContainerTestBase {
         assertThat(((LanceTableHandle) actual).tableId()).isEqualTo(table.tableId());
         var insert = (LanceOutputHandle) metadata.beginInsert(session, actual);
         var overwrite = (LanceOutputHandle) metadata.beginOverwrite(session, actual);
-        assertThat(insert.allocation().operation()).isEqualTo(NativeWriteAllocation.Operation.CREATE);
+        assertThat(insert.allocation().operation()).isEqualTo(NativeWriteOperation.CREATE);
         assertThat(insert.writeMode()).isEqualTo("INSERT");
-        assertThat(overwrite.allocation().operation()).isEqualTo(NativeWriteAllocation.Operation.CREATE);
+        assertThat(overwrite.allocation().operation()).isEqualTo(NativeWriteOperation.CREATE);
         assertThat(overwrite.writeMode()).isEqualTo("OVERWRITE");
         assertThat(overwrite.allocation().writeId()).isNotEqualTo(insert.allocation().writeId());
         assertThat(metadata.getTableMetadata(session, actual).typedColumns().get(0).type()).isEqualTo(PangrovaType.INTEGER);

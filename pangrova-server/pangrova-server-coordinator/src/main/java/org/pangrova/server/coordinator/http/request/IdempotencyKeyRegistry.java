@@ -17,6 +17,8 @@
  */
 package org.pangrova.server.coordinator.http.request;
 
+import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
+
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.common.client.query.SubmitQueryRequest;
@@ -41,23 +43,6 @@ public final class IdempotencyKeyRegistry {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
     private static final int SWEEP_THRESHOLD = 10_000;
 
-    /** Submission failed after registration, or registration could not be ruled out. */
-    public static final class RecordedSubmissionFailure extends RuntimeException {
-        private final String queryId;
-
-        public RecordedSubmissionFailure(String queryId, RuntimeException cause) {
-            super(cause);
-            this.queryId = Objects.requireNonNull(queryId, "queryId");
-        }
-
-        public String queryId() {
-            return queryId;
-        }
-
-        public RuntimeException failure() {
-            return (RuntimeException) getCause();
-        }
-    }
 
     private record Key(String principal, String idempotencyKey) {}
 
@@ -127,7 +112,7 @@ public final class IdempotencyKeyRegistry {
             return receipt;
         } catch (RuntimeException | Error failure) {
             selected.receipt.completeExceptionally(failure);
-            if (failure instanceof RecordedSubmissionFailure || failure instanceof Error) {
+            if (failure instanceof RecordedSubmissionException || failure instanceof Error) {
                 selected.expiresAtMillis = clock.millis() + ttlMillis;
             } else {
                 entries.remove(scopedKey, selected);

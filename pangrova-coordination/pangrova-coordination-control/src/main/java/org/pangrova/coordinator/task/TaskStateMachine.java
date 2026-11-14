@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -17,21 +19,17 @@ import org.pangrova.common.concurrent.ThreadSafe;
 @ThreadSafe
 public class TaskStateMachine {
 
-    public enum State {
-        PENDING, SCHEDULED, RUNNING, FINISHED, FAILED, ABANDONED
-    }
-
-    private static final Map<State, Set<State>> TRANSITIONS = Map.of(
-            State.PENDING, Set.of(State.SCHEDULED),
+    private static final Map<ScheduledTaskState, Set<ScheduledTaskState>> TRANSITIONS = Map.of(
+            ScheduledTaskState.PENDING, Set.of(ScheduledTaskState.SCHEDULED),
             // A short task's exact FINISHED report can arrive before its RUNNING report.
-            State.SCHEDULED, Set.of(State.RUNNING, State.FINISHED, State.FAILED),
-            State.RUNNING, Set.of(State.FINISHED, State.FAILED),
-            State.FAILED, Set.of(State.ABANDONED),
-            State.FINISHED, Set.of(),
-            State.ABANDONED, Set.of()
+            ScheduledTaskState.SCHEDULED, Set.of(ScheduledTaskState.RUNNING, ScheduledTaskState.FINISHED, ScheduledTaskState.FAILED),
+            ScheduledTaskState.RUNNING, Set.of(ScheduledTaskState.FINISHED, ScheduledTaskState.FAILED),
+            ScheduledTaskState.FAILED, Set.of(ScheduledTaskState.ABANDONED),
+            ScheduledTaskState.FINISHED, Set.of(),
+            ScheduledTaskState.ABANDONED, Set.of()
     );
 
-    private final AtomicReference<State> state = new AtomicReference<>(State.PENDING);
+    private final AtomicReference<ScheduledTaskState> state = new AtomicReference<>(ScheduledTaskState.PENDING);
     private volatile String failureReason;
     // FINISHED alone is not a commit acknowledgement. Only the explicit
     // terminal signal settles this future after the owning commit boundary.
@@ -41,9 +39,9 @@ public class TaskStateMachine {
         return completionSignal;
     }
 
-    public boolean tryTransition(State target) {
+    public boolean tryTransition(ScheduledTaskState target) {
         while (true) {
-            State current = state.get();
+            ScheduledTaskState current = state.get();
             if (!TRANSITIONS.getOrDefault(current, Set.of()).contains(target)) {
                 return false;
             }
@@ -57,7 +55,7 @@ public class TaskStateMachine {
         this.failureReason = reason;
     }
 
-    public State getState() {
+    public ScheduledTaskState getState() {
         return state.get();
     }
 
@@ -66,7 +64,7 @@ public class TaskStateMachine {
     }
 
     public boolean isTerminal() {
-        State current = state.get();
-        return current == State.FINISHED || current == State.FAILED || current == State.ABANDONED;
+        ScheduledTaskState current = state.get();
+        return current == ScheduledTaskState.FINISHED || current == ScheduledTaskState.FAILED || current == ScheduledTaskState.ABANDONED;
     }
 }

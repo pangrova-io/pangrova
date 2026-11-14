@@ -1,5 +1,11 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import java.util.Map;
+
+import org.pangrova.config.PangrovaConfiguration;
+
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -38,7 +44,7 @@ class CoordinatorObservabilityBootstrapTest {
     void enabledWithoutOtelConfigFallsBackToNoOp() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-obs-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-obs-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         true, false, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -54,31 +60,28 @@ class CoordinatorObservabilityBootstrapTest {
 
     @Test
     void enabledWithOtelConfigCreatesRealProviders() {
-        var obsCfg = new CoordinatorBootstrapConfig.ObservabilityBootstrapConfig(
-                "pangrova-coordinator", "http://localhost:4317");
-        CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-obs-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
-                new CoordinatorBootstrapConfig.FeatureFlags(
-                        true, false, false, false, false, false, false, false),
-                CoordinatorBootstrapConfig.QueryConfig.defaults(),
-                CoordinatorBootstrapConfig.TransportConfig.defaults(),
-                CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, null, obsCfg);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
-        bootstrap.start();
-
-        assertThat(bootstrap.isStarted()).isTrue();
-        assertThat(bootstrap.getTracingProvider()).isInstanceOf(OtelTracingProvider.class);
+        var config = PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.port", "0",
+                "observability.service-name", "pangrova-coordinator",
+                "observability.otlp-endpoint", "http://localhost:4317",
+                "observability.sampling.probability", "0.25")));
+        assertThat(config.observabilityBootstrapConfig().getSamplingProbability()).isEqualTo(0.25);
+        var phase = new ObservabilityBootstrap(config);
+        try {
+            phase.start();
+            assertThat(phase.tracingProvider()).isInstanceOf(OtelTracingProvider.class);
+        } finally {
+            phase.shutdown();
+        }
     }
 
     @Test
     void otelShutdownCompletesCleanly() {
-        var obsCfg = new CoordinatorBootstrapConfig.ObservabilityBootstrapConfig(
-                "pangrova-coordinator", "http://localhost:4317");
+        var obsCfg = new ObservabilityConfig(PangrovaConfiguration.fromYaml(Map.of(
+                "observability.service-name", "pangrova-coordinator", "observability.otlp-endpoint", "http://localhost:4317")));
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-obs-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-obs-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         true, false, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

@@ -10,7 +10,7 @@ import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.enums.GovernanceBindingType;
 import org.pangrova.table.statistics.TableControlStatisticsService;
-import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.policy.InMemoryTablePolicyRepository;
 import org.pangrova.persistence.table.memory.statistics.InMemoryTableControlStatisticsStore;
 import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 
@@ -167,7 +167,7 @@ class TableControlCatalogDeploymentTest {
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("catalog deployment");
         assertThatThrownBy(() -> control.registrations().markDropped(record))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("catalog deployment");
-        var binder = new TableControlPolicyBinder(control, new InMemoryTableControlGovernanceBindingStore());
+        var binder = new TableControlPolicyBinder(control, new InMemoryTablePolicyRepository());
         assertThatThrownBy(() -> binder.bind("cat", "db", "t", GovernanceBindingType.COLUMN_MASK,
                 "mask", Map.of(), "alice")).isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("catalog deployment");

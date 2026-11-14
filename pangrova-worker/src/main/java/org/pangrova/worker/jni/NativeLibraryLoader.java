@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
+import java.util.Locale;
 import java.util.EnumSet;
 import org.pangrova.common.util.DigestUtils;
 import org.slf4j.Logger;
@@ -210,7 +211,7 @@ public final class NativeLibraryLoader {
     }
 
     private static String detectOs() {
-        String os = System.getProperty("os.name", "").toLowerCase();
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("linux")) return "linux";
         if (os.contains("mac") || os.contains("darwin")) return "osx";
         if (os.contains("win")) return "windows";
@@ -218,7 +219,7 @@ public final class NativeLibraryLoader {
     }
 
     private static String detectArch() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         return switch (arch) {
             case "amd64", "x86_64" -> "x86_64";
             case "aarch64", "arm64" -> "aarch64";

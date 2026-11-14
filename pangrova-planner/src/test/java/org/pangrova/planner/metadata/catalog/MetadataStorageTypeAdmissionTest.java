@@ -1,5 +1,7 @@
 package org.pangrova.planner.metadata.catalog;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -25,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real SQL planning over the production metadata table: unresolved storage cannot become executable SQL. */
 class MetadataStorageTypeAdmissionTest {
     @ParameterizedTest
-    @EnumSource(VectorType.ElementType.class)
-    void realSqlProjectionAliasAndOuterJoinRetainStorageVectorIdentity(VectorType.ElementType element) {
+    @EnumSource(VectorElementType.class)
+    void realSqlProjectionAliasAndOuterJoinRetainStorageVectorIdentity(VectorElementType element) {
         var columns = List.of(new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
                 OptionalInt.empty(), new VectorType(3, element)));
         var metadata = new ConnectorTableMetadata(new SchemaTableName("default", "vectors"),
@@ -48,7 +50,7 @@ class MetadataStorageTypeAdmissionTest {
             var result = rel.getRowType().getFieldList().get(0).getType();
             assertThat(result).isInstanceOf(StorageVectorRelDataType.class);
             assertThat(((StorageVectorRelDataType) result).logicalType()).isEqualTo(
-                    VectorLogicalType.create(3, element == VectorType.ElementType.FLOAT
+                    VectorLogicalType.create(3, element == VectorElementType.FLOAT
                             ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64, true, false));
             assertThat(fragment.resultColumnTypes().get(0).getLogicalType())
                     .isEqualTo(((StorageVectorRelDataType) result).logicalType());

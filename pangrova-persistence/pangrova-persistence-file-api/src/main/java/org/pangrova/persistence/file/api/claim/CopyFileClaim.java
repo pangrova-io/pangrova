@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
 import static org.pangrova.common.util.Preconditions.requireText;
@@ -30,7 +29,6 @@ public record CopyFileClaim(
         long loadGeneration,
         String executionId) {
 
-    private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
     private static final int MAX_S3_KEY_BYTES = 1024;
     private static final int MAX_S3_VERSION_BYTES = 1024;
     private static final int MAX_S3_BUCKET_BYTES = 63;
@@ -46,7 +44,7 @@ public record CopyFileClaim(
         if (sourceVersionId.getBytes(StandardCharsets.UTF_8).length > MAX_S3_VERSION_BYTES) {
             throw new IllegalArgumentException("sourceVersionId exceeds the S3 version byte limit");
         }
-        if (sourceSha256 == null || !SHA_256.matcher(sourceSha256).matches()) {
+        if (!DigestUtils.isSha256Hex(sourceSha256)) {
             throw new IllegalArgumentException("sourceSha256 must be lowercase SHA-256 hex");
         }
         if (sourceSize < 0) {

@@ -12,7 +12,7 @@ import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.junit.jupiter.api.AfterAll;

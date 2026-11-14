@@ -1,7 +1,8 @@
 package org.pangrova.worker.copy;
 
+import org.pangrova.worker.exception.CopyPreparationHaltedException;
+import org.pangrova.worker.exception.CopySourceReadRejectedException;
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
@@ -226,9 +227,9 @@ public final class CopyStageLeases implements AutoCloseable {
     }
 
     private static ErrorClass failureCategory(Exception failure) {
-        if (failure instanceof CopyPreparation.Halted halted) return halted.category();
+        if (failure instanceof CopyPreparationHaltedException halted) return halted.category();
         if (failure instanceof org.pangrova.security.api.exception.AccessDeniedException
-                || failure instanceof CopySourceReadClient.Rejected rejected && rejected.isPolicyDenial()) {
+                || failure instanceof CopySourceReadRejectedException rejected && rejected.isPolicyDenial()) {
             return ErrorClass.ERROR_CLASS_POLICY_DENIED;
         }
         return ErrorClass.ERROR_CLASS_TRANSPORT;

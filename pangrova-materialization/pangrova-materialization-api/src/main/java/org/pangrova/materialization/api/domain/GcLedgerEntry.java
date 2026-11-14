@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.enums.GcState;
+import org.pangrova.materialization.api.enums.GcDecision;
 import org.pangrova.materialization.api.exception.MaterializationException;
 
 import java.util.UUID;
@@ -71,17 +73,4 @@ public record GcLedgerEntry(
         return new GcLedgerEntry(entryId, generation, decision, evidence, target, createdAt, now);
     }
 
-    /** GC decision recorded for a generation. */
-    public enum GcDecision {
-        RETAIN,
-        COLLECT,
-        DEFER
-    }
-
-    /** Execution state of a GC decision. */
-    public enum GcState {
-        PENDING,
-        APPLIED,
-        FAILED
-    }
 }

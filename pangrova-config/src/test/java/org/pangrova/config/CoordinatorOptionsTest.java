@@ -1,6 +1,7 @@
 package org.pangrova.config;
 
-import org.pangrova.config.enums.StateStoreType;
+import org.pangrova.config.constants.CoordinatorOptions;
+
 
 import java.time.Duration;
 import java.util.List;
@@ -126,31 +127,6 @@ class CoordinatorOptionsTest {
     }
 
     // ---- Metadata defaults ----
-
-    @Test
-    void stateStoreTypeDefaultsToInMemory() {
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.defaultValue())
-                .isEqualTo(StateStoreType.IN_MEMORY);
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.key())
-                .isEqualTo("state-store.type");
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.typeClass())
-                .isEqualTo(StateStoreType.class);
-    }
-
-    @Test
-    void stateStoreTypeResolvedFromConfig() {
-        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(
-                Map.of("state-store.type", "JDBC"));
-        assertThat(config.get(CoordinatorOptions.STATE_STORE_TYPE))
-                .isEqualTo(StateStoreType.JDBC);
-    }
-
-    @Test
-    void stateStoreTypeDefaultsToInMemoryWithEmptyConfig() {
-        PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
-        assertThat(emptyConfig.get(CoordinatorOptions.STATE_STORE_TYPE))
-                .isEqualTo(StateStoreType.IN_MEMORY);
-    }
 
     @Test
     void metadataJdbcUrlHasNoDefault() {

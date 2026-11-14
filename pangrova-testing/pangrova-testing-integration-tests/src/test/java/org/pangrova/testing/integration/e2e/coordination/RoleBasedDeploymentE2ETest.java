@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * E2E test for role-based coordinator deployment.
  *
- * <p>Proves that task 5.1 (CoordinatorRole enum + role-gated bootstrap)
+ * <p>Proves that task 5.1 (CoordinatorDeploymentRole enum + role-gated bootstrap)
  * actually isolates query and maintenance responsibilities.</p>
  *
  * <p>Three scenarios:
@@ -58,7 +58,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("QUERY role isQuery=true, isMaintenance=false")
         void queryRoleFlags() {
-            CoordinatorRole role = CoordinatorRole.QUERY;
+            CoordinatorDeploymentRole role = CoordinatorDeploymentRole.QUERY;
             assertThat(role.isQuery())
                     .as("QUERY role should serve queries")
                     .isTrue();
@@ -71,7 +71,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @DisplayName("CoreConfig with QUERY role propagates through CoordinatorBootstrapConfig")
         void queryRolePropagatesThroughConfig() {
             CoreConfig core = new CoreConfig("query-coord-1", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY, "0.0.0.0");
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core,
                     CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
@@ -80,7 +80,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
                     CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                     null, null, null);
 
-            assertThat(config.role()).isEqualTo(CoordinatorRole.QUERY);
+            assertThat(config.role()).isEqualTo(CoordinatorDeploymentRole.QUERY);
             assertThat(config.role().isQuery()).isTrue();
             assertThat(config.role().isMaintenance()).isFalse();
         }
@@ -119,7 +119,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
             // Build a config with QUERY role and verify the role-based
             // bootstrap guards would skip maintenance paths.
             CoreConfig core = new CoreConfig("query-only-1", 0,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY, "0.0.0.0");
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core,
                     CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
@@ -158,7 +158,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("MAINTENANCE role isMaintenance=true, isQuery=false")
         void maintenanceRoleFlags() {
-            CoordinatorRole role = CoordinatorRole.MAINTENANCE;
+            CoordinatorDeploymentRole role = CoordinatorDeploymentRole.MAINTENANCE;
             assertThat(role.isMaintenance())
                     .as("MAINTENANCE role should run background tasks")
                     .isTrue();
@@ -171,7 +171,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @DisplayName("CoreConfig with MAINTENANCE role propagates through CoordinatorBootstrapConfig")
         void maintenanceRolePropagatesThroughConfig() {
             CoreConfig core = new CoreConfig("maint-coord-1", 8081,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core,
                     CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
@@ -180,7 +180,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
                     CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                     null, null, null);
 
-            assertThat(config.role()).isEqualTo(CoordinatorRole.MAINTENANCE);
+            assertThat(config.role()).isEqualTo(CoordinatorDeploymentRole.MAINTENANCE);
             assertThat(config.role().isMaintenance()).isTrue();
             assertThat(config.role().isQuery()).isFalse();
         }
@@ -189,7 +189,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @DisplayName("MAINTENANCE role enables maintenance gates and blocks query gates")
         void maintenanceRoleGatesCorrectly() {
             CoreConfig core = new CoreConfig("maint-only-1", 0,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core,
                     CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
@@ -221,7 +221,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @DisplayName("MAINTENANCE coordinator with indexing enabled would start indexing subsystem")
         void maintenanceWithIndexingEnabled() {
             CoreConfig core = new CoreConfig("maint-idx-1", 0,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
             var features = new CoordinatorBootstrapConfig.FeatureFlags(
                     false, false, true, true, false, false, false, false,
                     false, false, false, true);
@@ -257,7 +257,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("COMBINED role isQuery=true AND isMaintenance=true")
         void combinedRoleFlags() {
-            CoordinatorRole role = CoordinatorRole.COMBINED;
+            CoordinatorDeploymentRole role = CoordinatorDeploymentRole.COMBINED;
             assertThat(role.isQuery())
                     .as("COMBINED role should serve queries")
                     .isTrue();
@@ -271,8 +271,8 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         void defaultCoreConfigUsesCombinedRole() {
             // The 3-arg constructor defaults to COMBINED
             CoreConfig core = new CoreConfig("default-coord", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0");
-            assertThat(core.role()).isEqualTo(CoordinatorRole.COMBINED);
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0");
+            assertThat(core.role()).isEqualTo(CoordinatorDeploymentRole.COMBINED);
         }
 
         @Test
@@ -281,7 +281,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
             // The canonical constructor normalizes null → COMBINED
             CoreConfig core = new CoreConfig("null-role-coord", 8080,
                     CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, null, "0.0.0.0");
-            assertThat(core.role()).isEqualTo(CoordinatorRole.COMBINED);
+            assertThat(core.role()).isEqualTo(CoordinatorDeploymentRole.COMBINED);
         }
 
         @Test
@@ -289,7 +289,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         void withDefaultsCreatesCombinedConfig() {
             CoordinatorBootstrapConfig config =
                     CoordinatorBootstrapConfig.withDefaults("factory-coord", 8080);
-            assertThat(config.role()).isEqualTo(CoordinatorRole.COMBINED);
+            assertThat(config.role()).isEqualTo(CoordinatorDeploymentRole.COMBINED);
             assertThat(config.role().isQuery()).isTrue();
             assertThat(config.role().isMaintenance()).isTrue();
         }
@@ -298,7 +298,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @DisplayName("COMBINED coordinator passes both query and maintenance gates")
         void combinedPassesBothGates() {
             CoreConfig core = new CoreConfig("combined-1", 0,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.COMBINED, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.COMBINED, "0.0.0.0");
             var features = new CoordinatorBootstrapConfig.FeatureFlags(
                     false, false, true, true, false, false, false, false,
                     false, false, false, true);
@@ -375,22 +375,22 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("All three roles are mutually exclusive enum values")
         void allRolesAreMutuallyExclusive() {
-            CoordinatorRole[] roles = CoordinatorRole.values();
+            CoordinatorDeploymentRole[] roles = CoordinatorDeploymentRole.values();
             assertThat(roles).hasSize(3);
             assertThat(roles).containsExactly(
-                    CoordinatorRole.QUERY,
-                    CoordinatorRole.MAINTENANCE,
-                    CoordinatorRole.COMBINED);
+                    CoordinatorDeploymentRole.QUERY,
+                    CoordinatorDeploymentRole.MAINTENANCE,
+                    CoordinatorDeploymentRole.COMBINED);
 
             // Verify role isolation matrix
-            assertThat(CoordinatorRole.QUERY.isQuery()).isTrue();
-            assertThat(CoordinatorRole.QUERY.isMaintenance()).isFalse();
+            assertThat(CoordinatorDeploymentRole.QUERY.isQuery()).isTrue();
+            assertThat(CoordinatorDeploymentRole.QUERY.isMaintenance()).isFalse();
 
-            assertThat(CoordinatorRole.MAINTENANCE.isQuery()).isFalse();
-            assertThat(CoordinatorRole.MAINTENANCE.isMaintenance()).isTrue();
+            assertThat(CoordinatorDeploymentRole.MAINTENANCE.isQuery()).isFalse();
+            assertThat(CoordinatorDeploymentRole.MAINTENANCE.isMaintenance()).isTrue();
 
-            assertThat(CoordinatorRole.COMBINED.isQuery()).isTrue();
-            assertThat(CoordinatorRole.COMBINED.isMaintenance()).isTrue();
+            assertThat(CoordinatorDeploymentRole.COMBINED.isQuery()).isTrue();
+            assertThat(CoordinatorDeploymentRole.COMBINED.isMaintenance()).isTrue();
         }
     }
 }

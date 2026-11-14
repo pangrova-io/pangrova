@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.type;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
@@ -183,8 +184,8 @@ class PaimonTypeMapperTest {
         assertColumn(columns.get(0), "single", PangrovaType.VECTOR, 3);
         assertColumn(columns.get(1), "doubled", PangrovaType.VECTOR, 9);
         assertColumn(columns.get(2), "integers", PangrovaType.ARRAY, 13);
-        assertThat(columns.get(0).parameterizedType()).isEqualTo(new VectorType(3, VectorType.ElementType.FLOAT));
-        assertThat(columns.get(1).parameterizedType()).isEqualTo(new VectorType(9, VectorType.ElementType.DOUBLE));
+        assertThat(columns.get(0).parameterizedType()).isEqualTo(new VectorType(3, VectorElementType.FLOAT));
+        assertThat(columns.get(1).parameterizedType()).isEqualTo(new VectorType(9, VectorElementType.DOUBLE));
         assertThat(columns.get(2).parameterizedType()).isEqualTo(new org.pangrova.types.ArrayType(
                 org.pangrova.types.primitive.IntegerType.INSTANCE));
     }
@@ -201,8 +202,8 @@ class PaimonTypeMapperTest {
 
         assertColumn(columns.get(0), "single", PangrovaType.VECTOR, 5);
         assertColumn(columns.get(1), "doubled", PangrovaType.VECTOR, 19);
-        assertThat(columns.get(0).parameterizedType()).isEqualTo(new VectorType(128, VectorType.ElementType.FLOAT));
-        assertThat(columns.get(1).parameterizedType()).isEqualTo(new VectorType(384, VectorType.ElementType.DOUBLE));
+        assertThat(columns.get(0).parameterizedType()).isEqualTo(new VectorType(128, VectorElementType.FLOAT));
+        assertThat(columns.get(1).parameterizedType()).isEqualTo(new VectorType(384, VectorElementType.DOUBLE));
     }
 
     @ParameterizedTest
@@ -321,7 +322,7 @@ class PaimonTypeMapperTest {
 
     @Test
     void toPaimonVectorType_float() {
-        VectorType vectorType = new VectorType(128, VectorType.ElementType.FLOAT);
+        VectorType vectorType = new VectorType(128, VectorElementType.FLOAT);
         ArrayType result = PaimonTypeMapper.toPaimonVectorType(vectorType);
 
         assertThat(result).isInstanceOf(ArrayType.class);
@@ -330,7 +331,7 @@ class PaimonTypeMapperTest {
 
     @Test
     void toPaimonVectorType_double() {
-        VectorType vectorType = new VectorType(384, VectorType.ElementType.DOUBLE);
+        VectorType vectorType = new VectorType(384, VectorElementType.DOUBLE);
         ArrayType result = PaimonTypeMapper.toPaimonVectorType(vectorType);
 
         assertThat(result).isInstanceOf(ArrayType.class);
@@ -396,7 +397,7 @@ class PaimonTypeMapperTest {
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(768);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.FLOAT);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.FLOAT);
     }
 
     @Test
@@ -410,7 +411,7 @@ class PaimonTypeMapperTest {
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(384);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.DOUBLE);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.DOUBLE);
     }
 
     @Test

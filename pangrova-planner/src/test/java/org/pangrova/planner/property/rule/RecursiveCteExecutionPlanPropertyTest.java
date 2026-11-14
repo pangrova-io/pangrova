@@ -5,7 +5,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.parser.api.ast.CteQuery.CycleClause;
 import org.pangrova.parser.api.ast.CteQuery.SearchClause;
-import org.pangrova.parser.api.ast.CteQuery.SearchOrder;
+import org.pangrova.parser.api.enums.CteSearchOrder;
 import org.pangrova.parser.api.ast.LiteralValue;
 import org.pangrova.planner.rule.RecursiveCteConfig;
 import org.pangrova.planner.rule.RecursiveCteExecutionPlan;
@@ -101,7 +101,7 @@ class RecursiveCteExecutionPlanPropertyTest {
             @ForAll @IntRange(min = 2, max = 5) int depth) {
         // Binary tree: each node n has children 2n+1, 2n+2
         var searchClause = new SearchClause(
-                SearchOrder.DEPTH_FIRST, List.of(), "seq");
+                CteSearchOrder.DEPTH_FIRST, List.of(), "seq");
 
         var plan = new RecursiveCteExecutionPlan(
                 "dfs_cte", new RecursiveCteConfig(1000),

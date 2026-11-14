@@ -14,6 +14,9 @@ import java.util.function.Supplier;
  * observe the exact task identity, deadline and resource grant decoded from
  * the canonical callback payload. When no provider is installed, the bridge
  * evaluates ordinary functions without binding any capability context.</p>
+ *
+ * <p>A Worker installs at most one implementation of this contract. Discovery constructors
+ * are resource-free. The Worker may invoke the installed service concurrently.</p>
  */
 @Experimental(reason = "G-SPI-08: function/UDF plugin SPI")
 public interface FunctionCallbackScope {

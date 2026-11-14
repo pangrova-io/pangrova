@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.exception.CommitNotificationException;
+
 import org.pangrova.connector.api.index.CommitEvent;
 import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.index.CommitListener;
@@ -15,13 +17,6 @@ import java.util.function.Consumer;
  */
 final class IcebergCommitNotifier {
 
-    static final class NotificationFailure extends IllegalStateException {
-        NotificationFailure(String catalogName, String schemaName, String tableName,
-                            RuntimeException cause) {
-            super("Commit notification failed for " + catalogName + "."
-                    + schemaName + "." + tableName, cause);
-        }
-    }
 
     private final String catalogName;
     private volatile CommitListener commitListener;
@@ -86,7 +81,7 @@ final class IcebergCommitNotifier {
                         Instant.now(), snapshotId, eventType, commitFingerprint));
             }
         } catch (RuntimeException failure) {
-            throw new NotificationFailure(catalogName, schemaName, tableName, failure);
+            throw new CommitNotificationException(catalogName, schemaName, tableName, failure);
         }
     }
 }

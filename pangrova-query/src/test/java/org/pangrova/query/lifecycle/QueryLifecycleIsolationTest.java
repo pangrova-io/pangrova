@@ -15,10 +15,9 @@ class QueryLifecycleIsolationTest {
     void lifecycleLinksOnContractClasspathAndOwnsItsState() throws Exception {
         URL[] urls = {
                 location(QueryStateMachine.class),
-                location(org.pangrova.query.api.enums.QueryState.class),
+                location(org.pangrova.governance.api.enums.LineageEventType.class),
                 location(org.pangrova.connector.api.query.ConnectorQueryAuthority.class),
                 location(org.pangrova.common.api.annotation.Internal.class),
-                location(org.pangrova.common.client.result.ResultEndpoint.class),
                 location(org.pangrova.security.api.identity.UserIdentity.class),
                 location(org.pangrova.observability.api.tracing.ExecutionTraceContext.class),
                 location(org.slf4j.Logger.class)
@@ -47,7 +46,7 @@ class QueryLifecycleIsolationTest {
             for (String forbidden : List.of(
                     "org.pangrova.coordinator.query.QueryManager",
                     "org.pangrova.coordinator.query.QueryStateMachine",
-                    "org.pangrova.connector.runtime.lifecycle.PluginManager",
+                    "org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
                     "org.postgresql.Driver", "io.opentelemetry.api.trace.Span",

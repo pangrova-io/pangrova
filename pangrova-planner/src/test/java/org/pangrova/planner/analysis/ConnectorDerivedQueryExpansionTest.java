@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.api.exception.PlannerException;
 
 import java.util.ArrayList;
@@ -187,8 +189,8 @@ class ConnectorDerivedQueryExpansionTest {
         var metadata = new ConnectorTableMetadata(new SchemaTableName("schema", name),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
         return new ConnectorReadBinding(handle,
-                new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
-                TableStatistics.UNKNOWN, ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(), identity, java.util.Optional.empty());
+                new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
+                TableStatistics.UNKNOWN, ReadSnapshotState.METADATA, OptionalLong.empty(), identity, java.util.Optional.empty());
     }
 
     private static List<TableScan> scans(RelNode root) {

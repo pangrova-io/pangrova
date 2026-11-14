@@ -17,7 +17,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
-import org.pangrova.shuffle.api.ShuffleDurability;
+import org.pangrova.shuffle.api.enums.ShuffleDurability;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
 import org.pangrova.shuffle.api.spool.SpoolReader;
 import org.pangrova.shuffle.api.spool.SpoolStore;

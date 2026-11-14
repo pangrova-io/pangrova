@@ -1,6 +1,6 @@
 package org.pangrova.parser.parse;
 
-
+import org.pangrova.parser.api.enums.SqlJoinType;
 import org.pangrova.parser.api.ast.*;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +38,7 @@ class CommaJoinAssociationTest {
         // One explicit join: c joins onto b (within the second comma group)
         List<JoinClause> joins = query.joins();
         assertThat(joins).hasSize(1);
-        assertThat(joins.get(0).joinType()).isEqualTo(JoinClause.JoinType.INNER);
+        assertThat(joins.get(0).joinType()).isEqualTo(SqlJoinType.INNER);
         assertThat(joins.get(0).right().name().parts()).containsExactly("c");
         assertThat(joins.get(0).condition()).isPresent();
     }
@@ -75,9 +75,9 @@ class CommaJoinAssociationTest {
         assertThat(query.from().get(1).name().parts()).containsExactly("c");
 
         assertThat(query.joins()).hasSize(2);
-        assertThat(query.joins().get(0).joinType()).isEqualTo(JoinClause.JoinType.INNER);
+        assertThat(query.joins().get(0).joinType()).isEqualTo(SqlJoinType.INNER);
         assertThat(query.joins().get(0).right().name().parts()).containsExactly("b");
-        assertThat(query.joins().get(1).joinType()).isEqualTo(JoinClause.JoinType.INNER);
+        assertThat(query.joins().get(1).joinType()).isEqualTo(SqlJoinType.INNER);
         assertThat(query.joins().get(1).right().name().parts()).containsExactly("d");
     }
 
@@ -119,7 +119,7 @@ class CommaJoinAssociationTest {
         assertThat(query.from().get(1).name().parts()).containsExactly("b");
 
         assertThat(query.joins()).hasSize(1);
-        assertThat(query.joins().get(0).joinType()).isEqualTo(JoinClause.JoinType.CROSS);
+        assertThat(query.joins().get(0).joinType()).isEqualTo(SqlJoinType.CROSS);
         assertThat(query.joins().get(0).right().name().parts()).containsExactly("c");
         assertThat(query.joins().get(0).condition()).isEmpty();
     }
@@ -133,7 +133,7 @@ class CommaJoinAssociationTest {
 
         assertThat(query.from()).hasSize(2);
         assertThat(query.joins()).hasSize(1);
-        assertThat(query.joins().get(0).joinType()).isEqualTo(JoinClause.JoinType.LEFT);
+        assertThat(query.joins().get(0).joinType()).isEqualTo(SqlJoinType.LEFT);
         assertThat(query.joins().get(0).right().name().parts()).containsExactly("c");
         assertThat(query.joins().get(0).condition()).isPresent();
     }

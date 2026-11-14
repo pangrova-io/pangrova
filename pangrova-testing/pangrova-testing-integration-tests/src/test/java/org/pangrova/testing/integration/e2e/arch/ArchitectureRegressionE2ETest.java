@@ -111,8 +111,7 @@ class ArchitectureRegressionE2ETest extends SqlE2ETestBase {
         @BeforeEach
         void setup() {
             ensureDynamicTableDropped(DT);
-            try { sqlRunner.execute("DROP TABLE IF EXISTS " + SRC); }
-            catch (Exception ignored) { }
+            sqlRunner.execute("DROP TABLE IF EXISTS " + SRC);
             sqlRunner.execute("CREATE TABLE " + SRC
                     + " (id INT, category VARCHAR(50), amount DOUBLE)");
         }
@@ -140,19 +139,15 @@ class ArchitectureRegressionE2ETest extends SqlE2ETestBase {
         @DisplayName("Aggregate DT maintains correct totals")
         void aggregateDt() {
             sqlRunner.execute("INSERT INTO " + SRC
-                    + " VALUES (1,'A',10.0),(2,'A',20.0),(3,'B',30.0)");
+                    + " VALUES (1,'A',10.0),(2,'A',20.0),(3,'B',7.5)");
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT
                     + " TARGET_LAG = 'PT5M' AS SELECT category, SUM(amount) AS total "
                     + "FROM " + SRC + " GROUP BY category");
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + DT + " ORDER BY category");
-            assertThat(rows).isNotEmpty();
-            TypedRow catA = rows.stream()
-                    .filter(r -> "A".equals(r.getRaw("category")))
-                    .findFirst().orElse(null);
-            if (catA != null) {
-                assertThat(((Number) catA.getRaw("total")).doubleValue()).isEqualTo(30.0);
-            }
+            assertThat(rows).extracting(row -> row.getString("category"), row -> row.getDouble("total"))
+                    .containsExactly(org.assertj.core.groups.Tuple.tuple("A", 30.0),
+                            org.assertj.core.groups.Tuple.tuple("B", 7.5));
         }
     }
 

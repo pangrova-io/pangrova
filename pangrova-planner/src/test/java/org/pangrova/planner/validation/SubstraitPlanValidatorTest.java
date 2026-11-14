@@ -1,5 +1,6 @@
 package org.pangrova.planner.validation;
 
+import org.pangrova.planner.enums.UnsupportedNodeKind;
 import org.pangrova.planner.enums.ValidationStatus;
 
 import com.google.protobuf.Any;
@@ -77,7 +78,7 @@ class SubstraitPlanValidatorTest {
 
         assertThat(result.status()).isEqualTo(ValidationStatus.JAVA_ONLY);
         assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
-            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+            assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.RELATION);
             assertThat(node.reason()).contains("detail not supported");
         });
     }
@@ -107,7 +108,7 @@ class SubstraitPlanValidatorTest {
 
         assertThat(validator.validate(planOf(unknown)).unsupportedNodes())
                 .singleElement().satisfies(node -> {
-                    assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+                    assertThat(node.kind()).isEqualTo(UnsupportedNodeKind.RELATION);
                     assertThat(node.reason()).contains("detail not supported");
                 });
     }

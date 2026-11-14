@@ -13,6 +13,9 @@
  */
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
+
 import java.util.List;
 import java.util.Map;
 
@@ -39,11 +42,11 @@ class TypedCapabilityPlanBindingTest {
         SerializedPlanFragment fragment = new SerializedPlanFragment(
                 plan(schema).toByteArray(),
                 List.of(new RetrievalTopKPlanHint(
-                        RetrievalTopKPlanHint.Kind.EXACT,
+                        RetrievalKind.EXACT,
                         "",
                         1,
                         10,
-                        RetrievalTopKPlanHint.ScoreDirection.LOWER_IS_BETTER,
+                        RetrievalScoreDirection.LOWER_IS_BETTER,
                         List.of(0),
                         schema.toByteArray())));
 

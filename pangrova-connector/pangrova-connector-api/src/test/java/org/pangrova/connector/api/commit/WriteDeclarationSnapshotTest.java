@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.commit;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.junit.jupiter.api.Test;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -81,6 +83,6 @@ class WriteDeclarationSnapshotTest {
 
     private static ConnectorTableMetadata.Column vector(int dimensions) {
         return new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR, OptionalInt.of(2),
-                new VectorType(dimensions, VectorType.ElementType.FLOAT));
+                new VectorType(dimensions, VectorElementType.FLOAT));
     }
 }

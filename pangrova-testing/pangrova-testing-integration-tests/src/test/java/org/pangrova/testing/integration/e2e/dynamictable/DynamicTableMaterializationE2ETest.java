@@ -8,13 +8,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.materialization.api.domain.AttemptState;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.AttemptState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.domain.InternalNamespace;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.security.api.enums.Privilege;
@@ -241,13 +241,13 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + logical
                 + " REFRESH_MODE = AUTO AS SELECT id FROM " + source);
         var first = authority.repository().findPublishedGeneration(id(logical)).orElseThrow();
-        assertThat(first.refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(first.refreshKind()).isEqualTo(RefreshKind.FULL);
         assertIds(logical, 1L, 2L);
 
         sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
         sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " REFRESH");
         var second = authority.repository().findPublishedGeneration(id(logical)).orElseThrow();
-        assertThat(second.refreshKind()).isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+        assertThat(second.refreshKind()).isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
         assertIds(logical, 1L, 2L, 3L);
 
         sqlRunner.execute("DELETE FROM " + source + " WHERE id = 1");
@@ -348,8 +348,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + full + " REFRESH");
             sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + incremental + " REFRESH");
             assertThat(published(incremental).refreshKind())
-                    .isEqualTo(org.pangrova.materialization.api.domain.RefreshKind
-                            .IncrementalAppendOnly.INSTANCE);
+                    .isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
             assertThat(sqlRunner.execute("SELECT id FROM " + incremental + " ORDER BY id"))
                     .extracting(row -> row.getLong("id"))
                     .containsExactlyElementsOf(sqlRunner.execute(
@@ -378,8 +377,8 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + aggregate
                 + " REFRESH_MODE = INCREMENTAL AS SELECT region, SUM(amount) AS total FROM "
                 + source + " GROUP BY region");
-        assertThat(published(scan).refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
-        assertThat(published(aggregate).refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(published(scan).refreshKind()).isEqualTo(RefreshKind.FULL);
+        assertThat(published(aggregate).refreshKind()).isEqualTo(RefreshKind.FULL);
         String scanHead = published(scan).physicalTable().qualifiedName();
         String aggregateHead = published(aggregate).physicalTable().qualifiedName();
 
@@ -397,9 +396,9 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + aggregate + " REFRESH");
 
         assertThat(published(scan).refreshKind())
-                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         assertThat(published(aggregate).refreshKind())
-                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         assertThat(published(scan).physicalTable().qualifiedName()).isNotEqualTo(scanHead);
         assertThat(published(aggregate).physicalTable().qualifiedName())
                 .isNotEqualTo(aggregateHead);
@@ -463,7 +462,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " SET REFRESH_MODE = INCREMENTAL");
         PublishedMaterialization reconfigured = published(logical);
-        assertThat(reconfigured.refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(reconfigured.refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(reconfigured.physicalTable().qualifiedName())
                 .isNotEqualTo(first.physicalTable().qualifiedName());
         assertThat(header(logical).definitionRevision()).isEqualTo(1);
@@ -471,7 +470,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
         sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " REFRESH");
         var appended = authority.repository().findPublishedGeneration(id(logical)).orElseThrow();
-        assertThat(appended.refreshKind()).isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+        assertThat(appended.refreshKind()).isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
         assertIds(logical, 1L, 2L, 3L);
 
         String headBeforeRename = published(logical).physicalTable().qualifiedName();
@@ -571,10 +570,10 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
 
     private void assertPublishedGeneration(String logical) throws Exception {
         var generation = authority.repository().findPublishedGeneration(id(logical)).orElseThrow();
-        assertThat(generation.state()).isEqualTo(GenerationState.Published.INSTANCE);
+        assertThat(generation.state()).isEqualTo(GenerationState.PUBLISHED);
         var evidence = generation.evidence().orElseThrow();
         var attempt = authority.repository().findAttempt(generation.producingAttempt()).orElseThrow();
-        assertThat(attempt.state()).isEqualTo(AttemptState.Published.INSTANCE);
+        assertThat(attempt.state()).isEqualTo(AttemptState.PUBLISHED);
         assertThat(attempt.evidence()).contains(evidence);
         assertThat(evidence.commitFingerprint()).matches("[0-9a-f]{64}");
         assertThat(evidence.manifestHash()).matches("[0-9a-f]{64}");

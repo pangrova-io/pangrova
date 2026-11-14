@@ -1,7 +1,8 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
 import org.pangrova.planner.exception.SubstraitConversionException;
-
 import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
 import org.pangrova.planner.extension.GenerateSeriesRelDetail;
@@ -360,8 +361,8 @@ public final class PlanNodeConverter {
         }
         var collation = sort.getCollation().getFieldCollations().get(0);
         var direction = collation.getDirection().isDescending()
-                ? RetrievalTopKPlanHint.ScoreDirection.HIGHER_IS_BETTER
-                : RetrievalTopKPlanHint.ScoreDirection.LOWER_IS_BETTER;
+                ? RetrievalScoreDirection.HIGHER_IS_BETTER
+                : RetrievalScoreDirection.LOWER_IS_BETTER;
         byte[] schema = buildNamedStruct(sort.getInput().getRowType())
                 .toProto(new TypeProtoConverter(new ExtensionCollector()))
                 .toByteArray();
@@ -380,13 +381,13 @@ public final class PlanNodeConverter {
         }
         String function = call.getOperator().getName()
                 .toUpperCase(java.util.Locale.ROOT);
-        RetrievalTopKPlanHint.Kind kind = switch (function) {
+        RetrievalKind kind = switch (function) {
             case "L2_DISTANCE", "COSINE_DISTANCE", "INNER_PRODUCT" ->
-                    RetrievalTopKPlanHint.Kind.VECTOR;
-            case "BM25_SCORE" -> RetrievalTopKPlanHint.Kind.FULL_TEXT;
-            default -> RetrievalTopKPlanHint.Kind.EXACT;
+                    RetrievalKind.VECTOR;
+            case "BM25_SCORE" -> RetrievalKind.FULL_TEXT;
+            default -> RetrievalKind.EXACT;
         };
-        if (kind == RetrievalTopKPlanHint.Kind.EXACT) {
+        if (kind == RetrievalKind.EXACT) {
             return RetrievalSemantic.EXACT;
         }
         String column = call.getOperands().stream()
@@ -411,9 +412,9 @@ public final class PlanNodeConverter {
     }
 
     private record RetrievalSemantic(
-            RetrievalTopKPlanHint.Kind kind, String sourceKey) {
+            RetrievalKind kind, String sourceKey) {
         private static final RetrievalSemantic EXACT = new RetrievalSemantic(
-                RetrievalTopKPlanHint.Kind.EXACT, "");
+                RetrievalKind.EXACT, "");
     }
 
     private static boolean isScalarCandidateType(SqlTypeName type) {

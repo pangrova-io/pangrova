@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
@@ -37,7 +39,7 @@ class HaMetricsTest {
         haService = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haMetrics = new HaMetrics(
                 metricsProvider,
-                () -> haService.getRole() == HighAvailabilityCoordinationService.Role.LEADER ? 1.0 : 0.0,
+                () -> haService.getRole() == CoordinatorRole.LEADER ? 1.0 : 0.0,
                 () -> (double) haService.getCurrentEpoch());
     }
 

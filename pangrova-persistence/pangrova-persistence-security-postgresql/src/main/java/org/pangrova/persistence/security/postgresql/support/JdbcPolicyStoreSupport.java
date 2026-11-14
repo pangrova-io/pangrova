@@ -2,8 +2,6 @@ package org.pangrova.persistence.security.postgresql.support;
 
 import org.pangrova.persistence.security.postgresql.codec.PolicyRoleCodec;
 
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -24,15 +22,6 @@ public abstract class JdbcPolicyStoreSupport {
             throw new IllegalArgumentException("dataSource must not be null");
         }
         this.dataSource = dataSource;
-    }
-
-    /** Rolls back an owned transaction while retaining the original failure. */
-    protected static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
     }
 
     protected static String encodeRoles(List<String> roles) {

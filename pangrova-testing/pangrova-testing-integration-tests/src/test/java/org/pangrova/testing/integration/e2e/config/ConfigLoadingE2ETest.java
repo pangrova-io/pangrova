@@ -1,8 +1,7 @@
 package org.pangrova.testing.integration.e2e.config;
 
 import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.config.CoordinatorOptions;
-import org.pangrova.config.enums.StateStoreType;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.config.YamlConfigLoader;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.junit.jupiter.api.BeforeEach;
@@ -99,12 +98,12 @@ class ConfigLoadingE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // JDBC and state store configuration
+    // Metadata JDBC configuration
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("JDBC and State Store Values")
-    class JdbcAndStateStoreValues {
+    @DisplayName("Metadata JDBC Values")
+    class MetadataJdbcValues {
 
         @Test
         @DisplayName("Metadata JDBC URL matches YAML")
@@ -113,12 +112,6 @@ class ConfigLoadingE2ETest extends SqlE2ETestBase {
                     .isEqualTo("jdbc:postgresql://testhost:5432/pangrova_meta");
         }
 
-        @Test
-        @DisplayName("State store type matches YAML")
-        void stateStoreTypeMatchesYaml() {
-            assertThat(config.get(CoordinatorOptions.STATE_STORE_TYPE))
-                    .isEqualTo(StateStoreType.JDBC);
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -240,8 +233,6 @@ class ConfigLoadingE2ETest extends SqlE2ETestBase {
                   enabled: true
                 security:
                   enabled: false
-                state-store:
-                  type: JDBC
                 """;
     }
 }

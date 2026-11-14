@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.result;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.pangrova.types.value.TypedRow;
@@ -43,7 +45,7 @@ class CoordinatorDataProducerTransportTest {
                     try (var client = new TransportClient("localhost", server.getPort(), 16 * 1024)) {
                         var counts = new ArrayList<Integer>();
                         var ticket = new DataTicket("statement", "statement", 0,
-                                DataTicket.TicketType.RESULT);
+                                DataTicketType.RESULT);
                         client.doGetStreamZeroCopy(ticket, batch -> {
                             counts.add(batch.getRowCount());
                             assertThat(counts.size()).isLessThanOrEqualTo(1);

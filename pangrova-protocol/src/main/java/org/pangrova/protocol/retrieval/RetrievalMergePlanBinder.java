@@ -1,5 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
@@ -280,12 +282,12 @@ public final class RetrievalMergePlanBinder {
                 ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                 binding);
         CapabilityInvocation.Builder invocation = CapabilityInvocation.newBuilder()
-                .setCapability(binding.strategy() == RetrievalMergeBinding.Strategy.RRF
+                .setCapability(binding.strategy() == RetrievalMergeStrategy.RRF
                         ? BuiltInCapabilityCatalog.rrfMergePlanRef()
                         : BuiltInCapabilityCatalog.linearMergePlanRef())
                 .addArguments(argument("score", binding.scoreFieldIndex()))
                 .addArguments(argument("source_id", binding.sourceIdFieldIndex()));
-        if (binding.strategy() == RetrievalMergeBinding.Strategy.RRF) {
+        if (binding.strategy() == RetrievalMergeStrategy.RRF) {
             invocation.addOptions(NamedValue.newBuilder()
                     .setName("rrf_k")
                     .setValue(TypedValue.newBuilder().setInt64Value(binding.rrfK())));

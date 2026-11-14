@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
+import org.pangrova.coordinator.enums.VectorIndexHealthLevel;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
@@ -32,7 +33,7 @@ class VectorIndexHealthAssessorTest {
     void healthy_whenStalenessUnderWarningThreshold() {
         IndexDescriptor d = descriptor(IndexState.READY, Instant.now());
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 90);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.HEALTHY, result.level());
+        assertEquals(VectorIndexHealthLevel.HEALTHY, result.level());
         assertFalse(result.rebuildRecommended());
     }
 
@@ -41,7 +42,7 @@ class VectorIndexHealthAssessorTest {
         IndexDescriptor d = descriptor(IndexState.READY, Instant.now());
         // 20% unindexed > 15% warning threshold
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 80);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.WARNING, result.level());
+        assertEquals(VectorIndexHealthLevel.WARNING, result.level());
         assertFalse(result.rebuildRecommended());
     }
 
@@ -50,7 +51,7 @@ class VectorIndexHealthAssessorTest {
         IndexDescriptor d = descriptor(IndexState.READY, Instant.now());
         // 40% unindexed > 30% critical threshold
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 60);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.CRITICAL, result.level());
+        assertEquals(VectorIndexHealthLevel.CRITICAL, result.level());
         assertTrue(result.rebuildRecommended());
     }
 
@@ -59,7 +60,7 @@ class VectorIndexHealthAssessorTest {
         Instant recentStart = Instant.now().minusSeconds(60 * 30); // 30 min ago
         IndexDescriptor d = descriptor(IndexState.BUILDING, recentStart);
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 0);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.HEALTHY, result.level());
+        assertEquals(VectorIndexHealthLevel.HEALTHY, result.level());
         assertFalse(result.rebuildRecommended());
     }
 
@@ -68,7 +69,7 @@ class VectorIndexHealthAssessorTest {
         Instant stuckStart = Instant.now().minusSeconds(60 * 60 * 3); // 3 hours ago
         IndexDescriptor d = descriptor(IndexState.BUILDING, stuckStart);
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 0);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.CRITICAL, result.level());
+        assertEquals(VectorIndexHealthLevel.CRITICAL, result.level());
         assertTrue(result.rebuildRecommended());
         assertEquals(1.0, result.stalenessRatio(), 1e-9);
     }
@@ -77,7 +78,7 @@ class VectorIndexHealthAssessorTest {
     void healthy_whenDropped() {
         IndexDescriptor d = descriptor(IndexState.DROPPED, Instant.now());
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 100, 0);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.HEALTHY, result.level());
+        assertEquals(VectorIndexHealthLevel.HEALTHY, result.level());
         assertFalse(result.rebuildRecommended());
     }
 
@@ -85,7 +86,7 @@ class VectorIndexHealthAssessorTest {
     void healthy_whenTableHasNoData() {
         IndexDescriptor d = descriptor(IndexState.READY, Instant.now());
         VectorIndexHealthAssessor.HealthAssessment result = assessor.assess(d, 0, 0);
-        assertEquals(VectorIndexHealthAssessor.HealthLevel.HEALTHY, result.level());
+        assertEquals(VectorIndexHealthLevel.HEALTHY, result.level());
     }
 
     @Test

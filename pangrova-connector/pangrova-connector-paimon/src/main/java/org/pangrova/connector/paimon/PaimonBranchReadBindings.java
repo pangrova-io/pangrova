@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.io.IOException;
@@ -49,10 +51,10 @@ final class PaimonBranchReadBindings {
         var declaration = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(pinned.baseTable().schemaName(), pinned.tableName()),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
-                columns, java.util.Map.of()), ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                columns, java.util.Map.of()), TableDeclarationEvidence.EXACT);
         var binding = new ConnectorReadBinding(pinned, declaration,
                 new TableStatistics(pinned.directories().size(), -1, -1, java.util.Map.of()),
-                ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                ReadSnapshotState.METADATA, OptionalLong.empty(),
                 pinned.sourceIdentity(), java.util.Optional.empty());
         if (selector.bound()) {
             validate(catalog, binding);

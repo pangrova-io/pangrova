@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
@@ -56,7 +58,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 connection.commit();
                 return copied;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -112,14 +114,6 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         }
     }
 
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
-        }
-    }
-
     private static void validateBatch(List<IndexFileMapping> mappings) {
         String expectedIndexId = mappings.get(0).indexId();
         int expectedGeneration = mappings.get(0).generation();
@@ -153,7 +147,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 }
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -214,7 +208,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 }
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {

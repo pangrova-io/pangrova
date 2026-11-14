@@ -1,6 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -17,6 +17,9 @@
  */
 package org.pangrova.ai.control.feature;
 
+import org.pangrova.ai.control.enums.FeatureSplitKind;
+import org.pangrova.ai.control.enums.CatalogExportKind;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -44,10 +47,8 @@ public interface FeatureCatalogStore {
             TrainingDatasetId id, long version);
 
     Optional<CatalogExportRequest> findExport(
-            String tenantId, CatalogExportRequest.ObjectKind kind, String catalogName,
+            String tenantId, CatalogExportKind kind, String catalogName,
             String schemaName, String objectName, long version, String generation);
-
-    enum SplitKind { RANDOM, TEMPORAL, ENTITY }
 
     record FeatureViewId(
             String tenantId, String catalogName, String schemaName, String viewName) {
@@ -135,7 +136,7 @@ public interface FeatureCatalogStore {
             String labelColumn,
             byte[] normalizedPlan,
             String normalizedPlanSha256,
-            SplitKind splitKind,
+            FeatureSplitKind splitKind,
             long splitSeed,
             String splitSpecJson,
             String schemaJson,

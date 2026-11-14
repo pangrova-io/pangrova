@@ -1,5 +1,6 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.parser.format.AstPrinter;
 
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class TruthTestParserTest {
     void truthTestBindsBeforeLogicalNotAndAnd() {
         var expression = (BinaryExpression) first((Query) parser.parse(
                 "SELECT NOT flag IS TRUE AND other_flag IS NOT FALSE FROM orders"));
-        assertThat(expression.operator()).isEqualTo(BinaryExpression.Operator.AND);
+        assertThat(expression.operator()).isEqualTo(BinaryExpressionOperator.AND);
         assertThat(((NotExpression) expression.left()).expression()).isInstanceOf(TruthTestExpression.class);
         assertThat(expression.right()).isInstanceOf(TruthTestExpression.class);
     }

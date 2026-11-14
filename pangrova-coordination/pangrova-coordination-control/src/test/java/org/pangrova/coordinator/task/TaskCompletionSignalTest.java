@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
@@ -99,7 +101,7 @@ class TaskCompletionSignalTest {
         var tracker = scheduled();
         tracker.updateTaskState(QUERY, TASK, "FAILED");
         tracker.markScheduled(QUERY, TASK);
-        assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(TaskStateMachine.State.FAILED);
+        assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(ScheduledTaskState.FAILED);
         assertThatThrownBy(() -> tracker.updateTaskState(QUERY, TASK, "RESCHEDULING"))
                 .isInstanceOf(IllegalArgumentException.class);
         tracker.unregisterSettledTask(QUERY, TASK);

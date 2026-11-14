@@ -13,6 +13,10 @@
  */
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.worker.enums.EmbeddingInputKind;
+
+import org.pangrova.ai.api.enums.AiFinishReason;
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.worker.governance.AiInvocationAuthorizer;
 
@@ -30,7 +34,6 @@ import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
-import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingInputKind;
 import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingResult;
 import org.pangrova.ai.api.embedding.EmbeddingProvider;
 import org.pangrova.ai.api.inference.InferenceProvider;
@@ -75,7 +78,7 @@ public final class AiInvocationService {
     /** Returns the actual admitted binding; callback literals are never an authority. */
     public static org.pangrova.protocol.v2.OperatorBinding admittedBinding(String invocationId) {
         var context = AiExecutionContext.current().orElseThrow(() ->
-                new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false,
+                new AiInvocationException(AiFailureCategory.AUTHORIZATION, false,
                         "AI callback has no trusted task context"));
         return BUDGET_MANAGER.taskBudget(context).admittedBinding(invocationId);
     }
@@ -112,7 +115,7 @@ public final class AiInvocationService {
     /** Charges a FILE publication before the object-store send under the current task authority. */
     public static void chargeGovernedFileBytes(long bytes) {
         var context = AiExecutionContext.current().orElseThrow(() ->
-                new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false,
+                new AiInvocationException(AiFailureCategory.AUTHORIZATION, false,
                         "FILE callback has no trusted task context"));
         BUDGET_MANAGER.chargeGovernedFileBytes(context, bytes);
     }
@@ -224,7 +227,7 @@ public final class AiInvocationService {
             return new AiInvocationResult(
                     request.requestId(), request.modelName(), request.modelVersion(),
                     outputs, embedding.providerResult().providerRequestId(),
-                    AiInvocationResult.FinishReason.COMPLETE, java.util.Map.of());
+                    AiFinishReason.COMPLETE, java.util.Map.of());
         }
     }
 
@@ -271,7 +274,7 @@ public final class AiInvocationService {
             RerankInputs inputs,
             RerankingBatchResult providerResult) {
         if (providerResult == null) {
-            throw new AiInvocationException(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+            throw new AiInvocationException(AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                     false, "Reranking provider returned no result");
         }
         validateResultCount(
@@ -283,7 +286,7 @@ public final class AiInvocationService {
         return new AiInvocationResult(
                 request.requestId(), request.modelName(), request.modelVersion(),
                 outputs, providerResult.providerRequestId(),
-                AiInvocationResult.FinishReason.COMPLETE, java.util.Map.of());
+                AiFinishReason.COMPLETE, java.util.Map.of());
     }
 
     private AiPhysicalInvocationAdmission admit(
@@ -295,7 +298,7 @@ public final class AiInvocationService {
             long mediaBytes) {
         AiExecutionContext context = AiExecutionContext.current().orElseThrow(() ->
                 new AiInvocationException(
-                        AiInvocationException.Category.AUTHORIZATION,
+                        AiFailureCategory.AUTHORIZATION,
                         false,
                         "AI invocation has no trusted native task context"));
         return BUDGET_MANAGER.acquire(
@@ -348,7 +351,7 @@ public final class AiInvocationService {
                 || !MessageDigest.isEqual(
                         request.modelSignatureSha256(), actualSignature)) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.MODEL_NOT_FOUND,
+                    AiFailureCategory.MODEL_NOT_FOUND,
                     false,
                     "Requested exact model " + request.modelName() + "@" + request.modelVersion()
                             + " with its bound signature, but provider resolved "
@@ -364,7 +367,7 @@ public final class AiInvocationService {
                 .filter(value -> value.version().equals(request.capabilityVersion()))
                 .findFirst()
                 .orElseThrow(() -> new AiInvocationException(
-                        AiInvocationException.Category.CAPABILITY_MISMATCH,
+                        AiFailureCategory.CAPABILITY_MISMATCH,
                         false,
                         "No exact " + request.operation() + " capability version '"
                                 + request.capabilityVersion() + "' for model '"
@@ -377,13 +380,13 @@ public final class AiInvocationService {
             Set<Modality> requestedModalities) {
         if (!capability.executionModes().contains(request.executionMode())) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "Capability does not support execution mode " + request.executionMode());
         }
         if (!capability.modalities().containsAll(requestedModalities)) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "Capability does not support requested modalities " + requestedModalities);
         }

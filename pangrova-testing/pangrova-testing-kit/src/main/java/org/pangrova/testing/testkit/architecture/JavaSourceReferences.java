@@ -1,14 +1,18 @@
 package org.pangrova.testing.testkit.architecture;
 
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TreeScanner;
 import com.sun.source.util.Trees;
 
+import javax.lang.model.element.Modifier;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
@@ -32,13 +36,18 @@ import java.util.TreeSet;
 
 /** Shared source facts for module policy tests and the baseline generator; requires JDK 17. */
 public final class JavaSourceReferences {
+    private static final Set<String> RETIRED_PACKAGE_SEGMENTS = Set.of("core", "spi", "adapter", "bridge");
+
     private JavaSourceReferences() {}
 
     /** Package declarations and all direct Pangrova references, with the first deterministic source witness. */
-    public record SourceFacts(Set<String> packages, Map<String, String> references) {
+    public record SourceFacts(Set<String> packages, Map<String, String> references, Set<String> enumDeclarations,
+            Map<String, String> misplacedDeclarations) {
         public SourceFacts {
             packages = Set.copyOf(packages);
             references = Map.copyOf(references);
+            enumDeclarations = Set.copyOf(enumDeclarations);
+            misplacedDeclarations = Map.copyOf(misplacedDeclarations);
         }
     }
 
@@ -51,6 +60,8 @@ public final class JavaSourceReferences {
     public static Map<Path, SourceFacts> scan(Collection<Path> roots) throws IOException {
         Map<Path, Set<String>> packages = new LinkedHashMap<>();
         Map<Path, Map<String, String>> references = new LinkedHashMap<>();
+        Map<Path, Set<String>> enums = new HashMap<>();
+        Map<Path, Map<String, String>> misplaced = new HashMap<>();
         Map<Path, Path> owners = new HashMap<>();
         List<Path> files = new ArrayList<>();
         for (Path root : roots) {
@@ -58,6 +69,8 @@ public final class JavaSourceReferences {
                 throw new IllegalArgumentException("Repeated source root: " + root);
             }
             references.put(root, new TreeMap<>());
+            enums.put(root, new TreeSet<>());
+            misplaced.put(root, new TreeMap<>());
             if (Files.notExists(root)) continue;
             if (!Files.isDirectory(root)) throw new IOException("Not a source directory: " + root);
             try (var paths = Files.walk(root)) {
@@ -70,16 +83,18 @@ public final class JavaSourceReferences {
                 }
             }
         }
-        if (!files.isEmpty()) parse(files, owners, packages, references);
+        if (!files.isEmpty()) parse(files, owners, packages, references, enums, misplaced);
         Map<Path, SourceFacts> result = new LinkedHashMap<>();
         for (var entry : packages.entrySet()) {
-            result.put(entry.getKey(), new SourceFacts(entry.getValue(), references.get(entry.getKey())));
+            result.put(entry.getKey(), new SourceFacts(entry.getValue(), references.get(entry.getKey()),
+                    enums.get(entry.getKey()), misplaced.get(entry.getKey())));
         }
         return Map.copyOf(result);
     }
 
     private static void parse(List<Path> files, Map<Path, Path> owners, Map<Path, Set<String>> packages,
-            Map<Path, Map<String, String>> references) throws IOException {
+            Map<Path, Map<String, String>> references, Map<Path, Set<String>> enums,
+            Map<Path, Map<String, String>> misplaced) throws IOException {
         var compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
             throw new IllegalStateException("JDK compiler is required for architecture source parsing");
@@ -95,8 +110,14 @@ public final class JavaSourceReferences {
                 Path relativeFile = root.toRealPath().relativize(file);
                 if (unit.getPackageName() == null) throw new IllegalStateException("Missing package: " + file);
                 String packageName = unit.getPackageName().toString();
-                if (packageName.startsWith("org.pangrova.") && List.of(packageName.split("\\.")).contains("spi")) {
-                    throw new IllegalStateException("Declare Pangrova plugin contracts under api: " + file);
+                boolean pangrova = packageName.startsWith("org.pangrova.");
+                if (pangrova) {
+                    for (String segment : packageName.split("\\.")) {
+                        if (RETIRED_PACKAGE_SEGMENTS.contains(segment)) {
+                            throw new IllegalStateException("Use the owning capability in place of package segment "
+                                    + segment + ": " + file);
+                        }
+                    }
                 }
                 Path expected = Path.of(packageName.replace('.', '/')).resolve(file.getFileName());
                 if (!expected.equals(relativeFile)) {
@@ -105,6 +126,28 @@ public final class JavaSourceReferences {
                 }
                 packages.get(root).add(packageName);
                 new TreeScanner<Void, Void>() {
+                    private final java.util.Deque<String> enclosing = new java.util.ArrayDeque<>();
+
+                    @Override
+                    public Void visitClass(ClassTree tree, Void unused) {
+                        String name = tree.getSimpleName().toString();
+                        if (pangrova && (name.endsWith("Bridge") || name.endsWith("Adapter"))) {
+                            throw new IllegalStateException("Name " + name + " for its capability: " + file);
+                        }
+                        enclosing.addLast(name);
+                        String category = requiredPackage(tree);
+                        if (category != null && (enclosing.size() != 1 || !packageName.endsWith("." + category))) {
+                            long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
+                            misplaced.get(root).put(relativeFile + ":" + line + " " + String.join(".", enclosing), category);
+                        }
+                        if (tree.getKind() == Tree.Kind.ENUM) {
+                            enums.get(root).add(packageName + "." + String.join(".", enclosing));
+                        }
+                        super.visitClass(tree, unused);
+                        enclosing.removeLast();
+                        return null;
+                    }
+
                     private void reference(Tree tree, String name) {
                         if (name.startsWith("org.pangrova.")) {
                             long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
@@ -139,6 +182,39 @@ public final class JavaSourceReferences {
                     .filter(d -> d.getKind() == Diagnostic.Kind.ERROR).toList();
             if (!errors.isEmpty()) throw new IllegalStateException("Cannot parse architecture sources: " + errors);
         }
+    }
+
+    private static String requiredPackage(ClassTree declaration) {
+        String name = declaration.getSimpleName().toString();
+        if (name.isEmpty()) return null;
+        if (declaration.getKind() == Tree.Kind.ENUM) return "enums";
+        if (declaration.getKind() != Tree.Kind.CLASS) return null;
+        Tree parent = declaration.getExtendsClause();
+        if (name.endsWith("Exception") || (parent != null && (parent.toString().endsWith("Exception")
+                || parent.toString().endsWith("Error") || parent.toString().endsWith("Throwable")))) {
+            return "exception";
+        }
+        return constantsHolder(declaration) ? "constants" : null;
+    }
+
+    private static boolean constantsHolder(ClassTree declaration) {
+        if (!declaration.getModifiers().getFlags().contains(Modifier.FINAL)
+                || declaration.getExtendsClause() != null || !declaration.getImplementsClause().isEmpty()) return false;
+        boolean exportedField = false;
+        boolean privateConstructor = false;
+        for (Tree member : declaration.getMembers()) {
+            if (member instanceof VariableTree field) {
+                var flags = field.getModifiers().getFlags();
+                if (!flags.contains(Modifier.STATIC) || !flags.contains(Modifier.FINAL)) return false;
+                exportedField |= !flags.contains(Modifier.PRIVATE);
+            } else if (member instanceof MethodTree method && method.getReturnType() == null
+                    && method.getModifiers().getFlags().contains(Modifier.PRIVATE) && method.getParameters().isEmpty()) {
+                privateConstructor = true;
+            } else {
+                return false;
+            }
+        }
+        return privateConstructor && exportedField;
     }
 
     private static boolean dottedName(Tree tree) {

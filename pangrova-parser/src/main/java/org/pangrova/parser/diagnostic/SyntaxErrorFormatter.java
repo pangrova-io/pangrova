@@ -1,5 +1,6 @@
 package org.pangrova.parser.diagnostic;
 
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
@@ -155,7 +156,7 @@ final class SyntaxErrorFormatter {
         }
         String symbolic = vocab.getSymbolicName(type);
         if (symbolic != null) {
-            return "<" + symbolic.toLowerCase().replace('_', ' ') + ">";
+            return "<" + symbolic.toLowerCase(Locale.ROOT).replace('_', ' ') + ">";
         }
         return "<token " + type + ">";
     }

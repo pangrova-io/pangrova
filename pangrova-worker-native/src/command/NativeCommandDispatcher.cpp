@@ -1041,7 +1041,7 @@ std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
       resp = resourceDrainEvidence(cmd, executor_handle);
       break;
     case proto::RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT:
-      resp = NativeDatasetControl::schemaFingerprint(cmd);
+      resp = NativeDatasetControl::schemaFingerprint(cmd, globalVeloxMemoryGovernor());
       break;
     case proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE:
       resp = NativeDatasetControl::prepareDistributedWrite(cmd);

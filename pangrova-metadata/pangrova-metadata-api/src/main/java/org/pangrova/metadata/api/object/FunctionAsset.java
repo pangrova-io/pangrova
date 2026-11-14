@@ -1,5 +1,6 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.FunctionKind;
 import org.pangrova.metadata.api.enums.AssetType;
 
 import java.time.Instant;
@@ -41,7 +42,7 @@ public record FunctionAsset(
         String catalog,
         String schema,
         String name,
-        Kind kind,
+        FunctionKind kind,
         List<Parameter> parameters,
         ColumnType returnType,
         String language,
@@ -57,7 +58,7 @@ public record FunctionAsset(
         checkNotNull(name, "name must not be null");
         checkNotNull(createdAt, "createdAt must not be null");
         checkNotNull(updatedAt, "updatedAt must not be null");
-        kind = kind == null ? Kind.SCALAR : kind;
+        kind = kind == null ? FunctionKind.SCALAR : kind;
         parameters = parameters == null ? List.of() : List.copyOf(parameters);
         language = language == null ? "" : language;
         body = body == null ? "" : body;
@@ -67,16 +68,6 @@ public record FunctionAsset(
     @Override
     public AssetType type() {
         return AssetType.FUNCTION;
-    }
-
-    /** Function kind discriminator. */
-    public enum Kind {
-        /** {@code f(scalar...) → scalar} */
-        SCALAR,
-        /** {@code f(scalar...) → scalar} folded over a multiset (SUM, AVG, ...). */
-        AGGREGATE,
-        /** {@code f(...) → relation} (returns a row stream). */
-        TABLE
     }
 
     /** Single formal parameter of a function. */

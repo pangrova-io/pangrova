@@ -19,6 +19,7 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-support</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-schema-migrations</artifactId>

@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.write;
 
+import org.pangrova.worker.enums.DmlOperation;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -58,15 +60,15 @@ public final class NativeWriteLifecycleFixture implements AutoCloseable {
     public int cachedCatalogRevisionCount() { return runtime.cachedCatalogRevisionCount(); }
 
     public OpenSession open(String table) throws IOException {
-        return open(table, WriteDescriptor.DmlOperation.INSERT, Map.of());
+        return open(table, DmlOperation.INSERT, Map.of());
     }
 
-    public OpenSession open(String table, WriteDescriptor.DmlOperation operation,
+    public OpenSession open(String table, DmlOperation operation,
             Map<String, String> staticPartitions) throws IOException {
         String taskId = "lifecycle-" + UUID.randomUUID();
         var metadata = catalog.getMetadata(session);
         var target = metadata.getTableHandle(session, new SchemaTableName("default", table));
-        var allocated = operation == WriteDescriptor.DmlOperation.OVERWRITE
+        var allocated = operation == DmlOperation.OVERWRITE
                 ? metadata.beginOverwrite(session, target, staticPartitions)
                 : metadata.beginInsert(session, target);
         var binding = ConnectorWriteBindingFactory.create(catalog, allocated);

@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.api.embedding;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
@@ -100,10 +102,10 @@ class EmbeddingModelBindingIdentityTest {
     private static AiModelDescriptor worker(
             String secretReference, String queryPrefix) {
         AiCapabilityDescriptor capability = new AiCapabilityDescriptor(
-                "ai:embedding", "v1", AiCapabilityDescriptor.Operation.EMBEDDING,
+                "ai:embedding", "v1", AiOperation.EMBEDDING,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VECTOR(768)", List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.BATCH),
+                Set.of(AiExecutionMode.BATCH),
                 Set.of(Modality.TEXT), 32,
                 new AiCapabilityDescriptor.ResourceLimits(
                         new org.pangrova.ai.api.capability.AiRequestConstraints(8192, 1, 1048576, 4194304),

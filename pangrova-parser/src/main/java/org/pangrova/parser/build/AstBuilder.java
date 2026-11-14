@@ -1,12 +1,17 @@
 package org.pangrova.parser.build;
 
+import org.pangrova.parser.api.enums.CteSearchOrder;
+import org.pangrova.parser.api.enums.SetOperatorType;
+import org.pangrova.parser.api.enums.SqlJoinType;
+import org.pangrova.parser.api.enums.TableFunctionType;
+import org.pangrova.parser.api.enums.TableSamplingMethod;
+import org.pangrova.parser.api.enums.UnpivotNullHandling;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.api.enums.SqlDialect;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-
 import org.pangrova.parser.api.ast.*;
-import org.pangrova.parser.api.ast.TimeTravelSpec.Type;
+import org.pangrova.parser.api.enums.TimeTravelType;
 import org.pangrova.parser.api.ast.RerankClause;
 import org.pangrova.parser.api.ast.RerankClause.CascadeStrategy;
 import org.pangrova.parser.api.ast.RerankClause.CrossEncoderStrategy;
@@ -189,9 +194,9 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
 
     private CteQuery.SearchClause buildSearchClause(PangrovaSqlParser.CteSearchClauseContext ctx) {
-        CteQuery.SearchOrder order = ctx.DEPTH() != null
-                ? CteQuery.SearchOrder.DEPTH_FIRST
-                : CteQuery.SearchOrder.BREADTH_FIRST;
+        CteSearchOrder order = ctx.DEPTH() != null
+                ? CteSearchOrder.DEPTH_FIRST
+                : CteSearchOrder.BREADTH_FIRST;
         List<SortItem> orderBy = ctx.orderByList().sortItem().stream()
                 .map(si -> (SortItem) visit(si)).toList();
         String sequenceColumn = extractIdentifierText(ctx.identifier());
@@ -392,15 +397,15 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         if (queries.size() == 1 && ctx.setOperator().isEmpty()) {
             return queries.get(0);
         }
-        List<SetQuery.SetOperatorType> operators = ctx.setOperator().stream()
+        List<SetOperatorType> operators = ctx.setOperator().stream()
                 .map(this::visitSetOperatorType).toList();
         return withLocation(new SetQuery(queries, operators), ctx);
     }
-    private SetQuery.SetOperatorType visitSetOperatorType(PangrovaSqlParser.SetOperatorContext ctx) {
-        if (ctx instanceof PangrovaSqlParser.UnionAllContext) return SetQuery.SetOperatorType.UNION_ALL;
-        if (ctx instanceof PangrovaSqlParser.UnionDistinctContext) return SetQuery.SetOperatorType.UNION_DISTINCT;
-        if (ctx instanceof PangrovaSqlParser.IntersectOpContext) return SetQuery.SetOperatorType.INTERSECT;
-        if (ctx instanceof PangrovaSqlParser.ExceptOpContext) return SetQuery.SetOperatorType.EXCEPT;
+    private SetOperatorType visitSetOperatorType(PangrovaSqlParser.SetOperatorContext ctx) {
+        if (ctx instanceof PangrovaSqlParser.UnionAllContext) return SetOperatorType.UNION_ALL;
+        if (ctx instanceof PangrovaSqlParser.UnionDistinctContext) return SetOperatorType.UNION_DISTINCT;
+        if (ctx instanceof PangrovaSqlParser.IntersectOpContext) return SetOperatorType.INTERSECT;
+        if (ctx instanceof PangrovaSqlParser.ExceptOpContext) return SetOperatorType.EXCEPT;
         throw new IllegalArgumentException("Unknown set operator: " + ctx.getText());
     }
     @Override
@@ -467,7 +472,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
             tables.add((TableRef) visit(tableRefs.get(0)));
             int condIdx = 0;
             for (int i = 1; i < tableRefs.size(); i++) {
-                JoinClause.JoinType jt = resolveJoinType(joinTypes.get(i - 1));
+                SqlJoinType jt = resolveJoinType(joinTypes.get(i - 1));
                 TableRef right = (TableRef) visit(tableRefs.get(i));
                 if (condIdx < joinConditions.size()) {
                     var cond = joinConditions.get(condIdx);
@@ -486,12 +491,12 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         }
         return new FromResult(tables, joins);
     }
-    private static JoinClause.JoinType resolveJoinType(PangrovaSqlParser.JoinTypeContext ctx) {
-        if (ctx.CROSS() != null) return JoinClause.JoinType.CROSS;
-        if (ctx.LEFT() != null) return JoinClause.JoinType.LEFT;
-        if (ctx.RIGHT() != null) return JoinClause.JoinType.RIGHT;
-        if (ctx.FULL() != null) return JoinClause.JoinType.FULL;
-        return JoinClause.JoinType.INNER;
+    private static SqlJoinType resolveJoinType(PangrovaSqlParser.JoinTypeContext ctx) {
+        if (ctx.CROSS() != null) return SqlJoinType.CROSS;
+        if (ctx.LEFT() != null) return SqlJoinType.LEFT;
+        if (ctx.RIGHT() != null) return SqlJoinType.RIGHT;
+        if (ctx.FULL() != null) return SqlJoinType.FULL;
+        return SqlJoinType.INNER;
     }
     @Override public SelectItem visitSelectAll(PangrovaSqlParser.SelectAllContext ctx) { return new AllColumns(); }
 
@@ -544,9 +549,9 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
 
     private TableSample buildTableSample(PangrovaSqlParser.TableSampleClauseContext ctx) {
-        TableSample.SamplingMethod method = ctx.sampleMethod().BERNOULLI() != null
-                ? TableSample.SamplingMethod.BERNOULLI
-                : TableSample.SamplingMethod.SYSTEM;
+        TableSamplingMethod method = ctx.sampleMethod().BERNOULLI() != null
+                ? TableSamplingMethod.BERNOULLI
+                : TableSamplingMethod.SYSTEM;
         Expression percentage = (Expression) visit(ctx.percentage);
         Optional<Expression> seed = ctx.seed != null
                 ? Optional.of((Expression) visit(ctx.seed))
@@ -603,7 +608,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         List<String> columnAliases = ctx.columnNameList() == null ? List.of()
                 : ctx.columnNameList().identifier().stream().map(this::extractIdentifierText).toList();
         return TableRef.lateralTableFunction(new TableFunctionRef(
-                TableFunctionRef.TableFunctionType.GENERATE_SERIES,
+                TableFunctionType.GENERATE_SERIES,
                 (Expression) visit(ctx.rangeStart), Optional.of((Expression) visit(ctx.rangeEnd)),
                 ctx.rangeStep == null ? Optional.empty() : Optional.of((Expression) visit(ctx.rangeStep)),
                 alias, columnAliases));
@@ -613,14 +618,14 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         if (funcCall.GENERATE_SERIES() != null) {
             Expression startExpr = (Expression) visit(funcCall.rangeStart);
             Expression endExpr = (Expression) visit(funcCall.rangeEnd);
-            return new TableFunctionRef(TableFunctionRef.TableFunctionType.GENERATE_SERIES,
+            return new TableFunctionRef(TableFunctionType.GENERATE_SERIES,
                     startExpr, Optional.of(endExpr),
                     funcCall.rangeStep == null ? Optional.empty()
                             : Optional.of((Expression) visit(funcCall.rangeStep)), alias, columnAliases);
         }
-        TableFunctionRef.TableFunctionType funcType = funcCall.EXPLODE() != null
-                ? TableFunctionRef.TableFunctionType.EXPLODE
-                : TableFunctionRef.TableFunctionType.POSEXPLODE;
+        TableFunctionType funcType = funcCall.EXPLODE() != null
+                ? TableFunctionType.EXPLODE
+                : TableFunctionType.POSEXPLODE;
         Expression argument = (Expression) visit(funcCall.expression(0));
         return new TableFunctionRef(funcType, argument, alias, columnAliases);
     }
@@ -632,7 +637,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         List<String> columnAliases = ctx.columnNameList() != null
                 ? ctx.columnNameList().identifier().stream().map(this::extractIdentifierText).toList()
                 : List.of();
-        var funcRef = new TableFunctionRef(TableFunctionRef.TableFunctionType.EXPLODE, argument, alias, columnAliases);
+        var funcRef = new TableFunctionRef(TableFunctionType.EXPLODE, argument, alias, columnAliases);
         return TableRef.lateralTableFunction(funcRef);
     }
     @Override
@@ -643,7 +648,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         List<String> columnAliases = ctx.columnNameList() != null
                 ? ctx.columnNameList().identifier().stream().map(this::extractIdentifierText).toList()
                 : List.of();
-        var funcRef = new TableFunctionRef(TableFunctionRef.TableFunctionType.POSEXPLODE, argument, alias, columnAliases);
+        var funcRef = new TableFunctionRef(TableFunctionType.POSEXPLODE, argument, alias, columnAliases);
         return TableRef.lateralTableFunction(funcRef);
     }
     @Override
@@ -655,8 +660,8 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 ? List.of() : ctx.columnNameList().identifier().stream()
                         .map(this::extractIdentifierText).toList();
         var kind = ctx.ORDINALITY() == null
-                ? TableFunctionRef.TableFunctionType.UNNEST
-                : TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY;
+                ? TableFunctionType.UNNEST
+                : TableFunctionType.UNNEST_WITH_ORDINALITY;
         return TableRef.lateralTableFunction(
                 new TableFunctionRef(kind, argument, alias, columnAliases));
     }
@@ -707,9 +712,9 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 .filter(id -> id != ctx.alias).toList();
         Identifier valueColumn = new Identifier(List.of(extractIdentifierText(identifiers.get(0))));
         Identifier nameColumn = new Identifier(List.of(extractIdentifierText(identifiers.get(1))));
-        UnpivotClause.NullHandling nullHandling = UnpivotClause.NullHandling.EXCLUDE;
+        UnpivotNullHandling nullHandling = UnpivotNullHandling.EXCLUDE;
         if (ctx.nullsOption() != null && ctx.nullsOption().INCLUDE() != null) {
-            nullHandling = UnpivotClause.NullHandling.INCLUDE;
+            nullHandling = UnpivotNullHandling.INCLUDE;
         }
         List<UnpivotClause.UnpivotColumn> sourceColumns = ctx.unpivotColumnList().unpivotColumn().stream()
                 .map(this::buildUnpivotColumn).toList();
@@ -725,8 +730,8 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 ? Optional.of(stripQuotes(ctx.alias.getText())) : Optional.empty();
         return new UnpivotClause.UnpivotColumn(column, alias);
     }
-    @Override public TimeTravelSpec visitSystemTimeTravel(PangrovaSqlParser.SystemTimeTravelContext ctx) { return new TimeTravelSpec(Type.SYSTEM_TIME, (Expression) visit(ctx.expression())); }
-    @Override public TimeTravelSpec visitSystemVersionTravel(PangrovaSqlParser.SystemVersionTravelContext ctx) { return new TimeTravelSpec(Type.SYSTEM_VERSION, (Expression) visit(ctx.expression())); }
+    @Override public TimeTravelSpec visitSystemTimeTravel(PangrovaSqlParser.SystemTimeTravelContext ctx) { return new TimeTravelSpec(TimeTravelType.SYSTEM_TIME, (Expression) visit(ctx.expression())); }
+    @Override public TimeTravelSpec visitSystemVersionTravel(PangrovaSqlParser.SystemVersionTravelContext ctx) { return new TimeTravelSpec(TimeTravelType.SYSTEM_VERSION, (Expression) visit(ctx.expression())); }
     @Override public TimeTravelSpec visitBranchVersionTravel(PangrovaSqlParser.BranchVersionTravelContext ctx) { return TimeTravelSpec.branch(stripQuotes(ctx.STRING_LITERAL().getText())); }
     @Override public TimeTravelSpec visitTagVersionTravel(PangrovaSqlParser.TagVersionTravelContext ctx) { return TimeTravelSpec.tag(stripQuotes(ctx.STRING_LITERAL().getText())); }
     @Override public SortItem visitSortItem(PangrovaSqlParser.SortItemContext ctx) { return expr.visitSortItem(ctx); }

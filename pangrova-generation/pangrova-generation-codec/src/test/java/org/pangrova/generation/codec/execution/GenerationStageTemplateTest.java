@@ -1,8 +1,7 @@
 package org.pangrova.generation.codec.execution;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
-
-
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
@@ -87,6 +86,6 @@ class GenerationStageTemplateTest {
     private static GenerationStageGraph graph(GenerationStageTemplate template, ModelSnapshot model) {
         var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, template, List.of("lake.raw.t"), List.of("value"), true);
-        return new GenerationStageGraph(2, GenerationStageGraph.Purpose.RELATIONAL_EXPORT, List.of(stage), List.of(), List.of(model));
+        return new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT, List.of(stage), List.of(), List.of(model));
     }
 }

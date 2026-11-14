@@ -1,5 +1,7 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildError;
+import org.pangrova.indexing.enums.IndexBuildOutcome;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -196,7 +198,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             executor.execute(() -> runAndComplete(attempt));
         } catch (RejectedExecutionException rejectedExecutionException) {
             activeBuilds.decrementAndGet();
-            recordError(0, IndexBuildMetrics.ErrorType.REJECTED);
+            recordError(0, IndexBuildError.REJECTED);
             LOG.warn("event=index_build_rejected indexId={} reason=executor_rejected",
                     attempt.request.descriptor().indexId());
             attempt.complete(IndexBuildResult.rejected());
@@ -214,8 +216,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         buildStarted();
         try {
             IndexBuildResult result = runBuild(attempt, startedAt);
-            if (result.outcome() == IndexBuildResult.Outcome.COMPLETED
-                    || result.outcome() == IndexBuildResult.Outcome.CANCELLED) {
+            if (result.outcome() == IndexBuildOutcome.COMPLETED
+                    || result.outcome() == IndexBuildOutcome.CANCELLED) {
                 recordBuildCompletion(attempt, result, startedAt);
             }
             attempt.complete(Thread.currentThread().isInterrupted() ? IndexBuildResult.cancelled() : result);
@@ -225,7 +227,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     attempt.request.descriptor().indexId(),
                     runtimeException.getMessage(),
                     runtimeException);
-            recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.UNKNOWN);
+            recordError(System.currentTimeMillis() - startedAt, IndexBuildError.UNKNOWN);
             attempt.fail(runtimeException);
         } finally {
             buildFinished();
@@ -245,7 +247,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     "event=index_build_claim_lost indexId={} generation={}",
                     descriptor.indexId(),
                     descriptor.generation());
-            recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.CLAIM_FAILED);
+            recordError(System.currentTimeMillis() - startedAt, IndexBuildError.CLAIM_FAILED);
             return IndexBuildResult.claimFailed();
         }
         Throwable failure = null;
@@ -258,7 +260,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                         "event=index_build_stale_generation indexId={} generation={}",
                         descriptor.indexId(),
                         descriptor.generation());
-                recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.STALE_GENERATION);
+                recordError(System.currentTimeMillis() - startedAt, IndexBuildError.STALE_GENERATION);
                 return IndexBuildResult.staleGeneration();
             }
             pinBuildSnapshot(descriptor);
@@ -433,7 +435,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         }
     }
 
-    private void recordError(long durationMs, IndexBuildMetrics.ErrorType type) {
+    private void recordError(long durationMs, IndexBuildError type) {
         if (metrics != null) {
             metrics.recordError(durationMs, type);
         }

@@ -1,5 +1,6 @@
 package org.pangrova.indexing.api.vector;
 
+import org.pangrova.indexing.api.enums.HybridSearchMode;
 import org.pangrova.common.api.annotation.Experimental;
 
 /**
@@ -13,19 +14,6 @@ import org.pangrova.common.api.annotation.Experimental;
  *                   due to over-fetching in ANN_THEN_FILTER mode)
  */
 @Experimental
-public record VectorHybridSearchStrategy(Mode mode, int effectiveK) {
+public record VectorHybridSearchStrategy(HybridSearchMode mode, int effectiveK) {
 
-    /** Hybrid search execution modes. */
-    public enum Mode {
-        /** Run ANN search first with over-fetched K, then apply post-filter. */
-        ANN_THEN_FILTER,
-        /** Apply pre-filter first to reduce candidate set, then brute-force scan survivors. */
-        FILTER_THEN_BRUTEFORCE,
-        /**
-         * Filtered graph traversal: evaluate the pre-filter inline during HNSW
-         * graph traversal, skipping neighbors that fail the filter predicate.
-         * Most efficient when selectivity is moderate (20-80% of rows survive).
-         */
-        FILTERED_ANN
-    }
 }

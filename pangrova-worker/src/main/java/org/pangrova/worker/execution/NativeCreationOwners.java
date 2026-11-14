@@ -1,6 +1,7 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.worker.exception.NativeTaskCreationFailure;
+import org.pangrova.protocol.execution.AiTaskLifecycle;
 
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
 import org.pangrova.protocol.v2.TaskAttemptId;
@@ -15,8 +16,8 @@ final class NativeCreationOwners {
     private final ConcurrentHashMap<TaskAttemptId, Owner> pending = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Owner> handles = new ConcurrentHashMap<>();
 
-    Owner prepare(TaskRequest request) {
-        var owner = new Owner(request);
+    Owner prepare(TaskRequest request, AiTaskLifecycle aiLifecycle) {
+        var owner = new Owner(request, aiLifecycle);
         if (pending.putIfAbsent(request.getAttempt(), owner) != null) {
             throw new IllegalStateException(
                     "An unresolved creation already owns this exact task attempt");
@@ -94,7 +95,7 @@ final class NativeCreationOwners {
         }
         try {
             if (owner.aiRegistered) {
-                AiTaskLifecycleRegistry.current().releaseTask(
+                owner.aiLifecycle.releaseTask(
                         owner.request.getSecurity().getTenantId(), owner.request.getAttempt());
                 owner.aiRegistered = false;
             }
@@ -117,6 +118,7 @@ final class NativeCreationOwners {
     @ThreadSafe
     static final class Owner {
         final TaskRequest request;
+        final AiTaskLifecycle aiLifecycle;
         final NativeOperationLifetime operations = new NativeOperationLifetime();
         final Thread constructionThread = Thread.currentThread();
         volatile long handle;
@@ -130,7 +132,8 @@ final class NativeCreationOwners {
         final java.util.concurrent.CompletableFuture<Void> constructionExit =
                 new java.util.concurrent.CompletableFuture<>();
 
-        Owner(TaskRequest request) {
+        Owner(TaskRequest request, AiTaskLifecycle aiLifecycle) {
+            this.aiLifecycle = aiLifecycle;
             this.request = request;
         }
 

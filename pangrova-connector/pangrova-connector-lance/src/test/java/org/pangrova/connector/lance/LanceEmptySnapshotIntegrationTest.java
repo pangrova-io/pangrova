@@ -2,11 +2,11 @@ package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
-import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -34,7 +34,7 @@ class LanceEmptySnapshotIntegrationTest extends ContainerTestBase {
         var splits = new LanceSplitManager(Optional.empty(), () -> store, initial.catalog(), warehouse.toString());
         var session = LanceSplitManagerTest.session("tenant-a");
         var selected = metadata.bindRead(session, metadata.getTableHandle(session, initial.table()));
-        assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+        assertThat(selected.state()).isEqualTo(ReadSnapshotState.EMPTY);
 
         var fragment = sdk.write(input, allocation);
         var accepted = sdk.accept(allocation, sdk.prepare(allocation, java.util.List.of(fragment)));

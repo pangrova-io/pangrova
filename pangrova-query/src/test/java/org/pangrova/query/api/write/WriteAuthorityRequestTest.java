@@ -1,5 +1,7 @@
 package org.pangrova.query.api.write;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -33,7 +35,7 @@ class WriteAuthorityRequestTest {
 
     @Test
     void capturesReadObservationsAndWriteActionsWithoutOwningTheBorrowedSession() {
-        var observation = read(DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED);
+        var observation = read(AuthorizedReadMode.SECURITY_TRANSFORMED);
         var reads = new ArrayList<>(List.of(observation));
         var actions = new HashSet<>(Set.of(Privilege.INSERT));
         var request = request(reads, actions);
@@ -50,7 +52,7 @@ class WriteAuthorityRequestTest {
 
     @Test
     void refusesUnprotectedReadEvidenceAndNonWriteActions() {
-        assertThatThrownBy(() -> request(List.of(read(DeferredAuthorizationScope.ReadMode.RAW_READ)), Set.of(Privilege.INSERT)))
+        assertThatThrownBy(() -> request(List.of(read(AuthorizedReadMode.RAW_READ)), Set.of(Privilege.INSERT)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("protected compilation");
         assertThatThrownBy(() -> request(List.of(), Set.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("write actions");
@@ -62,9 +64,9 @@ class WriteAuthorityRequestTest {
         return new WriteAuthorityRequest(TABLE, SESSION, "INSERT", reads, actions, DECLARATION, false);
     }
 
-    private static TablePermission read(DeferredAuthorizationScope.ReadMode mode) {
+    private static TablePermission read(AuthorizedReadMode mode) {
         return new TablePermission(TABLE, Set.of("value"), Privilege.SELECT, mode,
-                mode == DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED
+                mode == AuthorizedReadMode.SECURITY_TRANSFORMED
                         ? new DeferredAuthorizationScope.PolicySnapshot(Optional.empty(), Map.of("value", Optional.empty()))
                         : DeferredAuthorizationScope.PolicySnapshot.empty());
     }

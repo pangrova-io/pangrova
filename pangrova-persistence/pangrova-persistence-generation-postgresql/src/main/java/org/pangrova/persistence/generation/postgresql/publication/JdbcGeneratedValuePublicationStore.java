@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.common.util.DigestUtils;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
@@ -134,7 +136,7 @@ public final class JdbcGeneratedValuePublicationStore
                 connection.commit();
                 return manifest;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -400,14 +402,6 @@ public final class JdbcGeneratedValuePublicationStore
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
         digest.update(bytes);
-    }
-
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
-        }
     }
 
     private record JobRow(

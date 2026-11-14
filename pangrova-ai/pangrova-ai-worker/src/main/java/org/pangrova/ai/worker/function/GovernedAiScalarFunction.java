@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.scalar.BatchableScalarFunction;
 import org.pangrova.function.api.metadata.FunctionMetadata;
@@ -101,14 +101,13 @@ final class GovernedAiScalarFunction implements BatchableScalarFunction {
     private static org.pangrova.protocol.v2.CapabilityRef expectedCapability(
             String capabilityId) {
         return switch (capabilityId) {
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog.AI_TEXT_GENERATION_ID ->
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_TEXT_GENERATION_ID ->
                     org.pangrova.protocol.capability.BuiltInCapabilityCatalog
                             .aiTextGenerationPlanRef();
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog
-                    .AI_MULTIMODAL_GENERATION_ID ->
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_MULTIMODAL_GENERATION_ID ->
                     org.pangrova.protocol.capability.BuiltInCapabilityCatalog
                             .aiMultimodalGenerationPlanRef();
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog.AI_EMBEDDING_ID ->
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID ->
                     org.pangrova.protocol.capability.BuiltInCapabilityCatalog
                             .aiEmbeddingPlanRef();
             default -> throw new IllegalArgumentException(
@@ -116,14 +115,14 @@ final class GovernedAiScalarFunction implements BatchableScalarFunction {
         };
     }
 
-    private static AiCapabilityDescriptor.Operation operation(String capabilityId) {
+    private static AiOperation operation(String capabilityId) {
         return switch (capabilityId) {
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog.AI_TEXT_GENERATION_ID ->
-                    AiCapabilityDescriptor.Operation.TEXT_GENERATION;
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog.AI_MULTIMODAL_GENERATION_ID ->
-                    AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION;
-            case org.pangrova.protocol.capability.BuiltInCapabilityCatalog.AI_EMBEDDING_ID ->
-                    AiCapabilityDescriptor.Operation.EMBEDDING;
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_TEXT_GENERATION_ID ->
+                    AiOperation.TEXT_GENERATION;
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_MULTIMODAL_GENERATION_ID ->
+                    AiOperation.MULTIMODAL_GENERATION;
+            case org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID ->
+                    AiOperation.EMBEDDING;
             default -> throw new IllegalArgumentException(
                     "Unsupported AI invocation capability: " + capabilityId);
         };

@@ -122,7 +122,7 @@ class IcebergLimitPushdownTest {
 
         var topN = new org.pangrova.connector.api.metadata.TopNInfo(
                 java.util.List.of(new org.pangrova.connector.api.metadata.TopNInfo.SortColumn(
-                        idColumn, org.pangrova.connector.api.metadata.TopNInfo.SortOrder.ASC_NULLS_LAST)),
+                        idColumn, org.pangrova.connector.api.enums.ConnectorSortOrder.ASC_NULLS_LAST)),
                 5);
 
         Optional<ConnectorTableHandle> result = metadata.applyTopN(SESSION, handle, topN);

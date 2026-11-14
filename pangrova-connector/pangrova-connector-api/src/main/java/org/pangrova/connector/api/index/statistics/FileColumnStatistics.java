@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.index.statistics;
 
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.pangrova.common.api.annotation.Experimental;
 
 /**
@@ -20,7 +21,7 @@ public record FileColumnStatistics(
      * For example, if op is GT and value >= maxValue, no rows satisfy.
      */
     @SuppressWarnings("unchecked")
-    public boolean noRowsSatisfy(ComparisonOp op, Comparable<?> value) {
+    public boolean noRowsSatisfy(ColumnComparisonOperator op, Comparable<?> value) {
         if (minValue == null || maxValue == null) {
             return false;
         }
@@ -43,7 +44,7 @@ public record FileColumnStatistics(
      * Returns true if all rows in this file satisfy the given comparison.
      */
     @SuppressWarnings("unchecked")
-    public boolean allRowsSatisfy(ComparisonOp op, Comparable<?> value) {
+    public boolean allRowsSatisfy(ColumnComparisonOperator op, Comparable<?> value) {
         if (minValue == null || maxValue == null || nullCount > 0) {
             return false;
         }
@@ -62,8 +63,4 @@ public record FileColumnStatistics(
         };
     }
 
-    /** Comparison operations for L0 pruning. */
-    public enum ComparisonOp {
-        EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL
-    }
 }

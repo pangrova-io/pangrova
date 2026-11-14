@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.persistence.table.postgresql.maintenance.JdbcTableControlMaintenanceStore;
 import org.pangrova.persistence.table.postgresql.statistics.JdbcTableControlStatisticsStore;
-import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
 
 import java.util.List;
 
@@ -31,6 +31,6 @@ class TableProviderClasspathIsolationTest {
         assertThat(new JdbcTableControlStore(source)).isNotNull();
         assertThat(new JdbcTableControlMaintenanceStore(source)).isNotNull();
         assertThat(new JdbcTableControlStatisticsStore(source)).isNotNull();
-        assertThat(new JdbcTableControlGovernanceBindingStore(source)).isNotNull();
+        assertThat(new PostgresTablePolicyRepository(source)).isNotNull();
     }
 }

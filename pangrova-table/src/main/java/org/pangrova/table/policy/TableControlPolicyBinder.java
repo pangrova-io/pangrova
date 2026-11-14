@@ -7,7 +7,7 @@ import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.policy.GovernanceBinding;
 import org.pangrova.table.api.policy.TablePolicyBindings;
 import org.pangrova.table.api.enums.GovernanceBindingType;
-import org.pangrova.table.api.policy.TableControlGovernanceBindingStore;
+import org.pangrova.table.api.policy.TablePolicyRepository;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,16 +34,16 @@ public final class TableControlPolicyBinder implements TablePolicyBindings {
     private static final Logger LOG = LoggerFactory.getLogger(TableControlPolicyBinder.class);
 
     private final TableControlService control;
-    private final TableControlGovernanceBindingStore store;
+    private final TablePolicyRepository store;
     private final Clock clock;
 
     public TableControlPolicyBinder(TableControlService control,
-            TableControlGovernanceBindingStore store) {
+            TablePolicyRepository store) {
         this(control, store, Clock.systemUTC());
     }
 
     public TableControlPolicyBinder(TableControlService control,
-            TableControlGovernanceBindingStore store, Clock clock) {
+            TablePolicyRepository store, Clock clock) {
         this.control = java.util.Objects.requireNonNull(control, "control");
         this.store = java.util.Objects.requireNonNull(store, "store");
         this.clock = clock == null ? Clock.systemUTC() : clock;
@@ -95,10 +95,8 @@ public final class TableControlPolicyBinder implements TablePolicyBindings {
                     + "for " + type + " on " + record.qualifiedName() + " must not be blank");
         }
         Instant now = clock.instant();
-        GovernanceBinding binding = store.find(record.tableId(), type, bindingRef)
-                .map(existing -> existing.withConfig(config, now))
-                .orElseGet(() -> new GovernanceBinding(UUID.randomUUID(), record.tableId(),
-                        type, bindingRef, config, actor, now, now));
+        GovernanceBinding binding = new GovernanceBinding(UUID.randomUUID(), record.tableId(),
+                type, bindingRef, config, actor, now, now);
         GovernanceBinding persisted = store.save(binding);
         LOG.info("event=table_governance_bound table={} tableId={} type={} ref={}",
                 record.qualifiedName(), record.tableId(), type, bindingRef);

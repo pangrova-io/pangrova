@@ -60,7 +60,7 @@ class TieredMetadataCacheStatsTest {
     void catalogIndexMaxSizeEvictsOldestCatalogs() throws InterruptedException {
         // Create cache with catalogIndex max size of 2
         TieredMetadataCache smallCache = new TieredMetadataCache(100, 60, 2,
-                new DisabledL2CacheStore());
+                null);
 
         smallCache.putTable("cat1", "s", "t", sampleMetadata());
         smallCache.putTable("cat2", "s", "t", sampleMetadata());
@@ -93,7 +93,7 @@ class TieredMetadataCacheStatsTest {
     void l1StatsTrackEvictions() throws Exception {
         // Create cache with L1 max size of 2
         TieredMetadataCache tinyCache = new TieredMetadataCache(2, 60,
-                new DisabledL2CacheStore());
+                null);
 
         tinyCache.putTable("c", "s", "t1", sampleMetadata());
         tinyCache.putTable("c", "s", "t2", sampleMetadata());
@@ -113,7 +113,7 @@ class TieredMetadataCacheStatsTest {
     void catalogIndexEvictionCleansUpL1Entries() throws Exception {
         // catalogIndex max size = 1, so adding a second catalog evicts the first
         TieredMetadataCache smallCache = new TieredMetadataCache(100, 60, 1,
-                new DisabledL2CacheStore());
+                null);
 
         smallCache.putTable("evict_me", "s", "t1", sampleMetadata());
         smallCache.putTable("evict_me", "s", "t2", sampleMetadata());
@@ -134,7 +134,7 @@ class TieredMetadataCacheStatsTest {
     void existingConstructorStillWorks() {
         // The 3-arg constructor should still work (backward compat)
         TieredMetadataCache legacyCache = new TieredMetadataCache(500, 30,
-                new DisabledL2CacheStore());
+                null);
 
         legacyCache.putTable("c", "s", "t", sampleMetadata());
         assertThat(legacyCache.getTable("c", "s", "t")).isPresent();

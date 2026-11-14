@@ -13,46 +13,30 @@
  */
 package org.pangrova.ai.api.exception;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.common.api.annotation.Experimental;
 
 /** Classified, auditable failure raised by the unified AI invocation path. */
 @Experimental
 public final class AiInvocationException extends RuntimeException {
 
-    public enum Category {
-        INVALID_REQUEST,
-        MODEL_NOT_FOUND,
-        MODEL_DISABLED,
-        CAPABILITY_MISMATCH,
-        AUTHENTICATION,
-        AUTHORIZATION,
-        RATE_LIMIT,
-        TIMEOUT,
-        PROVIDER_UNAVAILABLE,
-        PROVIDER_OUTCOME_UNCERTAIN,
-        PROVIDER_RESPONSE_INVALID,
-        CONTENT_REJECTED,
-        BUDGET_EXCEEDED,
-        INTERNAL
-    }
-
-    private final Category category;
+    private final AiFailureCategory category;
     private final boolean retryable;
 
-    public AiInvocationException(Category category, boolean retryable, String message) {
+    public AiInvocationException(AiFailureCategory category, boolean retryable, String message) {
         super(message);
         this.category = java.util.Objects.requireNonNull(category, "category must not be null");
         this.retryable = retryable;
     }
 
     public AiInvocationException(
-            Category category, boolean retryable, String message, Throwable cause) {
+            AiFailureCategory category, boolean retryable, String message, Throwable cause) {
         super(message, cause);
         this.category = java.util.Objects.requireNonNull(category, "category must not be null");
         this.retryable = retryable;
     }
 
-    public Category category() {
+    public AiFailureCategory category() {
         return category;
     }
 

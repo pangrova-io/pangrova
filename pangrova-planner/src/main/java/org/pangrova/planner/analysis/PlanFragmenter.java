@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.DistributionType;
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.enums.ShuffleType;
 
 import org.apache.calcite.rel.RelDistribution;
@@ -65,17 +67,17 @@ final class PlanFragmenter {
     private PlanFragmenter() {}
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride) {
-        return fragment(root, sessionParallelismOverride, AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT);
+        return fragment(root, sessionParallelismOverride, StageTerminalPurpose.QUERY_RESULT);
     }
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
-            AuthorizedStageGraph.TerminalPurpose terminalPurpose) {
+            StageTerminalPurpose terminalPurpose) {
         return fragment(root, sessionParallelismOverride, terminalPurpose,
                 DEFAULT_MAX_PARALLELISM);
     }
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
-            AuthorizedStageGraph.TerminalPurpose terminalPurpose, int clusterParallelismLimit) {
+            StageTerminalPurpose terminalPurpose, int clusterParallelismLimit) {
         checkNotNull(root, "root RelNode must not be null");
         if (clusterParallelismLimit < 1) {
             throw new IllegalArgumentException("Cluster parallelism limit must be positive");
@@ -117,14 +119,14 @@ final class PlanFragmenter {
         private final int sessionParallelismOverride;
         private final long bytesPerPartition;
         private final int maxParallelism;
-        private final AuthorizedStageGraph.TerminalPurpose terminalPurpose;
+        private final StageTerminalPurpose terminalPurpose;
         private int nextStageId;
 
         private FragmentContext(
                 int sessionParallelismOverride,
                 long bytesPerPartition,
                 int maxParallelism,
-                AuthorizedStageGraph.TerminalPurpose terminalPurpose) {
+                StageTerminalPurpose terminalPurpose) {
             this.sessionParallelismOverride = sessionParallelismOverride;
             this.bytesPerPartition = bytesPerPartition;
             this.maxParallelism = maxParallelism;
@@ -147,7 +149,7 @@ final class PlanFragmenter {
             int computeStageId = createStage(root, parallelism, "COMPUTE");
             setPlan(computeStageId, rewrite(root, computeStageId, parallelism));
             if (parallelism == SINGLE_PARALLELISM
-                    || terminalPurpose == AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT) {
+                    || terminalPurpose == StageTerminalPurpose.RELATIONAL_EXPORT) {
                 stages.get(computeStageId).taskType = "OUTPUT";
             } else {
                 addOutputStage(computeStageId);
@@ -217,7 +219,7 @@ final class PlanFragmenter {
                 return WindowPartitioning.enforce(window, FragmentContext::enforceDistribution);
             }
             if (node instanceof Sort sort
-                    && !(root && terminalPurpose == AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT
+                    && !(root && terminalPurpose == StageTerminalPurpose.QUERY_RESULT
                             && sort.fetch != null
                             && (sort.offset == null || RexLiteral.intValue(sort.offset) == 0))
                     && !hasOnlyLocalSourceLeaves(sort.getInput())) {
@@ -399,7 +401,7 @@ final class PlanFragmenter {
             }
             return boundaries.stream()
                     .filter(boundary -> boundary.distribution().type()
-                            != PangrovaDistribution.Type.BROADCAST)
+                            != DistributionType.BROADCAST)
                     .mapToInt(boundary -> computeDynamicParallelism(boundary.input()))
                     .max()
                     .orElseGet(() -> computeDynamicParallelism(root));
@@ -454,16 +456,16 @@ final class PlanFragmenter {
                 }
                 PangrovaDistribution leftDist = left.distribution();
                 PangrovaDistribution rightDist = right.distribution();
-                if (rightDist.type() == PangrovaDistribution.Type.BROADCAST) {
+                if (rightDist.type() == DistributionType.BROADCAST) {
                     // Unmatched build-side rows would be emitted on every task.
                     JoinRelType joinType = join.getJoinType();
-                    return leftDist.type() != PangrovaDistribution.Type.BROADCAST
+                    return leftDist.type() != DistributionType.BROADCAST
                             && (joinType == JoinRelType.INNER || joinType == JoinRelType.LEFT
                                     || joinType == JoinRelType.SEMI || joinType == JoinRelType.ANTI);
                 }
                 var keys = join.analyzeCondition();
-                return leftDist.type() == PangrovaDistribution.Type.HASH
-                        && rightDist.type() == PangrovaDistribution.Type.HASH
+                return leftDist.type() == DistributionType.HASH
+                        && rightDist.type() == DistributionType.HASH
                         && !keys.leftKeys.isEmpty()
                         && leftDist.keys().equals(keys.leftKeys)
                         && rightDist.keys().equals(keys.rightKeys);
@@ -483,7 +485,7 @@ final class PlanFragmenter {
         }
 
         private static boolean isSingleton(ExchangeBoundary boundary) {
-            return boundary.distribution().type() == PangrovaDistribution.Type.SINGLETON;
+            return boundary.distribution().type() == DistributionType.SINGLETON;
         }
 
         private void collectDirectBoundaries(
@@ -570,11 +572,11 @@ final class PlanFragmenter {
 
         private static void validateMaterializedDistribution(
                 PangrovaDistribution distribution) {
-            if (distribution.type() == PangrovaDistribution.Type.ANY) {
+            if (distribution.type() == DistributionType.ANY) {
                 throw new IllegalArgumentException(
                         "ANY distribution cannot materialize an exchange");
             }
-            if (distribution.type() == PangrovaDistribution.Type.HASH
+            if (distribution.type() == DistributionType.HASH
                     && distribution.keys().isEmpty()) {
                 throw new IllegalArgumentException(
                         "Hash exchange requires at least one partition key");

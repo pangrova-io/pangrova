@@ -1,5 +1,8 @@
 package org.pangrova.persistence.security.postgresql.grant;
 
+import org.pangrova.security.api.enums.RevokeBehavior;
+import org.pangrova.security.api.enums.PrivilegeOperation;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
@@ -35,9 +38,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.pangrova.security.api.grant.PrivilegeMutation.Operation.*;
-import static org.pangrova.security.api.grant.PrivilegeMutation.RevokeBehavior.*;
-import static org.pangrova.security.api.grant.PrivilegeScope.ObjectType.*;
+import static org.pangrova.security.api.enums.PrivilegeOperation.GRANT;
+import static org.pangrova.security.api.enums.PrivilegeOperation.REVOKE;
+import static org.pangrova.security.api.enums.PrivilegeOperation.REVOKE_GRANT_OPTION;
+import static org.pangrova.security.api.enums.RevokeBehavior.CASCADE;
+import static org.pangrova.security.api.enums.RevokeBehavior.RESTRICT;
+import static org.pangrova.security.api.enums.PrivilegeObjectType.SCHEMA;
+import static org.pangrova.security.api.enums.PrivilegeObjectType.STORAGE_PROFILE;
+import static org.pangrova.security.api.enums.PrivilegeObjectType.TABLE;
+import static org.pangrova.security.api.enums.PrivilegeObjectType.VOLUME;
 
 /** Real canonical-schema tests: no in-memory authorization or mocked persistence. */
 class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
@@ -273,12 +282,14 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         assertThat(receipts()).isZero();
     }
 
-    @Test
-    void lostCommitAcknowledgementConfirmsSameReceiptWithoutSecondMutation() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void lostCommitAcknowledgementConfirmsSameReceiptWithoutSecondMutation(boolean uncheckedDriverFailure) {
         var failOnce = new AtomicBoolean(true);
         var intercepted = intercept(source, connection -> proxy(Connection.class, connection, (method, args) -> {
             Object result = invoke(connection, method, args);
             if (method.getName().equals("commit") && failOnce.getAndSet(false)) {
+                if (uncheckedDriverFailure) throw new IllegalStateException("pool lost acknowledgement");
                 throw new SQLException("injected lost commit acknowledgement", "08006");
             }
             return result;
@@ -348,8 +359,8 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         return command(REVOKE, Set.of(Privilege.SELECT), TABLE_SCOPE, Set.of(role),
                 false, cascade ? CASCADE : RESTRICT);
     }
-    private static PrivilegeMutation command(PrivilegeMutation.Operation operation, Set<Privilege> privileges,
-            PrivilegeScope scope, Set<String> roles, boolean option, PrivilegeMutation.RevokeBehavior behavior) {
+    private static PrivilegeMutation command(PrivilegeOperation operation, Set<Privilege> privileges,
+            PrivilegeScope scope, Set<String> roles, boolean option, RevokeBehavior behavior) {
         return new PrivilegeMutation(UUID.randomUUID(), operation, privileges, scope, roles, option, behavior);
     }
 

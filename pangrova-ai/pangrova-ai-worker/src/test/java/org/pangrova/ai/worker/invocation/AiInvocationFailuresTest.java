@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -29,7 +31,7 @@ class AiInvocationFailuresTest {
                         PangrovaErrorCode.AI_INVOCATION_AUTHORIZATION_DENIED,
                         "blob principal does not match invocation principal"));
 
-        assertThat(mapped.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+        assertThat(mapped.category()).isEqualTo(AiFailureCategory.AUTHORIZATION);
         assertThat(mapped.retryable()).isFalse();
         assertThat(mapped.getCause()).isInstanceOf(PangrovaException.class);
     }
@@ -42,7 +44,7 @@ class AiInvocationFailuresTest {
                         "non-finite embedding"));
 
         assertThat(mapped.category())
-                .isEqualTo(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID);
+                .isEqualTo(AiFailureCategory.PROVIDER_RESPONSE_INVALID);
         assertThat(mapped.retryable()).isFalse();
     }
 }

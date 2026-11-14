@@ -1,11 +1,12 @@
 package org.pangrova.persistence.file.postgresql.claim;
 
+import org.pangrova.persistence.file.api.enums.CopyFileClaimResult;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
-import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.enums.StorageType;
 
@@ -37,11 +38,11 @@ class JdbcCopyFileClaimStoreTest {
                 PROFILE_A, "execution-two");
         var executor = Executors.newFixedThreadPool(2);
         try {
-            var results = executor.invokeAll(List.<Callable<CopyFileClaimStore.ClaimResult>>of(
+            var results = executor.invokeAll(List.<Callable<CopyFileClaimResult>>of(
                     () -> first.claim(one), () -> second.claim(two)));
             assertThat(List.of(results.get(0).get(), results.get(1).get()))
-                    .containsExactlyInAnyOrder(CopyFileClaimStore.ClaimResult.ACQUIRED,
-                            CopyFileClaimStore.ClaimResult.BLOCKED);
+                    .containsExactlyInAnyOrder(CopyFileClaimResult.ACQUIRED,
+                            CopyFileClaimResult.BLOCKED);
             assertThat(first.get(one.claimKey(), 0).orElseThrow().executionId())
                     .isIn("execution-one", "execution-two");
         } finally {
@@ -55,16 +56,16 @@ class JdbcCopyFileClaimStoreTest {
         CopyFileClaim original = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 PROFILE_A, "execution-one");
         assertThat(new JdbcCopyFileClaimStore(source).claim(original))
-                .isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+                .isEqualTo(CopyFileClaimResult.ACQUIRED);
 
         var recovered = new JdbcCopyFileClaimStore(source);
         assertThat(recovered.get(original.claimKey(), 0)).contains(original);
         assertThat(recovered.claim(original))
-                .isEqualTo(CopyFileClaimStore.ClaimResult.SAME_EXECUTION);
+                .isEqualTo(CopyFileClaimResult.SAME_EXECUTION);
         CopyFileClaim otherExecution = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 PROFILE_A, "execution-two");
         assertThat(recovered.claim(otherExecution))
-                .isEqualTo(CopyFileClaimStore.ClaimResult.BLOCKED);
+                .isEqualTo(CopyFileClaimResult.BLOCKED);
     }
 
     @Test
@@ -73,7 +74,7 @@ class JdbcCopyFileClaimStoreTest {
         var store = new JdbcCopyFileClaimStore(source);
         CopyFileClaim original = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 PROFILE_A, "execution-one");
-        assertThat(store.claim(original)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+        assertThat(store.claim(original)).isEqualTo(CopyFileClaimResult.ACQUIRED);
 
         assertThatThrownBy(() -> store.claim(claim("tenant-a", TABLE_A, "version-1",
                 "b".repeat(64), PROFILE_A, "execution-two")))
@@ -95,7 +96,7 @@ class JdbcCopyFileClaimStoreTest {
         String firstIncarnation = profiles.getCurrentRevision("profile").orElseThrow().incarnationId();
         CopyFileClaim before = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 firstIncarnation, "execution-one");
-        assertThat(store.claim(before)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+        assertThat(store.claim(before)).isEqualTo(CopyFileClaimResult.ACQUIRED);
 
         assertThat(profiles.unregister("profile")).isTrue();
         assertThat(profiles.createIfAbsent(profile)).isTrue();
@@ -123,7 +124,7 @@ class JdbcCopyFileClaimStoreTest {
         CopyFileClaim otherVersion = claim("tenant-a", TABLE_A, "version-2", "b".repeat(64),
                 PROFILE_A, "execution-four");
         for (CopyFileClaim candidate : List.of(one, otherTenant, otherTable, otherVersion)) {
-            assertThat(store.claim(candidate)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+            assertThat(store.claim(candidate)).isEqualTo(CopyFileClaimResult.ACQUIRED);
             assertThat(store.get(candidate.claimKey(), 0)).contains(candidate);
         }
     }
@@ -134,7 +135,7 @@ class JdbcCopyFileClaimStoreTest {
         var store = new JdbcCopyFileClaimStore(source);
         CopyFileClaim original = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 PROFILE_A, "execution-one");
-        assertThat(store.claim(original)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+        assertThat(store.claim(original)).isEqualTo(CopyFileClaimResult.ACQUIRED);
 
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             assertThatThrownBy(() -> statement.executeUpdate(
@@ -190,7 +191,7 @@ class JdbcCopyFileClaimStoreTest {
         var store = new JdbcCopyFileClaimStore(source);
         CopyFileClaim first = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
                 PROFILE_A, "execution-one");
-        assertThat(store.claim(first)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+        assertThat(store.claim(first)).isEqualTo(CopyFileClaimResult.ACQUIRED);
         CopyFileClaim reload = new CopyFileClaim(first.tenantId(), first.tableUuid(),
                 first.sourceUrl(), first.sourceVersionId(), first.sourceSha256(), first.sourceSize(),
                 first.profileName(), first.profileIncarnationId(), first.profileRevision(),

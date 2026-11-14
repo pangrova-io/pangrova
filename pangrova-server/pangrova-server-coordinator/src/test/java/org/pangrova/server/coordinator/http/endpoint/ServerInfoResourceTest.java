@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.http.endpoint;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.ws.rs.core.Response;
-import org.pangrova.common.client.version.ApiVersion;
+import org.pangrova.common.client.constants.ApiVersion;
 import org.pangrova.protocol.rest.version.ServerInfo;
 import org.junit.jupiter.api.Test;
 

@@ -1,7 +1,9 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
@@ -94,7 +96,7 @@ class AiPhysicalInvocationAdmissionTest {
             assertThatThrownBy(() -> waiting.get(5, TimeUnit.SECONDS))
                     .isInstanceOf(java.util.concurrent.ExecutionException.class)
                     .cause().isInstanceOf(AiInvocationException.class)
-                    .extracting("category").isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                    .extracting("category").isEqualTo(AiFailureCategory.AUTHORIZATION);
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(2);
             assertThat(budget.usage().getProviderRequestBytes()).isEqualTo(2);
             assertThat(budget.usage().getProviderResponseBytes()).isEqualTo(3);
@@ -143,13 +145,13 @@ class AiPhysicalInvocationAdmissionTest {
     private static AiTransportTestAdmission budget(long attempts, long requestBytes, long responseBytes) {
         var limits = new AiTransportTestAdmission.Limits(2, 10, attempts, requestBytes, responseBytes, 0,
                 new AiRequestConstraints(100, 100, 10, 8));
-        return new AiTransportTestAdmission(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 0,
+        return new AiTransportTestAdmission(AiOperation.TEXT_GENERATION, 0,
                 1, 1, limits, Instant.now().plusSeconds(30));
     }
 
     private static void assertBudgetFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable operation) {
         assertThatThrownBy(operation).isInstanceOf(AiInvocationException.class).satisfies(failure ->
                 assertThat(((AiInvocationException) failure).category())
-                        .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED));
+                        .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED));
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.governance.api.enums.LineageEventType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.pangrova.governance.api.lineage.LineageBackend;
@@ -55,9 +57,9 @@ class QueryDispatcherStageLineageTest {
         awaitEvents(captured, 2, 5);
 
         assertThat(captured).hasSizeGreaterThanOrEqualTo(2);
-        assertThat(captured.get(0).eventType()).isEqualTo(LineageEvent.EventType.START);
+        assertThat(captured.get(0).eventType()).isEqualTo(LineageEventType.START);
         assertThat(captured.get(0).runId()).isEqualTo("q-1/stage-0");
-        assertThat(captured.get(1).eventType()).isEqualTo(LineageEvent.EventType.COMPLETE);
+        assertThat(captured.get(1).eventType()).isEqualTo(LineageEventType.COMPLETE);
     }
 
     @Test

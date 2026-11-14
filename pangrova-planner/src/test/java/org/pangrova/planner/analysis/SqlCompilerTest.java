@@ -1,17 +1,15 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
-
-import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-
 
 /**
  * Unit tests for the end-to-end SQL compilation pipeline.
@@ -75,7 +73,7 @@ class SqlCompilerTest {
             assertThat(hint.functionName()).isEqualTo("ai_complete");
             assertThat(hint.modelName()).isEqualTo("catalog.llm");
             assertThat(hint.operation())
-                    .isEqualTo(AiInvocationPlanHint.Operation.TEXT_GENERATION);
+                    .isEqualTo(AiInvocationOperation.TEXT_GENERATION);
             assertThat(hint.mediaInput()).isFalse();
         });
         io.substrait.proto.Rel root = io.substrait.proto.Plan
@@ -112,7 +110,7 @@ class SqlCompilerTest {
             assertThat(hint.functionName()).isEqualTo("ai_embed");
             assertThat(hint.modelName()).isEqualTo("catalog.embedding_model");
             assertThat(hint.operation())
-                    .isEqualTo(AiInvocationPlanHint.Operation.EMBEDDING);
+                    .isEqualTo(AiInvocationOperation.EMBEDDING);
         });
         io.substrait.proto.Rel root = io.substrait.proto.Plan
                 .parseFrom(fragment.planBytes())

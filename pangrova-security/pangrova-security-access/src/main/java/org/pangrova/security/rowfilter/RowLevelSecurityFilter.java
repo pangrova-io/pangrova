@@ -1,5 +1,6 @@
 package org.pangrova.security.rowfilter;
 
+import org.pangrova.security.api.enums.FilterParameterType;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.authorization.DeferredSubjectContext;
 import org.pangrova.security.api.rowfilter.RowFilterSource;
@@ -110,7 +111,7 @@ public class RowLevelSecurityFilter implements RowFilterSource {
         // Replace current_user() with parameter placeholder
         if (expression.contains("current_user()")) {
             params.add(new ParameterizedFilter.BoundParameter(
-                    "current_user", user.principal(), ParameterizedFilter.ParameterType.STRING));
+                    "current_user", user.principal(), FilterParameterType.STRING));
             expression = expression.replace("current_user()", "$" + paramIndex);
             paramIndex++;
         }
@@ -121,7 +122,7 @@ public class RowLevelSecurityFilter implements RowFilterSource {
                     .sorted()
                     .collect(Collectors.joining(","));
             params.add(new ParameterizedFilter.BoundParameter(
-                    "current_groups", groupsValue, ParameterizedFilter.ParameterType.STRING_LIST));
+                    "current_groups", groupsValue, FilterParameterType.STRING_LIST));
             expression = expression.replace("current_groups()", "$" + paramIndex);
             paramIndex++;
         }
@@ -133,7 +134,7 @@ public class RowLevelSecurityFilter implements RowFilterSource {
             String key = matcher.group(1);
             String value = user.attributes().getOrDefault(key, "");
             params.add(new ParameterizedFilter.BoundParameter(
-                    "user_attribute_" + key, value, ParameterizedFilter.ParameterType.STRING));
+                    "user_attribute_" + key, value, FilterParameterType.STRING));
             matcher.appendReplacement(sb, "\\$" + paramIndex);
             paramIndex++;
         }

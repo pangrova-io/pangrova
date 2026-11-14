@@ -1,7 +1,7 @@
 package org.pangrova.planner.rerank;
 
+import org.pangrova.parser.api.enums.SortDirection;
 import org.pangrova.planner.exception.RerankerValidationException;
-
 import org.pangrova.parser.api.ast.AllColumns;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.GroupByExpression;
@@ -148,7 +148,7 @@ class RerankerInjectionRuleTest {
         var matchCall = matchFunction("content", "search query");
         var scoreCall = bm25ScoreFunction("content", "search query");
         Query query = buildQuery(
-                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                List.of(new SortItem(scoreCall, Optional.of(SortDirection.DESC))),
                 Optional.of(matchCall), Optional.empty());
 
         Optional<RerankerPlanNode> result = RerankerInjectionRule.analyze(query, TABLE, 10);
@@ -163,7 +163,7 @@ class RerankerInjectionRuleTest {
     void bm25ScoreWithoutMatchFailsClosed() {
         var scoreCall = bm25ScoreFunction("content", "search query");
         Query query = buildQuery(
-                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                List.of(new SortItem(scoreCall, Optional.of(SortDirection.DESC))),
                 Optional.empty(), Optional.empty());
 
         assertThatThrownBy(() -> RerankerInjectionRule.analyze(query, TABLE, 10))
@@ -176,7 +176,7 @@ class RerankerInjectionRuleTest {
         var matchCall = matchFunction("content", "one query");
         var scoreCall = bm25ScoreFunction("content", "another query");
         Query query = buildQuery(
-                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                List.of(new SortItem(scoreCall, Optional.of(SortDirection.DESC))),
                 Optional.of(matchCall), Optional.empty());
 
         assertThatThrownBy(() -> RerankerInjectionRule.analyze(query, TABLE, 10))

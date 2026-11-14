@@ -1,5 +1,7 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.TableFunctionType;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -24,17 +26,6 @@ public record TableFunctionRef(
         Optional<Expression> stepArgument,
         Optional<String> alias,
         List<String> columnAliases) {
-
-    /**
-     * The type of table function.
-     */
-    public enum TableFunctionType {
-        EXPLODE,
-        POSEXPLODE,
-        UNNEST,
-        UNNEST_WITH_ORDINALITY,
-        GENERATE_SERIES
-    }
 
     public TableFunctionRef(TableFunctionType functionType, Expression argument,
                             Optional<String> alias, List<String> columnAliases) {

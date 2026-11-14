@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.query.api.task.QuerySplit;
 
 import java.util.List;
@@ -12,7 +13,6 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.SplitSourceDescriptor;
-import org.pangrova.planner.analysis.StagePlanAccess;
 import org.pangrova.connector.api.metadata.Constraint;
 
 /** Fetches stage splits with snapshot and index-aware query constraints. */
@@ -38,7 +38,7 @@ public final class StageSplitFetcher {
         if (session == null) {
             throw new IllegalStateException("Query session is required for authenticated split lookup");
         }
-        if (plan.stagePlan().mode() == StagePlanAccess.Mode.DURABLE_REPLAY) {
+        if (plan.stagePlan().mode() == StagePlanMode.DURABLE_REPLAY) {
             throw new IllegalStateException(
                     "Durable stage allocations require the current exact persisted partition gate");
         }

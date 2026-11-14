@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import java.util.concurrent.CompletableFuture;
 
 /** Worker-state interpretation and logical waiter completion; neither is physical-drain evidence. */
@@ -7,13 +9,13 @@ final class TaskLogicalCompletion {
     private TaskLogicalCompletion() {}
 
     static void complete(String taskId, TaskStateMachine sm, TaskTimingTracker timingTracker) {
-        TaskStateMachine.State state = sm.getState();
+        ScheduledTaskState state = sm.getState();
         CompletableFuture<Void> future = sm.completionSignal();
-        if (state == TaskStateMachine.State.FINISHED) {
+        if (state == ScheduledTaskState.FINISHED) {
             timingTracker.removeDeadline(taskId);
             future.complete(null);
-        } else if (state == TaskStateMachine.State.FAILED
-                || state == TaskStateMachine.State.ABANDONED) {
+        } else if (state == ScheduledTaskState.FAILED
+                || state == ScheduledTaskState.ABANDONED) {
             timingTracker.removeDeadline(taskId);
             future.completeExceptionally(
                     new IllegalStateException("Task terminated: " + taskId
@@ -21,14 +23,14 @@ final class TaskLogicalCompletion {
         }
     }
 
-    static TaskStateMachine.State mapWorkerState(String workerState) {
+    static ScheduledTaskState mapWorkerState(String workerState) {
         return switch (workerState) {
-            case "RUNNING", "FLUSHING" -> TaskStateMachine.State.RUNNING;
-            case "FINISHED" -> TaskStateMachine.State.FINISHED;
-            case "FAILED" -> TaskStateMachine.State.FAILED;
-            case "CANCELLED" -> TaskStateMachine.State.FAILED;
-            case "SCHEDULED" -> TaskStateMachine.State.SCHEDULED;
-            case "ABANDONED" -> TaskStateMachine.State.ABANDONED;
+            case "RUNNING", "FLUSHING" -> ScheduledTaskState.RUNNING;
+            case "FINISHED" -> ScheduledTaskState.FINISHED;
+            case "FAILED" -> ScheduledTaskState.FAILED;
+            case "CANCELLED" -> ScheduledTaskState.FAILED;
+            case "SCHEDULED" -> ScheduledTaskState.SCHEDULED;
+            case "ABANDONED" -> ScheduledTaskState.ABANDONED;
             default -> throw new IllegalArgumentException("Unknown worker state: " + workerState);
         };
     }

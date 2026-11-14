@@ -5,9 +5,8 @@
 
 #include <arrow/c/abi.h>
 
-#include "jni/RuntimeInitializer.h"
 #include "capabilities/capability/CanonicalPhysicalTypes.h"
-#include "command/task/WorkerLocalStorage.h"
+#include "engine/resource/WorkerStorageBinding.h"
 #include "lance/LanceStorageContext.h"
 #include "lance/LanceDatasetPublication.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
@@ -58,13 +57,13 @@ proto::RuntimeCommandResponse success(const Result& result) {
 }
 }  // namespace
 
-proto::RuntimeCommandResponse NativeDatasetControl::schemaFingerprint(const proto::RuntimeCommand& command) {
+proto::RuntimeCommandResponse NativeDatasetControl::schemaFingerprint(
+    const proto::RuntimeCommand& command, velox::VeloxMemoryGovernor* governor) {
   try {
     const auto request = unpack<proto::DatasetSchemaFingerprintRequest>(command);
     lance::LanceDatasetPublication::validateSchemaRequest(request);
-    lance::LanceStorageContext storage(workerLocalStorage(command.worker_local_storage_bindings(),
+    lance::LanceStorageContext storage(pangrova::resource::workerLocalStorage(command.worker_local_storage_bindings(),
         request.catalog(), request.security().tenant_id(), ""));
-    auto* governor = globalVeloxMemoryGovernor();
     if (!governor) throw std::runtime_error("Dataset schema fingerprint requires an initialized Native runtime");
     auto pool = governor->veloxMemoryManager()->addLeafPool("dataset-schema-fingerprint");
     const auto type = capability::canonicalPhysicalSchema(request.schema());
@@ -86,7 +85,7 @@ proto::RuntimeCommandResponse NativeDatasetControl::schemaFingerprint(const prot
 proto::RuntimeCommandResponse NativeDatasetControl::prepareDistributedWrite(const proto::RuntimeCommand& command) {
   try {
     const auto request = unpack<proto::PrepareDistributedWriteRequest>(command);
-    const auto storage = workerLocalStorage(command.worker_local_storage_bindings(),
+    const auto storage = pangrova::resource::workerLocalStorage(command.worker_local_storage_bindings(),
         request.output_binding().lance().catalog(), request.security().tenant_id(),
         request.output_binding().lance().dataset_uri());
     return success(lance::LanceDatasetPublication::prepareWrite(request, storage));
@@ -100,7 +99,7 @@ proto::RuntimeCommandResponse NativeDatasetControl::prepareDistributedWrite(cons
 proto::RuntimeCommandResponse NativeDatasetControl::cleanupObjects(const proto::RuntimeCommand& command) {
   try {
     const auto request = unpack<proto::CleanupSourceObjectsRequest>(command);
-    const auto storage = workerLocalStorage(command.worker_local_storage_bindings(), request.catalog(),
+    const auto storage = pangrova::resource::workerLocalStorage(command.worker_local_storage_bindings(), request.catalog(),
         request.security().tenant_id(), request.dataset_uri());
     return success(lance::LanceDatasetPublication::cleanupObjects(request, storage));
   } catch (const std::invalid_argument& error) { return failure(error, true); }
@@ -110,7 +109,7 @@ proto::RuntimeCommandResponse NativeDatasetControl::cleanupObjects(const proto::
 proto::RuntimeCommandResponse NativeDatasetControl::scanPartitions(const proto::RuntimeCommand& command) {
   try {
     const auto request = unpack<proto::DatasetScanPartitionsRequest>(command);
-    const auto storage = workerLocalStorage(command.worker_local_storage_bindings(), request.catalog(),
+    const auto storage = pangrova::resource::workerLocalStorage(command.worker_local_storage_bindings(), request.catalog(),
         request.security().tenant_id(), request.dataset_uri());
     return success(lance::LanceDatasetPublication::scanPartitions(request, storage));
   } catch (const std::invalid_argument& error) {

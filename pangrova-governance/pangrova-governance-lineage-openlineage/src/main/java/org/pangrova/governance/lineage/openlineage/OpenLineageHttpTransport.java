@@ -1,5 +1,6 @@
 package org.pangrova.governance.lineage.openlineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
@@ -273,7 +274,7 @@ public final class OpenLineageHttpTransport implements LineageBackend {
                 .build();
     }
 
-    private static OpenLineage.RunEvent.EventType mapEventType(LineageEvent.EventType type) {
+    private static OpenLineage.RunEvent.EventType mapEventType(LineageEventType type) {
         return switch (type) {
             case START -> OpenLineage.RunEvent.EventType.START;
             case COMPLETE -> OpenLineage.RunEvent.EventType.COMPLETE;

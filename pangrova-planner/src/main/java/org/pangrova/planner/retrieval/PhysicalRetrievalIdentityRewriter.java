@@ -1,5 +1,6 @@
 package org.pangrova.planner.retrieval;
-import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 
 import java.util.ArrayList;
@@ -53,10 +54,10 @@ public final class PhysicalRetrievalIdentityRewriter {
         }
         var binding = table.unwrap(ConnectorReadBinding.class);
         if (binding == null
-                || binding.state() != ConnectorReadBinding.SnapshotState.SNAPSHOT
+                || binding.state() != ReadSnapshotState.SNAPSHOT
                 || binding.sourceIdentity().isBlank()
                 || binding.declaration().declarationEvidence()
-                        != ConnectorTableReadMetadata.DeclarationEvidence.EXACT) {
+                        != TableDeclarationEvidence.EXACT) {
             return false;
         }
         // Paimon publishes this real table option from selected schema.options().

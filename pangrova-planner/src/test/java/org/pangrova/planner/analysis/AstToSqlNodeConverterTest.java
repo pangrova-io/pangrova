@@ -1,12 +1,12 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 import org.pangrova.parser.api.ast.expression.ArrayConstructor;
 import org.pangrova.parser.api.ast.expression.FunctionCall;
 import org.pangrova.parser.api.ast.expression.NotExpression;
 import org.pangrova.parser.api.ast.statement.AlterTableStatement;
-import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
@@ -77,7 +77,7 @@ class AstToSqlNodeConverterTest {
     @Test
     void convertBinaryAdd() {
         Expression add = new BinaryExpression(
-                Literal.ofInteger(1), BinaryExpression.Operator.ADD, Literal.ofInteger(2));
+                Literal.ofInteger(1), BinaryExpressionOperator.ADD, Literal.ofInteger(2));
         Query query = selectExpr(add);
         SqlNode node = converter.convert(query);
         assertThat(node.toString()).contains("1 + 2");
@@ -151,7 +151,7 @@ class AstToSqlNodeConverterTest {
 
     @Test
     void convertComparisonOperators() {
-        for (BinaryExpression.Operator op : BinaryExpression.Operator.values()) {
+        for (BinaryExpressionOperator op : BinaryExpressionOperator.values()) {
             Expression bin = new BinaryExpression(Literal.ofInteger(1), op, Literal.ofInteger(2));
             Query query = selectExpr(bin);
             SqlNode node = converter.convert(query);
@@ -310,7 +310,7 @@ class AstToSqlNodeConverterTest {
         MergeStatement stmt = new MergeStatement(
                 Identifier.of("target"), Optional.empty(),
                 new TableRef(Identifier.of("source")),
-                new BinaryExpression(Identifier.of("a"), BinaryExpression.Operator.EQUAL, Identifier.of("b")),
+                new BinaryExpression(Identifier.of("a"), BinaryExpressionOperator.EQUAL, Identifier.of("b")),
                 List.of());
         SqlNode node = converter.convert(stmt);
         assertThat(node).isInstanceOf(org.apache.calcite.sql.SqlMerge.class);

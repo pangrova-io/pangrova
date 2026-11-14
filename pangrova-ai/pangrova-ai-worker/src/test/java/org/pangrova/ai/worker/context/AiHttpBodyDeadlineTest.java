@@ -1,5 +1,8 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
+
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -72,7 +75,7 @@ class AiHttpBodyDeadlineTest {
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
         try (var budget = new AiTransportTestAdmission(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 3, 1, 1,
+                AiOperation.EMBEDDING, 3, 1, 1,
                 singleSlot, java.time.Instant.now().plusSeconds(30))) {
             var failed = caller.submit(() -> {
                 sendingThread.set(Thread.currentThread());
@@ -93,7 +96,7 @@ class AiHttpBodyDeadlineTest {
                 assertThat(System.nanoTime() - started).isLessThan(TimeUnit.SECONDS.toNanos(5));
             }
             var failure = failed.get(5, TimeUnit.SECONDS);
-            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+            assertThat(failure.category()).isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
             assertThat(failure.retryable()).isFalse();
             if (!revoke) {
                 assertThat(failure).hasCauseInstanceOf(interrupt ? InterruptedException.class : HttpTimeoutException.class);

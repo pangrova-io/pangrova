@@ -52,7 +52,7 @@ class QueryApiClasspathTest {
             for (String excluded : List.of("org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory",
                     "org.pangrova.client.http.PangrovaRestClient",
                     "org.pangrova.governance.runtime.lineage.LineageQueryEventListener",
-                    "org.pangrova.connector.runtime.lifecycle.PluginManager",
+                    "org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {

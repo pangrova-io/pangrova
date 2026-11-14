@@ -3,6 +3,7 @@ package org.pangrova.shuffle.api;
 import java.time.Duration;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.enums.ShuffleRetentionPolicy;
 
 /**
  * Handles draining of shuffle data on a worker during graceful shutdown or decommission (G-RES-08).

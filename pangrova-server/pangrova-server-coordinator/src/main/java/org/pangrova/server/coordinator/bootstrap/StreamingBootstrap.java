@@ -1,35 +1,36 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.metadata.resolution.ConnectorTableLookup;
+import javax.sql.DataSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.metadata.api.catalog.CatalogHandle;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.resolution.ConnectorTableLookup;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcStreamStateStore;
+import org.pangrova.streaming.api.cdc.CdcWriteSink;
+import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
+import org.pangrova.streaming.api.checkpoint.StreamState;
+import org.pangrova.streaming.api.checkpoint.StreamStateStore;
+import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
+import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
+import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.streaming.coordinator.ConnectorPageSinkCdcWriter;
 import org.pangrova.streaming.coordinator.PageSinkStreamWriterContext;
-import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamDdlContext;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
 import org.pangrova.streaming.coordinator.StreamScheduler;
 import org.pangrova.streaming.coordinator.StreamSchedulerContext;
-import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcStreamStateStore;
-import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
-import org.pangrova.streaming.api.checkpoint.StreamState;
-import org.pangrova.streaming.api.checkpoint.StreamStateStore;
-import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConnectorMetadata;
-import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.streaming.api.cdc.CdcWriteSink;
-import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
-import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,7 +84,7 @@ final class StreamingBootstrap implements AutoCloseable {
     static StreamingBootstrap build(DataSource dataSource,
                                     WatermarkTracker watermarkTracker,
                                     MaintenanceScheduler maintenanceScheduler,
-                                    CatalogRegistry catalogRegistry, String coordinatorId) {
+                                    CatalogRegistry catalogRegistry, String coordinatorId, MetricsProvider metricsProvider) {
         StreamConfig config = StreamConfig.withDefaults();
         StreamStateStore stateStore = new JdbcStreamStateStore(dataSource);
         StreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);
@@ -92,7 +93,7 @@ final class StreamingBootstrap implements AutoCloseable {
 
         var sources = CdcSourceRegistry.discover(StreamingBootstrap.class.getClassLoader());
         StreamSchedulerContext schedulerDeps = new StreamSchedulerContext(
-                stateStore, offsetStore,
+                metricsProvider, stateStore, offsetStore,
                 new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)), converterRegistry,
                 watermarkTracker, maintenanceScheduler, config,
                 sources::open,

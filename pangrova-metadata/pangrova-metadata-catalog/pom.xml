@@ -19,6 +19,9 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-memory</artifactId><scope>test</scope></dependency>
+
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secrets</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId><scope>test</scope></dependency>
@@ -220,22 +223,6 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-generation-postgresql</artifactId><scope>test</scope>
-        </dependency>
-        <!-- Streaming-owned stores are exercised against the metadata migration chain. -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming-pipeline</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>

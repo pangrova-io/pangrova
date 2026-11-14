@@ -234,9 +234,7 @@ public class SpeculativeTaskLauncher {
         }
 
         try {
-            var targeted = taskDispatcher.bindWorkerIdentity(
-                    cloneWithNewTaskId(originalRequest, speculativeId), targetWorker);
-            var request = taskDispatcher.bindSourceInput(taskDispatcher.bindControlIdentity(targeted));
+            var request = bindReplacement(originalRequest, speculativeId, targetWorker);
             registerAndDispatchCopy(queryId, originalTaskId, request, targetWorker);
             return true;
         } catch (RuntimeException | Error e) {
@@ -276,16 +274,16 @@ public class SpeculativeTaskLauncher {
             if (pair.cleanupRequested) throw new IllegalStateException("Speculative dispatch admission is sealed");
             pair.copyIssued = true;
         }
-        dispatchToWorker(queryId, request, worker);
+        registerDispatch(queryId, request, worker);
+        dispatchRegistered(queryId, request, worker);
         LOG.info("event=speculative_dispatch_success originalTaskId={} speculativeId={} targetWorker={} queryId={}",
                 originalId, request.taskRequest().getAttempt().getTaskId(), worker.workerId(), queryId);
     }
 
     /**
-     * Registers and dispatches one attempt. Pair-free so failure retry can reuse
-     * it: speculation races a live original, while a retry replaces a dead one.
+     * Transfers the exact request to the issuance owner before any network call.
      */
-    private void dispatchToWorker(
+    private void registerDispatch(
             String queryId, SubmitTaskRequest request, PlacementWorker worker) {
         String taskId = request.taskRequest().getAttempt().getTaskId();
         taskRegistry.registerTask(queryId, taskId);
@@ -295,6 +293,10 @@ public class SpeculativeTaskLauncher {
         taskRegistry.assignWorker(taskId, worker.workerId());
         taskRegistry.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
         taskRegistry.enterTaskDispatch(request);
+    }
+
+    private void dispatchRegistered(String queryId, SubmitTaskRequest request, PlacementWorker worker) {
+        String taskId = request.taskRequest().getAttempt().getTaskId();
         String acknowledgedTaskId = taskDispatcher.dispatch(request, worker);
         if (!taskId.equals(acknowledgedTaskId)) {
             throw new IllegalStateException("Worker acknowledgement changed the issued task identity");
@@ -329,6 +331,12 @@ public class SpeculativeTaskLauncher {
             LOG.warn("event=task_retry_skip taskId={} reason=query_identity_mismatch", taskId);
             return null;
         }
+        var task = original.taskRequest();
+        if (task.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
+                || task.getExchangeInputsCount() != 0 || task.getExecutionOptions().hasShuffle()) {
+            LOG.info("event=task_retry_skip taskId={} reason=attempt_rebinding_unavailable", taskId);
+            return null;
+        }
         PlacementWorker target = selectAlternateWorker(deadWorkerId);
         if (target == null) {
             LOG.warn("event=task_retry_skip taskId={} excludeWorkerId={} reason=no_alternate_worker_available",
@@ -336,19 +344,22 @@ public class SpeculativeTaskLauncher {
             return null;
         }
         String retryId = "retry-" + UUID.randomUUID();
-        var retried = cloneWithNewTaskId(original, retryId);
+        var retried = bindReplacement(original, retryId, target);
         if (!admission.reserve(retryId)) {
             LOG.info("event=task_retry_skip taskId={} reason=retry_admission_rejected", taskId);
             return null;
         }
+        boolean entered = false;
         try {
-            dispatchToWorker(queryId, retried, target);
+            registerDispatch(queryId, retried, target);
+            entered = true;
+            dispatchRegistered(queryId, retried, target);
         } catch (RuntimeException | Error failure) {
-            try {
-                admission.rollback(retryId);
-            } catch (RuntimeException | Error cleanup) {
-                if (cleanup != failure) failure.addSuppressed(cleanup);
-            }
+            Runnable release = entered
+                    ? () -> java.util.Objects.requireNonNull(cancelRetrier, "Retry cancellation owner is not wired")
+                            .cancelWithRetry(queryId, retryId, target.host(), target.httpPort())
+                    : () -> taskRegistry.unregisterUndispatchedTask(queryId, retryId);
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure, release, () -> admission.rollback(retryId));
             LOG.warn("event=task_retry_failed taskId={} retryId={} targetWorker={} error={}",
                     taskId, retryId, target.workerId(), failure.getMessage(), failure);
             throw failure;
@@ -369,6 +380,11 @@ public class SpeculativeTaskLauncher {
                 .filter(w -> !w.workerId().equals(excludeWorkerId))
                 .min(java.util.Comparator.comparingInt(PlacementWorker::runningTaskCount))
                 .orElse(null);
+    }
+
+    private SubmitTaskRequest bindReplacement(SubmitTaskRequest original, String replacementId, PlacementWorker target) {
+        var targeted = taskDispatcher.bindWorkerIdentity(cloneWithNewTaskId(original, replacementId), target);
+        return taskDispatcher.bindSourceInput(taskDispatcher.bindControlIdentity(targeted));
     }
 
     /**

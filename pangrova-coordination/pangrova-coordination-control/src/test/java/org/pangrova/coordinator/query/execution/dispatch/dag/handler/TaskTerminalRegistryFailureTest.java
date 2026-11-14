@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TaskTerminalRegistryFailureTest {
     @Test
     void shuffleFailureReachesFailedStageWithoutReopeningCompletedOutput() {
-        var registry = new TaskTerminalRegistry();
+        var registry = new TaskTerminalRegistry("q");
         var upstream = runningStage(0, "upstream");
         var downstream = runningStage(1, "downstream");
         registry.register("q", "upstream", upstream);
@@ -37,7 +37,7 @@ class TaskTerminalRegistryFailureTest {
 
     @Test
     void failureArrivingBeforeRegistrationRetainsAllDiagnostics() {
-        var registry = new TaskTerminalRegistry();
+        var registry = new TaskTerminalRegistry("q");
         var stage = runningStage(0, "task");
         var failure = new QueryFailure("EXCHANGE-0004", null, "source unavailable", "stack");
         registry.onTerminal("q", "task", "FAILED", failure);
@@ -49,13 +49,49 @@ class TaskTerminalRegistryFailureTest {
 
     @Test
     void cancellationWithoutDiagnosticsKeepsTheExistingCancellationClassification() {
-        var registry = new TaskTerminalRegistry();
+        var registry = new TaskTerminalRegistry("q");
         var stage = runningStage(0, "task");
         registry.register("q", "task", stage);
         registry.onTerminal("q", "task", "CANCELLED", null);
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FAILED);
         assertThat(stage.lastError()).isEqualTo(new QueryFailure(
                 "TASK_CANCELLED", "TaskCancelled", "Task was cancelled"));
+    }
+
+    @Test
+    void firstReportWinsBeforeAndAfterRegistrationAndNeverRecountsASibling() {
+        for (boolean early : List.of(false, true)) {
+            var registry = new TaskTerminalRegistry("q");
+            var stage = runningStage(0, "first");
+            stage.addTaskId("sibling");
+            if (!early) registry.register("q", "first", stage);
+            registry.onTerminal("q", "first", "FINISHED", null);
+            registry.onTerminal("q", "first", "CANCELLED", null);
+            registry.register("q", "first", stage);
+            registry.onTerminal("q", "first", "FAILED", new QueryFailure("wrong", "duplicate", "second report"));
+            assertThat(stage.stateMachine().getState()).isEqualTo(StageState.RUNNING);
+            assertThat(stage.lastError()).isNull();
+            registry.register("q", "sibling", stage);
+            registry.onTerminal("q", "sibling", "FINISHED", null);
+            assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        }
+    }
+
+    @Test
+    void staleRegistrationCannotDeliverToCurrentGenerationEvenIfTaskIdIsReused() {
+        var registry = new TaskTerminalRegistry("q");
+        var stage = runningStage(0, "reused");
+        registry.register("q", "reused", stage);
+        stage.onTaskFailed("reused", new QueryFailure("original", "worker", "failed"));
+        assertThat(stage.tryRestartFailedGeneration(0, 1, "original")).isTrue();
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("reused");
+        registry.onTerminal("q", "reused", "FAILED", new QueryFailure("old", "old", "old"));
+        assertThat(stage.lastError()).isNull();
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.RUNNING);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> registry.register("q", "reused", stage))
+                .hasMessageContaining("another stage attempt");
     }
 
     private static Stage runningStage(int id, String taskId) {

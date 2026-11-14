@@ -1,5 +1,7 @@
 package org.pangrova.filesystem.api.blob;
 
+import org.pangrova.common.util.DigestUtils;
+
 /** Tenant-scoped content identity and exact length; contains no path, credentials or authority. */
 public record BlobObjectId(String tenantScope, String checksum, long size) {
     public BlobObjectId {
@@ -9,7 +11,7 @@ public record BlobObjectId(String tenantScope, String checksum, long size) {
     }
 
     private static void requireDigest(String value, String name) {
-        if (value == null || !value.matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(value)) {
             throw new IllegalArgumentException(name + " must be a lowercase SHA-256 token");
         }
     }

@@ -1,5 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.execution;
 
+import org.pangrova.query.api.enums.ExecutionOwnerLossReason;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
@@ -45,7 +46,7 @@ public final class PostgresGenerationExecutionFence implements GenerationExecuti
             }
             return anchor;
         } catch (ExecutionOwnerLostException lost) {
-            String message = lost.reason() == ExecutionOwnerLostException.Reason.REPLACED
+            String message = lost.reason() == ExecutionOwnerLossReason.REPLACED
                     ? "artifact execution owner fence was lost" : "artifact execution anchor is absent or expired";
             throw new GenerationExecutionOwnerLostException(message, lost);
         }

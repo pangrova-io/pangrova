@@ -104,7 +104,7 @@ public final class ImmutableFilterBoundary {
     private static void verifyTableStoreBorrowing(String path) throws Exception {
         Filter full = Filter.parseFilter(path);
         String[] stores = {"control.JdbcTableControlStore", "maintenance.JdbcTableControlMaintenanceStore",
-                "statistics.JdbcTableControlStatisticsStore", "governancebinding.JdbcTableControlGovernanceBindingStore"};
+                "statistics.JdbcTableControlStatisticsStore", "policy.PostgresTablePolicyRepository"};
         String type = "Ljavax/sql/DataSource;";
         for (String store : stores) {
             String owner = "org.pangrova.persistence.table.postgresql." + store;

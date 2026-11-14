@@ -1,5 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.enums.GenerationOutputScope;
@@ -153,7 +154,7 @@ final class GenerationPublicationOutputValidator {
             Map<String, List<PageOutput>> outputs, GenerationOutputFormat contract) throws SQLException {
         var graph = inputs.findDispatchSpec(connection, job.tenantId(), job.jobId())
                 .orElseThrow(() -> new IllegalStateException("Export has no persisted stage graph")).stageGraph();
-        if (graph.purpose() != org.pangrova.generation.api.graph.GenerationStageGraph.Purpose.RELATIONAL_EXPORT) {
+        if (graph.purpose() != GenerationGraphPurpose.RELATIONAL_EXPORT) {
             throw new IllegalStateException("Tabular export requires the relational terminal purpose");
         }
         var pages = inputs.loadPages(connection, job.tenantId(), job.jobId());

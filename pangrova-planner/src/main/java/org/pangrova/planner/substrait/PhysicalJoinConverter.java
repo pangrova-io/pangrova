@@ -136,10 +136,10 @@ final class PhysicalJoinConverter {
         RelNode right = broadcastJoin.getRight();
         if (!(right instanceof PangrovaExchange exchange
                 && exchange.targetDistribution().type()
-                        == org.pangrova.planner.cost.distribution.PangrovaDistribution.Type.BROADCAST)
+                        == org.pangrova.planner.enums.DistributionType.BROADCAST)
                 && !(right instanceof org.pangrova.planner.cost.distribution.PangrovaExchangeInput input
                 && input.distribution().type()
-                        == org.pangrova.planner.cost.distribution.PangrovaDistribution.Type.BROADCAST)) {
+                        == org.pangrova.planner.enums.DistributionType.BROADCAST)) {
             throw new IllegalStateException(
                     "Broadcast join requires a planner-visible broadcast exchange");
         }

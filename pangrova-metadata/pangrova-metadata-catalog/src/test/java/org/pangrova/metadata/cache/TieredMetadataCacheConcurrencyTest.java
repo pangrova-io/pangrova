@@ -4,8 +4,6 @@ import org.pangrova.metadata.api.object.TableMetadata;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -14,16 +12,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.metadata.api.cache.L2CacheStore;
+import org.pangrova.cache.api.CacheStore;
+import org.pangrova.cache.memory.MemoryCacheStoreFactory;
 
-/**
- * Verifies concurrent consistency of TieredMetadataCache invalidatingCatalogs.
- *
- * <p>Tests that concurrent readers during catalog invalidation never observe
- * stale catalog index entries — the volatile fence + ConcurrentHashMap.computeIfAbsent
- * pattern ensures readers either see the invalidation flag (and skip registration)
- * or register after invalidation completes (safe).</p>
- */
+/** Concurrent L1/L2 fills and catalog invalidation. */
 class TieredMetadataCacheConcurrencyTest {
 
     private static final int READER_THREADS = 8;
@@ -32,7 +24,7 @@ class TieredMetadataCacheConcurrencyTest {
 
     @Test
     void concurrentReadsDuringInvalidationNeverLeakIndexEntries() throws Exception {
-        InMemoryL2Store l2 = new InMemoryL2Store(new ConcurrentHashMap<>());
+        CacheStore l2 = new MemoryCacheStoreFactory().open(java.util.Map.of());
         TieredMetadataCache cache = new TieredMetadataCache(10_000, 60, l2);
         populateCache(cache, "testcat", TABLE_COUNT);
 
@@ -63,7 +55,7 @@ class TieredMetadataCacheConcurrencyTest {
 
     @Test
     void concurrentInvalidateAndPutDoNotCorruptCatalogIndex() throws Exception {
-        InMemoryL2Store l2 = new InMemoryL2Store(new ConcurrentHashMap<>());
+        CacheStore l2 = new MemoryCacheStoreFactory().open(java.util.Map.of());
         TieredMetadataCache cache = new TieredMetadataCache(10_000, 60, l2);
 
         int iterations = 500;
@@ -108,7 +100,7 @@ class TieredMetadataCacheConcurrencyTest {
 
     @Test
     void invalidationVisibilityAcrossThreads() throws Exception {
-        InMemoryL2Store l2 = new InMemoryL2Store(new ConcurrentHashMap<>());
+        CacheStore l2 = new MemoryCacheStoreFactory().open(java.util.Map.of());
         TieredMetadataCache cache = new TieredMetadataCache(10_000, 60, l2);
         cache.putTable("vis", "s", "t1", sampleMetadata("vis", "s", "t1"));
 
@@ -166,41 +158,4 @@ class TieredMetadataCacheConcurrencyTest {
         return new TableMetadata(catalog, schema, table, List.of(), null, null, null, null, null);
     }
 
-    /**
-     * In-memory L2 store for concurrency testing. Stores serialized metadata
-     * and supports prefix deletion. Intentional no-op for publishInvalidation
-     * as cross-node invalidation is not relevant for single-JVM concurrency tests.
-     */
-    static class InMemoryL2Store implements L2CacheStore {
-        private final ConcurrentHashMap<String, String> store;
-
-        InMemoryL2Store(ConcurrentHashMap<String, String> store) {
-            this.store = store;
-        }
-
-        @Override
-        public Optional<String> get(String key) {
-            return Optional.ofNullable(store.get(key));
-        }
-
-        @Override
-        public void put(String key, String value, long ttlSeconds) {
-            store.put(key, value);
-        }
-
-        @Override
-        public void delete(String key) {
-            store.remove(key);
-        }
-
-        @Override
-        public void deleteByPrefix(String prefix) {
-            store.keySet().removeIf(k -> k.startsWith(prefix));
-        }
-
-        /** No-op: cross-node invalidation not relevant for single-JVM concurrency tests. */
-        @Override
-        public void publishInvalidation(String key) {
-        }
-    }
 }

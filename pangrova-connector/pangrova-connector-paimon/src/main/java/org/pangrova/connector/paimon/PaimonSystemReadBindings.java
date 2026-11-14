@@ -1,5 +1,8 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.enums.PaimonSystemTableKind;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.io.IOException;
@@ -32,7 +35,7 @@ final class PaimonSystemReadBindings {
             var manager = table.snapshotManager();
             List<PaimonSystemTableHandle.MetadataObject> objects = new ArrayList<>();
             try {
-                if (selector.kind() == PaimonSystemTableHandle.Kind.SNAPSHOTS) {
+                if (selector.kind() == PaimonSystemTableKind.SNAPSHOTS) {
                     Long selectedLatest = manager.latestSnapshotId();
                     if (selectedLatest != null) {
                         try (var ids = manager.snapshotIdStream()) {
@@ -45,7 +48,7 @@ final class PaimonSystemReadBindings {
                             }
                         }
                     }
-                } else if (selector.kind() == PaimonSystemTableHandle.Kind.TAGS) {
+                } else if (selector.kind() == PaimonSystemTableKind.TAGS) {
                     for (var listedPath : table.tagManager().tagPaths(ignored -> true).stream()
                             .sorted(java.util.Comparator.comparing(Object::toString)).toList()) {
                         String name = listedPath.getName();
@@ -58,7 +61,7 @@ final class PaimonSystemReadBindings {
                                 0, name.substring(4), -1, path.toString(), length,
                                 checksum(table, path, length)));
                     }
-                } else if (selector.kind() == PaimonSystemTableHandle.Kind.SCHEMAS) {
+                } else if (selector.kind() == PaimonSystemTableKind.SCHEMAS) {
                     long selectedLatest = table.schemaManager().latest()
                             .orElseThrow(() -> new IllegalStateException("Paimon table has no schema"))
                             .id();
@@ -92,10 +95,10 @@ final class PaimonSystemReadBindings {
         var declaration = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(pinned.baseTable().schemaName(), pinned.tableName()),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns,
-                java.util.Map.of()), ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                java.util.Map.of()), TableDeclarationEvidence.EXACT);
         var binding = new ConnectorReadBinding(pinned, declaration,
                 new TableStatistics(pinned.objects().size(), -1, -1, java.util.Map.of()),
-                ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                ReadSnapshotState.METADATA, OptionalLong.empty(),
                 pinned.sourceIdentity(), java.util.Optional.empty());
         if (selector.bound()) {
             validate(catalog, binding);

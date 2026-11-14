@@ -1,5 +1,6 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.materialization.ChangeProof;
@@ -90,7 +91,7 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
         String actualSchema = schemaFingerprint(snapshot.table());
         if (!actualSchema.equals(expected.schemaFingerprint())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Lance source " + source.canonicalName()
                             + " changed schema since planning");
         }
@@ -129,12 +130,12 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
             current = store.load(catalogName, tenant, table);
         } catch (RuntimeException failure) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Lance source " + source.canonicalName() + " is not readable", failure);
         }
         if (current == null) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Lance source " + source.canonicalName() + " does not exist");
         }
         if (version > current.version()) {
@@ -144,7 +145,7 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
             return store.loadSnapshot((LanceTableHandle) current.withTimeTravelSnapshot(version));
         } catch (IllegalStateException failure) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Lance snapshot " + version + " of " + source.canonicalName()
                             + " is no longer available", failure);
         }
@@ -157,7 +158,7 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
             version = Long.parseLong(token);
         } catch (NumberFormatException invalid) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Invalid Lance snapshot token for " + source.canonicalName()
                             + ": " + token, invalid);
         }
@@ -169,14 +170,14 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
 
     private static MaterializationSourceException unavailable(SourceRef source, long version) {
         return new MaterializationSourceException(
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                 "Lance source " + source.canonicalName() + " has no accepted snapshot at version "
                         + version);
     }
 
     private static MaterializationSourceException unsupported(SourceRef source, ChangeSetMode mode) {
         return new MaterializationSourceException(
-                MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                 "Lance source " + (source == null ? "<unknown>" : source.canonicalName())
                         + " does not support change-set mode " + mode);
     }

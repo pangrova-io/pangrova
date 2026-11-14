@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.SampleMethod;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -55,7 +56,7 @@ class SamplePushdownTest {
     void applySampleDefaultReturnsEmpty() {
         ConnectorMetadata metadata = new StubMetadata();
         assertThat(metadata.applySample(null, new TestTable("t"),
-                new SampleInfo(10.0, SampleInfo.SampleMethod.BERNOULLI))).isEmpty();
+                new SampleInfo(10.0, SampleMethod.BERNOULLI))).isEmpty();
     }
 
     @Test
@@ -70,7 +71,7 @@ class SamplePushdownTest {
         };
 
         var result = metadata.applySample(null, new TestTable("t"),
-                new SampleInfo(50.0, SampleInfo.SampleMethod.SYSTEM));
+                new SampleInfo(50.0, SampleMethod.SYSTEM));
         assertThat(result).isPresent();
         assertThat(result.get().handle()).isSameAs(rewritten);
         assertThat(result.get().guaranteed()).isFalse();
@@ -78,9 +79,9 @@ class SamplePushdownTest {
 
     @Test
     void sampleInfoRejectsInvalidPercentage() {
-        assertThatThrownBy(() -> new SampleInfo(0.0, SampleInfo.SampleMethod.BERNOULLI))
+        assertThatThrownBy(() -> new SampleInfo(0.0, SampleMethod.BERNOULLI))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new SampleInfo(101.0, SampleInfo.SampleMethod.SYSTEM))
+        assertThatThrownBy(() -> new SampleInfo(101.0, SampleMethod.SYSTEM))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

@@ -72,6 +72,19 @@ class FilterPredicateExtractorPropertyTest {
     private static final LogicalTableScan SCAN = LogicalTableScan.create(
             CLUSTER, new MinimalTable("test_table", ROW_TYPE), List.of());
 
+    @Test
+    void singleScanHintsDoNotEscapeToAnotherOccurrenceOfTheSameTable() {
+        RexNode condition = REX.makeCall(SqlStdOperatorTable.EQUALS,
+                REX.makeInputRef(ROW_TYPE.getFieldList().get(0).getType(), 0),
+                REX.makeBigintLiteral(BigDecimal.valueOf(42)));
+        var filtered = LogicalFilter.create(SCAN, condition);
+        var selection = PlanSplitSourceExtractor.singleScanPredicates(filtered).orElseThrow();
+        assertThat(selection.table().table()).isEqualTo("test_table");
+        assertThat(selection.predicates()).containsExactlyElementsOf(FilterPredicateExtractor.extract(filtered));
+        var union = org.apache.calcite.rel.logical.LogicalUnion.create(List.of(filtered, SCAN), true);
+        assertThat(PlanSplitSourceExtractor.singleScanPredicates(union)).isEmpty();
+    }
+
     // --- 7.2: Existing predicate types ---
 
     @Test

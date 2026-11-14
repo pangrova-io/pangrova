@@ -86,7 +86,7 @@ class DataTypeSpecPropertyTest {
     private Arbitrary<DataTypeSpec> vectorTypes() {
         Arbitrary<Integer> dimensions = Arbitraries.integers().between(1, 4096);
         Arbitrary<DistanceMetric> metrics = Arbitraries.of(DistanceMetric.values());
-        var elements = Arbitraries.of(org.pangrova.types.VectorType.ElementType.values());
+        var elements = Arbitraries.of(org.pangrova.types.enums.VectorElementType.values());
         return Combinators.combine(dimensions, metrics, elements)
                 .as(DataTypeSpec.VectorType::new);
     }

@@ -1,14 +1,14 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.enums.ReportedTaskState;
+import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
-
 import org.pangrova.worker.task.report.TaskStatusReporter;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.protocol.execution.TaskStatus;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 import org.pangrova.worker.enums.TaskState;
@@ -50,7 +50,7 @@ public class TaskManager implements AutoCloseable {
     void verifyWorkerExecutionIdentity(org.pangrova.protocol.v2.TaskAttemptId attempt) {
         if (!attempt.hasWorkerExecutionIdentity()
                 || !attempt.getWorkerExecutionIdentity().equals(workerExecutionIdentity().toProto())) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+            throw new TaskAdmissionException(TaskAdmissionReason.IDENTITY_CONFLICT,
                     "Task target does not match this Worker execution incarnation");
         }
     }
@@ -385,11 +385,11 @@ public class TaskManager implements AutoCloseable {
     }
 
     /**
-     * Returns the current SPI-level state of a task.
+     * Returns the observable state of a registered task.
      * External code should use this instead of accessing TaskStateMapper directly.
      */
-    public Optional<TaskStatus.TaskState> getTaskSpiState(String taskId) {
-        return getTaskState(taskId).map(TaskStateMapper::toSpiState);
+    public Optional<ReportedTaskState> getReportedTaskState(String taskId) {
+        return getTaskState(taskId).map(TaskStateMapper::toReportedState);
     }
 
     /**

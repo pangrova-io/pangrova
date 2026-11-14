@@ -1,5 +1,7 @@
 package org.pangrova.persistence.ai.postgresql.feature;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.generation.api.enums.GenerationExecutionKind;
@@ -39,11 +41,7 @@ public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStor
                 JdbcCatalogExportJobInsertion.insert(connection, request);
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {

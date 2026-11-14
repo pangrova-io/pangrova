@@ -244,7 +244,7 @@ public class SqlCompiler {
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         var unsupported = result.unsupportedNodes().stream()
                 .filter(node -> node.kind()
-                        != org.pangrova.planner.validation.UnsupportedNode.Kind.FUNCTION
+                        != org.pangrova.planner.enums.UnsupportedNodeKind.FUNCTION
                         || !deferredFunctions.contains(node.nodeType().toLowerCase(java.util.Locale.ROOT)))
                 .toList();
         if (!unsupported.isEmpty()) {

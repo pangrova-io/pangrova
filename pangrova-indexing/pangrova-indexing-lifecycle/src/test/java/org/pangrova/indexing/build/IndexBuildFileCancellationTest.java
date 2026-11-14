@@ -1,5 +1,7 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildOutcome;
+
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -81,7 +83,7 @@ class IndexBuildFileCancellationTest {
                         if (point == Point.MAPPING_CALLBACK) builder.cancelBuild("index");
                     }).get(5, TimeUnit.SECONDS);
             assertThat(result.outcome()).isEqualTo(point == Point.NONE
-                    ? IndexBuildResult.Outcome.COMPLETED : IndexBuildResult.Outcome.CANCELLED);
+                    ? IndexBuildOutcome.COMPLETED : IndexBuildOutcome.CANCELLED);
             assertThat(result.isFullySuccessful()).isEqualTo(point == Point.NONE);
             assertThat(reads.get()).isEqualTo(point == Point.NONE ? 2 : 1);
             int expectedFiles = switch (point) {

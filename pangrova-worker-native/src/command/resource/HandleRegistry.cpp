@@ -24,7 +24,7 @@ int64_t HandleRegistry::create(
     throw std::runtime_error("HandleRegistry::create: null executor");
   }
   int64_t handle = next_handle_.fetch_add(1, std::memory_order_relaxed);
-  executor->bindHandle(handle);
+  executor->bindHandle(handle, *this);
   {
     // F-NATIVE-04: Read current_generation_ inside the lock to prevent TOCTOU
     // race with destroyAll() which increments generation under exclusive lock.
@@ -55,6 +55,14 @@ std::shared_ptr<pangrova::executor::TaskExecutor> HandleRegistry::acquire(
     throw std::runtime_error("HandleRegistry::acquire: creation is not an available executor");
   }
   return it->second.executor;
+}
+
+void HandleRegistry::reportExecutionError(int64_t handle, const protocol::v2::ExecutionError& error) const {
+  acquire(handle)->recordExecutionError(error);
+}
+
+void HandleRegistry::reportResultStreamFailure(int64_t handle, const std::string& message) const {
+  acquire(handle)->recordResultStreamFailure(message);
 }
 
 void HandleRegistry::release(

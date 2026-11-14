@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -188,7 +190,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             int limit) {
         return transaction(dataSource, connection -> {
             Allocation allocation = requireReadableAllocation(connection, shuffleId, null);
-            if (allocation.state() != ShuffleServiceModel.AllocationState.FINALIZED) {
+            if (allocation.state() != ShuffleAllocationState.FINALIZED) {
                 throw new IllegalStateException("shuffle is not finalized");
             }
             if (startSequence < 0 || limit <= 0) {

@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskCancellationStatus;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ public final class QueryCancellationPropagator {
                 TaskCancelResult result = taskManager.cancelTask(taskId);
                 if (result.isSuccess()) {
                     cancelled++;
-                } else if (result.status() == TaskCancelResult.Status.NOT_FOUND) {
+                } else if (result.status() == TaskCancellationStatus.NOT_FOUND) {
                     deregisterTask(queryId, taskId);
                 }
             } catch (RuntimeException rejected) {

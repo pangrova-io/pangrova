@@ -1,12 +1,20 @@
 package org.pangrova.streaming.cdc;
 
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.MetricAttributes;
 import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
+import org.pangrova.streaming.api.source.SourceRecord;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.OptionalDouble;
+import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /**
  * Metrics instrumentation for the CDC pipeline hot path.
@@ -15,14 +23,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * consumer lag, commit latency, source poll duration, and pipeline uptime.
  * Each metric is tagged with the stream name for dimensional filtering.
  *
- * <p>When no {@link MetricsProvider} is available (e.g., in tests), use the
- * {@link #noop()} factory which returns a zero-overhead instance where all
- * recording methods are no-ops.
- *
  * <h3>Metric Inventory</h3>
  * <ul>
  *   <li>{@code pangrova.streaming.cdc.records.consumed} — Counter: total records polled</li>
- *   <li>{@code pangrova.streaming.cdc.bytes.consumed} — Counter: estimated bytes polled</li>
+ *   <li>{@code pangrova.streaming.cdc.bytes.consumed} — Counter: key and value bytes polled</li>
  *   <li>{@code pangrova.streaming.cdc.batches.processed} — Counter: batches written + committed</li>
  *   <li>{@code pangrova.streaming.cdc.write.duration} — Histogram: batch write time (seconds)</li>
  *   <li>{@code pangrova.streaming.cdc.failures} — Counter: pipeline cycle failures</li>
@@ -35,9 +39,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see CdcPipelineLoop
  * @see MetricsProvider
  */
-public final class CdcPipelineMetrics {
+final class CdcPipelineMetrics implements AutoCloseable {
 
-    private static final CdcPipelineMetrics NOOP = new CdcPipelineMetrics();
+    private static final Logger LOG = LoggerFactory.getLogger(CdcPipelineMetrics.class);
+    // Observations are written only by the polling thread. Report the first degraded sample per attempt.
+    private boolean reportedFailure;
+    private final ObservableDoubleGauge uptime;
+    private final ObservableDoubleGauge lag;
+    private volatile OptionalLong lastLag = OptionalLong.empty();
 
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
 
@@ -59,18 +68,6 @@ public final class CdcPipelineMetrics {
     private final DoubleHistogram pollDuration;
     private final MetricAttributes streamAttributes;
 
-    // Mutable state for gauge callbacks — written by pipeline thread, read by metrics collector.
-    private final AtomicLong consumerLag = new AtomicLong(0);
-    private final long startTimeNanos;
-
-    /**
-     * Creates a no-op metrics instance where all recording methods are no-ops.
-     * Use this in tests or when no MetricsProvider is configured.
-     */
-    public static CdcPipelineMetrics noop() {
-        return NOOP;
-    }
-
     /**
      * Creates a metrics instance backed by the given provider.
      *
@@ -78,7 +75,7 @@ public final class CdcPipelineMetrics {
      * @param streamName the CDC stream name, used as a dimension tag
      */
     public CdcPipelineMetrics(MetricsProvider provider, String streamName) {
-        this.startTimeNanos = System.nanoTime();
+        long startTimeNanos = System.nanoTime();
         this.streamAttributes = MetricAttributes.of("stream", streamName);
         this.recordsConsumed = provider.createCounter(
             "pangrova.streaming.cdc.records.consumed",
@@ -86,7 +83,7 @@ public final class CdcPipelineMetrics {
             "{record}");
         this.bytesConsumed = provider.createCounter(
             "pangrova.streaming.cdc.bytes.consumed",
-            "Estimated bytes consumed from the source",
+            "Bytes in the keys and values returned by source polls",
             "By");
         this.batchesProcessed = provider.createCounter(
             "pangrova.streaming.cdc.batches.processed",
@@ -99,7 +96,7 @@ public final class CdcPipelineMetrics {
             WRITE_DURATION_BOUNDARIES_S);
         this.failures = provider.createCounter(
             "pangrova.streaming.cdc.failures",
-            "Total pipeline cycle failures",
+            "Total recovery and pipeline cycle failures",
             "{error}");
         this.commitDuration = provider.createHistogram(
             "pangrova.streaming.cdc.commit.duration",
@@ -112,126 +109,70 @@ public final class CdcPipelineMetrics {
             "s",
             POLL_DURATION_BOUNDARIES_S);
 
-        // Consumer lag gauge — reports the latest lag value set by the pipeline thread.
-        provider.createGauge(
-            "pangrova.streaming.cdc.consumer.lag",
-            "Sum of per-partition consumer lag (end-of-log offset minus consumed offset)",
-            "{record}",
-            () -> (double) consumerLag.get());
-
-        // Pipeline uptime gauge — reports seconds since pipeline start.
-        provider.createGauge(
-            "pangrova.streaming.cdc.pipeline.uptime",
-            "Seconds since the CDC pipeline started",
-            "s",
-            () -> (System.nanoTime() - startTimeNanos) / NANOS_PER_SECOND);
-    }
-
-    /** No-op constructor for the singleton NOOP instance. */
-    private CdcPipelineMetrics() {
-        this.startTimeNanos = System.nanoTime();
-        this.streamAttributes = MetricAttributes.empty();
-        this.recordsConsumed = NoOpLongCounter.INSTANCE;
-        this.bytesConsumed = NoOpLongCounter.INSTANCE;
-        this.batchesProcessed = NoOpLongCounter.INSTANCE;
-        this.writeDuration = NoOpDoubleHistogram.INSTANCE;
-        this.failures = NoOpLongCounter.INSTANCE;
-        this.commitDuration = NoOpDoubleHistogram.INSTANCE;
-        this.pollDuration = NoOpDoubleHistogram.INSTANCE;
-    }
-
-    /**
-     * Records that a batch of records has been consumed from the source.
-     *
-     * @param records number of records polled
-     * @param bytes   estimated byte size of the batch
-     */
-    public void onBatchConsumed(int records, long bytes) {
-        recordsConsumed.add(records, streamAttributes);
-        bytesConsumed.add(bytes, streamAttributes);
-    }
-
-    /**
-     * Records the write duration for a single batch write operation.
-     *
-     * @param durationMs time in milliseconds to write the batch (converted to seconds internally)
-     */
-    public void recordWriteDuration(long durationMs) {
-        writeDuration.record(durationMs / 1000.0, streamAttributes);
-    }
-
-    /**
-     * Records that a batch has been fully processed (written + offsets committed).
-     */
-    public void onBatchProcessed() {
-        batchesProcessed.add(1, streamAttributes);
-    }
-
-    /**
-     * Records a pipeline cycle failure.
-     */
-    public void onFailure() {
-        failures.add(1, streamAttributes);
-    }
-
-    /**
-     * Records the duration of a source poll operation.
-     *
-     * @param durationMs time in milliseconds for the poll call
-     */
-    public void recordPollDuration(long durationMs) {
-        pollDuration.record(durationMs / 1000.0, streamAttributes);
-    }
-
-    /**
-     * Records the duration of an offset commit operation.
-     *
-     * @param durationMs time in milliseconds for the commit call
-     */
-    public void recordCommitDuration(long durationMs) {
-        commitDuration.record(durationMs / 1000.0, streamAttributes);
-    }
-
-    /**
-     * Updates the consumer lag gauge with the latest aggregate lag value.
-     *
-     * <p>The lag is the sum of (end-of-log offset - current consumed offset)
-     * across all assigned partitions. Called by the pipeline loop after each
-     * successful poll cycle.</p>
-     *
-     * @param lag total consumer lag in records across all partitions
-     */
-    public void recordConsumerLag(long lag) {
-        consumerLag.set(lag);
-    }
-
-    // --- Inline no-op implementations to avoid dependency on pangrova-observability ---
-
-    private enum NoOpLongCounter implements LongCounter {
-        INSTANCE;
-
-        @Override
-        public void add(long value) {
-            // no-op
-        }
-
-        @Override
-        public void add(long value, MetricAttributes attributes) {
-            // no-op
+        this.uptime = provider.createObservedGauge("pangrova.streaming.cdc.pipeline.uptime",
+                "Time since pipeline execution started", "s", streamAttributes,
+                () -> OptionalDouble.of((System.nanoTime() - startTimeNanos) / NANOS_PER_SECOND));
+        try {
+            this.lag = provider.createObservedGauge("pangrova.streaming.cdc.consumer.lag",
+                    "Last known sum of unconsumed offset distances", "{offset}", streamAttributes, () -> {
+                        OptionalLong sample = lastLag;
+                        return sample.isPresent() ? OptionalDouble.of(sample.getAsLong()) : OptionalDouble.empty();
+                    });
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeAll(failure, uptime::close);
+            throw failure;
         }
     }
 
-    private enum NoOpDoubleHistogram implements DoubleHistogram {
-        INSTANCE;
+    @Override
+    public void close() {
+        ResourceCloser.closeAll(null, lag::close, uptime::close);
+    }
 
-        @Override
-        public void record(double value) {
-            // no-op
+    void recordWriteDuration(long durationNanos) {
+        observe(() -> writeDuration.record(durationNanos / NANOS_PER_SECOND, streamAttributes));
+    }
+
+    void onBatchProcessed() {
+        observe(() -> batchesProcessed.add(1, streamAttributes));
+    }
+
+    void onFailure() {
+        observe(() -> failures.add(1, streamAttributes));
+    }
+
+    void recordPollDuration(long durationNanos) {
+        observe(() -> pollDuration.record(durationNanos / NANOS_PER_SECOND, streamAttributes));
+    }
+
+    void recordCommitDuration(long durationNanos) {
+        observe(() -> commitDuration.record(durationNanos / NANOS_PER_SECOND, streamAttributes));
+    }
+
+    void onPolled(List<SourceRecord> batch, Supplier<OptionalLong> currentLag) {
+        lastLag = OptionalLong.empty();
+        observe(() -> lastLag = currentLag.get());
+        if (!batch.isEmpty()) {
+            long bytes = 0;
+            for (SourceRecord record : batch) {
+                if (record.key() != null) bytes += record.key().length;
+                if (record.value() != null) bytes += record.value().length;
+            }
+            long payloadBytes = bytes;
+            observe(() -> recordsConsumed.add(batch.size(), streamAttributes));
+            observe(() -> bytesConsumed.add(payloadBytes, streamAttributes));
         }
+    }
 
-        @Override
-        public void record(double value, MetricAttributes attributes) {
-            // no-op
+    private void observe(Runnable observation) {
+        try {
+            observation.run();
+        } catch (RuntimeException failure) {
+            // Retrying an acknowledged batch or aborting a staged write because an exporter failed is unsafe.
+            if (!reportedFailure) {
+                reportedFailure = true;
+                LOG.warn("event=cdc_metric_observation_failed dimensions={}", streamAttributes.asMap(), failure);
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ package org.pangrova.connector.lance;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.MaterializationCapabilities;
@@ -88,16 +89,16 @@ class LanceMaterializationSourceProviderTest extends ContainerTestBase {
         var source = source(table);
 
         assertReason(() -> provider.describe(source, TENANT, "2", POLICY),
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
         assertReason(() -> provider.describe(source, TENANT, "0", POLICY),
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
         assertReason(() -> provider.describe(source, TENANT, "not-a-version", POLICY),
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
         assertReason(() -> provider.describe(source, "tenant-b", "1", POLICY),
-                MaterializationSourceException.Reason.SOURCE_UNAVAILABLE);
+                MaterializationSourceFailureReason.SOURCE_UNAVAILABLE);
         assertReason(() -> provider.describe(
                         new SourceRef("lance", catalog, "db", "missing"), TENANT, "1", POLICY),
-                MaterializationSourceException.Reason.SOURCE_UNAVAILABLE);
+                MaterializationSourceFailureReason.SOURCE_UNAVAILABLE);
     }
 
     @Test
@@ -110,7 +111,7 @@ class LanceMaterializationSourceProviderTest extends ContainerTestBase {
                 Instant.now(), true);
 
         assertReason(() -> provider.pin(source, TENANT, expected, "attempt-1"),
-                MaterializationSourceException.Reason.SHAPE_MISMATCH);
+                MaterializationSourceFailureReason.SHAPE_MISMATCH);
         assertThatThrownBy(() -> provider.pin(source, TENANT,
                 new SourceSnapshotRef("iceberg", "1", expected.schemaFingerprint(), POLICY,
                         Instant.now(), true), "attempt-1"))
@@ -131,7 +132,7 @@ class LanceMaterializationSourceProviderTest extends ContainerTestBase {
         fixture.store().create(replacement);
 
         assertReason(() -> provider.describe(source, TENANT, "1", POLICY),
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
     }
 
     @Test
@@ -153,7 +154,7 @@ class LanceMaterializationSourceProviderTest extends ContainerTestBase {
         var pinned = provider.pin(source, TENANT, provider.describe(source, TENANT, "1", POLICY),
                 "attempt-1");
         assertReason(() -> provider.changeSet(pinned, pinned, ChangeSetMode.APPEND_ONLY),
-                MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+                MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED);
         assertThatThrownBy(() -> provider.capabilities(new SourceRef("iceberg", catalog, "db", "x")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -168,7 +169,7 @@ class LanceMaterializationSourceProviderTest extends ContainerTestBase {
                 writeId, operation, base, values);
     }
 
-    private static void assertReason(Runnable action, MaterializationSourceException.Reason reason) {
+    private static void assertReason(Runnable action, MaterializationSourceFailureReason reason) {
         assertThatThrownBy(action::run)
                 .isInstanceOf(MaterializationSourceException.class)
                 .satisfies(failure -> assertThat(

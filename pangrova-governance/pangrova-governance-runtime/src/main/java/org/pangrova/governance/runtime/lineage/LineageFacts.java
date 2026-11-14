@@ -14,25 +14,14 @@ final class LineageFacts {
     private LineageFacts() { }
 
     static LineageEvent event(QueryLineageFact fact) {
-        LineageEvent.EventType type = switch (fact.phase()) {
-            case START -> LineageEvent.EventType.START;
-            case COMPLETE -> LineageEvent.EventType.COMPLETE;
-            case FAIL -> LineageEvent.EventType.FAIL;
-            case ABORT -> LineageEvent.EventType.ABORT;
-        };
-        return new LineageEvent(type, fact.queryId(), "pangrova-query", fact.sql(),
+        return new LineageEvent(fact.phase(), fact.queryId(), "pangrova-query", fact.sql(),
                 datasets(fact.lineage().inputs()),
                 datasets(fact.lineage().outputs()), fact.failureMessage() == null ? Map.of()
                         : Map.of("error", fact.failureMessage()), Instant.ofEpochMilli(fact.timestampMs()));
     }
 
     static QueryLineageFact fact(String namespace, LineageEvent event) {
-        return new QueryLineageFact(namespace, event.runId(), switch (event.eventType()) {
-                case START -> QueryLineageFact.Phase.START;
-                case COMPLETE -> QueryLineageFact.Phase.COMPLETE;
-                case FAIL -> QueryLineageFact.Phase.FAIL;
-                case ABORT -> QueryLineageFact.Phase.ABORT;
-            }, event.timestamp().toEpochMilli(), event.sql(), event.facets().get("error"),
+        return new QueryLineageFact(namespace, event.runId(), event.eventType(), event.timestamp().toEpochMilli(), event.sql(), event.facets().get("error"),
                 new QueryLineageMetadata(metadata(namespace, event.inputDatasets()),
                         metadata(namespace, event.outputDatasets())));
     }

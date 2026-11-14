@@ -6,7 +6,7 @@ package org.pangrova.worker.exception;
  * instances with the single-arg {@code (String)} constructor.
  *
  * <p>Extends {@link NativeRuntimeException} so that callers catching
- * {@code NativeRuntimeException} also catch JNI bridge errors.
+ * {@code NativeRuntimeException} also catch JNI call errors.
  */
 public class JniCallException extends NativeRuntimeException {
 

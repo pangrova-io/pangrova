@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.config.CoordinatorOptions;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.security.api.authentication.AuthenticatorFactory;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;

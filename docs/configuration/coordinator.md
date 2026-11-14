@@ -21,7 +21,7 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.id` | string | `"coordinator-1"` | Unique identifier for this coordinator instance. Used in HA leader election |
 | `coordinator.host` | string | `"0.0.0.0"` | Bind address for the coordinator HTTP server |
 | `coordinator.port` | int | `8080` | Listen port for the coordinator HTTP server |
-| `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve reads and writes without background maintenance), `MAINTENANCE` (background tasks only), or `COMBINED` (both). Writes to generated-column tables still require an active durable materialization owner. |
+| `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve reads and writes without background maintenance), `MAINTENANCE` (background tasks only), or `COMBINED` (both). An unrecognized deployment role rejects startup. Writes to generated-column tables still require an active durable materialization owner. |
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
 
 ## coordinator.transport
@@ -121,18 +121,6 @@ capability secret. `BROADCAST` exchange is not supported in `REMOTE` mode.
 |-----|------|---------|-------------|
 | `coordinator.worker.heartbeat-timeout` | duration | `"30s"` | Duration after which a worker is considered dead if no heartbeat received |
 | `coordinator.worker.max-retry` | int | `3` | Maximum number of task dispatch retries to a worker |
-
----
-
-## State Store (`state-store`)
-
-The state store persists distributed state (HA leases, task journals, DDL
-locks). `IN_MEMORY` loses all state on restart and is intended for
-development and tests.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `state-store.type` | enum | `IN_MEMORY` | Global backend type for all SPI state stores: `IN_MEMORY` or `JDBC` |
 
 ---
 
@@ -265,8 +253,6 @@ coordinator:
     heartbeat-timeout: "30s"
     max-retry: 3
 
-state-store:
-  type: JDBC
 
 metadata:
   enabled: true
@@ -332,3 +318,10 @@ validated large-page execution guarantee. Longer pages require generic fenced
 execution-lease renewal acknowledged atomically by Native, not a widened timeout.
 
 **See Also:** [Configuration model](index.md), [Worker](worker.md), [Quick Reference](reference.md)
+
+### External connector plugins
+
+`connector.plugin-directory` is an optional local path. Each immediate subdirectory
+contains the provider JAR and its dependency JARs. The role discovers these
+alongside its bundled providers at startup. Install the matching plugin version
+in each role that will execute the connector. [Plugin layout and lifecycle](../architecture/connectors.md#23-connector-plugin-deployment-and-lifetime)

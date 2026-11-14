@@ -1,10 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence;
-
 import org.pangrova.execution.authority.StageExecutionContext;
-
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
-
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.generation.execution.template.FrozenStageBindings;
 import org.pangrova.execution.task.DispatchResult;
@@ -81,7 +80,7 @@ public final class DurableStageRuntime {
         var spec = execution.authority().dispatchSpec();
         job = new GenerationJobKey(spec.tenantId(), spec.jobId());
         if (!execution.job().tenantId().equals(job.tenantId()) || !execution.job().jobId().equals(job.jobId())
-                || spec.stageGraph().purpose() != GenerationStageGraph.Purpose.RELATIONAL_EXPORT) {
+                || spec.stageGraph().purpose() != GenerationGraphPurpose.RELATIONAL_EXPORT) {
             throw new IllegalArgumentException("Durable stage runtime differs from its actual relational job");
         }
         var epochs = new HashMap<Integer, Long>();

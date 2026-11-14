@@ -1,5 +1,7 @@
 package org.pangrova.ai.provider.openai.inference;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -69,14 +71,14 @@ final class OpenAiResponsesRequestEncoder {
         String documentExtension = DOCUMENT_EXTENSIONS.get(mimeType);
         if (!mimeType.startsWith("image/") && documentExtension == null) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "OpenAI Responses FILE MIME type is not an admitted document or image: "
                             + mimeType);
         }
         Function<BlobReference, byte[]> loader = blobLoader.orElseThrow(() ->
                 new AiInvocationException(
-                        AiInvocationException.Category.AUTHORIZATION,
+                        AiFailureCategory.AUTHORIZATION,
                         false,
                         "OpenAI Responses FILE access requires a governed blob loader"));
         // GovernedBlobStore verifies size and SHA-256 while reading.
@@ -94,7 +96,7 @@ final class OpenAiResponsesRequestEncoder {
     private static void appendImage(ArrayNode content, String mimeType, byte[] value) {
         if (!mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "OpenAI Responses input_image requires image MIME content");
         }

@@ -3,306 +3,47 @@ title: "Dynamic Filter Lifecycle"
 sidebar_label: "Dynamic Filter Lifecycle"
 ---
 
-# Pangrova — Dynamic Filter Lifecycle
+# Dynamic filters
 
-> **Accuracy scope.** This is a living architecture document. Content explicitly marked
-> draft, proposed, planned, phase, target, or remaining work is design intent rather
-> than implemented support. For current behavior, code wiring and end-to-end tests
-> take precedence.
+Pangrova applies static and runtime Join predicates at different points in query execution.
 
-> **Status**: Reference documentation  
-> **Related modules**: `pangrova-connector/pangrova-connector-api` (contract), `pangrova-planner` (generation), `pangrova-coordination/pangrova-coordination-control` (orchestration), `pangrova-connector-*` (consumption)
-> **Related docs**: [query-execution.md](./query-execution.md), [query-optimization.md](./query-optimization.md)
+| Path | Source and scope | Published behavior |
+|---|---|---|
+| Native hash Join | Velox build operator and probe scan in the same native task | When the complete build hash table is available, HashProbe can push an exact domain or bounded Bloom filter through the Velox driver to the corresponding scan ordinal. `ColumnAssignmentDataSource` evaluates the received filter on projected rows, including aliased columns, across source formats. Velox checks Join type and spill state before publishing. Scan output rows and producer plan node IDs identify the effect. Underlying file reads can still occur. |
+| Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. Runtime commands can inject a filter into an executing task. These consumers do not create a source of build-side values. |
+| Coordinator-generated cross-stage pruning | The planner can identify candidate equijoins. A query still needs a complete build-side summary and the corresponding physical probe scan. | Distributed SQL does not automatically collect and send a build-side predicate. Splits are enumerated with `DynamicFilter.ALL`. |
 
-## 1. Overview
+## Planning and execution
 
-Dynamic filters (also called runtime filters or dynamic partition pruning / DPP) allow the probe side of a hash join to skip reading data that the build side has already proven irrelevant. The build side collects join-key statistics (min/max range or bloom filter), and these statistics are pushed to probe-side scan operators to prune splits, row groups, or individual rows at I/O time.
+When enabled, `JoinRuntimeFilterPlanner` describes INNER and SEMI equijoins. A LEFT join must keep unmatched probe rows. A predicate derived from the right build side cannot prune its preserved left input. Logical descriptors use the right input of the rewritten Join as build and the left input as probe. They record matching integer or VARCHAR key types. Physical reorderings change the inputs themselves. Statistics alone cannot switch the source of runtime keys. They never authorize filtering by themselves.
 
-This document describes the end-to-end lifecycle: when filters are created, how they are pushed to workers, how connectors consume them, and how resources are cleaned up.
+For a bounded static case the HEP literal-Join rule reads at most 128 rows from an integer VALUES build input. It traces integer keys through deterministic projections, including a cast that preserves the declared integer width. It adds an exact membership predicate to the probe table scan for INNER and SEMI equality. HEP leaves literal relations to this rule because transitive inference can keep re-inserting filters for nullable probe columns. The original Join retains duplicates. NULL keys do not satisfy ordinary equality, and preserved outer rows are never restricted. This predicate belongs to the compiled plan and does not use a runtime registry.
 
-### Industry context
+The protocol carries typed range endpoints and bloom bytes with their value encoding. `TaskRequestParser` validates incoming bindings and `PlanExecutionDriver` installs accepted initial filters. SQL query results can demonstrate Join correctness. Evidence for fewer scanned rows must come from the scan operator.
 
-| System | Mechanism | Scope |
-|--------|-----------|-------|
-| Trino | `DynamicFilter` SPI, coordinator-side collection, lazy split enumeration | Split + row-group |
-| Spark | Dynamic Partition Pruning (DPP), Adaptive Query Execution (AQE) broadcast | Partition + file |
-| Photon | Runtime bloom filters pushed into native scan | Row-group + row |
-| StarRocks | Global runtime filter (min/max + bloom + IN-list) | Partition + row |
+## Published Shuffle build with a local probe
 
-Pangrova follows the Trino model for the SPI surface and extends it with bloom filter support (inspired by Photon/StarRocks).
+A broadcast Join can receive its build records from another stage and scan the probe table on the consuming task. `BroadcastJoinRule` wraps its right input in a broadcast exchange. `PlanFragmenter` binds the upstream stage, downstream stage, exchange ID and complete-read requirement. A stage that also scans a local table currently runs at parallelism one. `VeloxTaskRunner` consumes only sealed exchange bindings with the expected source partition count. It feeds the fetched records to the actual hash build. The task then pushes an eligible predicate to its own probe scan. The filter lives with that task and never crosses attempts.
 
+`NativeExchangeDataPlaneE2ETest.PublishedBuildFiltersTheLocalJoinProbe` commits a Direct partition with keys 2, 4, 4, unregisters its producer, and reads the partition through loopback Flight under its epoch, producer attempt and fence. The actual probe scan returns two of its four rows. The Join outputs three rows, preserving the duplicate build key. `HashJoinScanFilterTest` records the producing Join plan node and the scan output for both INNER and LEFT joins over two Parquet sources.
 
-## 2. Lifecycle state machine
+## Pruning a probe scan in another stage
 
-A dynamic filter follows a strict state progression defined by `DynamicFilter.State`:
+A distributed publisher needs all of the following before it can prune safely.
 
-```
-  PENDING --> COLLECTING --> READY --> APPLIED --> COMPLETED
-     |             |           |          |
-     +-------------+-----------+----------+
-                        |
-                        v
-                    CANCELLED
-```
+1. Bind both physical Join inputs and the exact scan node and column. Leaf enumeration order has no Join semantics, particularly for nested joins, reordered inputs and repeated column names.
+2. Collect a complete typed summary from every selected build partition and producer attempt. Native task statistics currently report operator timing, row counts and bytes. They do not report the Join-key domain. Partial data, failed attempts and estimates cannot authorize removal of probe rows.
+3. Bind publication and reads to the same query, exchange generation and winning attempt set. An empty *complete* domain must be distinguishable from an absent summary. An optional optimization with missing evidence leaves the scan unpruned.
+4. Release collection state on success, cancellation and failure. A late result from a retired attempt must not re-create it.
 
-| State | Meaning | Who sets it |
-|-------|---------|-------------|
-| **PENDING** | Filter planned but build-side execution has not started. No filter data is available. | Coordinator (query setup) |
-| **COLLECTING** | Build-side stage is running and accumulating join key values. Partial filter data may be available for early pruning. | Coordinator (on build-side stage start) |
-| **READY** | Build-side stage has completed and the filter is fully collected. The predicate is final. | Coordinator (on build-side stage completion) |
-| **APPLIED** | Filter has been delivered to all target probe-side tasks. Coordinator-side bookkeeping state. | Coordinator (after injection) |
-| **COMPLETED** | Owning query has finished; filter resources released. | Coordinator (query teardown) |
-| **CANCELLED** | Owning query was cancelled or failed; filter discarded. | Coordinator (on error/cancel) |
+The mutable Connector filter, stage-completion harness and deposited-value collector are test fixtures. Their tests supply build values explicitly and exercise the typed payload and Worker endpoints. They do not represent a distributed publisher or an enabled wait timeout, counter or configuration setting.
 
-Terminal states (`COMPLETED`, `CANCELLED`) are absorbing -- once entered, no further transitions occur.
+For a future repartitioned Join, implement that boundary in the following order.
 
-
-## 3. Phase 1: Creation (query planning)
-
-### 3.1 Planner identification
-
-During Calcite optimization, the planner identifies eligible join patterns:
-
-1. An equi-join where one side (the "build side") is expected to produce a small or moderately sized result (heuristic or cost-based).
-2. The probe-side column maps to a partition key, a sort key, or a column with file-level min/max statistics in the underlying storage (Iceberg/Paimon).
-
-The planner annotates the physical plan with **runtime filter targets**: each target identifies the build-side plan node, the probe-side scan node, and the join column.
-
-### 3.2 Filter instantiation
-
-When the coordinator materializes the `StageDAG` for execution, it creates one `SettableDynamicFilter` per runtime filter target:
-
-```java
-// pangrova-coordination/pangrova-coordination-control: SettableDynamicFilter.java
-SettableDynamicFilter filter = SettableDynamicFilter.create(
-    "order_date",   // target column
-    true            // awaitable = probe side should block
-);
-```
-
-The filter starts in `PENDING` state. An optional timeout is configured via `filter.setTimeout(duration, scheduler)` so probe-side scans are not blocked indefinitely if the build side is slow.
-
-### 3.3 Registration
-
-Each filter is registered in the `RuntimeFilterRegistry` (keyed by target stage ID) so that `DynamicFilterBinder` can look it up at dispatch time.
-
-
-## 4. Phase 2: Collection (build-side execution)
-
-### 4.1 Build-side stage execution
-
-When the build-side stage starts, the coordinator transitions the filter:
-
-```
-PENDING --> COLLECTING
-```
-
-As the build-side tasks execute on workers, they produce the join-key column data. When the build-side stage completes (all tasks `FINISHED`), the `RuntimeFilterStageHandler` processes the results.
-
-### 4.2 Filter generation
-
-`RuntimeFilterStageHandler` uses `RuntimeFilterGenerator` to create the filter from build-side results:
-
-1. **MIN_MAX filter**: Extracts the minimum and maximum values of the build-side join column. Effective for range-partitioned or sorted probe-side data.
-2. **BLOOM filter**: Builds a `SplitBlockBloomFilter` from the distinct join-key values. Effective for high-cardinality keys where range pruning is insufficient.
-
-The generator applies selectivity thresholds -- if the build side produces too many distinct values (low selectivity), no filter is generated (the cost of evaluation would exceed the I/O savings).
-
-### 4.3 State transition
-
-On successful generation:
-
-```java
-filter.setMinMax(minValue, maxValue);  // transitions to READY
-// or
-filter.setBloom(bloomPredicate);       // transitions to READY
-```
-
-```
-COLLECTING --> READY
-```
-
-If filter generation is skipped (low selectivity or error):
-
-```java
-filter.cancel();  // transitions to CANCELLED
-```
-
-```
-COLLECTING --> CANCELLED
-```
-
-Transitioning to `READY` completes the `CompletableFuture` returned by `isBlocked()`, unblocking any waiting probe-side scans.
-
-
-## 5. Phase 3: Delivery (coordinator to workers)
-
-### 5.1 Binding to probe-side tasks
-
-When the coordinator dispatches probe-side leaf-stage tasks, `DynamicFilterBinder.resolveFilters()` checks the `RuntimeFilterRegistry` for filters targeting the probe stage:
-
-```java
-// pangrova-coordination/pangrova-coordination-control: DynamicFilterBinder.java
-List<DynamicFilterPayload> filters = DynamicFilterBinder.resolveFilters(
-    stageId, queryId, runtimeFilterRegistry);
-```
-
-If a filter is available, it is serialized into a `DynamicFilterPayload` protocol message:
-
-- **MIN_MAX**: Serialized as `column|min|max` (UTF-8 encoded).
-- **BLOOM**: Serialized via `SplitBlockBloomFilter.toByteArray()` (custom binary format).
-
-### 5.2 Task request injection
-
-The serialized filter payloads are included in the `SubmitTaskRequest` sent to workers via `TaskRequestFactory`:
-
-```java
-TaskRequestFactory.createLeafTask(session, planBytes, splits,
-    shuffleConfig, writeConfig, dynamicFilters, ...);
-```
-
-### 5.3 Late injection
-
-For tasks already running when the filter becomes ready, the coordinator uses the `injectDynamicFilter` RPC:
-
-```java
-// pangrova-coordination/pangrova-coordination-control: RemoteTaskDispatcher.java
-dispatcher.injectDynamicFilter(taskId, planNodeId, filterProto);
-```
-
-This sends an `InjectDynamicFilterRequest` to the worker's REST API.
-
-### 5.4 Post-delivery state
-
-After all probe-side tasks have received the filter:
-
-```
-READY --> APPLIED
-```
-
-
-## 6. Phase 4: Consumption (connector side)
-
-### 6.1 Split manager
-
-The `ConnectorSplitManager.getSplits()` method receives the `DynamicFilter` as a parameter:
-
-```java
-// pangrova-connector/pangrova-connector-api: ConnectorSplitManager.java
-ConnectorSplitSource getSplits(
-    ConnectorTransactionHandle transaction,
-    ConnectorSession session,
-    ConnectorTableHandle table,
-    DynamicFilter dynamicFilter,
-    Constraint constraint);
-```
-
-**Blocking behavior**: If `dynamicFilter.isAwaitable()` returns `true`, the split manager can call `dynamicFilter.isBlocked()` to obtain a `CompletableFuture` that completes when filter data is available. This allows the split enumeration to delay until the build side produces a filter, avoiding unnecessary I/O on partitions that would be pruned.
-
-**Split-level pruning**: For partitioned tables (Iceberg/Paimon), the split manager uses `dynamicFilter.min()`, `dynamicFilter.max()`, and `dynamicFilter.mightContain(partitionValue)` to skip entire partitions or data files whose partition values fall outside the filter range.
-
-### 6.2 Page source
-
-The `ConnectorPageSourceProvider.createPageSource()` method also receives the filter:
-
-```java
-// pangrova-connector/pangrova-connector-api: ConnectorPageSourceProvider.java
-ConnectorPageSource createPageSource(
-    ConnectorTransactionHandle transaction,
-    ConnectorSession session,
-    ConnectorSplit split,
-    ConnectorTableHandle table,
-    List<ColumnHandle> columns,
-    DynamicFilter dynamicFilter);
-```
-
-**Row-group pruning**: The page source uses file-level and row-group-level column statistics to skip row groups whose min/max values do not overlap the filter range.
-
-**Row-level filtering**: For bloom filters, individual rows can be tested against `mightContain()` before being included in output batches.
-
-### 6.3 No-op sentinel
-
-When dynamic filtering is not applicable (no eligible joins, DPP disabled), the sentinel `DynamicFilter.ALL` is passed. It accepts all values, is always in `READY` state, and never blocks.
-
-
-## 7. Phase 5: Cleanup
-
-### 7.1 Normal completion
-
-When the query completes successfully, the coordinator transitions all filters for the query:
-
-```
-APPLIED --> COMPLETED
-```
-
-The `SettableDynamicFilter` clears its internal state (predicate, min/max values, listener list). The `RuntimeFilterRegistry` entry is removed.
-
-### 7.2 Query cancellation or failure
-
-On query cancellation or failure:
-
-```
-(any state) --> CANCELLED
-```
-
-`cancel()` completes the blocked future (if still pending) to unblock any waiting scan operators. After cancellation, `mightContain()` returns `true` for all values (effectively disabling the filter).
-
-### 7.3 Timeout
-
-If the build side does not produce a filter within the configured timeout (`pangrova.optimizer.dynamic_filter_timeout`), the blocked future completes automatically, allowing probe-side scans to proceed without the filter. The filter may still transition to `READY` later and be applied opportunistically to subsequent split fetches.
-
-### 7.4 Resource ownership
-
-| Resource | Owner | Cleanup trigger |
-|----------|-------|-----------------|
-| `SettableDynamicFilter` instance | Coordinator | Query completion/cancellation |
-| `RuntimeFilterRegistry` entry | Coordinator | Query completion/cancellation |
-| Serialized `DynamicFilterPayload` | Worker task | Task completion |
-| `CompletableFuture` (blocked) | `SettableDynamicFilter` | State transition to READY/CANCELLED |
-| Bloom filter byte array | `RuntimeFilter` | GC after registry removal |
-
-
-## 8. Thread safety
-
-All `DynamicFilter` implementations must be thread-safe. The SPI contract documents this requirement explicitly:
-
-- The filter may be read by multiple scan threads concurrently.
-- The coordinator updates state from a separate thread.
-- `SettableDynamicFilter` uses `AtomicReference` for state transitions and `CopyOnWriteArrayList` for listeners.
-- The blocked future is replaced atomically.
-
-
-## 9. Configuration
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `pangrova.optimizer.dynamic_filter.enabled` | `true` | Enable/disable dynamic filter generation |
-| `pangrova.optimizer.dynamic_filter.timeout` | `10s` | Maximum time probe side waits for build side |
-| `pangrova.optimizer.dynamic_filter.max_distinct_values` | `10000` | Selectivity threshold for bloom filter generation |
-| `pangrova.optimizer.dynamic_filter.bloom_fpp` | `0.01` | False positive probability for bloom filters |
-
-
-## 10. Observability
-
-| Metric | Type | Source | Description |
-|--------|------|--------|-------------|
-| `pangrova.optimizer.dynamic_filter.generated` | counter | RuntimeFilterStageHandler | Filters successfully generated |
-| `pangrova.optimizer.dynamic_filter.timeout` | counter | SettableDynamicFilter | Filters that hit the wait timeout |
-| `pangrova.dynamic_filter.rows_filtered` | counter | ConnectorPageSource | Rows eliminated by dynamic filters |
-| `pangrova.dynamic_filter.splits_pruned` | counter | ConnectorSplitManager | Splits skipped via filter pruning |
-
-
-## 11. Key source files
-
-| File | Role |
-|------|------|
-| `pangrova-connector/pangrova-connector-api/.../metadata/DynamicFilter.java` | API/SPI contract with lifecycle state machine |
-| `pangrova-coordination/pangrova-coordination-control/.../adaptive/SettableDynamicFilter.java` | Mutable coordinator-side implementation |
-| `pangrova-coordination/pangrova-coordination-control/.../adaptive/DynamicFilterBinder.java` | Serializes filters into protocol messages |
-| `pangrova-coordination/pangrova-coordination-control/.../handler/RuntimeFilterStageHandler.java` | Generates filters from build-side results |
-| `pangrova-planner/.../runtimefilter/RuntimeFilterGenerator.java` | Min/max and bloom filter construction |
-| `pangrova-planner/.../runtimefilter/RuntimeFilterRegistry.java` | Per-query filter storage |
-| `pangrova-connector-iceberg/.../IcebergSplitManager.java` | Iceberg split-level pruning |
-| `pangrova-connector-iceberg/.../IcebergPageSourceProvider.java` | Iceberg row-group pruning |
-| `pangrova-connector-paimon/.../PaimonSplitManager.java` | Paimon split-level pruning |
-| `pangrova-connector-paimon/.../PaimonPageSourceProvider.java` | Paimon row-group pruning |
+| Owner | Change and acceptance case |
+|---|---|
+| Planner | For an INNER or SEMI equijoin, derive build and probe exchange IDs from the rewritten inputs of the same Join. Trace each key ordinal through ordinal-preserving projections to one exact probe scan. A transform, ambiguity, preserved side or unavailable lineage leaves that input unrestricted. Test nested joins with repeated column names. |
+| Native producer | Bind an optional summary request to the build exchange output. Accumulate eligible key values from the rows actually emitted by that producer, with explicit type, value and byte caps. Report completion only after the entire output commits. Empty, over-budget and failed inputs have distinct outcomes. |
+| Shuffle publication and Query | Bind summary digests to exact producer attempts and the accepted publication. Verify every expected producer and partition. Discard data after failed or obsolete attempts. Aggregate only complete compatible domains. Unknown publication results require read-back before using the predicate. A timeout starts the probe unrestricted. |
+| Execution binding and scan | Send the aggregate through the canonical task request with its exact query, exchange generation, scan node, projected ordinal and type. Apply it once per intended attempt. Multiple probe drivers and splits must all observe the accepted predicate before claiming source pruning. |
+| Scheduling and resources | Account the collector against a query budget and give the query owner cancellation and close authority. Never introduce a blocking build/probe cycle. Test late arrivals after cancellation, a speculative loser with extra keys, partial partitions, explicit empty partitions and mixed receipts before enabling a new combination. |

@@ -1,5 +1,7 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.TableFunctionType;
+
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.parser.api.ast.Query;
@@ -16,7 +18,7 @@ class GenerateSeriesParserTest {
                 "TABLE(GENERATE_SERIES(10, 1, -3))"}) {
             var query = (Query) parser.parse("SELECT n FROM " + table + " AS s(n)");
             TableFunctionRef function = query.from().get(0).tableFunctionRef().orElseThrow();
-            assertThat(function.functionType()).isEqualTo(TableFunctionRef.TableFunctionType.GENERATE_SERIES);
+            assertThat(function.functionType()).isEqualTo(TableFunctionType.GENERATE_SERIES);
             assertThat(function.endArgument()).isPresent();
             assertThat(function.stepArgument()).isPresent();
             assertThat(function.alias()).contains("s");

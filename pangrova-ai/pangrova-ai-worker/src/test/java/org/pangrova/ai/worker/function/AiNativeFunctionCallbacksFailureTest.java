@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -54,7 +56,7 @@ class AiNativeFunctionCallbacksFailureTest {
                     .satisfies(failure -> {
                         AiInvocationException invocation = (AiInvocationException) failure;
                         assertThat(invocation.category()).isEqualTo(
-                                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                         assertThat(invocation.retryable()).isFalse();
                     });
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);

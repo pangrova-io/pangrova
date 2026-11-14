@@ -6,6 +6,9 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.connector.api.enums.SnapshotReferenceType;
+import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
@@ -187,7 +190,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
                 return base == null ? null : IcebergManifestReadBindings.select(
                         base, catalogTables.resolveTable(base));
             }
-            var kind = IcebergSystemTableHandle.Kind.fromSuffix(
+            var kind = IcebergSystemTableKind.fromSuffix(
                     tableName.table().substring(separator + 1));
             if (kind.isPresent()) {
                 String baseName = tableName.table().substring(0, separator);
@@ -248,7 +251,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle
                 || table instanceof IcebergFileTableHandle || table instanceof IcebergPartitionTableHandle) {
             return new ConnectorTableReadMetadata(getTableMetadata(session, table),
-                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                    TableDeclarationEvidence.EXACT);
         }
         return catalogTables.getTableReadMetadata((IcebergTableHandle) table);
     }
@@ -348,7 +351,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         for (Map.Entry<String, SnapshotRef> entry : catalogTables.resolveTable(handle).refs().entrySet()) {
             SnapshotRef ref = entry.getValue();
             result.add(new SnapshotReference(entry.getKey(),
-                    ref.isBranch() ? SnapshotReference.Type.BRANCH : SnapshotReference.Type.TAG,
+                    ref.isBranch() ? SnapshotReferenceType.BRANCH : SnapshotReferenceType.TAG,
                     ref.snapshotId()));
         }
         return List.copyOf(result);

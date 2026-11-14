@@ -20,6 +20,10 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-memory</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-redis</artifactId><scope>runtime</scope></dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-streaming-memory</artifactId>
@@ -283,6 +287,14 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-runtime</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-governance-lineage-log</artifactId>
             <scope>runtime</scope>
         </dependency>
@@ -335,10 +347,6 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>redis.clients</groupId>
-            <artifactId>jedis</artifactId>
         </dependency>
 
         <!-- Logging -->

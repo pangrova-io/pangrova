@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.DistributedWritePublicationMetadata;
-import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 
@@ -18,7 +18,7 @@ final class RequiredWritePublication {
         if (required && metadata instanceof DistributedWritePublicationMetadata publisher) {
             var receipt = publisher.finishDistributedWriteWithPublication(
                     session, handle, intent.fragments(), intent.commitContext());
-            if (receipt.outcome() != NativeWriteFinalization.Outcome.COMMITTED) {
+            if (receipt.outcome() != NativeWriteCommitOutcome.COMMITTED) {
                 throw new IllegalStateException("Required write publication has not been confirmed");
             }
             journal.recordPublication(intent.queryId(), intent.commitFingerprint(), receipt);

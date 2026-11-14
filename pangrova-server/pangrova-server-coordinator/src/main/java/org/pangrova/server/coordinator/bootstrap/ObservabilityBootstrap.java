@@ -1,9 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import java.util.Map;
 import org.pangrova.observability.metrics.MetricsScope;
-import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.observability.sdk.config.ObservabilityConfig;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.observability.sdk.logging.otel.OtelLoggingProvider;
 import org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider;
@@ -45,7 +42,7 @@ final class ObservabilityBootstrap {
         if (config.observabilityBootstrapConfig() == null) {
             LOG.warn("Phase: observability — enabled but no OTel config provided. "
                     + "Falling back to NoOp providers. Traces and metrics will NOT be collected. "
-                    + "Set 'pangrova.observability.otlp-endpoint' to enable telemetry.");
+                    + "Set 'observability.otlp-endpoint' to enable telemetry.");
             assignNoOpProviders();
             return;
         }
@@ -68,19 +65,10 @@ final class ObservabilityBootstrap {
     }
 
     private void initOtelProviders() {
-        ObservabilityConfig obsCfg = buildObservabilityConfig(config.observabilityBootstrapConfig());
-        otelInitializer = new TelemetryInitializer(obsCfg);
+        otelInitializer = new TelemetryInitializer(config.observabilityBootstrapConfig());
         tracingProvider = new OtelTracingProvider(otelInitializer.getTracer());
         metricsProvider = new MetricsScope(new OtelMetricsProvider(otelInitializer.getMeter()));
         loggingProvider = new OtelLoggingProvider();
-    }
-
-    private static ObservabilityConfig buildObservabilityConfig(
-            CoordinatorBootstrapConfig.ObservabilityBootstrapConfig bootCfg) {
-        PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", bootCfg.serviceName(),
-                "pangrova.observability.otlp-endpoint", bootCfg.otlpEndpoint()));
-        return new ObservabilityConfig(pangrovaConfig);
     }
 
     TracingProvider tracingProvider() { return tracingProvider; }

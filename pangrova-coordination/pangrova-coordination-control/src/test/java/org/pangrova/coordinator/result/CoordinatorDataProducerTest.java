@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.result;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.protocol.exception.DataProducerException;
 import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.protocol.enums.TransportStatus;
@@ -41,7 +42,7 @@ class CoordinatorDataProducerTest {
         byte[] expected = {10, 20, 30};
         buffer.put("q1", expected);
 
-        DataTicket ticket = new DataTicket("q1", "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket("q1", "t1", 0, DataTicketType.RESULT);
         byte[] result = producer.openStream(ticket).next();
 
         assertThat(result).isEqualTo(expected);
@@ -49,7 +50,7 @@ class CoordinatorDataProducerTest {
 
     @Test
     void doGetThrowsNotFoundForMissingQuery() {
-        DataTicket ticket = new DataTicket("missing", "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket("missing", "t1", 0, DataTicketType.RESULT);
 
         assertThatThrownBy(() -> producer.openStream(ticket))
                 .isInstanceOf(DataProducerException.class)
@@ -88,6 +89,6 @@ class CoordinatorDataProducerTest {
     }
 
     private static DataTicket ticket(String queryId) {
-        return new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        return new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
     }
 }

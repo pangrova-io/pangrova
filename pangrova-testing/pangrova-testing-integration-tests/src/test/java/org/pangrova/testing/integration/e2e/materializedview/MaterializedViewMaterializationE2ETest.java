@@ -10,7 +10,8 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.materialization.api.domain.InternalNamespace;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
@@ -124,7 +125,7 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         assertPhysicalCommittedRows(second.physicalTable().qualifiedName(), 3);
 
         var tombstone = authority.repository().findObject(id(logical)).orElseThrow();
-        assertThat(tombstone.state()).isEqualTo(ObjectState.Dropped.INSTANCE);
+        assertThat(tombstone.state()).isEqualTo(ObjectState.DROPPED);
 
         sqlRunner.executeDdl("CREATE MATERIALIZED VIEW " + logical
                 + " AS SELECT id FROM " + source + " WHERE id >= 2");
@@ -189,8 +190,7 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         assertIds(logical, 2L, 3L);
         assertThat(authority.repository().findPublishedGeneration(id(logical))
                 .orElseThrow().refreshKind())
-                .isEqualTo(org.pangrova.materialization.api.domain.RefreshKind
-                        .IncrementalAppendOnly.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
 
         String headBeforeRename = published(logical).physicalTable().qualifiedName();
         sqlRunner.executeDdl("ALTER MATERIALIZED VIEW " + logical

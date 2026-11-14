@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.common.api.annotation.Experimental;
 
 /**
@@ -22,7 +23,7 @@ public record ConnectorDerivedQuery(String sql, List<Input> inputs) {
             Objects.requireNonNull(alias, "alias");
             Objects.requireNonNull(binding, "binding");
             if (alias.isBlank()) throw new IllegalArgumentException("Derived input alias must not be blank");
-            if (binding.state() == ConnectorReadBinding.SnapshotState.UNVERSIONED
+            if (binding.state() == ReadSnapshotState.UNVERSIONED
                     || binding.sourceIdentity().isBlank()) {
                 throw new IllegalArgumentException("Derived input requires a frozen source identity");
             }

@@ -6,11 +6,11 @@
 // hierarchy. MarkDistinctNode uses Velox's built-in OperatorStats framework
 // (inputRows, outputRows, addInputTiming, getOutputTiming) which is
 // automatically collected by exec::Task::taskStats() and serialized by
-// serializeNativeTaskStats().
+// pangrova::velox::serializeNativeTaskStats().
 
 #include <gtest/gtest.h>
 
-#include "command/StatusSerializer.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 
@@ -108,7 +108,7 @@ TEST_F(MarkDistinctStatsTest, MarkDistinctStatsPropagateToProto) {
 
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -182,7 +182,7 @@ TEST_F(MarkDistinctStatsTest, ChainedMarkDistinctNodesStats) {
 
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
@@ -235,7 +235,7 @@ TEST_F(MarkDistinctStatsTest, MarkDistinctStatsContributeToAggregates) {
       49152, 98304));
   taskStats.pipelineStats.push_back(std::move(pipeline));
 
-  auto bytes = serializeNativeTaskStats(taskStats);
+  auto bytes = pangrova::velox::serializeNativeTaskStats(taskStats);
 
   pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));

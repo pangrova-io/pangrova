@@ -474,8 +474,9 @@ allowed outside the list above.
 - `engine/observability/` MUST NOT include business logic headers
 - `engine/memory/` MUST NOT include executor or shuffle headers (direction: they depend on memory)
 - `engine/columnar/` MUST NOT include SQL decoder, executor or JNI headers
-- Reject local file include cycles. Review changes to cross-component edges against the
-  ownership table above and validate affected build targets and JNI entry points
+- Reject local file include cycles and new edges within cyclic source-component groups.
+  Remove resolved cyclic edges from the Native include check in the same change.
+  Validate affected build targets and JNI entry points.
 
 ## Full-Chain Connectivity Requirements
 

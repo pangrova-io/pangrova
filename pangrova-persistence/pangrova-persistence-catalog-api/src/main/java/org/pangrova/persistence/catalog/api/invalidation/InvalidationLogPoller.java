@@ -1,8 +1,7 @@
 package org.pangrova.persistence.catalog.api.invalidation;
 
 import org.pangrova.common.api.annotation.Experimental;
-
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 
 /**
  * Cross-coordinator invalidation-log participant: readers consume committed entries for

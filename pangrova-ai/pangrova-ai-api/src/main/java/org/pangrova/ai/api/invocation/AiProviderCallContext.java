@@ -1,5 +1,6 @@
 package org.pangrova.ai.api.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,7 +43,7 @@ public final class AiProviderCallContext {
         Objects.requireNonNull(now, "now must not be null");
         Call call = CURRENT.get();
         if (call == null || call.attemptAdmission() == null) {
-            throw new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false,
+            throw new AiInvocationException(AiFailureCategory.AUTHORIZATION, false,
                     "AI provider transport has no governed physical-request admission");
         }
         if (!now.isBefore(call.deadline())) {
@@ -144,7 +145,7 @@ public final class AiProviderCallContext {
 
     private static AiInvocationException deadlineExceeded() {
         return new AiInvocationException(
-                AiInvocationException.Category.TIMEOUT,
+                AiFailureCategory.TIMEOUT,
                 false,
                 "AI provider call exceeded the task deadline");
     }

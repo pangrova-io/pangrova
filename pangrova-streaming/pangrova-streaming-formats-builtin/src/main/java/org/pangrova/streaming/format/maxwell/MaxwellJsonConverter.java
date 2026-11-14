@@ -12,6 +12,7 @@ import org.pangrova.streaming.api.cdc.CdcRow;
 import org.pangrova.streaming.format.json.CdcRowParser;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -89,7 +90,7 @@ public final class MaxwellJsonConverter implements CdcRecordConverter {
     }
 
     private CdcOperation mapOp(String type) {
-        return switch (type.toLowerCase()) {
+        return switch (type.toLowerCase(Locale.ROOT)) {
             case "insert" -> CdcOperation.INSERT;
             case "update" -> CdcOperation.UPDATE;
             case "delete" -> CdcOperation.DELETE;

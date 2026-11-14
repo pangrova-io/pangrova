@@ -7,6 +7,7 @@
     <name>Pangrova Query Persistence postgresql</name>
     <properties><module.name>org.pangrova.persistence.query.postgresql</module.name></properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-governance-api</artifactId></dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>

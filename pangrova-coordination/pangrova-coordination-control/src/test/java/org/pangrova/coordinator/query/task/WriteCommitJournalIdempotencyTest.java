@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
@@ -132,7 +134,7 @@ class WriteCommitJournalIdempotencyTest {
         // Pre-mark the query as committed (simulates crash recovery scenario)
         writeCommitJournal.recordIntent(entry(
                 QUERY_ID, CATALOG_NAME, "test-table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
         writeCommitJournal.markCommitted(QUERY_ID);
 
         writeCommitTracker.registerWriteContext(
@@ -165,7 +167,7 @@ class WriteCommitJournalIdempotencyTest {
         // Manually record an intent
         writeCommitJournal.recordIntent(entry(
                 QUERY_ID, CATALOG_NAME, "test-table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
 
         tracker.registerTask(QUERY_ID, "t-1");
         registerCanonicalRequest("t-1");
@@ -175,7 +177,7 @@ class WriteCommitJournalIdempotencyTest {
 
         // Task failure cannot prove that an external catalog did not publish the intent.
         assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
-                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.PENDING);
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitState.PENDING);
         assertThat(writeCommitJournal.replayPendingEntries(Set.of(QUERY_ID)))
                 .extracting(WriteCommitEntry::queryId).containsExactly(QUERY_ID);
         // Write state should also be cleaned up
@@ -190,13 +192,13 @@ class WriteCommitJournalIdempotencyTest {
 
         writeCommitJournal.recordIntent(entry(
                 queryId1, CATALOG_NAME, "table1",
-                WriteCommitEntry.State.PENDING, 1000L));
+                WriteCommitState.PENDING, 1000L));
         writeCommitJournal.recordIntent(entry(
                 queryId2, CATALOG_NAME, "table2",
-                WriteCommitEntry.State.PENDING, 2000L));
+                WriteCommitState.PENDING, 2000L));
         writeCommitJournal.recordIntent(entry(
                 queryId3, CATALOG_NAME, "table3",
-                WriteCommitEntry.State.PENDING, 3000L));
+                WriteCommitState.PENDING, 3000L));
         writeCommitJournal.markCommitted(queryId3);
 
         List<WriteCommitEntry> pending = writeCommitJournal.replayPendingEntries(
@@ -227,7 +229,7 @@ class WriteCommitJournalIdempotencyTest {
                 "q-replayable",
                 CATALOG_NAME,
                 "analytics.events",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 System.currentTimeMillis(),
                 fragments,
                 "OVERWRITE",
@@ -249,7 +251,7 @@ class WriteCommitJournalIdempotencyTest {
 
         writeCommitJournal.markCommitted("q-replayable");
         WriteCommitEntry committed = writeCommitJournal.getEntry("q-replayable").orElseThrow();
-        assertThat(committed.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+        assertThat(committed.state()).isEqualTo(WriteCommitState.COMMITTED);
         // Replay payload preserved across the state transition (not dropped).
         assertThat(committed.fragments().get(0)).isEqualTo(new byte[]{9, 8, 7});
         assertThat(committed.idempotencyKey()).isEqualTo(fingerprint);
@@ -267,7 +269,7 @@ class WriteCommitJournalIdempotencyTest {
         // Operations should not throw
         journal.recordIntent(entry(
                 "q-1", "cat", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
         assertThat(journal.isCommitted("q-1")).isFalse();
 
         journal.markCommitted("q-1");
@@ -326,7 +328,7 @@ class WriteCommitJournalIdempotencyTest {
 
     private static WriteCommitEntry entry(
             String queryId, String catalog, String table,
-            WriteCommitEntry.State state, long timestampMs) {
+            WriteCommitState state, long timestampMs) {
         String mode = "INSERT";
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(

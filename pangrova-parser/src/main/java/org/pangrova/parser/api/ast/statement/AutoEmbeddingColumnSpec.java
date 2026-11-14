@@ -1,5 +1,7 @@
 package org.pangrova.parser.api.ast.statement;
 
+import org.pangrova.parser.api.enums.EmbeddingMode;
+
 import java.util.List;
 
 /**
@@ -29,13 +31,4 @@ public record AutoEmbeddingColumnSpec(
         sourceColumns = List.copyOf(sourceColumns);
     }
 
-    /**
-     * Embedding computation mode.
-     */
-    public enum EmbeddingMode {
-        /** Compute embedding synchronously before DML commits. */
-        SYNC,
-        /** Commit row with NULL embedding, compute asynchronously in background. */
-        ASYNC
-    }
 }

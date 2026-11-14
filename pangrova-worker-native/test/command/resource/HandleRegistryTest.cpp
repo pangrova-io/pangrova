@@ -68,6 +68,27 @@ TEST_F(HandleRegistryTest, ReleaseAndDoubleReleaseThrows) {
   EXPECT_THROW(HandleRegistry::instance().release(handle), std::runtime_error);
 }
 
+TEST_F(HandleRegistryTest, ResultFailuresUseTheLiveHandleAndRetainTheProducerDiagnostic) {
+  auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("result-failure-owner"));
+  auto& registry = HandleRegistry::instance();
+  const auto handle = registry.create(task);
+  const executor::TaskFailureReporter& reports = registry;
+  protocol::v2::ExecutionError producer;
+  producer.set_error_class(protocol::v2::ERROR_CLASS_INTERNAL);
+  producer.set_code("NATIVE_TASK_FAILED");
+  producer.set_message("operator failed");
+  producer.set_failed_component("native-executor");
+  reports.reportExecutionError(handle, producer);
+  reports.reportResultStreamFailure(handle, "result revoked");
+  auto bytes = serializeTaskStatus(*task);
+  protocol::v2::TaskReport report;
+  ASSERT_TRUE(report.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(report.error().SerializeAsString(), producer.SerializeAsString());
+  registry.release(handle);
+  EXPECT_THROW(reports.reportResultStreamFailure(handle, "late stream"), std::runtime_error);
+  EXPECT_THROW(reports.reportExecutionError(handle, producer), std::runtime_error);
+}
+
 TEST_F(HandleRegistryTest, ReceiptPreparationKeepsExactDrainedExecutorUntilErase) {
   auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("receipt-owner"));
   auto& registry = HandleRegistry::instance();

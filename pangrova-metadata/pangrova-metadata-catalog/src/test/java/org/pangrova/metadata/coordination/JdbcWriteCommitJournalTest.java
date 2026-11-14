@@ -1,4 +1,6 @@
 package org.pangrova.metadata.coordination;
+
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -36,7 +38,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
 
     @Test
     void confirmedAbortRetainsOnlyExactIntentBarrierAndIsIdempotent() {
-        var intent = entry("q-abort", "catalog-a", "table", WriteCommitEntry.State.PENDING, 1L);
+        var intent = entry("q-abort", "catalog-a", "table", WriteCommitState.PENDING, 1L);
         journal.recordIntent(intent);
 
         assertThatThrownBy(() -> journal.markAborted("q-abort", "wrong-fingerprint"))
@@ -46,7 +48,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         journal.markAborted("q-abort", intent.commitFingerprint());
 
         assertThat(journal.getEntry("q-abort")).get()
-                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.ABORTED);
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitState.ABORTED);
         assertThat(journal.replayPendingEntries(Set.of("q-abort"))).isEmpty();
         assertThatThrownBy(() -> journal.recordIntent(intent)).isInstanceOf(JournalWriteException.class);
         assertThatThrownBy(() -> journal.markCommitted("q-abort")).isInstanceOf(IllegalStateException.class);
@@ -56,7 +58,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
 
     @Test
     void confirmedAbortCannotReplaceCommittedPublication() {
-        var intent = entry("q-abort", "catalog-a", "table", WriteCommitEntry.State.PENDING, 1L);
+        var intent = entry("q-abort", "catalog-a", "table", WriteCommitState.PENDING, 1L);
         journal.recordIntent(intent);
         journal.markCommitted("q-abort");
 
@@ -69,7 +71,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void recordIntentPersistsEntry() {
         WriteCommitEntry entry = entry(
                 "q-1", "catalog-a", "schema.table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis());
+                WriteCommitState.PENDING, System.currentTimeMillis());
 
         journal.recordIntent(entry);
 
@@ -78,7 +80,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         assertThat(retrieved.get().queryId()).isEqualTo("q-1");
         assertThat(retrieved.get().catalogName()).isEqualTo("catalog-a");
         assertThat(retrieved.get().tableName()).isEqualTo("schema.table");
-        assertThat(retrieved.get().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(retrieved.get().state()).isEqualTo(WriteCommitState.PENDING);
     }
 
     @Test
@@ -104,7 +106,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 "q-replay",
                 "iceberg",
                 "analytics.events",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 System.currentTimeMillis(),
                 fragments,
                 "OVERWRITE",
@@ -139,20 +141,20 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void markCommittedUpdatesState() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
 
         journal.markCommitted("q-1");
 
         Optional<WriteCommitEntry> entry = journal.getEntry("q-1");
         assertThat(entry).isPresent();
-        assertThat(entry.get().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+        assertThat(entry.get().state()).isEqualTo(WriteCommitState.COMMITTED);
     }
 
     @Test
     void isCommittedReturnsTrueAfterMarkCommitted() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
 
         assertThat(journal.isCommitted("q-1")).isFalse();
 
@@ -170,7 +172,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void purgeRequiresExplicitCommittedAbsenceAcknowledgement() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
 
         journal.purge("q-1");
 
@@ -195,13 +197,13 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void replayPendingEntriesReturnsOnlyPending() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table1",
-                WriteCommitEntry.State.PENDING, 1000L));
+                WriteCommitState.PENDING, 1000L));
         journal.recordIntent(entry(
                 "q-2", "catalog-a", "table2",
-                WriteCommitEntry.State.PENDING, 2000L));
+                WriteCommitState.PENDING, 2000L));
         journal.recordIntent(entry(
                 "q-3", "catalog-b", "table3",
-                WriteCommitEntry.State.PENDING, 3000L));
+                WriteCommitState.PENDING, 3000L));
 
         // Mark one as committed
         journal.markCommitted("q-2");
@@ -215,7 +217,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
 
     @Test
     void acknowledgedRedoIdentityRemainsUntilItsCommitQueueEventIsConsumed() throws SQLException {
-        var intent = entry("q-queue", "catalog-a", "schema.table", WriteCommitEntry.State.PENDING, 1_000L);
+        var intent = entry("q-queue", "catalog-a", "schema.table", WriteCommitState.PENDING, 1_000L);
         journal.recordIntent(intent);
         journal.markCommitted(intent.queryId());
         journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
@@ -241,7 +243,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void replayPendingEntriesReturnsEmptyWhenAllCommitted() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, 1000L));
+                WriteCommitState.PENDING, 1000L));
         journal.markCommitted("q-1");
 
         assertThat(journal.replayPendingEntries(Set.of("q-1"))).isEmpty();
@@ -251,10 +253,10 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void replayPendingEntriesOrderedByTimestamp() {
         journal.recordIntent(entry(
                 "q-late", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, 3000L));
+                WriteCommitState.PENDING, 3000L));
         journal.recordIntent(entry(
                 "q-early", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, 1000L));
+                WriteCommitState.PENDING, 1000L));
 
         List<WriteCommitEntry> pending = journal.replayPendingEntries(
                 Set.of("q-late", "q-early"));
@@ -267,11 +269,11 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void duplicateIntentThrows() {
         journal.recordIntent(entry(
                 "q-1", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
+                WriteCommitState.PENDING, System.currentTimeMillis()));
 
         assertThatThrownBy(() -> journal.recordIntent(entry(
                 "q-1", "catalog-b", "other-table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis())))
+                WriteCommitState.PENDING, System.currentTimeMillis())))
                 .isInstanceOf(JournalWriteException.class);
     }
 
@@ -279,14 +281,14 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
     void identicalIntentCanBeRecordedAgainAfterAmbiguousJournalResponse() {
         WriteCommitEntry intent = entry(
                 "q-retry", "catalog-a", "table",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis());
+                WriteCommitState.PENDING, System.currentTimeMillis());
 
         journal.recordIntent(intent);
         journal.recordIntent(intent);
 
         WriteCommitEntry stored = journal.getEntry("q-retry").orElseThrow();
         assertThat(stored.commitFingerprint()).isEqualTo(intent.commitFingerprint());
-        assertThat(stored.state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(stored.state()).isEqualTo(WriteCommitState.PENDING);
     }
 
     @Test
@@ -319,7 +321,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
 
     private static WriteCommitEntry entry(
             String queryId, String catalog, String table,
-            WriteCommitEntry.State state, long timestampMs) {
+            WriteCommitState state, long timestampMs) {
         String mode = "INSERT";
         String tenant = "tenant-a";
         String fingerprint = WriteCommitFingerprint.compute(

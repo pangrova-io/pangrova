@@ -1,8 +1,10 @@
 package org.pangrova.materialization.api.port;
 
+import org.pangrova.materialization.api.enums.GcState;
+import org.pangrova.materialization.api.enums.GcDecision;
+
 import java.time.Instant;
 import java.util.UUID;
-import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.domain.MaterializationId;
 
@@ -22,9 +24,9 @@ public record GcHistoryEntry(
         MaterializationId object,
         UUID entryId,
         GenerationId generation,
-        GcLedgerEntry.GcDecision decision,
+        GcDecision decision,
         String evidence,
-        GcLedgerEntry.GcState state,
+        GcState state,
         Instant createdAt,
         Instant updatedAt) {
 

@@ -18,8 +18,8 @@
  */
 package org.pangrova.coordinator.feature;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import com.google.protobuf.ByteString;
@@ -42,7 +42,7 @@ import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.ai.control.feature.CatalogExportRequest.ObjectKind;
+import org.pangrova.ai.control.enums.CatalogExportKind;
 import org.pangrova.planner.generation.GenerationPlan;
 import org.pangrova.planner.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -208,10 +208,10 @@ public final class DurableFeatureExportService {
         }
         var read = new DeferredAuthorizationScope.TablePermission(
                 new QualifiedTableName(source.catalogName(), source.schemaName(), source.tableName()),
-                columns, Privilege.SELECT, DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED, observed);
+                columns, Privilege.SELECT, AuthorizedReadMode.SECURITY_TRANSFORMED, observed);
         var target = new DeferredAuthorizationScope.TablePermission(
                 new QualifiedTableName(feature.id().catalogName(), feature.id().schemaName(), feature.id().viewName()),
-                Set.of(), Privilege.ALTER, DeferredAuthorizationScope.ReadMode.NONE,
+                Set.of(), Privilege.ALTER, AuthorizedReadMode.NONE,
                 DeferredAuthorizationScope.PolicySnapshot.empty());
         return new DeferredAuthorizationScope(List.of(read, target), java.util.Optional.empty());
     }
@@ -222,7 +222,7 @@ public final class DurableFeatureExportService {
             String requestedBy,
             Instant now) {
         return new CatalogExportRequest(
-                identity.tenantId(), ObjectKind.FEATURE_VIEW,
+                identity.tenantId(), CatalogExportKind.FEATURE_VIEW,
                 feature.id().catalogName(), feature.id().schemaName(),
                 feature.id().viewName(), feature.version(), identity.generation(),
                 identity.artifactId(), identity.jobId(), identity.dependencies().sha256(),

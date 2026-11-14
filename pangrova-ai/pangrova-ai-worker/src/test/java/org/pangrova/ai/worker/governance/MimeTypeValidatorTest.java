@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.governance;
 
+import org.pangrova.ai.worker.exception.MimeTypeNotAllowedException;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
@@ -31,7 +33,7 @@ class MimeTypeValidatorTest {
         var validator = new MimeTypeValidator();
         for (String mime : new String[]{null, "", "   "}) {
             assertThatThrownBy(() -> validator.validate(mime, policy("image/*"), "catalog.schema.files"))
-                    .isInstanceOf(MimeTypeValidator.MimeTypeNotAllowedException.class);
+                    .isInstanceOf(MimeTypeNotAllowedException.class);
             assertThat(validator.isAllowed(mime, policy("image/*"))).isFalse();
         }
         assertThat(validator.isAllowed(null, policy("*/*"))).isTrue();
@@ -43,9 +45,9 @@ class MimeTypeValidatorTest {
         var validator = new MimeTypeValidator();
         validator.validate("image/png", policy("image/png"), "catalog.schema.files");
         assertThatThrownBy(() -> validator.validate("image/png", policy("application/pdf"),
-                "catalog.schema.files")).isInstanceOf(MimeTypeValidator.MimeTypeNotAllowedException.class);
+                "catalog.schema.files")).isInstanceOf(MimeTypeNotAllowedException.class);
         assertThatThrownBy(() -> validator.validate("image/png", policy(" , , "),
-                "catalog.schema.files")).isInstanceOf(MimeTypeValidator.MimeTypeNotAllowedException.class);
+                "catalog.schema.files")).isInstanceOf(MimeTypeNotAllowedException.class);
         assertThat(validator.isAllowed("application/pdf", policy("application/pdf"))).isTrue();
         assertThat(validator.getAllowedTypes(policy("image/*,application/pdf")))
                 .containsExactlyInAnyOrder("image/*", "application/pdf");

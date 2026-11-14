@@ -31,7 +31,7 @@ description: "Accepted decisions for domain contracts, implementations, and proc
   `pangrova-ai-openai` 和 `pangrova-ai-qwen` 分别发布真实工厂，`pangrova-ai-http` 复用受控 HTTP
   和兼容的 chat 编码。Server 以运行时依赖选择 Provider，Worker 和 Control 的生产代码只依赖领域契约。
 - 独立流程制品以实际职责命名。包可直接以业务能力命名，例如 HTTP 请求处理归 `http.request`，血缘归 `lineage`。新增层级必须能说明调用方及其拥有的状态或资源。Provider 拥有技术实现，Server 拥有进程装配和生命周期；后端与 SDK 通过领域契约隔离。
-- Java 的顶层枚举、异常、纯常量按所属制品进入 `.enums`、`.exception`、`.constants`。只在所属类型中有含义的内部状态保留类型作用域。Source wire 值与 JNI 异常变更同时更新服务描述符、原生类名和发行测试。实现选择采用工厂标识，枚举名称不承担 Provider 注册。
+- Java 的具名枚举、异常、纯常量类按所属制品进入 `.enums`、`.exception`、`.constants`。实现侧状态类型留在相应实现制品，状态转换仍由原生命周期对象持有。Source wire 值与 JNI 异常变更同时更新服务描述符、原生类名和发行测试。实现选择采用工厂标识，枚举名称不承担 Provider 注册。
 - Planner 实现生成可执行的 Protocol/Substrait 片段，因此实现层显式依赖 Protocol。Planner 的公共契约保持最小 classpath；由独立类加载器覆盖其公开签名。Module manifest 不再支持用 milestone 暂时放行未声明的边。
 - 基础类型属于 Types，批数据属于 Batch。它们不能通过 Connector 才能被引擎使用。
 - 物化调用契约和扩展契约统一由 `pangrova-materialization-api` 发布。领域值与服务端口位于
@@ -133,6 +133,7 @@ description: "Accepted decisions for domain contracts, implementations, and proc
 |---|---|---|
 | Scheduler | 调度契约、调度流程、内置 placement 实现 | Query 直接使用 placement 契约。调度流程需要 Query、配额和集群状态。Server 通过 `WorkerSelectionStrategyFactory` 装入配置的策略。仅内置的 load-balanced 工厂已随包发行。 |
 | Streaming | CDC 与更新契约、流处理运行时、格式与写入实现 | PostgreSQL 与 Coordinator 都消费流处理契约。运行时负责恢复、checkpoint 和 watermark。Canal、Debezium、Maxwell 各有服务描述符条目。Writer 的运行入口和能力单独验收。 |
+| Cache | `cache-api`、`cache-memory`、`cache-redis` | Cache API 以组与条目代际约束并发填充，两种 Provider 各自发现和关闭。Metadata 借用该契约保存可重建投影，Connector Catalog 与 PostgreSQL outbox 保留各自权威。Server Coordinator 的 Redis 依赖仅在运行时安装。 |
 | Metadata | Catalog 契约、Catalog 与投影运行时、表投影编码 | `metadata-catalog → persistence-catalog-api → metadata-api`。Catalog PostgreSQL 和跨域 Workflow PostgreSQL 需要相同的表投影编码，两者均无需创建 Catalog 注册表。通用 Jackson 配置归 Common。 |
 | Materialization | 定义与扩展契约、物化流程、内置刷新策略 | `materialization-lifecycle → persistence-materialization-api → materialization-api`。流程持有 attempt 与发布顺序。三种刷新策略消费同一快照输入，结果仍由同一个物化流程发布。 |
 | Indexing | 索引契约、构建和生命周期、查询谓词编码、内置策略 | `indexing-lifecycle → persistence-indexing-api → indexing-api`。Iceberg 和 Protocol 使用契约。构建流程持有 attempt，策略工厂与编码器都无需创建构建协调器；内置制品有九条 `IndexStrategyProvider` 注册。 |
@@ -156,7 +157,9 @@ Common 的 `SqlText` 保留字面量、引号标识符、注释正文和行注�
 
 ## 循环依赖的判定与处理
 
-`A → B` 表示构建、加载或使用 A 需要 B。每次分析先标明是哪一种依赖，再给出闭合路径及产生每条边的源码、POM 或装配位置。A 调用 B，B 把结果返回给 A，本身只产生一条调用依赖。
+先选定图及分析范围，再定义边。制品图中的 `A → B` 表示 Maven 构建 A 需要 B，包图表示 A 的生产源码引用 B 的类型，等待图表示 A 的当前操作必须等 B 满足某个条件才能继续。在**同一张图**中，从 A 沿依赖边经过其他节点又回到 A，即构成循环，包含 `A → B → C → A` 等间接路径。按强连通分量（SCC）列出所有互相可达的节点，并给出至少一条闭合路径和逐边出处。文件直接 include 自己也算环；同包类之间的引用归包内审查。
+
+评审还需标明阶段和条件。例如 Worker 上报完成时，按角色可以画出双向消息流；只有两个操作在同一可达状态下都必须等待对方，且没有可独立推进的一方，才构成生命周期等待环。排查这类问题需写出等待的具体条件、由谁触发、触发者此刻能否运行。超时终止可以释放资源，无法使原本互等的正常启动流程成功。
 
 调用接口与扩展接口同属领域的 `.api.<能力>`。单实现且只在本领域使用时随领域制品发布。多种实现共用的契约独立发布。合并前应将候选制品收缩为一个节点，检查所有经外部制品返回的路径；合并后继续检查 JAR 内的包。若调用包返回 SPI 类型、SPI 又接收调用包中的请求类型，先找出双方各自消费的最小契约。例如读取方只需要批数据时，批数据及其所有权由平铺的 Batch 模块定义，读取接口和工厂分别引用它。若确属同一能力且总是共同演进，可将相关接口放入该能力包。Core、Provider 或 Server 的合并须单独论证。
 
@@ -170,30 +173,38 @@ Common 的 `SqlText` 保留字面量、引号标识符、注释正文和行注�
 
 ### 断开哪一条边
 
+**API 之间也执行同一规则。** 若 `A-api → B-api → A-api`，逐边标出引入依赖的公开签名。先判断请求、返回值、错误或回调由谁解释，谁有权改变其语义。只有身份、约束和生命周期都一致的值才归到同一契约。若 B 需要回报 A 的处理结果，B 可以声明它实际调用的完成通知接口，由 A 提供实现、装配入口传入实例。此时 B 编译时只认识自己的通知契约。若通知属于持久化提交的一部分，还要核对下面的事务要求。
+
+**装配也要能排序。** 若 A 的构造器需要已启动的 B，同时 B 的构造器需要已启动的 A，评审应写出各自首次真正使用对方的时刻。构造、订阅回调、开放流量可以分阶段执行，负责装配的入口必须在订阅完成后才允许业务回调，并在关闭时先停止新回调、等待在途调用退出，再释放回调使用的资源。若两个对象在构造阶段就必须共同决定同一个状态转换，将转换收回同一 owner。将引用包装为 `Supplier` 仍需验证首次取值的顺序。
+
 1. **先找语义 owner。** 记录谁拥有值的身份与校验、谁决定状态转换、谁提交事务，以及双方实际需要哪些操作。先删除残留 import、错误 scope 或失效的依赖声明。同一对模块可能有多条独立路径，逐条检查。
 2. **共享值回到定义其语义的最小 owner。** 跨 Query、Generation 和执行协议的执行租约属于 Execution。Protocol 可以引用身份契约，查询状态机无需随 wire DTO 进入 Worker。外观类似但生命周期或作用域不同的值仍分别拥有。
-3. **领域定义所需操作，实现依赖该契约。** File 的授权服务需要按名称或 ID 查询空间、读取当前 profile。在目标结构中，这两个读契约由 File 声明为 `FileSpaceLookup` 和 `CurrentStorageProfile`。Persistence 的 `FileSpaceRegistry` 和 `StorageProfileRegistry` 分别扩展它们，Server 注入实际实例。编译依赖从 Persistence 指向 File，运行时 File 可以通过接口调用仓储。历史 revision、冲突和权限失败的语义必须保留。
+3. **领域定义所需操作，实现依赖该契约。** File 的授权服务需要按名称或 ID 查询空间、读取当前 profile。File 声明 `FileSpaceLookup` 和 `CurrentStorageProfile` 两个读契约。Persistence 的 `FileSpaceRegistry` 和 `StorageProfileRegistry` 分别扩展它们，Server 注入实际实例。编译依赖从 Persistence 指向 File，运行时 File 可以通过接口调用仓储。历史 revision、冲突和权限失败的语义必须保留。
 4. **多方编排放到真正的调用者。** 两个领域协同完成一次操作时，由拥有业务流程的一方编排。涉及跨域原子写时使用强类型 workflow，保留同一连接、锁顺序、fence 和提交 owner。Server 负责装配，事务提交由工作流实现负责。
 5. **按独立性确定制品。** 如果两个包共同维护同一状态机、共享同一生命周期，又没有独立调用者，可以把相关行为收回拥有该状态机的能力包，并删除转发层。只合并 Maven 模块仍须检查内部包图。多种实现共享独立契约，工厂放在领域的 `.api`，通过服务描述符发现。不得通过搬入 Common、静态 setter 或双向 lookup 隐藏依赖。
 6. **后端联测放到能同时依赖两侧的位置。** 若 Table 的测试使用真实 Memory 后端，而该后端实现 Table 接口，这组测试放进 Memory 或 Integration Tests。保留原断言、真实对象和故障覆盖。生产代码读取的方法由其生产依赖提供。
 
+**涉及事务时，先判定回调是否允许延后。** 例如 Metadata 投影和失效 outbox 必须由 PostgreSQL 在同一事务写入，通知投递可以在提交后执行。若将写入 outbox 改成进程内异步事件，进程在提交后退出就会丢失通知。这种拆法即使消除了 Java 包环，也不满足验收条件。若发现两条工作流分别先锁 A 再锁 B、先锁 B 再锁 A，先确认两条路径是否能并发持锁；对可达的等待环统一获取顺序，保留获取锁后的权限与 fence 复查，并用两个独立事务验证竞争结果。
+
 ### 合入条件
+
+Native 组件按有向边逐步消环。现有八个组件同属一个强连通分量，单独比较分量个数或成员数会漏掉分量内部新增的反向依赖。`check-native-includes.py` 对分量内的每条有向边核对已知范围。引入全新组件环、通过新组件绕回、在旧分量内增加环边，均由现有 Native 边界门禁阻断，并报告源码位置。独立组件之间可以增加符合职责的单向边。消除组件之间最后一处循环引用时，同批从门禁移除对应记录并重新扫描；仅删除一个 include 时仍需检查同方向的其他调用方。
 
 每一批迁移由修改该依赖的开发者提交一条可复核记录，至少列出**图的种类、闭合路径及逐边出处、语义 owner、要删除的边、替换后的依赖方向、验证命令与结果**。同一强连通分量可能包含多个环；切断示例环后须对整张图重算分量。跨域事务还要验证原事务边界，生命周期改动还要验证启动失败、取消和资源释放。
 
 - **直接阻断合入**：启用的 Maven reactor 无法排序、Java 生产包出现多包闭环、Native 仓内源码出现文件 include 闭环，或进程必须互等才能完成启动、取消或关闭。即使图无环，违反角色边界的单向依赖也要单独拒绝，例如 Coordinator 制品携带 Worker 执行实现。
-- **Native 已知组件耦合**：触及现有组件环时，记录变更前后相关组件边及源码位置，按语义 owner 移动类型、反转调用或从入口注册实现。新增或扩大的组件环须先消除。目标拆分完成时复查本次涉及的组件，只有在组件图上消除互相可达的路径后，才可将对应组件标记为解耦。当前脚本输出组件边，组件差异仍需审查。
+- **Native 已知组件耦合**：触及现有组件环时，记录变更前后相关组件边及源码位置，按语义 owner 移动类型、反转调用或从入口注册实现。新增或扩大的组件环须先消除。目标拆分完成时复查本次涉及的组件，只有在组件图上消除互相可达的路径后，才可将对应组件标记为解耦。Lance 与任务命令都通过 `engine/resource/WorkerStorageBinding` 校验仓库路径、Catalog 和租户。Native include 门禁阻断已删除的 `lance → command`、`lance → jni`、`engine → command` 与 `udf → command` 直连。Lance 的 schema 指纹命令借用命令入口提供的内存 governor。JNI 在创建 JVM 函数回调时一次性绑定执行错误上报契约。Velox 的算子统计在 `engine/velox/runner/TaskStatsEncoding` 编码。执行器绑定正 handle 时同时绑定 `TaskFailureReporter`，HandleRegistry 在错误上报时重新核验 handle。JNI 入口将同一 registry 的清理操作传给引擎，在重启、退出或初始化失败时先收回任务，再关闭池与线程。仍存在 `engine → jni → command` 等间接路径。
 - **允许的双向交互**：请求与响应、进度回报和完成通知可以双向传递。编译时双方依赖稳定契约；启动与关闭分别检查等待顺序。ServiceLoader、反射类名、延迟构造、事件总线、`optional` 或 `test` scope 都不能替代真实依赖方向的验证。
 
 平铺之前，先在现有依赖图上把拟合并的制品视作一个节点。若存在一条从拟合并制品出发、经过仍独立发布的制品、再回到拟合并集合的路径，合并后就会成环。例如合并 Metadata Catalog 和 API，会把 `metadata-catalog → persistence-catalog-api → metadata-api` 变成 `metadata → persistence-catalog-api → metadata`。此时保留独立契约，或先按语义归属消除那条依赖，再重新检查。合并集合内部的直接依赖在制品图中消失，同一 JAR 内的包仍要逐个检查。
 
-可在改 POM 前对候选叶制品执行只读预检。例如在当前仓库运行：
+在改 POM 前，可以对候选叶制品执行只读预检。Metadata 的两个候选制品还存在一条经 codec 返回的独立路径：
 
 ```bash
 .pangrova/scripts/generate-module-baseline.py --check-merge pangrova-metadata-catalog pangrova-metadata-api
 ```
 
-工具沿本地 POM 的显式依赖（含 test、runtime）搜索一条离开再返回合并集合的最短路径，发现时打印各边的 scope 和 POM 并返回 1。该预检覆盖当前源码树的直接声明。继承、profile、插件、生成代码和运行时类加载仍按下列门禁核对。
+当前输出为 `metadata-catalog → metadata-codec → metadata-api`，两条边都是 compile。工具沿本地 POM 的显式依赖（含 test、runtime）搜索一条离开再返回合并集合的最短路径，发现时打印各边的 scope 和 POM 并返回 1。因此即使消除了经 Persistence 返回的路径，这次平铺仍会制造环。预检覆盖当前源码树的直接声明。继承、profile、插件、生成代码和运行时类加载仍按下列门禁核对。
 
 **同批平铺多个领域时，同时收缩所有候选组。** 例如 A 的实现使用 B 的 API，B 的实现使用 A 的 API。单独平铺任一领域时构建都能排序，同时平铺却会得到 `A → B → A`。对同一条命令重复使用 `--check-merge`，每组列出准备合并为一个制品的叶模块。工具在合并后的图上搜索经过候选组的闭环，并输出形成闭环的原始 POM 边。一次只检查其中一组会漏掉这种依赖。
 
@@ -212,7 +223,7 @@ mvn -B -ntp -pl :pangrova-testing-kit -am \
 
 包图报告位于 `pangrova-testing/pangrova-testing-kit/target/package-dependency-cycles.txt`。验收需要报告同时列出实际扫描的包数和 `Cyclic components: 0`。Maven 的 `validate` 校验当前 profile 的 reactor 排序；发布前仍执行完整的 `verify` 和角色启动测试。
 
-**审查示例。** 列血缘的派生种类曾由 Query 的嵌套枚举声明，Governance API 为引用这个值需要加载 Query。该词汇由 Governance 解释，现归 `governance.api.lineage.ColumnDerivationKind`。Query 的列记录和 Governance 的数据集列记录共用它，生产制品只保留 `query → governance-api` 这一方向。查询执行、状态转换与重放仍由 Query 拥有。审查类似变更时，提交记录应列出原引用、新方向、语义 owner 和相应门禁或行为测试。
+**审查示例。** 列血缘的派生种类曾由 Query 的嵌套枚举声明，Governance API 为引用这个值需要加载 Query。该词汇由 Governance 解释，现归 `governance.api.enums.ColumnDerivationKind`。Planner 的 Calcite 列血缘、Query 的列记录和 Governance 的数据集列记录使用同一个值。Planner 与 Query 分别单向依赖 Governance API；Coordinator 可以直接转交派生种类。查询执行、状态转换与重放仍由 Query 拥有。审查类似变更时，提交记录应列出原引用、新方向、语义 owner 和相应门禁或行为测试。
 
 **Shuffle 的双向运行时调用。** Coordinator 调度使用 ShuffleTaskAccess 与 RecoverableShuffleControl。Pangrova 远端 Provider 使用同一契约制品中的 ShuffleLifecycleEvidence 记录注册和终态回执。Server 将 DurableStageShuffleEvidence 注入 Provider，证据写入沿用 Generation 的事务边界。两侧各自只需要引用 shuffle-api，换后端时无需把协调器或持久化实现放进插件类加载器。
 
@@ -348,6 +359,12 @@ PangrovaPartitionRead 是进程内读请求。Coordinator 发布使用 `ShuffleP
 
 持久化 journal 接收 allocation ID、Provider ID、正整数版本和最多 1 MiB 的不可变 payload。Generation 保存这个信封及共享的执行代、生产者集合和分区数。PangrovaAllocationCodec 的 v1 只编码分配 ID、提交地址和精确的分区范围，恢复时拒绝凭据字段、未知字段、范围冲突或非规范字节。Coordinator 通过配置的控制端点，以当前 owner 的 fence 申请该既有 allocation 的 finalize grant，再申请当前访问凭据并比对原始描述符。准备分区时，实际读写绑定通过同一个 Provider 编码器，在 PostgreSQL 取得当前权限与分区锁的事务中核对注册记录。
 
+### Pangrova 远端分区读取与清理
+
+服务在验证当前 consumer、读授权、分区范围与 finalized receipt 后才登记一次读取。PostgreSQL 同一 query 行锁串行化读 pin 的创建和 cleanup 的准入。授权或请求截止中较早的时间决定可读期限，批次边界同时检查当前 execution owner 与已登记的 pin。保护期额外覆盖对象存储的单次 GET 超时，使读期限末尾已经开始的 I/O 有时间排空。
+
+有活跃 pin 时，任一服务实例发起的 cleanup 都会收到可重试的前置条件失败。已进入 CLEANING 的 scope 拒绝新读。背压暂停保留 pin；发送结束、取消和失败释放 pin，正在进行的 I/O 结束后才释放。服务进程崩溃后，数据库的截止时间允许清理继续。分区元数据提前结束时须拒绝返回 terminal。该机制保护一次有期限的授权读取，Provider 的容错和推测执行仍分别按 factory 声明准入。
+
 ### 撤销虚假的 Local 发布与库存安全推断（2026-11-03）
 
 SpoolingExchangeManager 与 LocalSpillLifecycleManager 没有生产调用，且无法从单个文件完成推导
@@ -359,7 +376,7 @@ DAG 缺少外部生命周期时使用显式 UnavailableExternalShuffleLifecycle�
 LOCAL 不使用空端点表示注册成功。未知 stage 和过期 generation 的发布请求均拒绝，空输出分区在回执中有显式记录。
 
 ShuffleDataInventory 取消基于列表和 retention 的默认缩容判断；具体 owner 必须提供完整且 fenced
-的当前证据。未接通的 InMemoryShuffleDataInventory 只是诊断记录，返回 UNKNOWN，即使为空、被标记
+的当前证据。InMemoryShuffleDataInventory 保留在 Coordination 测试源码，模拟手工诊断记录，返回 UNKNOWN，即使为空、被标记
 已消费或介质为 persistent。安全缩容仍需要 Worker incarnation、关闭接纳、完整执行/reader 库存与
 移除期间有效的证明；当前 WorkerManager 的 task-count 排空逻辑尚不能替代这些要求。
 

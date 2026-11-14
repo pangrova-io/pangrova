@@ -208,10 +208,10 @@ public final class WorkerHttpServer {
     public void start() throws Exception {
         try {
             server.start();
-        } catch (Exception startupFailure) {
+        } catch (Exception | Error startupFailure) {
             try {
                 stop();
-            } catch (Exception closeFailure) {
+            } catch (Exception | Error closeFailure) {
                 if (startupFailure != closeFailure) startupFailure.addSuppressed(closeFailure);
             }
             throw startupFailure;
@@ -220,13 +220,13 @@ public final class WorkerHttpServer {
 
     /** Stops the server and releases endpoint resources. */
     public void stop() throws Exception {
-        Exception failure = null;
+        Throwable failure = null;
         try {
             // Graceful drain requires a started context. A failed bind can leave the
             // context STOPPED; stop acquired components directly in that case.
             if (!server.isStarted()) server.setStopTimeout(0);
             server.stop();
-        } catch (Exception stopFailure) {
+        } catch (Exception | Error stopFailure) {
             failure = stopFailure;
         }
         for (AutoCloseable endpoint : new AutoCloseable[] {
@@ -234,7 +234,7 @@ public final class WorkerHttpServer {
             if (endpoint == null) continue;
             try {
                 endpoint.close();
-            } catch (Exception closeFailure) {
+            } catch (Exception | Error closeFailure) {
                 if (failure == null) {
                     failure = closeFailure;
                 } else if (failure != closeFailure) {
@@ -242,7 +242,8 @@ public final class WorkerHttpServer {
                 }
             }
         }
-        if (failure != null) throw failure;
+        if (failure instanceof Exception exception) throw exception;
+        if (failure instanceof Error error) throw error;
     }
 
     public int getPort() {

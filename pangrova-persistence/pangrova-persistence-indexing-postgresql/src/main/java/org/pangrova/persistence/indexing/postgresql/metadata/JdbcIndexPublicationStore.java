@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.common.util.DigestUtils;
 
 import java.nio.ByteBuffer;
@@ -21,6 +23,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
+import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
@@ -53,20 +56,20 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
                     connection.commit();
                     return existing.orElseThrow();
                 }
-                PublicationMode mode = validatePublicationFence(
+                IndexPublicationMode mode = validatePublicationFence(
                         connection, descriptor, request);
                 IndexGenerationManifest manifest = buildManifest(
                         request, mappings, nextPublicationEpoch(connection, request.indexId()));
                 retireActiveGeneration(connection, request.indexId());
                 insertManifest(connection, manifest);
                 activateDescriptor(connection, descriptor, request, mode);
-                if (mode == PublicationMode.ONLINE_REPLACEMENT) {
+                if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
                     completeBuildingGeneration(connection, request);
                 }
                 connection.commit();
                 return manifest;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -101,19 +104,18 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
         }
     }
 
-    private static PublicationMode validatePublicationFence(
+    private static IndexPublicationMode validatePublicationFence(
             Connection connection,
             DescriptorFence descriptor,
             IndexPublicationRequest request) throws SQLException {
-        if (descriptor.state() == IndexState.BUILDING
-                && descriptor.generation() == request.generation()
-                && descriptor.updatedAt().equals(request.expectedUpdatedAt())) {
-            return PublicationMode.INITIAL_BUILD;
+        if (IndexPublicationMode.matchesInitialBuild(descriptor.state(), descriptor.generation(),
+                descriptor.updatedAt(), request.generation(), request.expectedUpdatedAt())) {
+            return IndexPublicationMode.INITIAL_BUILD;
         }
-        if ((descriptor.state() == IndexState.READY || descriptor.state() == IndexState.STALE)
-                && descriptor.generation() == request.generation() - 1
+        if (IndexPublicationMode.isReplacementCandidate(
+                descriptor.state(), descriptor.generation(), request.generation())
                 && hasExpectedBuildingGeneration(connection, request, descriptor.generation())) {
-            return PublicationMode.ONLINE_REPLACEMENT;
+            return IndexPublicationMode.ONLINE_REPLACEMENT;
         }
         throw new IllegalStateException(
                 "Index publication fence does not match initial or staging generation: "
@@ -277,7 +279,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
             Connection connection,
             DescriptorFence descriptor,
             IndexPublicationRequest request,
-            PublicationMode mode) throws SQLException {
+            IndexPublicationMode mode) throws SQLException {
         String sql = "UPDATE index_descriptors SET state=?, generation=?, "
                 + "build_snapshot_id=?, stale_reason=NULL, last_indexed_snapshot_id=?, updated_at=? "
                 + "WHERE index_id=? AND state=? AND generation=? AND updated_at=?";
@@ -293,7 +295,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
             setInstant(statement, 9, descriptor.updatedAt());
             if (statement.executeUpdate() != 1) {
                 throw new IllegalStateException(
-                        "Index activation fence was lost for " + mode.name().toLowerCase());
+                        "Index activation fence was lost for " + mode.name().toLowerCase(java.util.Locale.ROOT));
             }
         }
     }
@@ -383,19 +385,6 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
                 result.getLong("total_bytes"), result.getString("manifest_sha256"),
                 result.getLong("publication_epoch"),
                 getInstant(result, "published_at"));
-    }
-
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
-        }
-    }
-
-    private enum PublicationMode {
-        INITIAL_BUILD,
-        ONLINE_REPLACEMENT
     }
 
     private record DescriptorFence(IndexState state, int generation, java.time.Instant updatedAt) {}

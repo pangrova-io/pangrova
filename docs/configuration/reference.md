@@ -5,9 +5,7 @@ description: "Condensed reference of all verified configuration keys, system pro
 
 # Configuration Key Reference
 
-Every configuration surface of Pangrova in one place. All keys are defined in
-`CoordinatorOptions` / `WorkerOptions` (`pangrova-config` module); full
-descriptions live in the per-component pages.
+Role and shared options are declared in `org.pangrova.config.constants`. Domain-specific options such as OTLP sampling are validated by their owners. Boolean configuration options accept `true` and `false` case-insensitively. An invalid value fails with the option name.
 
 ## YAML Keys — Coordinator (`coordinator.yml`)
 
@@ -27,7 +25,6 @@ descriptions live in the per-component pages.
 | `coordinator.shuffle.endpoints` | `""` | Comma-separated `host:port`; required for `REMOTE` |
 | `coordinator.worker.heartbeat-timeout` | `"30s"` | Worker liveness timeout |
 | `coordinator.worker.max-retry` | `3` | Task dispatch retries per worker |
-| `state-store.type` | `IN_MEMORY` | State store backend: `IN_MEMORY` / `JDBC` |
 | `metadata.enabled` | `true` | Enable the metadata module |
 | `metadata.jdbc-url` | — | Metadata catalog JDBC store |
 | `metadata.cache.l1-max-size` | `10000` | L1 metadata cache entries |

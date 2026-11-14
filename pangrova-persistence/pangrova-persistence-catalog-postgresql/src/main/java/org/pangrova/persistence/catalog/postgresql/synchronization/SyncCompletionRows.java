@@ -1,5 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.synchronization;
 
+import org.pangrova.persistence.catalog.postgresql.enums.SyncCompletionRelation;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.common.json.CanonicalJsonMapper;
@@ -28,11 +30,10 @@ final class SyncCompletionRows {
     private static final String SELECT_INTENT = "SELECT * FROM metadata_sync_intents WHERE run_id=?";
     private static final String SELECT_RECEIPT = "SELECT * FROM metadata_sync_runs WHERE run_id=?";
 
-    enum Relation { INTENT, RECEIPT }
 
     private SyncCompletionRows() {}
 
-    static void insert(Connection connection, MetadataSyncCompletion completion, Relation relation)
+    static void insert(Connection connection, MetadataSyncCompletion completion, SyncCompletionRelation relation)
             throws SQLException {
         String sql = switch (relation) {
             case INTENT -> INSERT_INTENT;
@@ -61,7 +62,7 @@ final class SyncCompletionRows {
         }
     }
 
-    static Optional<MetadataSyncCompletion> read(Connection connection, UUID runId, Relation relation)
+    static Optional<MetadataSyncCompletion> read(Connection connection, UUID runId, SyncCompletionRelation relation)
             throws SQLException {
         String sql = switch (relation) {
             case INTENT -> SELECT_INTENT;

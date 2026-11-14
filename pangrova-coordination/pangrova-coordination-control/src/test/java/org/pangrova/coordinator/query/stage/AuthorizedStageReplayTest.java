@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.stage;
 
+import org.pangrova.planner.enums.StagePlanMode;
+import org.pangrova.planner.enums.StageTerminalPurpose;
+
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -46,7 +49,7 @@ class AuthorizedStageReplayTest {
         assertThat(dag.stages()).hasSize(2);
         assertThat(dag.edges().get(0)).containsExactly(1);
         for (var stage : dag.stages()) {
-            assertThat(stage.stagePlan().mode()).isEqualTo(StagePlanAccess.Mode.DURABLE_REPLAY);
+            assertThat(stage.stagePlan().mode()).isEqualTo(StagePlanMode.DURABLE_REPLAY);
             assertThat(stage.stagePlan().toSerializedPlan(null, stage.stagePlan().fieldNames()))
                     .isEqualTo(((SerializedStage) stage.stagePlan()).serializedPlan());
             assertThat(new AdaptiveStagePlanResolver(null).apply(stage, dag, null)).isSameAs(stage);
@@ -97,7 +100,7 @@ class AuthorizedStageReplayTest {
         var replay = (StagePlanAccess) java.lang.reflect.Proxy.newProxyInstance(
                 StagePlanAccess.class.getClassLoader(), new Class<?>[]{StagePlanAccess.class},
                 (proxy, method, args) -> switch (method.getName()) {
-                    case "mode" -> StagePlanAccess.Mode.DURABLE_REPLAY;
+                    case "mode" -> StagePlanMode.DURABLE_REPLAY;
                     case "frozenCoordinates" -> java.util.Optional.empty();
                     default -> throw new AssertionError("Unexpected stage access: " + method);
                 });
@@ -132,7 +135,7 @@ class AuthorizedStageReplayTest {
                 List.of(), live.fieldNames(), List.of(), List.of(), -1, -1);
         var producer = new SerializedStage(1, 4, "COMPUTE", serialized(plan, exchange.build()),
                 List.of(), live.fieldNames(), List.of(), List.of(), -1, -1);
-        return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        return new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, producer), List.of(new StageTransfer(1, 0,
                 ShuffleType.SINGLETON, List.of(), "gather", 1, BatchSerde.BATCH_SERDE_ARROW_BATCH, true)));
     }

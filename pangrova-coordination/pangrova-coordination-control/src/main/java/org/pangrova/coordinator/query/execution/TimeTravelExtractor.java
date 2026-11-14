@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.parser.api.enums.TimeTravelType;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
@@ -79,7 +80,7 @@ final class TimeTravelExtractor {
 
     private static long snapshot(List<String> parts, TimeTravelSpec spec, RefSnapshotResolver resolver) {
         long selected;
-        if (spec.type() == TimeTravelSpec.Type.BRANCH || spec.type() == TimeTravelSpec.Type.TAG) {
+        if (spec.type() == TimeTravelType.BRANCH || spec.type() == TimeTravelType.TAG) {
             if (resolver == null) throw invalid("BRANCH/TAG time travel requires a ref resolver");
             var resolved = resolver.resolve(parts.get(0), parts.get(1), parts.get(2),
                 spec.type().name(), spec.refName());

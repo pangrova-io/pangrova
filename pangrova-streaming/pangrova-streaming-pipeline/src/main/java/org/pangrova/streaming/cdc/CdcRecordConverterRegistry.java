@@ -49,6 +49,9 @@ public final class CdcRecordConverterRegistry {
         var byId = new LinkedHashMap<String, CdcFormatFactory>();
         for (CdcFormatFactory factory : factories) {
             String id = factory.identifier();
+            if (factory.apiVersion() != CdcFormatFactory.API_VERSION) {
+                throw new IllegalArgumentException("Incompatible CDC format factory: " + id);
+            }
             if (id == null || id.isBlank() || byId.putIfAbsent(id, factory) != null) {
                 throw new IllegalArgumentException("Blank or duplicate CDC format: " + id);
             }

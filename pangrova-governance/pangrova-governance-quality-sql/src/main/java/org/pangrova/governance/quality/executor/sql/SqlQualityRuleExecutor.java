@@ -1,5 +1,6 @@
 package org.pangrova.governance.quality.executor.sql;
 
+import org.pangrova.governance.api.enums.QualityQueryType;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,15 +95,15 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
     }
 
     private QualityQueryResult runCountQuery(DataQualityRule rule) {
-        return queryRunner.execute(request(rule, GovernanceQueryRunner.QueryType.COUNTS), rule.executionIdentity());
+        return queryRunner.execute(request(rule, QualityQueryType.COUNTS), rule.executionIdentity());
     }
 
     private List<List<String>> runSampleQuery(DataQualityRule rule) {
-        return queryRunner.execute(request(rule, GovernanceQueryRunner.QueryType.SAMPLES),
+        return queryRunner.execute(request(rule, QualityQueryType.SAMPLES),
                 rule.executionIdentity()).failingSamples();
     }
 
-    private static QualityReadRequest request(DataQualityRule rule, GovernanceQueryRunner.QueryType type) {
+    private static QualityReadRequest request(DataQualityRule rule, QualityQueryType type) {
         return new QualityReadRequest(rule.catalogName(), rule.schemaName(), rule.tableName(), rule.tableId(),
                 rule.checkExpression(), type);
     }

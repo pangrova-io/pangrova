@@ -67,7 +67,7 @@ public interface ConnectorPushdownTable {
      * @return present if the connector accepted the sample; empty if not supported
      */
     default java.util.Optional<PushdownResult> pushSample(
-            double percentage, org.pangrova.connector.api.metadata.SampleInfo.SampleMethod method) {
+            double percentage, org.pangrova.connector.api.enums.SampleMethod method) {
         return java.util.Optional.empty();
     }
 }

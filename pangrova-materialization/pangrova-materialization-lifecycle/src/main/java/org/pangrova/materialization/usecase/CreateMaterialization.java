@@ -9,7 +9,7 @@ import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TargetLag;
 
 /**

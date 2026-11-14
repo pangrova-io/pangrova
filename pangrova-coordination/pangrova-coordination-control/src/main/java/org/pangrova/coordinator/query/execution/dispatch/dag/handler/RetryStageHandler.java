@@ -42,9 +42,7 @@ public final class RetryStageHandler implements StageLifecycleHandler {
     @Override
     public void onFailed(StageLifecycleEvent event) {
         Stage failed = requireOwner(event);
-        synchronized (failed) {
-            retryFailedOwner(event, failed);
-        }
+        retryFailedOwner(event, failed);
     }
 
     private static Stage requireOwner(StageLifecycleEvent event) {
@@ -57,7 +55,15 @@ public final class RetryStageHandler implements StageLifecycleHandler {
     }
 
     private void retryFailedOwner(StageLifecycleEvent event, Stage failed) {
+        int generation = failed.currentGeneration();
         if (failed.stateMachine().getState() != StageState.FAILED) return;
+        if (!event.dag().edges().getOrDefault(failed.stageId(), java.util.List.of()).isEmpty()
+                || event.dag().directDownstream(failed.stageId()).stream()
+                        .anyMatch(id -> event.dag().findStage(id).stateMachine().getState() != StageState.PLANNED)) {
+            LOG.info("event=stage_retry_declined queryId={} stageId={} reason=exchange_replay_unavailable",
+                    event.queryId(), failed.stageId());
+            return;
+        }
         var classified = resolveErrorCode(failed.lastError());
         if (classified.isEmpty()) {
             LOG.info("event=stage_retry_declined queryId={} stageId={} reason=unclassified_error",
@@ -70,13 +76,10 @@ public final class RetryStageHandler implements StageLifecycleHandler {
                     event.queryId(), failed.stageId(), code.getCode());
             return;
         }
-        if (failed.retryCount() >= maxRetries || !failed.tryPrepareRetry()) {
+        if (!failed.tryRestartFailedGeneration(generation, maxRetries, code.getCode())) {
             LOG.info("event=stage_retry_declined queryId={} stageId={} reason=max_retries_exhausted",
                     event.queryId(), failed.stageId());
             return;
-        }
-        if (!failed.stateMachine().reset()) {
-            throw new IllegalStateException("Prepared stage retry lost its terminal state owner");
         }
         LOG.info("event=stage_retry_initiated queryId={} stageId={} errorCode={} retryCount={}",
                 event.queryId(), failed.stageId(), code.getCode(), failed.retryCount());

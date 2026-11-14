@@ -1,5 +1,7 @@
 package org.pangrova.planner.embedding;
 
+import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
+
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rex.RexCall;

@@ -1,5 +1,7 @@
 package org.pangrova.persistence.security.postgresql.audit;
 
+import org.pangrova.persistence.security.postgresql.exception.AuditPersistenceException;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -207,10 +209,4 @@ public final class JdbcAuditEventWriter implements QueryableAuditEventWriter {
         }
     }
 
-    /** Unchecked wrapper so JDBC failures flow through the emitter's fault isolation. */
-    public static final class AuditPersistenceException extends RuntimeException {
-        public AuditPersistenceException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

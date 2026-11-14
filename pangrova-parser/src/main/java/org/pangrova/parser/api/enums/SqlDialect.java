@@ -25,41 +25,41 @@ public enum SqlDialect {
      * ANSI SQL standard: double-quote quoting only, unquoted identifiers fold
      * to UPPER CASE per SQL:2016 Section 5.2.
      */
-    ANSI(QuotingStyle.DOUBLE_QUOTES, CaseSensitivity.UPPER),
+    ANSI(IdentifierQuotingStyle.DOUBLE_QUOTES, IdentifierCaseSensitivity.UPPER),
 
     /**
      * Trino/Presto: double-quote quoting only, unquoted identifiers fold
      * to lower case (Trino convention).
      */
-    TRINO(QuotingStyle.DOUBLE_QUOTES, CaseSensitivity.LOWER),
+    TRINO(IdentifierQuotingStyle.DOUBLE_QUOTES, IdentifierCaseSensitivity.LOWER),
 
     /**
      * Spark SQL: backtick quoting, unquoted identifiers are case-preserving
      * (case-insensitive resolution is deferred to the downstream resolver).
      */
-    SPARK(QuotingStyle.BACKTICKS, CaseSensitivity.PRESERVE),
+    SPARK(IdentifierQuotingStyle.BACKTICKS, IdentifierCaseSensitivity.PRESERVE),
 
     /**
      * Default Pangrova mode: both quoting styles accepted, case-preserving.
      * This is the most permissive mode and the default for backward compatibility.
      */
-    PANGROVA(QuotingStyle.BOTH, CaseSensitivity.PRESERVE);
+    PANGROVA(IdentifierQuotingStyle.BOTH, IdentifierCaseSensitivity.PRESERVE);
 
-    private final QuotingStyle quotingStyle;
-    private final CaseSensitivity caseSensitivity;
+    private final IdentifierQuotingStyle quotingStyle;
+    private final IdentifierCaseSensitivity caseSensitivity;
 
-    SqlDialect(QuotingStyle quotingStyle, CaseSensitivity caseSensitivity) {
+    SqlDialect(IdentifierQuotingStyle quotingStyle, IdentifierCaseSensitivity caseSensitivity) {
         this.quotingStyle = quotingStyle;
         this.caseSensitivity = caseSensitivity;
     }
 
     /** Returns the identifier quoting style for this dialect. */
-    public QuotingStyle quotingStyle() {
+    public IdentifierQuotingStyle quotingStyle() {
         return quotingStyle;
     }
 
     /** Returns the case sensitivity policy for unquoted identifiers. */
-    public CaseSensitivity caseSensitivity() {
+    public IdentifierCaseSensitivity caseSensitivity() {
         return caseSensitivity;
     }
 
@@ -67,16 +67,16 @@ public enum SqlDialect {
      * Whether a double-quoted identifier is accepted in this dialect.
      */
     public boolean allowsDoubleQuotes() {
-        return quotingStyle == QuotingStyle.DOUBLE_QUOTES
-                || quotingStyle == QuotingStyle.BOTH;
+        return quotingStyle == IdentifierQuotingStyle.DOUBLE_QUOTES
+                || quotingStyle == IdentifierQuotingStyle.BOTH;
     }
 
     /**
      * Whether a backtick-quoted identifier is accepted in this dialect.
      */
     public boolean allowsBackticks() {
-        return quotingStyle == QuotingStyle.BACKTICKS
-                || quotingStyle == QuotingStyle.BOTH;
+        return quotingStyle == IdentifierQuotingStyle.BACKTICKS
+                || quotingStyle == IdentifierQuotingStyle.BOTH;
     }
 
     /**
@@ -119,7 +119,7 @@ public enum SqlDialect {
 
         if (first == '`' && last == '`') {
             // Backtick-quoted → normalize to target style
-            if (quotingStyle == QuotingStyle.DOUBLE_QUOTES) {
+            if (quotingStyle == IdentifierQuotingStyle.DOUBLE_QUOTES) {
                 String inner = quotedIdentifier.substring(1, quotedIdentifier.length() - 1)
                         .replace("``", "`");
                 return "\"" + inner.replace("\"", "\"\"") + "\"";
@@ -128,7 +128,7 @@ public enum SqlDialect {
         }
         if (first == '"' && last == '"') {
             // Double-quoted → normalize to target style
-            if (quotingStyle == QuotingStyle.BACKTICKS) {
+            if (quotingStyle == IdentifierQuotingStyle.BACKTICKS) {
                 String inner = quotedIdentifier.substring(1, quotedIdentifier.length() - 1)
                         .replace("\"\"", "\"");
                 return "`" + inner.replace("`", "``") + "`";
@@ -139,28 +139,4 @@ public enum SqlDialect {
         return quotedIdentifier;
     }
 
-    /**
-     * Identifier quoting style.
-     */
-    public enum QuotingStyle {
-        /** Only double-quote delimited identifiers ({@code "col"}). */
-        DOUBLE_QUOTES,
-        /** Only backtick delimited identifiers ({@code `col`}). */
-        BACKTICKS,
-        /** Both double-quotes and backticks accepted. */
-        BOTH
-    }
-
-    /**
-     * Case sensitivity policy for unquoted identifiers.
-     * Quoted identifiers always preserve their exact case.
-     */
-    public enum CaseSensitivity {
-        /** Preserve original case (Pangrova/Spark default). */
-        PRESERVE,
-        /** Fold unquoted identifiers to UPPER case (ANSI standard). */
-        UPPER,
-        /** Fold unquoted identifiers to lower case (Trino/Presto convention). */
-        LOWER
-    }
 }

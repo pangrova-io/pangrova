@@ -120,6 +120,27 @@ class PackageDependencyGraphTest {
     }
 
     @Test
+    void inventoriesNestedEnumsCustomFailuresAndConstantDeclarations() throws Exception {
+        source(root, "org.pangrova.owner.Port", """
+                public interface Port {
+                    enum Phase { OPEN }
+                    final class Failure extends RuntimeException {}
+                }
+                """);
+        source(root, "org.pangrova.owner.Keys", """
+                final class Keys {
+                    static final String VERSION = "1";
+                    private Keys() {}
+                }
+                """);
+        source(root, "org.pangrova.owner.enums.Action", "public enum Action { OPEN }");
+        var facts = JavaSourceReferences.scan(root.resolve("src/main/java"));
+        assertThat(facts.enumDeclarations()).containsExactlyInAnyOrder(
+                "org.pangrova.owner.Port.Phase", "org.pangrova.owner.enums.Action");
+        assertThat(facts.misplacedDeclarations().values()).containsExactlyInAnyOrder("enums", "exception", "constants");
+    }
+
+    @Test
     void misplacedClassReportsItsDeclaredPackageAndExpectedPath() throws Exception {
         Path source = Files.createDirectories(root.resolve("src/main/java"));
         Files.writeString(source.resolve("Named.java"), "package org.pangrova.example; class Named {}");

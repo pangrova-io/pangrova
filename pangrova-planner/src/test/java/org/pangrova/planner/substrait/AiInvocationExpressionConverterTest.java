@@ -1,5 +1,6 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.planner.exception.SubstraitConversionException;
 
 import org.apache.calcite.rel.type.RelDataTypeSystem;
@@ -42,7 +43,7 @@ class AiInvocationExpressionConverterTest {
                 .containsExactly("ai-invoke-0", "ai-invoke-1");
         assertThat(hints).allSatisfy(hint -> {
             assertThat(hint.modelName()).isEqualTo("exact-registered-model");
-            assertThat(hint.operation()).isEqualTo(AiInvocationPlanHint.Operation.TEXT_GENERATION);
+            assertThat(hint.operation()).isEqualTo(AiInvocationOperation.TEXT_GENERATION);
             assertThat(hint.mediaInput()).isFalse();
         });
     }

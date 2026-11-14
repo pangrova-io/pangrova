@@ -107,7 +107,7 @@ class GeneratedValueGenerationPlanBuilderTest {
         assertThat(source.getArguments(0).getValue().getSelection().getDirectReference()
                 .getStructField().getField()).isOne();
         assertThat(source.getArguments(1).getValue().getLiteral().getString())
-                .isEqualTo(org.pangrova.planner.embedding.GeneratedColumnSourceEncoding.SEPARATOR);
+                .isEqualTo(org.pangrova.planner.constants.GeneratedColumnSourceEncoding.SEPARATOR);
         assertThat(source.getArguments(2).getValue().getSelection().getDirectReference()
                 .getStructField().getField()).isEqualTo(2);
     }

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.resilience.degradation;
 
-import org.pangrova.coordinator.resilience.degradation.DegradationManager.DegradationLevel;
+import org.pangrova.coordinator.enums.DegradationLevel;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

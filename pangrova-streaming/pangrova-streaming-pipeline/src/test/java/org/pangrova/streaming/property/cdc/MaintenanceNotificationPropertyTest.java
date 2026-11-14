@@ -1,5 +1,7 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.observability.noop.NoOpMetricsProvider;
+
 import org.pangrova.streaming.api.enums.CdcOperation;
 
 import org.pangrova.streaming.api.commit.SourceId;
@@ -64,7 +66,7 @@ class MaintenanceNotificationPropertyTest {
                 new CdcQuotaEnforcer(10, 1_000_000),
                 new WatermarkTracker(new InMemoryWatermarkStore()),
                 maintenance,
-                new CdcPipelineRuntimeHooks(e -> {}, BackoffStrategy.retry(10, 100), null)));
+                new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), e -> {}, BackoffStrategy.retry(10, 100), null)));
         loopRef[0] = loop;
 
         Thread t = new Thread(loop);
@@ -111,7 +113,7 @@ class MaintenanceNotificationPropertyTest {
                 new CdcQuotaEnforcer(10, 1_000_000),
                 new WatermarkTracker(new InMemoryWatermarkStore()),
                 maintenance,
-                new CdcPipelineRuntimeHooks(e -> {}, BackoffStrategy.retry(10, 100), null)));
+                new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), e -> {}, BackoffStrategy.retry(10, 100), null)));
         loopRef[0] = loop;
 
         Thread t = new Thread(loop);
@@ -160,7 +162,7 @@ class MaintenanceNotificationPropertyTest {
                 new CdcQuotaEnforcer(10, 1_000_000),
                 new WatermarkTracker(new InMemoryWatermarkStore()),
                 maintenance,
-                new CdcPipelineRuntimeHooks(e -> {}, BackoffStrategy.retry(1, 10), null)));
+                new CdcPipelineRuntimeHooks(new NoOpMetricsProvider(), e -> {}, BackoffStrategy.retry(1, 10), null)));
         loopRef[0] = loop;
 
         Thread t = new Thread(loop);

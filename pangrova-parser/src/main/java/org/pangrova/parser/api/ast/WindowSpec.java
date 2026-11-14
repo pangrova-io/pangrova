@@ -1,5 +1,8 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.WindowFrameBoundType;
+import org.pangrova.parser.api.enums.WindowFrameType;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -36,37 +39,22 @@ public record WindowSpec(
     /**
      * Represents a window frame (ROWS or RANGE BETWEEN ... AND ...).
      */
-    public record WindowFrame(FrameType frameType, FrameBound lowerBound, FrameBound upperBound) {
+    public record WindowFrame(WindowFrameType frameType, FrameBound lowerBound, FrameBound upperBound) {
 
         /** Backward-compatible constructor defaulting to ROWS. */
         public WindowFrame(FrameBound lowerBound, FrameBound upperBound) {
-            this(FrameType.ROWS, lowerBound, upperBound);
+            this(WindowFrameType.ROWS, lowerBound, upperBound);
         }
-    }
-
-    /**
-     * Frame type: ROWS (physical offset) or RANGE (logical/value offset).
-     */
-    public enum FrameType {
-        ROWS,
-        RANGE
     }
 
     /**
      * Represents a single frame bound (e.g., UNBOUNDED PRECEDING, CURRENT ROW).
      */
-    public record FrameBound(FrameBoundType type, Optional<Expression> offset) {
+    public record FrameBound(WindowFrameBoundType type, Optional<Expression> offset) {
 
-        public FrameBound(FrameBoundType type) {
+        public FrameBound(WindowFrameBoundType type) {
             this(type, Optional.empty());
         }
     }
 
-    public enum FrameBoundType {
-        UNBOUNDED_PRECEDING,
-        UNBOUNDED_FOLLOWING,
-        CURRENT_ROW,
-        EXPR_PRECEDING,
-        EXPR_FOLLOWING
-    }
 }

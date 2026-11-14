@@ -1,5 +1,7 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.UnpivotNullHandling;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -23,20 +25,10 @@ public record UnpivotClause(
         Identifier valueColumn,
         Identifier nameColumn,
         List<UnpivotColumn> sourceColumns,
-        NullHandling nullHandling) {
+        UnpivotNullHandling nullHandling) {
 
     public UnpivotClause {
         sourceColumns = List.copyOf(sourceColumns);
-    }
-
-    /**
-     * Controls whether NULL values are included or excluded in UNPIVOT output.
-     */
-    public enum NullHandling {
-        /** Include rows where the unpivoted value is NULL (INCLUDE NULLS). */
-        INCLUDE,
-        /** Exclude rows where the unpivoted value is NULL (EXCLUDE NULLS, default). */
-        EXCLUDE
     }
 
     /**

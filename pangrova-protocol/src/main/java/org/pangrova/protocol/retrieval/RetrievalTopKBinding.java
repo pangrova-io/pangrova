@@ -1,5 +1,6 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import java.util.List;
@@ -63,7 +64,7 @@ public record RetrievalTopKBinding(
         artifacts = List.copyOf(artifacts);
         validateOptions(invocationOptions);
         boolean exact = capability.getCapabilityId().equals(
-                BuiltInCapabilityCatalog.EXACT_TOP_K_ID);
+                BuiltInCapabilityIdentifiers.EXACT_TOP_K_ID);
         ValidationState validation = new ValidationState(
                 sourceId, artifacts, invocationOptions, approximationProfileId,
                 exactRescoreLimit, requiredRecallAtK, recallK, candidateLimit);
@@ -243,7 +244,7 @@ public record RetrievalTopKBinding(
     /** Returns whether this binding uses the built-in exact Top-K capability. */
     public boolean exact() {
         return capability.getCapabilityId().equals(
-                BuiltInCapabilityCatalog.EXACT_TOP_K_ID);
+                BuiltInCapabilityIdentifiers.EXACT_TOP_K_ID);
     }
 
     @Override

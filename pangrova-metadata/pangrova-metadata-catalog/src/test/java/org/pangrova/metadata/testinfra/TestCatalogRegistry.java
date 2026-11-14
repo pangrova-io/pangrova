@@ -7,7 +7,7 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.persistence.table.api.provider.TableStores;
-import org.pangrova.table.api.policy.TableControlGovernanceBindingStore;
+import org.pangrova.table.api.policy.TablePolicyRepository;
 import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.policy.TableControlPolicyBinder;
@@ -18,7 +18,7 @@ public class TestCatalogRegistry extends CatalogRegistry {
     private final TableControlStatisticsStore statisticsStore;
     private volatile TableControlService control;
     private volatile TableControlStatisticsService statistics;
-    private volatile TableControlGovernanceBindingStore bindings;
+    private volatile TablePolicyRepository bindings;
 
     public TestCatalogRegistry(TableStores stores, CatalogDeploymentRepository deployments) {
         this(stores, deployments, null, null, null);
@@ -38,7 +38,7 @@ public class TestCatalogRegistry extends CatalogRegistry {
         statistics = new TableControlStatisticsService(service, statisticsStore);
     }
 
-    public void setGovernanceBindingStore(TableControlGovernanceBindingStore store) {
+    public void setGovernanceBindingStore(TablePolicyRepository store) {
         bindings = Objects.requireNonNull(store);
     }
 

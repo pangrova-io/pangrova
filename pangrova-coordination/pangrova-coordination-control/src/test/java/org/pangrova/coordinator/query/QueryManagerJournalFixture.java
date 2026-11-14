@@ -29,7 +29,7 @@ import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcur
 import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
 import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real compiler/policy/control owners and PostgreSQL metadata; no task or Native completion is simulated. */

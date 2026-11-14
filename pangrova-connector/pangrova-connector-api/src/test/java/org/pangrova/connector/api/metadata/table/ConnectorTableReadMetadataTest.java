@@ -1,6 +1,7 @@
 package org.pangrova.connector.api.metadata.table;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 
@@ -16,7 +17,7 @@ class ConnectorTableReadMetadataTest {
     void metadataAndEvidenceAreRequiredIndependently() {
         var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "table"), List.of(), List.of(), Map.of());
         assertThatThrownBy(() -> new ConnectorTableReadMetadata(null,
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT))
+                TableDeclarationEvidence.EXACT))
                 .isInstanceOf(NullPointerException.class).hasMessage("metadata");
         assertThatThrownBy(() -> new ConnectorTableReadMetadata(metadata, null))
                 .isInstanceOf(NullPointerException.class).hasMessage("declarationEvidence");
@@ -26,9 +27,9 @@ class ConnectorTableReadMetadataTest {
     void exactEmptyDeclarationIsNotTheSameAsUnavailableEvidence() {
         var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "table"), List.of(), List.of(), Map.of());
         assertThat(new ConnectorTableReadMetadata(metadata,
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT).requireExactDeclaration()).isSameAs(metadata);
+                TableDeclarationEvidence.EXACT).requireExactDeclaration()).isSameAs(metadata);
         assertThatThrownBy(() -> new ConnectorTableReadMetadata(metadata,
-                ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE).requireExactDeclaration())
+                TableDeclarationEvidence.UNAVAILABLE).requireExactDeclaration())
                 .isInstanceOfSatisfying(ConnectorException.class, error -> assertThat(error.getErrorCode())
                         .isEqualTo(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION))
                 .hasMessageContaining("Historical generated declaration evidence is unavailable");

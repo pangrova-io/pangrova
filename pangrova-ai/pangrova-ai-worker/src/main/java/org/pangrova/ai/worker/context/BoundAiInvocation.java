@@ -1,6 +1,7 @@
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.util.Arrays;
@@ -13,7 +14,7 @@ public record BoundAiInvocation(
         String modelId,
         String modelVersion,
         byte[] modelSignatureSha256,
-        AiCapabilityDescriptor.Operation operation,
+        AiOperation operation,
         String idempotencyBase,
         AiRequestConstraints requestConstraints,
         int maxProviderConcurrency,
@@ -39,7 +40,7 @@ public record BoundAiInvocation(
         java.util.Objects.requireNonNull(requestConstraints, "requestConstraints required");
         requireEnvelope(maxProviderConcurrency, maxProviderItems, maxProviderAttempts,
                 maxProviderRequestBytes, maxProviderResponseBytes, maxMediaBytes);
-        if (operation == AiCapabilityDescriptor.Operation.EMBEDDING) {
+        if (operation == AiOperation.EMBEDDING) {
             if (outputVectorDimension < 1
                     || outputVectorDimension > MAX_VECTOR_DIMENSION) {
                 throw new IllegalArgumentException(
@@ -119,14 +120,14 @@ public record BoundAiInvocation(
             String actualModelId,
             String actualVersion,
             byte[] actualSignature,
-            AiCapabilityDescriptor.Operation actualOperation) {
+            AiOperation actualOperation) {
         if (!modelId.equals(actualModelId)
                 || !modelVersion.equals(actualVersion)
                 || actualSignature == null
                 || !Arrays.equals(modelSignatureSha256, actualSignature)
                 || operation != actualOperation) {
             throw new org.pangrova.ai.api.exception.AiInvocationException(
-                    org.pangrova.ai.api.exception.AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "Provider execution identity differs from the exact OperatorBinding");
         }

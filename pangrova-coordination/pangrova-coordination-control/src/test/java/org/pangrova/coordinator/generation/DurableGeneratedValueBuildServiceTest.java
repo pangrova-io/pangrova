@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
@@ -131,8 +133,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
             assertThat(job.expectedPages()).isEqualTo(2);
             assertThat(job.state()).isEqualTo(GenerationJobState.QUEUED);
             assertThat(job.formatId())
-                    .isEqualTo(BuiltInCapabilityCatalog
-                            .GENERATED_VALUES_ARTIFACT_FORMAT_ID);
+                    .isEqualTo(BuiltInCapabilityIdentifiers.GENERATED_VALUES_ARTIFACT_FORMAT_ID);
         });
 
         var dispatch = store.findDispatchSpec(TENANT, jobId).orElseThrow();

@@ -73,7 +73,7 @@ public final class DAGStagePlanBinder {
             var binding = AiInvocationOperatorBinder.bindQuery(
                     hint, input.workerSelector(), input.session().userIdentity());
             operators.add(binding);
-            if (hint.operation() == org.pangrova.planner.api.invocation.AiInvocationPlanHint.Operation.EMBEDDING) {
+            if (hint.operation() == org.pangrova.planner.api.enums.AiInvocationOperation.EMBEDDING) {
                 modelOutputTypes.put(hint.modelName(), binding.getModel().getOutputType());
             }
         });

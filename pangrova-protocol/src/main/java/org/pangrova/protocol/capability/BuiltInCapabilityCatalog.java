@@ -1,5 +1,7 @@
 package org.pangrova.protocol.capability;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.ArtifactFormatRef;
 import org.pangrova.protocol.v2.CapabilityRef;
@@ -7,85 +9,15 @@ import org.pangrova.protocol.v2.RowLocatorContract;
 import org.pangrova.protocol.v2.RowLocatorKind;
 import org.pangrova.common.api.annotation.Internal;
 
+import java.util.Locale;
 import java.util.HexFormat;
 
 /** Canonical semantic identities for capabilities implemented by Pangrova itself. */
 @Internal
 public final class BuiltInCapabilityCatalog {
 
-    public static final String EXACT_TOP_K_ID = "pangrova.retrieval.topk.exact";
-    public static final String EXACT_TOP_K_VERSION = "1.0.0";
-    public static final String RRF_MERGE_ID = "pangrova.retrieval.merge.rrf";
-    public static final String LINEAR_MERGE_ID = "pangrova.retrieval.merge.linear";
-    public static final String RETRIEVAL_MERGE_VERSION = "1.0.0";
-    public static final String CROSS_ENCODER_RERANK_ID =
-            "pangrova.retrieval.rerank.cross_encoder";
-    public static final String CROSS_ENCODER_RERANK_VERSION = "1.0.0";
-    public static final String AI_TEXT_GENERATION_ID =
-            "pangrova.ai.invoke.text_generation";
-    public static final String AI_MULTIMODAL_GENERATION_ID =
-            "pangrova.ai.invoke.multimodal_generation";
-    public static final String AI_EMBEDDING_ID = "pangrova.ai.invoke.embedding";
-    public static final String AI_INVOCATION_VERSION = "1.0.0";
-    public static final String NATIVE_BUILD_ID = "pangrova-native-0.1.0";
-    public static final String DISKANN_ARTIFACT_BUILD_ID =
-            "pangrova.artifact.build.diskann";
-    public static final String DISKANN_ARTIFACT_BUILD_VERSION = "2.0.0";
-    public static final String DISKANN_RETRIEVAL_ID =
-            "pangrova.retrieval.vector.diskann";
-    public static final String DISKANN_RETRIEVAL_VERSION = "1.0.0";
-    public static final String FILTERED_DISKANN_RETRIEVAL_ID =
-            "pangrova.retrieval.vector.diskann.filtered";
-    public static final String FILTERED_DISKANN_RETRIEVAL_VERSION = "1.0.0";
     private static final byte[] FILTERED_DISKANN_RETRIEVAL_SIGNATURE = HexFormat.of().parseHex(
             "ae26c57846bf7327447975abdaef0ee5d4e03aa855b902cb0192c8b360047716");
-
-    public static final String DISKANN_ARTIFACT_FORMAT_ID = "pangrova.diskann.segment";
-    public static final int DISKANN_ARTIFACT_FORMAT_MAJOR = 2;
-    public static final String HNSW_ARTIFACT_BUILD_ID =
-            "pangrova.artifact.build.hnsw";
-    public static final String HNSW_ARTIFACT_BUILD_VERSION = "2.0.0";
-    public static final String HNSW_RETRIEVAL_ID =
-            "pangrova.retrieval.vector.hnsw";
-    public static final String HNSW_RETRIEVAL_VERSION = "2.0.0";
-    public static final String HNSW_ARTIFACT_FORMAT_ID = "pangrova.hnsw.segment";
-    public static final int HNSW_ARTIFACT_FORMAT_MAJOR = 2;
-    public static final String IVF_PQ_ARTIFACT_BUILD_ID =
-            "pangrova.artifact.build.ivf_pq";
-    public static final String IVF_PQ_ARTIFACT_BUILD_VERSION = "2.0.0";
-    public static final String IVF_PQ_RETRIEVAL_ID =
-            "pangrova.retrieval.vector.ivf_pq";
-    public static final String IVF_PQ_RETRIEVAL_VERSION = "2.0.0";
-    public static final String IVF_PQ_ARTIFACT_FORMAT_ID = "pangrova.ivfpq.segment";
-    public static final int IVF_PQ_ARTIFACT_FORMAT_MAJOR = 2;
-    public static final String BM25_ARTIFACT_BUILD_ID =
-            "pangrova.artifact.build.bm25";
-    public static final String BM25_ARTIFACT_BUILD_VERSION = "1.0.0";
-    public static final String BM25_RETRIEVAL_ID =
-            "pangrova.retrieval.text.bm25";
-    public static final String BM25_RETRIEVAL_VERSION = "1.0.0";
-    public static final String BM25_ARTIFACT_FORMAT_ID = "pangrova.bm25.segment";
-    public static final int BM25_ARTIFACT_FORMAT_MAJOR = 1;
-    public static final String GENERATED_VALUES_ARTIFACT_BUILD_ID =
-            "pangrova.artifact.build.generated_values";
-    public static final String GENERATED_VALUES_ARTIFACT_BUILD_VERSION = "2.0.0";
-    public static final String GENERATED_VALUES_ARTIFACT_FORMAT_ID =
-            "pangrova.generated-values.segment";
-    public static final int GENERATED_VALUES_ARTIFACT_FORMAT_MAJOR = 2;
-    public static final String GENERATED_VALUES_OVERLAY_ID =
-            "pangrova.generated-values.overlay";
-    public static final String GENERATED_VALUES_OVERLAY_VERSION = "2.0.0";
-    public static final String TABULAR_EXPORT_ID =
-            "pangrova.artifact.export.tabular";
-    public static final String TABULAR_EXPORT_VERSION = "1.0.0";
-    public static final String TABULAR_EXPORT_FORMAT_ID =
-            "pangrova.tabular-export.arrow-stream";
-    public static final int TABULAR_EXPORT_FORMAT_MAJOR = 1;
-    /** Reserved Native scan output carrying the source object's physical row position. */
-    public static final String PHYSICAL_ROW_POSITION_COLUMN = "$pangrova$row_position";
-    /** Reserved Native scan output carrying an artifact-materialized retrieval score. */
-    public static final String MATERIALIZED_RETRIEVAL_SCORE_COLUMN =
-            "$pangrova$retrieval_score";
 
     private static final byte[] EXACT_TOP_K_SIGNATURE = {
             (byte) 0xEA, 0x4C, 0x6E, 0x76, 0x73, (byte) 0xF6, 0x06, 0x73,
@@ -220,8 +152,8 @@ public final class BuiltInCapabilityCatalog {
     /** Returns the build-independent semantic reference embedded in a query plan. */
     public static CapabilityRef exactTopKPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(EXACT_TOP_K_ID)
-                .setSemanticVersion(EXACT_TOP_K_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.EXACT_TOP_K_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.EXACT_TOP_K_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(EXACT_TOP_K_SIGNATURE))
                 .build();
     }
@@ -229,25 +161,25 @@ public final class BuiltInCapabilityCatalog {
     /** Returns the exact Native implementation reference advertised by a Worker. */
     public static CapabilityRef exactTopKNativeRef() {
         return exactTopKPlanRef().toBuilder()
-                .setImplementationBuildId(NATIVE_BUILD_ID)
+                .setImplementationBuildId(BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID)
                 .build();
     }
 
     /** Native RRF merge plan reference. */
     public static CapabilityRef rrfMergePlanRef() {
-        return planRef(RRF_MERGE_ID, RRF_MERGE_SIGNATURE);
+        return planRef(BuiltInCapabilityIdentifiers.RRF_MERGE_ID, RRF_MERGE_SIGNATURE);
     }
 
     /** Native weighted-linear merge plan reference. */
     public static CapabilityRef linearMergePlanRef() {
-        return planRef(LINEAR_MERGE_ID, LINEAR_MERGE_SIGNATURE);
+        return planRef(BuiltInCapabilityIdentifiers.LINEAR_MERGE_ID, LINEAR_MERGE_SIGNATURE);
     }
 
     /** Native bounded rerank relation backed by a governed Worker callback. */
     public static CapabilityRef crossEncoderRerankPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(CROSS_ENCODER_RERANK_ID)
-                .setSemanticVersion(CROSS_ENCODER_RERANK_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.CROSS_ENCODER_RERANK_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.CROSS_ENCODER_RERANK_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(
                         CROSS_ENCODER_RERANK_SIGNATURE))
                 .build();
@@ -255,26 +187,26 @@ public final class BuiltInCapabilityCatalog {
 
     /** Worker-governed text-generation expression invocation. */
     public static CapabilityRef aiTextGenerationPlanRef() {
-        return aiInvocationRef(AI_TEXT_GENERATION_ID, AI_TEXT_GENERATION_SIGNATURE);
+        return aiInvocationRef(BuiltInCapabilityIdentifiers.AI_TEXT_GENERATION_ID, AI_TEXT_GENERATION_SIGNATURE);
     }
 
     /** Worker-governed multimodal-generation expression invocation. */
     public static CapabilityRef aiMultimodalGenerationPlanRef() {
         return aiInvocationRef(
-                AI_MULTIMODAL_GENERATION_ID,
+                BuiltInCapabilityIdentifiers.AI_MULTIMODAL_GENERATION_ID,
                 AI_MULTIMODAL_GENERATION_SIGNATURE);
     }
 
     /** Worker-governed embedding expression invocation. */
     public static CapabilityRef aiEmbeddingPlanRef() {
-        return aiInvocationRef(AI_EMBEDDING_ID, AI_EMBEDDING_SIGNATURE);
+        return aiInvocationRef(BuiltInCapabilityIdentifiers.AI_EMBEDDING_ID, AI_EMBEDDING_SIGNATURE);
     }
 
     /** Native DiskANN immutable work-page build reference. */
     public static CapabilityRef diskAnnArtifactBuildPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(DISKANN_ARTIFACT_BUILD_ID)
-                .setSemanticVersion(DISKANN_ARTIFACT_BUILD_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_BUILD_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_BUILD_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(
                         DISKANN_ARTIFACT_BUILD_SIGNATURE))
                 .build();
@@ -283,68 +215,68 @@ public final class BuiltInCapabilityCatalog {
     /** Native DiskANN retrieval over an immutable generic artifact binding. */
     public static CapabilityRef diskAnnRetrievalPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(DISKANN_RETRIEVAL_ID)
-                .setSemanticVersion(DISKANN_RETRIEVAL_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(DISKANN_RETRIEVAL_SIGNATURE))
                 .build();
     }
 
     /** Native predicate-first retrieval in one admitted task with physical row identity. */
     public static CapabilityRef filteredDiskAnnRetrievalPlanRef() {
-        return capabilityRef(FILTERED_DISKANN_RETRIEVAL_ID,
-                FILTERED_DISKANN_RETRIEVAL_VERSION, FILTERED_DISKANN_RETRIEVAL_SIGNATURE);
+        return capabilityRef(BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID,
+                BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_VERSION, FILTERED_DISKANN_RETRIEVAL_SIGNATURE);
     }
 
     /** Immutable DiskANN segment format with a position-aligned locator sidecar. */
     public static ArtifactFormatRef diskAnnArtifactFormat() {
         return ArtifactFormatRef.newBuilder()
-                .setFormatId(DISKANN_ARTIFACT_FORMAT_ID)
-                .setMajorVersion(DISKANN_ARTIFACT_FORMAT_MAJOR)
+                .setFormatId(BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_FORMAT_ID)
+                .setMajorVersion(BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_FORMAT_MAJOR)
                 .setMinorVersion(0)
                 .setSchemaSha256(ByteString.copyFrom(DISKANN_ARTIFACT_FORMAT_SIGNATURE))
-                .setWriterBuildId(NATIVE_BUILD_ID)
+                .setWriterBuildId(BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID)
                 .build();
     }
 
     /** Native HNSW immutable work-page build reference. */
     public static CapabilityRef hnswArtifactBuildPlanRef() {
         return capabilityRef(
-                HNSW_ARTIFACT_BUILD_ID, HNSW_ARTIFACT_BUILD_VERSION,
+                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_ID, BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_VERSION,
                 HNSW_ARTIFACT_BUILD_SIGNATURE);
     }
 
     /** Native HNSW retrieval reference. */
     public static CapabilityRef hnswRetrievalPlanRef() {
         return capabilityRef(
-                HNSW_RETRIEVAL_ID, HNSW_RETRIEVAL_VERSION,
+                BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID, BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_VERSION,
                 HNSW_RETRIEVAL_SIGNATURE);
     }
 
     /** Immutable source-object-scoped HNSW graph format. */
     public static ArtifactFormatRef hnswArtifactFormat() {
         return artifactFormat(
-                HNSW_ARTIFACT_FORMAT_ID, HNSW_ARTIFACT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_ID, BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_MAJOR,
                 HNSW_ARTIFACT_FORMAT_SIGNATURE);
     }
 
     /** Native IVF-PQ immutable work-page build reference. */
     public static CapabilityRef ivfPqArtifactBuildPlanRef() {
         return capabilityRef(
-                IVF_PQ_ARTIFACT_BUILD_ID, IVF_PQ_ARTIFACT_BUILD_VERSION,
+                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_ID, BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_VERSION,
                 IVF_PQ_ARTIFACT_BUILD_SIGNATURE);
     }
 
     /** Native IVF-PQ retrieval reference. */
     public static CapabilityRef ivfPqRetrievalPlanRef() {
         return capabilityRef(
-                IVF_PQ_RETRIEVAL_ID, IVF_PQ_RETRIEVAL_VERSION,
+                BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID, BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_VERSION,
                 IVF_PQ_RETRIEVAL_SIGNATURE);
     }
 
     /** Immutable source-object-scoped IVF-PQ format. */
     public static ArtifactFormatRef ivfPqArtifactFormat() {
         return artifactFormat(
-                IVF_PQ_ARTIFACT_FORMAT_ID, IVF_PQ_ARTIFACT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_ID, BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_MAJOR,
                 IVF_PQ_ARTIFACT_FORMAT_SIGNATURE);
     }
 
@@ -384,8 +316,8 @@ public final class BuiltInCapabilityCatalog {
     /** Native immutable BM25 work-page build reference. */
     public static CapabilityRef bm25ArtifactBuildPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(BM25_ARTIFACT_BUILD_ID)
-                .setSemanticVersion(BM25_ARTIFACT_BUILD_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.BM25_ARTIFACT_BUILD_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.BM25_ARTIFACT_BUILD_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(BM25_ARTIFACT_BUILD_SIGNATURE))
                 .build();
     }
@@ -393,8 +325,8 @@ public final class BuiltInCapabilityCatalog {
     /** Native BM25 retrieval over an immutable generic artifact binding. */
     public static CapabilityRef bm25RetrievalPlanRef() {
         return CapabilityRef.newBuilder()
-                .setCapabilityId(BM25_RETRIEVAL_ID)
-                .setSemanticVersion(BM25_RETRIEVAL_VERSION)
+                .setCapabilityId(BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(BM25_RETRIEVAL_SIGNATURE))
                 .build();
     }
@@ -402,49 +334,49 @@ public final class BuiltInCapabilityCatalog {
     /** Immutable source-object-scoped BM25 postings segment format. */
     public static ArtifactFormatRef bm25ArtifactFormat() {
         return ArtifactFormatRef.newBuilder()
-                .setFormatId(BM25_ARTIFACT_FORMAT_ID)
-                .setMajorVersion(BM25_ARTIFACT_FORMAT_MAJOR)
+                .setFormatId(BuiltInCapabilityIdentifiers.BM25_ARTIFACT_FORMAT_ID)
+                .setMajorVersion(BuiltInCapabilityIdentifiers.BM25_ARTIFACT_FORMAT_MAJOR)
                 .setMinorVersion(0)
                 .setSchemaSha256(ByteString.copyFrom(BM25_ARTIFACT_FORMAT_SIGNATURE))
-                .setWriterBuildId(NATIVE_BUILD_ID)
+                .setWriterBuildId(BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID)
                 .build();
     }
 
     /** Native source-map sink for generic generated values and their row locators. */
     public static CapabilityRef generatedValuesArtifactBuildPlanRef() {
         return capabilityRef(
-                GENERATED_VALUES_ARTIFACT_BUILD_ID,
-                GENERATED_VALUES_ARTIFACT_BUILD_VERSION,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_ARTIFACT_BUILD_ID,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_ARTIFACT_BUILD_VERSION,
                 GENERATED_VALUES_ARTIFACT_BUILD_SIGNATURE);
     }
 
     /** Immutable source-object-scoped generated-value sidecar format. */
     public static ArtifactFormatRef generatedValuesArtifactFormat() {
         return artifactFormat(
-                GENERATED_VALUES_ARTIFACT_FORMAT_ID,
-                GENERATED_VALUES_ARTIFACT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_ARTIFACT_FORMAT_ID,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_ARTIFACT_FORMAT_MAJOR,
                 GENERATED_VALUES_ARTIFACT_FORMAT_SIGNATURE);
     }
 
     /** Native scan overlay joining generated values by the physical row locator. */
     public static CapabilityRef generatedValuesOverlayPlanRef() {
         return capabilityRef(
-                GENERATED_VALUES_OVERLAY_ID,
-                GENERATED_VALUES_OVERLAY_VERSION,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_ID,
+                BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_VERSION,
                 GENERATED_VALUES_OVERLAY_SIGNATURE);
     }
 
     /** Native streaming export sink for an arbitrary tabular relation. */
     public static CapabilityRef tabularExportPlanRef() {
         return capabilityRef(
-                TABULAR_EXPORT_ID, TABULAR_EXPORT_VERSION,
+                BuiltInCapabilityIdentifiers.TABULAR_EXPORT_ID, BuiltInCapabilityIdentifiers.TABULAR_EXPORT_VERSION,
                 TABULAR_EXPORT_SIGNATURE);
     }
 
     /** Immutable Arrow IPC stream emitted by one source work page. */
     public static ArtifactFormatRef tabularExportFormat() {
         return artifactFormat(
-                TABULAR_EXPORT_FORMAT_ID, TABULAR_EXPORT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_ID, BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_MAJOR,
                 TABULAR_EXPORT_FORMAT_SIGNATURE);
     }
 
@@ -461,7 +393,7 @@ public final class BuiltInCapabilityCatalog {
     private static CapabilityRef planRef(String id, byte[] signature) {
         return CapabilityRef.newBuilder()
                 .setCapabilityId(id)
-                .setSemanticVersion(RETRIEVAL_MERGE_VERSION)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.RETRIEVAL_MERGE_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(signature))
                 .build();
     }
@@ -482,7 +414,7 @@ public final class BuiltInCapabilityCatalog {
                 .setMajorVersion(major)
                 .setMinorVersion(0)
                 .setSchemaSha256(ByteString.copyFrom(signature))
-                .setWriterBuildId(NATIVE_BUILD_ID)
+                .setWriterBuildId(BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID)
                 .build();
     }
 
@@ -494,13 +426,13 @@ public final class BuiltInCapabilityCatalog {
         if (algorithm == null || algorithm.isBlank()) {
             throw new IllegalArgumentException("vector index algorithm must not be blank");
         }
-        return algorithm.trim().toUpperCase();
+        return algorithm.trim().toUpperCase(Locale.ROOT);
     }
 
     private static CapabilityRef aiInvocationRef(String id, byte[] signature) {
         return CapabilityRef.newBuilder()
                 .setCapabilityId(id)
-                .setSemanticVersion(AI_INVOCATION_VERSION)
+                .setSemanticVersion(BuiltInCapabilityIdentifiers.AI_INVOCATION_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(signature))
                 .build();
     }

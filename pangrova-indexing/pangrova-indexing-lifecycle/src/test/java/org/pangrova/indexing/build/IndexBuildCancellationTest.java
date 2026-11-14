@@ -1,5 +1,6 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildOutcome;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.RepeatedTest;
@@ -68,7 +69,7 @@ class IndexBuildCancellationTest {
             harness.builder.pauseBuilds();
             var cancelled = harness.builder.submitBuildTask(descriptor("42"), List.of(), null, null);
             harness.builder.cancelBuild("index-1");
-            assertThat(cancelled.get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildResult.Outcome.CANCELLED);
+            assertThat(cancelled.get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildOutcome.CANCELLED);
             var replacement = harness.builder.submitBuildTask(descriptor(""), List.of(), null, null);
             harness.builder.resumePendingBuilds();
             assertThat(replacement.get(5, TimeUnit.SECONDS).isFullySuccessful()).isTrue();
@@ -140,7 +141,7 @@ class IndexBuildCancellationTest {
             assertThat(result.isDone()).isFalse();
             assertThat(claims.releases.get()).isZero();
             harness.pin.release();
-            assertThat(result.get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildResult.Outcome.CANCELLED);
+            assertThat(result.get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildOutcome.CANCELLED);
             assertThat(claims.releases.get()).isEqualTo(1);
         }
     }

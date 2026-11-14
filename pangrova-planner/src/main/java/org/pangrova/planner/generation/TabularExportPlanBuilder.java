@@ -17,6 +17,8 @@
  */
 package org.pangrova.planner.generation;
 
+import org.pangrova.planner.constants.ArtifactBuildReport;
+
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.Plan;
@@ -37,7 +39,6 @@ import java.util.HashSet;
 public final class TabularExportPlanBuilder {
 
     public static final String PLAN_NODE_ID = "artifact-export-tabular";
-    public static final int REPORT_SCHEMA_VERSION = 2;
 
     private TabularExportPlanBuilder() {}
 
@@ -59,7 +60,7 @@ public final class TabularExportPlanBuilder {
         }
         ArtifactBuildDetail detail = ArtifactBuildDetail.newBuilder()
                 .setPlanNodeId(PLAN_NODE_ID)
-                .setReportSchemaVersion(REPORT_SCHEMA_VERSION)
+                .setReportSchemaVersion(ArtifactBuildReport.SCHEMA_VERSION)
                 .addAllInputFields(root.getNamesList())
                 .setInvocation(CapabilityInvocation.newBuilder()
                         .setCapability(BuiltInCapabilityCatalog.tabularExportPlanRef()))

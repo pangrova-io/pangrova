@@ -1,5 +1,6 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.enums.PangrovaType;
@@ -49,7 +50,7 @@ public record LanceColumn(String name, PangrovaType type, TypeSignature signatur
             case "ROW", "STRUCT" -> new RowType(parameters.stream().map(parameter ->
                     new RowField(parameter.fieldName(), decode(parameter.typeSignature()))).toList());
             case "VECTOR" -> new VectorType(Math.toIntExact(parameters.get(0).longValue()),
-                    VectorType.ElementType.valueOf(parameters.get(1).typeSignature().base()));
+                    VectorElementType.valueOf(parameters.get(1).typeSignature().base()));
             case "DECIMAL" -> new DecimalType(Math.toIntExact(parameters.get(0).longValue()),
                     Math.toIntExact(parameters.get(1).longValue()));
             case "VARCHAR" -> new VarcharType(Math.toIntExact(parameters.get(0).longValue()));

@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Optional;
@@ -14,11 +15,8 @@ import java.util.Optional;
 @Experimental
 public interface DynamicFilter {
 
-    /** Filter type: range-based or bloom-based. */
-    enum Type { MIN_MAX, BLOOM }
-
     /** Returns the filter type. */
-    Type filterType();
+    DynamicFilterType filterType();
 
     /** Returns the target column name. */
     String column();
@@ -41,8 +39,8 @@ public interface DynamicFilter {
     /** A no-op filter that accepts all values. */
     DynamicFilter ALL = new DynamicFilter() {
         @Override
-        public Type filterType() {
-            return Type.MIN_MAX;
+        public DynamicFilterType filterType() {
+            return DynamicFilterType.MIN_MAX;
         }
 
         @Override

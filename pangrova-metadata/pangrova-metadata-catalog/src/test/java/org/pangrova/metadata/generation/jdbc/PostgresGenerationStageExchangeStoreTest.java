@@ -1,5 +1,8 @@
 package org.pangrova.metadata.generation.jdbc;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -11,15 +14,10 @@ import static org.pangrova.metadata.generation.jdbc.GenerationTransactionFailure
 import static org.pangrova.metadata.generation.jdbc.GenerationTransactionFailureAssertions.snapshot;
 
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
-
 import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
-
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
-
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
@@ -435,13 +433,13 @@ class PostgresGenerationStageExchangeStoreTest {
     }
 
     private static GenerationDispatchSpec specification() {
-        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT, List.of(
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT, List.of(
                 GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE,
                         new byte[]{1}, GenerationStageTemplate.of(new byte[0], List.of(), List.of()), List.of("lake.raw.items"), List.of("id"), false),
                 GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                         new byte[]{2}, GenerationStageTemplate.of(new byte[]{3}, List.of(), List.of()), List.of(), List.of("id"), true)), List.of(
                             new GenerationStageGraph.Exchange("exchange-1-0", 1, 0,
-                                    GenerationStageGraph.Exchange.Distribution.SINGLETON,
+                                    GenerationExchangeDistribution.SINGLETON,
                                     List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
         return GenerationDispatchSpecFactory.create(KEY.jobId(), graph, KEY.tenantId(), "stage-principal",
                 org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(

@@ -12,6 +12,7 @@ import org.pangrova.streaming.api.cdc.CdcRow;
 import org.pangrova.streaming.format.json.CdcRowParser;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -160,7 +161,7 @@ public final class CanalJsonConverter implements CdcRecordConverter {
     }
 
     private static CdcOperation mapOp(String type) {
-        return switch (type.toUpperCase()) {
+        return switch (type.toUpperCase(Locale.ROOT)) {
             case "INSERT" -> CdcOperation.INSERT;
             case "UPDATE" -> CdcOperation.UPDATE;
             case "DELETE" -> CdcOperation.DELETE;

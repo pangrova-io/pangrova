@@ -1,5 +1,7 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.planner.constants.ArtifactBuildReport;
+
 import com.google.protobuf.Any;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -18,14 +20,13 @@ import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
 
-import static org.pangrova.protocol.capability.BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN;
+import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 /** Produces the deterministic generic Substrait sink used for Native BM25 pages. */
 @Internal
 public final class Bm25GenerationPlanBuilder {
 
     public static final String PLAN_NODE_ID = "artifact-build-bm25";
-    public static final int REPORT_SCHEMA_VERSION = 2;
 
     private Bm25GenerationPlanBuilder() {}
 
@@ -49,7 +50,7 @@ public final class Bm25GenerationPlanBuilder {
                 .build();
         ArtifactBuildDetail detail = ArtifactBuildDetail.newBuilder()
                 .setPlanNodeId(PLAN_NODE_ID)
-                .setReportSchemaVersion(REPORT_SCHEMA_VERSION)
+                .setReportSchemaVersion(ArtifactBuildReport.SCHEMA_VERSION)
                 .addInputFields(PHYSICAL_ROW_POSITION_COLUMN)
                 .addInputFields(textColumn)
                 .setInvocation(CapabilityInvocation.newBuilder()

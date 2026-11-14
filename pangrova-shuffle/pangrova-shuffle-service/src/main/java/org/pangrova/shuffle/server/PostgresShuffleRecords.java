@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -14,7 +16,6 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationState;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
@@ -105,7 +106,7 @@ final class PostgresShuffleRecords {
     }
 
     static void requireRegistered(Allocation allocation) {
-        if (allocation.state() != AllocationState.REGISTERED) {
+        if (allocation.state() != ShuffleAllocationState.REGISTERED) {
             throw new IllegalStateException("shuffle allocation is not writable");
         }
     }
@@ -456,6 +457,6 @@ final class PostgresShuffleRecords {
                 rows.getLong("capability_expires_at_ms"),
                 rows.getLong("cleanup_expires_at_ms"),
                 rows.getLong("metadata_version"),
-                AllocationState.valueOf(rows.getString("state")));
+                ShuffleAllocationState.valueOf(rows.getString("state")));
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -142,7 +144,7 @@ class HighAvailabilityCoordinationServiceTest {
             queryPeer.start("node-2");
 
             assertThat(queryPeer.getRole())
-                    .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                    .isEqualTo(CoordinatorRole.STANDBY);
             assertThat(queryPeer.getCurrentEpoch())
                     .isPositive()
                     .isEqualTo(controlLeader.getCurrentEpoch());
@@ -273,12 +275,12 @@ class HighAvailabilityCoordinationServiceTest {
         try {
             // node-1 starts first and becomes leader
             node1.start("node-1");
-            assertThat(node1.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+            assertThat(node1.getRole()).isEqualTo(CoordinatorRole.LEADER);
             assertThat(node1.getLeaderId()).isEqualTo("node-1");
 
             // node-2 starts as standby (node-1 already holds the lease)
             node2.start("node-2");
-            assertThat(node2.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.STANDBY);
 
             // Simulate node-1 failure: close stops lease renewal, lease will expire
             node1.close();
@@ -288,7 +290,7 @@ class HighAvailabilityCoordinationServiceTest {
 
             // Verify node-2 detected leader failure and took over
             assertThat(node2.getLeaderId()).isEqualTo("node-2");
-            assertThat(node2.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
             assertThat(node2.isLeader("node-2")).isTrue();
         } finally {
             node1.close();

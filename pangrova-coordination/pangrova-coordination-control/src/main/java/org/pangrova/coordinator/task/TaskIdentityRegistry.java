@@ -35,7 +35,7 @@ final class TaskIdentityRegistry {
         if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("queryId must not be blank");
         purgeRetiredQueries();
         if (!scopes.containsKey(queryId) && scopes.size()
-                >= org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_RETAINED_IDENTITIES) {
+                >= org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.MAX_RETAINED_IDENTITIES) {
             throw new IllegalStateException("Query issuance identity capacity exhausted");
         }
         Scope scope = scopes.computeIfAbsent(queryId, Scope::new);
@@ -203,7 +203,7 @@ final class TaskIdentityRegistry {
                     canonicalAttempt.getQueryOrJobId(), taskId, null, "SCHEDULED", canonicalAttempt.getStageId(), 0L);
         }
         if (!identities.containsKey(taskId) && identities.size()
-                >= org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_RETAINED_IDENTITIES) {
+                >= org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.MAX_RETAINED_IDENTITIES) {
             throw new IllegalStateException("Issued task identity capacity exhausted");
         }
         publishRequest(taskId, request, issued, scope, scheduled);
@@ -531,7 +531,7 @@ final class TaskIdentityRegistry {
                 return existing;
             }
             long ackDeadline = clock.getAsLong()
-                    + org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
+                    + org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
             return new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
                     existing.workerId(), existing.deadline(), ackDeadline, existing.directReadResult());
         });

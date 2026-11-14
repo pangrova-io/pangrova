@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
-
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.query.api.session.QuerySession;
@@ -17,7 +17,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.substrait.SubstraitConverter;
@@ -64,7 +64,7 @@ class QueryManagerLineageTest {
 
         assertThat(qm.getQueryState("q-1")).contains(QueryState.FAILED);
         assertThat(capturedEvents).extracting(LineageEvent::eventType)
-                .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.FAIL);
+                .containsExactly(LineageEventType.START, LineageEventType.FAIL);
     }
 
     @Test
@@ -90,7 +90,7 @@ class QueryManagerLineageTest {
                 .isInstanceOf(NoAvailableWorkerException.class);
         emitter.close();
         assertThat(capturedEvents).extracting(LineageEvent::eventType)
-                .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.FAIL);
+                .containsExactly(LineageEventType.START, LineageEventType.FAIL);
         assertThat(capturedEvents).allSatisfy(event -> {
             assertThat(event.inputDatasets()).isEmpty();
             assertThat(event.outputDatasets()).isEmpty();

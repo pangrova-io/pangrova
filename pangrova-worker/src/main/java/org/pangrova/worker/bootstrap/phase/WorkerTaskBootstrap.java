@@ -1,22 +1,22 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.config.enums.ShuffleMode;
+import org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership;
-import org.pangrova.worker.execution.NativeTaskExecutor;
-import org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory;
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
-import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
-import org.pangrova.worker.task.memory.MemoryRefs;
+import org.pangrova.worker.execution.NativeTaskExecutor;
+import org.pangrova.worker.execution.TaskExecutor;
+import org.pangrova.worker.result.NativeResultTransport;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.pangrova.worker.task.QueryCancellationPropagator;
-import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
 import org.pangrova.worker.task.TenantExecutionQuotaEnforcer;
 import org.pangrova.worker.task.TransportRefs;
+import org.pangrova.worker.task.memory.MemoryRefs;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -222,8 +222,9 @@ public final class WorkerTaskBootstrap {
         if (nativeAvailable) {
             if (config.shuffleMode() == ShuffleMode.REMOTE) {
                 return ownership.retain(ownership.shuffle().producers(), egress -> {
+                    var executor = new NativeTaskExecutor(egress);
                     org.pangrova.worker.jni.NativeRuntime.nativeRegisterEgress(egress);
-                    return new NativeTaskExecutor(egress);
+                    return executor;
                 });
             }
             var executor = new NativeTaskExecutor();
@@ -238,8 +239,8 @@ public final class WorkerTaskBootstrap {
 
     static NativeShuffleWorkerFactory.Session openShuffle(WorkerBootstrapConfig config) {
         if (config.shuffleMode() != ShuffleMode.REMOTE) return null;
-        var required = java.util.Set.of(org.pangrova.shuffle.api.capability.ShuffleCapability.BLOCKING_READ,
-                org.pangrova.shuffle.api.capability.ShuffleCapability.PARTITION_READ);
+        var required = java.util.Set.of(org.pangrova.shuffle.api.enums.ShuffleCapability.BLOCKING_READ,
+                org.pangrova.shuffle.api.enums.ShuffleCapability.PARTITION_READ);
         var factories = new java.util.HashMap<String, NativeShuffleWorkerFactory>();
         for (var factory : java.util.ServiceLoader.load(NativeShuffleWorkerFactory.class,
                 WorkerTaskBootstrap.class.getClassLoader())) {
@@ -436,7 +437,7 @@ public final class WorkerTaskBootstrap {
             String url, WorkerObservabilitySetup observability, String internalAuthSecret) {
         try {
             return new RemoteTaskStatusReporter(
-                    url, observability.tracingProvider(), internalAuthSecret);
+                    url, observability.tracingProvider(), observability.metricsProvider(), internalAuthSecret);
         } catch (org.pangrova.common.exception.BootstrapFailedException e) {
             throw e;
         } catch (Exception e) {

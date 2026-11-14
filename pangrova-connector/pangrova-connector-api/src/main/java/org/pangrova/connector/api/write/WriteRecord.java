@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.write;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;
@@ -19,7 +20,6 @@ public record WriteRecord(
         WriteOperation operation,
         Instant eventTime
 ) {
-    public enum WriteOperation { INSERT, UPDATE, DELETE }
 
     public static WriteRecord fromClient(TypedRow data, WriteOperation op) {
         Objects.requireNonNull(data, "data must not be null");

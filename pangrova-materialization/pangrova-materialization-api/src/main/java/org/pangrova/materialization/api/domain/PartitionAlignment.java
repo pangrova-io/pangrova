@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -19,17 +21,7 @@ import java.util.Set;
  * @param shape definition shape a partition rewrite can evaluate
  * @param columns source-to-output mappings for directly derived columns
  */
-public record PartitionAlignment(Shape shape, List<Column> columns) {
-
-    /** Definition shape that can be recomputed one partition at a time. */
-    public enum Shape {
-        /** Single-table projection/filter scan. */
-        SCAN,
-        /** Single-table aggregate whose grouping keys are the partition columns. */
-        AGGREGATE,
-        /** Shape that cannot be rewritten per partition. */
-        UNSUPPORTED
-    }
+public record PartitionAlignment(PartitionAlignmentShape shape, List<Column> columns) {
 
     /**
      * One directly derived output column.
@@ -52,7 +44,7 @@ public record PartitionAlignment(Shape shape, List<Column> columns) {
 
     /** Alignment for a definition that cannot be rewritten per partition. */
     public static final PartitionAlignment NONE =
-            new PartitionAlignment(Shape.UNSUPPORTED, List.of());
+            new PartitionAlignment(PartitionAlignmentShape.UNSUPPORTED, List.of());
 
     public PartitionAlignment {
         if (shape == null) {

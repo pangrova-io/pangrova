@@ -1,11 +1,11 @@
 package org.pangrova.server.worker.embedding;
 
-import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.config.ConfigValidator;
 import org.pangrova.server.worker.bootstrap.WorkerConfiguration;
 import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.config.WorkerOptions;
+import org.pangrova.config.constants.WorkerOptions;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 /**

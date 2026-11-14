@@ -2,7 +2,7 @@ package org.pangrova.testing.testkit;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.TestDataGenerator.ColumnDef;
-import org.pangrova.testing.testkit.TestDataGenerator.ColumnType;
+import org.pangrova.testing.testkit.enums.GeneratedColumnType;
 import org.pangrova.testing.testkit.TestDataGenerator.TableSchema;
 
 import java.util.ArrayList;
@@ -16,8 +16,8 @@ class TestDataGeneratorTest {
 
     @Test
     void schemaFreezesOrderedColumnsAndRejectsAccessorMutation() {
-        var id = new ColumnDef("id", ColumnType.LONG);
-        var name = new ColumnDef("name", ColumnType.STRING);
+        var id = new ColumnDef("id", GeneratedColumnType.LONG);
+        var name = new ColumnDef("name", GeneratedColumnType.STRING);
         var columns = new ArrayList<>(List.of(id, name));
         var schema = new TableSchema(columns);
         columns.clear();

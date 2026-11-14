@@ -29,7 +29,7 @@ public final class AiProviderFactories {
     }
 
     public static AiProviderFactories discover() {
-        return new AiProviderFactories(ServiceLoader.load(AiProviderFactory.class));
+        return new AiProviderFactories(ServiceLoader.load(AiProviderFactory.class, AiProviderFactories.class.getClassLoader()));
     }
 
     public AiProviderFactory require(String dialect, String modelName) {

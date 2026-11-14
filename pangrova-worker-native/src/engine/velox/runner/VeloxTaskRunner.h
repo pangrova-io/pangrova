@@ -17,6 +17,7 @@
 
 #include <folly/futures/Future.h>
 
+#include "engine/executor/driver/TaskFailureReporter.h"
 #include "engine/split/SplitConfig.h"
 #include "engine/executor/queue/OutputQueue.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
@@ -45,6 +46,7 @@ struct VeloxTaskRunnerConfig {
   std::shared_ptr<const substrait::NamedStruct> result_output_schema;
   std::unordered_map<std::string, substrait::NamedStruct> serde_schema_bindings;
   int64_t executor_handle = 0;
+  const pangrova::executor::TaskFailureReporter* failure_reporter = nullptr;
   std::string callback_context;
   std::string task_id;
   std::string query_id;

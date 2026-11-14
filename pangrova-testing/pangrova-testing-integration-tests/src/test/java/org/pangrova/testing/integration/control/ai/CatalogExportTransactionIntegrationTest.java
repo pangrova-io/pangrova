@@ -1,5 +1,8 @@
 package org.pangrova.testing.integration.control.ai;
 
+import org.pangrova.ai.control.enums.CatalogExportKind;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
@@ -61,7 +64,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
 
     @Test
     void commitsAndReplaysBothCatalogFamiliesWithTheSameDurableGraph() throws Exception {
-        for (var kind : CatalogExportRequest.ObjectKind.values()) {
+        for (var kind : CatalogExportKind.values()) {
             var job = job(kind.name());
             var request = request(job, kind, PRINCIPAL);
             var spec = spec(job, TENANT, PRINCIPAL);
@@ -76,11 +79,11 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
     @Test
     void conflictingCatalogLinkRollsBackEveryNewBuildRow() throws Exception {
         var first = job("first");
-        store.createCatalogExportJob(request(first, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL),
+        store.createCatalogExportJob(request(first, CatalogExportKind.FEATURE_VIEW, PRINCIPAL),
                 first, spec(first, TENANT, PRINCIPAL), pages(first));
         var conflicting = job("second");
         assertThatThrownBy(() -> store.createCatalogExportJob(
-                request(conflicting, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL),
+                request(conflicting, CatalogExportKind.FEATURE_VIEW, PRINCIPAL),
                 conflicting, spec(conflicting, TENANT, PRINCIPAL), pages(conflicting)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("another artifact job");
         assertThat(builds.findJob(TENANT, "first")).contains(first);
@@ -92,7 +95,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
     @Test
     void rejectsPrincipalTenantAndJobMismatchBeforeInsertion() throws Exception {
         var job = job("job");
-        var request = request(job, CatalogExportRequest.ObjectKind.TRAINING_DATASET, PRINCIPAL);
+        var request = request(job, CatalogExportKind.TRAINING_DATASET, PRINCIPAL);
         for (var invalid : List.of(spec(job, TENANT, "another-principal"),
                 spec(job, "another-tenant", PRINCIPAL), spec(job("another-job"), TENANT, PRINCIPAL))) {
             assertThatThrownBy(() -> store.createCatalogExportJob(request, job, invalid, pages(job)))
@@ -106,7 +109,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         for (var job : List.of(job("index", GenerationOutputTypeIds.VECTOR_INDEX, GenerationExecutionKind.EXPORT),
                 job("build", GenerationOutputTypeIds.TABULAR_EXPORT, GenerationExecutionKind.BUILD))) {
             assertThatThrownBy(() -> store.createCatalogExportJob(
-                    request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL),
+                    request(job, CatalogExportKind.FEATURE_VIEW, PRINCIPAL),
                     job, spec(job, TENANT, PRINCIPAL), pages(job)))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("identity");
         }
@@ -120,7 +123,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         }
         var job = job("revoked");
         assertThatThrownBy(() -> store.createCatalogExportJob(
-                request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL),
+                request(job, CatalogExportKind.FEATURE_VIEW, PRINCIPAL),
                 job, spec(job, TENANT, PRINCIPAL), pages(job)))
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertRows(0);
@@ -151,7 +154,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
                 PostgresGenerationStores.currentRoles(), PostgresGenerationStores.publicationCandidates());
         var guarded = AiInfrastructureStores.jdbc(dataSource, guardedBuilds).catalogExports();
         var job = job("authority-transaction");
-        var request = request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL);
+        var request = request(job, CatalogExportKind.FEATURE_VIEW, PRINCIPAL);
         var spec = spec(job, TENANT, PRINCIPAL);
         assertThatThrownBy(() -> guarded.createCatalogExportJob(request, job, spec, pages(job)))
                 .isInstanceOf(AuthorizationDeniedException.class);
@@ -169,7 +172,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
             statement.execute("ALTER TABLE catalog_export_requests ADD CONSTRAINT reject_export CHECK (false)");
         }
         var job = job("sql-failure");
-        var request = request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL);
+        var request = request(job, CatalogExportKind.FEATURE_VIEW, PRINCIPAL);
         var spec = spec(job, TENANT, PRINCIPAL);
         assertThatThrownBy(() -> store.createCatalogExportJob(request, job, spec, pages(job)))
                 .isInstanceOfSatisfying(CatalogExportStorageException.class, failure -> {
@@ -197,7 +200,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
     }
 
     private static CatalogExportRequest request(GenerationJob job,
-            CatalogExportRequest.ObjectKind kind, String principal) {
+            CatalogExportKind kind, String principal) {
         return new CatalogExportRequest(TENANT, kind, "lake", "features", "customers", 1,
                 job.stagingGeneration(), job.artifactId(), job.jobId(), job.dependencySet().sha256(), principal, NOW);
     }
@@ -224,7 +227,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of(), true);
-        var graph = new GenerationStageGraph(2, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        var graph = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(stage), List.of(), List.of());
         return new GenerationDispatchSpec(job.jobId(), graph, tenant, principal, SCOPE, 4096, 1, 4096, 60_000);
     }

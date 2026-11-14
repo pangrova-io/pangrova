@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.handle;
 
+import java.util.Locale;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -202,7 +203,7 @@ public record IcebergSplit(
         // Eliminates intermediate LinkedHashMap allocation for this immutable record.
         return Map.of(
                 "file_path", filePath,
-                "file_format", fileFormat != null ? fileFormat.toLowerCase() : "parquet",
+                "file_format", fileFormat != null ? fileFormat.toLowerCase(Locale.ROOT) : "parquet",
                 "start_offset", String.valueOf(fileOffset),
                 "length", String.valueOf(fileLength),
                 "connector_id", "iceberg");
@@ -311,7 +312,7 @@ public record IcebergSplit(
         if (fileFormat == null) {
             return FileFormat.FILE_FORMAT_PARQUET;
         }
-        return switch (fileFormat.toUpperCase()) {
+        return switch (fileFormat.toUpperCase(Locale.ROOT)) {
             case "ORC" -> FileFormat.FILE_FORMAT_ORC;
             default -> FileFormat.FILE_FORMAT_PARQUET;
         };
@@ -321,7 +322,7 @@ public record IcebergSplit(
         if (readMode == null) {
             return IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT;
         }
-        return switch (readMode.toUpperCase()) {
+        return switch (readMode.toUpperCase(Locale.ROOT)) {
             case "INCREMENTAL" -> IcebergReadMode.ICEBERG_READ_MODE_INCREMENTAL;
             // Snapshot selection is a table-handle concern. Once pinned, FULL
             // and TIME_TRAVEL describe the same physical scan and must carry
@@ -335,7 +336,7 @@ public record IcebergSplit(
         if (content == null) {
             return 0;
         }
-        return switch (content.toUpperCase()) {
+        return switch (content.toUpperCase(Locale.ROOT)) {
             case "POSITION_DELETES" -> 1;
             case "EQUALITY_DELETES" -> 2;
             default -> 0;
@@ -343,7 +344,7 @@ public record IcebergSplit(
     }
 
     private static DeleteFileType resolveDeleteFileType(String deleteType) {
-        return switch (deleteType.toUpperCase()) {
+        return switch (deleteType.toUpperCase(Locale.ROOT)) {
             case "POSITION" -> DeleteFileType.DELETE_FILE_TYPE_POSITION;
             case "EQUALITY" -> DeleteFileType.DELETE_FILE_TYPE_EQUALITY;
             case "DELETION_VECTOR" -> DeleteFileType.DELETE_FILE_TYPE_DELETION_VECTOR;

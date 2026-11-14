@@ -36,6 +36,17 @@ class ModuleManifestTest(unittest.TestCase):
             (directory / "pom.xml").write_text("not valid XML")
         self.assertEqual({"new-owner"}, set(BASELINE.pom_artifacts()))
 
+    def test_rejects_generic_artifact_names_at_any_depth(self):
+        directory = self.root / "family" / "nested" / "leaf"
+        directory.mkdir(parents=True)
+        for suffix in ("core", "spi", "adapter", "bridge"):
+            with self.subTest(suffix=suffix):
+                name = "pangrova-scheduling-" + suffix
+                (directory / "pom.xml").write_text(
+                    f'<project xmlns="http://maven.apache.org/POM/4.0.0"><artifactId>{name}</artifactId></project>')
+                with self.assertRaisesRegex(ValueError, name):
+                    BASELINE.pom_artifacts()
+
     def test_resource_jar_is_an_artifact_even_without_java_sources(self):
         (self.root / "pom.xml").write_text(
             '<project xmlns="http://maven.apache.org/POM/4.0.0">'
@@ -167,6 +178,23 @@ class ModuleManifestTest(unittest.TestCase):
                           "org.pangrova.internal.Hidden"}, facts[0]["references"])
         self.assertEqual({"org.pangrova.fixture.Factory.create"}, facts[1]["references"])
         self.assertEqual({"packages": set(), "references": set()}, facts[2])
+
+    def test_capability_names_apply_to_owned_nested_types_and_packages(self):
+        source = self.root / "src"
+        leaf = source / "org/pangrova/worker/flight"
+        leaf.mkdir(parents=True)
+        file = leaf / "FlightEndpoint.java"
+        file.write_text("package org.pangrova.worker.flight; class FlightEndpoint {"
+                        " third.party.spi.ArrowAdapter sdk; class HandleBridge {} }")
+        with self.assertRaisesRegex(RuntimeError, "HandleBridge"):
+            BASELINE.source_facts([source])
+        file.write_text("package org.pangrova.worker.flight; class FlightEndpoint { third.party.spi.ArrowAdapter sdk; }")
+        self.assertEqual({"org.pangrova.worker.flight"}, BASELINE.source_facts([source])[0]["packages"])
+        legacy = leaf / "adapter"
+        legacy.mkdir()
+        (legacy / "Ticket.java").write_text("package org.pangrova.worker.flight.adapter; class Ticket {}")
+        with self.assertRaisesRegex(RuntimeError, "package segment adapter"):
+            BASELINE.source_facts([source])
 
     def test_invalid_java_fails_with_source_diagnostics(self):
         source = self.root / "source"

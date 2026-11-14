@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 import org.pangrova.execution.stage.binding.RetrievalGenerationIntent;
 import org.pangrova.execution.stage.binding.RetrievalMergeIntent;
 import org.pangrova.query.api.task.QuerySplit;
@@ -15,7 +18,6 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +57,7 @@ public final class RetrievalGenerationResolver {
             List<QuerySplit> splits) {
         return !splits.isEmpty()
                 && fragment.retrievalTopKHints().stream().anyMatch(
-                        hint -> hint.kind() != RetrievalTopKPlanHint.Kind.EXACT);
+                        hint -> hint.kind() != RetrievalKind.EXACT);
     }
 
     private static Map<String, RetrievalGenerationIntent> indexIntents(
@@ -122,7 +124,7 @@ public final class RetrievalGenerationResolver {
             Map<String, RetrievalGenerationIntent> intents,
             List<String> serializedSplits,
             Set<String> consumed) {
-        if (hint.kind() == RetrievalTopKPlanHint.Kind.EXACT) {
+        if (hint.kind() == RetrievalKind.EXACT) {
             return Optional.empty();
         }
         RetrievalGenerationIntent intent = intents.get(hint.sourceKey());
@@ -152,7 +154,7 @@ public final class RetrievalGenerationResolver {
 
     private Optional<ResolvedRetrievalGeneration> resolvePublished(
             RetrievalGenerationIntent intent, List<String> serializedSplits) {
-        if (BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(intent.capability().getCapabilityId())
+        if (BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(intent.capability().getCapabilityId())
                 && !FilteredAnnSourceScope.supports(
                         org.pangrova.generation.codec.source.GenerationSourceSplitCodec.decode(serializedSplits),
                         intent.sourceId(), intent.sourceSnapshot())) {
@@ -162,12 +164,12 @@ public final class RetrievalGenerationResolver {
                 new PublishedGenerationBindingResolver.GenerationResolutionIntent(
                         intent.tenantId(), intent.artifactId(), intent.artifactType(), intent.generation(),
                         intent.sourceId(), intent.sourceSnapshot(),
-                        PublishedGenerationBindingResolver.SourceCoverage.COMPLETE_GENERATION), serializedSplits)
+                        GenerationSourceCoverage.COMPLETE_GENERATION), serializedSplits)
                 .map(binding -> new ResolvedRetrievalGeneration(intent, binding, serializedSplits.size()));
     }
 
     private static void requireFullTextIntent(RetrievalTopKPlanHint hint) {
-        if (hint.kind() == RetrievalTopKPlanHint.Kind.FULL_TEXT) {
+        if (hint.kind() == RetrievalKind.FULL_TEXT) {
             throw new PangrovaException(
                     PangrovaErrorCode.RUNTIME_TASK_FAILED,
                     "BM25 retrieval has no immutable artifact binding: "
@@ -176,7 +178,7 @@ public final class RetrievalGenerationResolver {
     }
 
     private static void requireBm25Artifact(RetrievalGenerationIntent intent) {
-        if (BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID.equals(
+        if (BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID.equals(
                 intent.capability().getCapabilityId())) {
             throw new PangrovaException(
                     PangrovaErrorCode.RUNTIME_TASK_FAILED,

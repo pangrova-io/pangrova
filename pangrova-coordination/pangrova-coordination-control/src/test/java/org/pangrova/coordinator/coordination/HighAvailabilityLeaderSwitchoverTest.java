@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
@@ -27,13 +29,13 @@ class HighAvailabilityLeaderSwitchoverTest {
             // node-1 starts first and becomes leader
             node1.start("node-1");
             assertThat(node1.getRole())
-                    .isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                    .isEqualTo(CoordinatorRole.LEADER);
             assertThat(node1.getLeaderId()).isEqualTo("node-1");
 
             // node-2 starts as standby
             node2.start("node-2");
             assertThat(node2.getRole())
-                    .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                    .isEqualTo(CoordinatorRole.STANDBY);
 
             // Simulate node-1 failure: close stops lease renewal
             node1.close();
@@ -44,7 +46,7 @@ class HighAvailabilityLeaderSwitchoverTest {
             // node-2 detected failure and took over
             assertThat(node2.getLeaderId()).isEqualTo("node-2");
             assertThat(node2.getRole())
-                    .isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                    .isEqualTo(CoordinatorRole.LEADER);
             assertThat(node2.isLeader("node-2")).isTrue();
         } finally {
             node1.close();

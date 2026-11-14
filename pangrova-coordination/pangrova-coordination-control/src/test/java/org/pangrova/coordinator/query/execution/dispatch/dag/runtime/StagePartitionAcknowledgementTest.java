@@ -1,12 +1,13 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -36,7 +37,7 @@ class StagePartitionAcknowledgementTest {
         assertThat(tracker.updateTaskState(QUERY, TASK, "FINISHED")).isTrue();
         var observed = issued.acknowledgement().thenApply(result -> tracker.getTaskState(QUERY, result.taskId()));
         transport.response.complete(result(TASK));
-        assertThat(observed.join()).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(observed.join()).isEqualTo(ScheduledTaskState.FINISHED);
         assertThat(tracker.getWorkerForTask(TASK)).isEqualTo(worker.workerId());
         assertThatThrownBy(() -> tracker.unregisterSettledTask(QUERY, TASK))
                 .hasMessageContaining("actual drain evidence");
@@ -62,7 +63,7 @@ class StagePartitionAcknowledgementTest {
         transport.response.complete(result("different-task"));
         assertThatThrownBy(() -> issued.acknowledgement().join())
                 .hasCauseInstanceOf(IllegalStateException.class);
-        assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(TaskStateMachine.State.SCHEDULED);
+        assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(ScheduledTaskState.SCHEDULED);
     }
 
     @Test

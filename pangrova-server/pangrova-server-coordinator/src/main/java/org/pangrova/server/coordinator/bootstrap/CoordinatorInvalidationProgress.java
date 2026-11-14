@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
 import java.time.Duration;
 import java.util.Objects;
@@ -33,7 +33,7 @@ final class CoordinatorInvalidationProgress implements InvalidationProgressRegis
 
     static PostgresInvalidationPoller createPoller(
             DataSource source, MetadataCache cache,
-            CoordinatorRegistry registry, CoordinatorRole role, String coordinatorId) {
+            CoordinatorRegistry registry, CoordinatorDeploymentRole role, String coordinatorId) {
         var progress = new CoordinatorInvalidationProgress(registry, DEFAULT_LIVENESS_WINDOW);
         return new PostgresInvalidationPoller(source, cache, progress,
                 role.isQuery() ? Optional.of(coordinatorId) : Optional.empty());

@@ -52,7 +52,7 @@ public record PaimonTableHandle(
                             "schemas"),
                     java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
                             "REMOVE_ORPHAN_FILES"),
-                    org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.connector.api.enums.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     /** Evidence captured from the selected SDK source, never a query-wide mutable pin. */

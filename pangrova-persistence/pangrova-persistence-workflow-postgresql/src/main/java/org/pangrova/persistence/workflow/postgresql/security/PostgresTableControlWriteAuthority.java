@@ -9,7 +9,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentGrantReader;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentPolicyReader;
@@ -50,7 +50,7 @@ public final class PostgresTableControlWriteAuthority implements TableControlWri
         var table = permission.table();
         UUID tableId = identity(connection, permission);
         var bindings = tableId == null ? List.<GovernanceBinding>of()
-                : JdbcTableControlGovernanceBindingStore.list(connection, tableId);
+                : PostgresTablePolicyRepository.list(connection, tableId);
         var boundRows = tableId == null ? List.<org.pangrova.security.api.rowfilter.RowPolicy>of()
                 : JdbcRowPolicyStore.list(connection, tableId);
         return policies.observe(connection, principal, roles, permission,

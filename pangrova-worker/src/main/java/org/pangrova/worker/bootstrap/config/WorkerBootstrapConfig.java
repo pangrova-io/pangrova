@@ -1,7 +1,12 @@
 package org.pangrova.worker.bootstrap.config;
 
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
 import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.worker.function.NativeFunctionConfig;
+
+import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * Immutable deployment configuration for the Worker bootstrap sequence.
@@ -27,7 +32,7 @@ public record WorkerBootstrapConfig(
         String coordinatorUrl,
         long heartbeatIntervalMs,
         boolean observabilityEnabled,
-        ObservabilityBootstrapConfig observabilityBootstrapConfig,
+        ObservabilityConfig observabilityBootstrapConfig,
         ResourceConfig resourceConfig,
         int resultRetentionSeconds,
         boolean cdcEnabled,
@@ -40,7 +45,38 @@ public record WorkerBootstrapConfig(
         String shuffleAdvertisedHost,
         NativeFunctionConfig nativeFunctionConfig,
         TransportSecurityConfig transportSecurityConfig,
-        String admissionStateDirectory) {
+        String admissionStateDirectory,
+        Optional<Path> pluginDirectory) {
+    /** Uses only the bundled connector factories. */
+    public WorkerBootstrapConfig(
+            String workerId,
+            int httpPort,
+            int transportPort,
+            String coordinatorUrl,
+            long heartbeatIntervalMs,
+            boolean observabilityEnabled,
+            ObservabilityConfig observabilityBootstrapConfig,
+            ResourceConfig resourceConfig,
+            int resultRetentionSeconds,
+            boolean cdcEnabled,
+            RegistrationRetryConfig registrationRetryConfig,
+            String httpHost,
+            String internalAuthSecret,
+            ShuffleMode shuffleMode,
+            CacheConfig cacheConfig,
+            String advertisedHost,
+            String shuffleAdvertisedHost,
+            NativeFunctionConfig nativeFunctionConfig,
+            TransportSecurityConfig transportSecurityConfig,
+            String admissionStateDirectory) {
+        this(
+                workerId, httpPort, transportPort, coordinatorUrl,
+                heartbeatIntervalMs, observabilityEnabled, observabilityBootstrapConfig, resourceConfig,
+                resultRetentionSeconds, cdcEnabled, registrationRetryConfig, httpHost,
+                internalAuthSecret, shuffleMode, cacheConfig, advertisedHost,
+                shuffleAdvertisedHost, nativeFunctionConfig, transportSecurityConfig, admissionStateDirectory,
+                Optional.empty());
+    }
 
     private static final int MAX_TCP_PORT = 65_535;
 
@@ -48,6 +84,7 @@ public record WorkerBootstrapConfig(
     public static final int DEFAULT_RESULT_RETENTION_SECONDS = 300;
 
     public WorkerBootstrapConfig {
+        java.util.Objects.requireNonNull(pluginDirectory, "pluginDirectory");
         checkWorkerId(workerId);
         if (admissionStateDirectory == null || admissionStateDirectory.isBlank()) {
             throw new IllegalArgumentException("admissionStateDirectory must not be blank");
@@ -264,7 +301,7 @@ public record WorkerBootstrapConfig(
                     nodeMemoryBytes, pressureThresholdLow, pressureThresholdMedium, pressureThresholdHigh,
                     pressureThresholdCritical, shuffleRetentionBytes, shuffleTransitBytes, shuffleSpillBytes,
                     shuffleSpillFiles, shuffleSpillDirectory, shuffleChannelLimits,
-                    new ShuffleProvider(org.pangrova.config.WorkerOptions.SHUFFLE_PROVIDER.defaultValue(), java.util.Map.of()));
+                    new ShuffleProvider(org.pangrova.config.constants.WorkerOptions.SHUFFLE_PROVIDER.defaultValue(), java.util.Map.of()));
         }
 
         public ResourceConfig {
@@ -290,7 +327,7 @@ public record WorkerBootstrapConfig(
                     4,
                     2,
                     1,
-                    org.pangrova.config.WorkerOptions.SPILL_DIRECTORY.defaultValue(),
+                    org.pangrova.config.constants.WorkerOptions.SPILL_DIRECTORY.defaultValue(),
                     DEFAULT_NODE_MEMORY,
                     DEFAULT_PRESSURE_THRESHOLD_LOW,
                     DEFAULT_PRESSURE_THRESHOLD_MEDIUM,
@@ -302,24 +339,11 @@ public record WorkerBootstrapConfig(
                     DEFAULT_SHUFFLE_SPILL_FILES,
                     null,
                     new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(
-                            org.pangrova.config.WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS
+                            org.pangrova.config.constants.WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS
                                     .defaultValue(),
-                            org.pangrova.config.WorkerOptions
+                            org.pangrova.config.constants.WorkerOptions
                                     .SHUFFLE_CLIENT_MAX_OWNED_CHANNELS_PER_ENDPOINT
                                     .defaultValue()));
-        }
-    }
-
-    /** OTel bootstrap parameters for observability initialization. */
-    public record ObservabilityBootstrapConfig(String serviceName, String otlpEndpoint) {
-
-        public ObservabilityBootstrapConfig {
-            if (serviceName == null || serviceName.isBlank()) {
-                throw new IllegalArgumentException("serviceName must not be blank");
-            }
-            if (otlpEndpoint == null || otlpEndpoint.isBlank()) {
-                throw new IllegalArgumentException("otlpEndpoint must not be blank");
-            }
         }
     }
 

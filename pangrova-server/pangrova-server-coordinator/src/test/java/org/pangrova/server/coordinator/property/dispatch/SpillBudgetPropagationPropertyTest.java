@@ -14,7 +14,7 @@ import net.jqwik.api.Provide;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.enums.MemoryPressure;
-import org.pangrova.config.CoordinatorOptions;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.YamlConfigLoader;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;

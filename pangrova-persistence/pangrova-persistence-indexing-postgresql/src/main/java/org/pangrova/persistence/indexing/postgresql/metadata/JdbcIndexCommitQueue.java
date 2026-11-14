@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
@@ -318,12 +320,8 @@ final class JdbcIndexCommitQueue extends JdbcStoreSupport {
                 T value = work.apply(connection);
                 connection.commit();
                 return value;
-            } catch (SQLException | RuntimeException failure) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {

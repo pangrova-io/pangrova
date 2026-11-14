@@ -20,6 +20,13 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 /** Durable allocation, finalization, and cleanup transaction boundary. */
 interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 
+    /** Pins a query's objects for one authorized read until release or its bounded expiry. */
+    UUID pinRead(String queryId, ExecutionOwnerIdentity owner, long readUntilMs, long drainMillis);
+
+    void requirePinnedRead(String queryId, ExecutionOwnerIdentity owner, UUID id);
+
+    void releaseRead(UUID id);
+
     /** Requires the exact owner to still hold the authoritative execution anchor. */
     void requireLiveOwner(String queryId, ExecutionOwnerIdentity owner);
 

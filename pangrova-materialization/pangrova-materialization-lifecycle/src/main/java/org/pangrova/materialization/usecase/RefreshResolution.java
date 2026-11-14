@@ -2,7 +2,7 @@ package org.pangrova.materialization.usecase;
 
 import java.util.Optional;
 import org.pangrova.materialization.api.domain.Generation;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
 
 /**

@@ -20,7 +20,7 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
@@ -146,7 +146,7 @@ class CatalogDeploymentResourceIntegrationTest extends ContainerTestBase {
                 authenticator.init(Map.of("issuerUri", issuer.uri(), "audience", "catalog-tests"));
                 authentication = new AuthenticationManager(List.of(authenticator));
                 var endpoint = new CatalogDeploymentResource(
-                        new DefaultMetadataService(new CatalogRegistry(memoryTableStores(), store), null, null, null));
+                        new CatalogMetadata(new CatalogRegistry(memoryTableStores(), store), null, null, null));
                 var config = new ResourceConfig();
                 config.register(new AuthenticationFilter(authentication, INTERNAL_SECRET));
                 config.register(endpoint);

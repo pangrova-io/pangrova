@@ -164,7 +164,11 @@ class ShuffleStageHandlerTest {
         var oldReceipt = stage.requireShuffleReceipt();
         byte[] initialChecksum = lifecycle.registrations.get(0)
                 .expectedProducerSetChecksum();
-        stage.tryPrepareRetry();
+        stage.stateMachine().transitionTo(org.pangrova.query.api.enums.StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(org.pangrova.query.api.enums.StageState.RUNNING);
+        stage.addTaskId("failed");
+        stage.onTaskFailed("failed", new org.pangrova.query.api.error.QueryFailure("WORKER_LOST", "worker", "lost"));
+        assertThat(stage.tryRestartFailedGeneration(0, 1, "WORKER_LOST")).isTrue();
         handler.onScheduling(event);
 
         assertThatThrownBy(stage::requireShuffleReceipt).isInstanceOf(IllegalStateException.class);

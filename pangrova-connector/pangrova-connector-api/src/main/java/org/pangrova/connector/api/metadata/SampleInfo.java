@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.SampleMethod;
 import org.pangrova.common.api.annotation.Experimental;
 
 /**
@@ -12,15 +13,6 @@ import org.pangrova.common.api.annotation.Experimental;
 @Experimental(reason = "G-CONN-06: sample pushdown SPI")
 public record SampleInfo(double percentage, SampleMethod method) {
 
-    /**
-     * Sampling method.
-     */
-    public enum SampleMethod {
-        /** Bernoulli (row-level) sampling. */
-        BERNOULLI,
-        /** System (block-level) sampling -- faster but less uniform. */
-        SYSTEM
-    }
 
     public SampleInfo {
         if (percentage <= 0.0 || percentage > 100.0) {

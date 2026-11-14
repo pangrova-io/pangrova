@@ -1,11 +1,13 @@
 package org.pangrova.metadata.coordination;
+
+import org.pangrova.persistence.file.api.enums.CopyFileClaimResult;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
-import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 import org.pangrova.persistence.file.postgresql.claim.JdbcCopyFileClaimStore;
 import org.pangrova.common.file.CopyFilePublication;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -124,7 +126,7 @@ class JdbcCopyFilePublicationPostgresTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("durable file admission");
         assertThat(new JdbcCopyFileClaimStore(source).claim(claim))
-                .isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+                .isEqualTo(CopyFileClaimResult.ACQUIRED);
         journal.recordIntent(intent);
         assertThat(journal.getEntry(intent.queryId()).orElseThrow().copyFile())
                 .isEqualTo(claim.commitBinding());
@@ -147,7 +149,7 @@ class JdbcCopyFilePublicationPostgresTest {
     private static WriteCommitEntry admittedIntent(DataSource source, String queryId) {
         CopyFileClaim claim = claim(queryId);
         assertThat(new JdbcCopyFileClaimStore(source).claim(claim))
-                .isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+                .isEqualTo(CopyFileClaimResult.ACQUIRED);
         WriteCommitEntry intent = copyIntent(claim);
         new JdbcWriteCommitJournal(source).recordIntent(intent);
         return intent;
@@ -168,7 +170,7 @@ class JdbcCopyFilePublicationPostgresTest {
                 queryId, "tenant-a", "iceberg", "analytics.events", "INSERT", 42L,
                 output, "alice", receipt, claim.commitBinding()), fragments);
         WriteCommitEntry intent = new WriteCommitEntry(queryId, "iceberg", "analytics.events",
-                WriteCommitEntry.State.PENDING, 1_000L, fragments, "INSERT", fingerprint,
+                WriteCommitState.PENDING, 1_000L, fragments, "INSERT", fingerprint,
                 "tenant-a", "alice", receipt, 42L, output, fingerprint,
                 "coordinator-a", "process-a", 7L, null, claim.commitBinding());
         return intent;

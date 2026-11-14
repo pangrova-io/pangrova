@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -9,14 +11,12 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.pangrova.coordinator.resilience.checkpoint.CheckpointManager;
 import org.pangrova.coordinator.resilience.checkpoint.CheckpointManager.CheckpointEntry;
 import org.pangrova.coordinator.resilience.degradation.DegradationManager;
-import org.pangrova.coordinator.resilience.degradation.DegradationManager.DegradationLevel;
+import org.pangrova.coordinator.enums.DegradationLevel;
 import org.pangrova.coordinator.resilience.idempotency.IdempotencyManager;
-import org.pangrova.coordinator.resilience.retry.StageRetryManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -92,7 +92,7 @@ class ResilienceChainTest extends org.pangrova.server.coordinator.testinfra.Sign
             breaker.onFailure();
         }
 
-        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
         assertThat(breaker.allowRequest()).isFalse();
     }
 
@@ -142,40 +142,6 @@ class ResilienceChainTest extends org.pangrova.server.coordinator.testinfra.Sign
         assertThat(callCount.get()).isEqualTo(1);
         assertThat(first).isEqualTo("result-1");
         assertThat(second).isEqualTo("result-1");
-    }
-
-    /**
-     * StageRetryManager retries on retryable errors when failure ratio >= 30%,
-     * and respects max retry limit of 2.
-     */
-    @Test
-    void stageRetryManagerRetriesOnRetryableErrors() {
-        StageRetryManager retryManager = new StageRetryManager();
-        retryManager.registerStage("stage-1", 3);
-
-        // 1 of 3 failed = 33% but only 1 task failed so far
-        boolean needsRetry = retryManager.onTaskFailure(
-                "stage-1", "task-0", PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
-        assertThat(needsRetry).isTrue();
-
-        retryManager.initiateStageRetry("stage-1");
-        assertThat(retryManager.getRetryCount("stage-1")).isEqualTo(1);
-
-        // Trigger second retry
-        retryManager.onTaskFailure(
-                "stage-1", "task-1", PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
-        retryManager.initiateStageRetry("stage-1");
-        assertThat(retryManager.getRetryCount("stage-1")).isEqualTo(2);
-
-        // Third retry should be blocked (max = 2)
-        boolean blockedRetry = retryManager.onTaskFailure(
-                "stage-1", "task-2", PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
-        assertThat(blockedRetry).isFalse();
-
-        // Non-retryable error should not trigger retry
-        boolean userError = retryManager.onTaskFailure(
-                "stage-1", "task-3", PangrovaErrorCode.PARSER_SYNTAX_ERROR);
-        assertThat(userError).isFalse();
     }
 
     /**
@@ -231,7 +197,7 @@ class ResilienceChainTest extends org.pangrova.server.coordinator.testinfra.Sign
         for (int i = 0; i < 5; i++) {
             breaker.onFailure();
         }
-        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
 
         // Wait past the 50ms wait duration
         Thread.sleep(60);
@@ -239,7 +205,7 @@ class ResilienceChainTest extends org.pangrova.server.coordinator.testinfra.Sign
         // allowRequest() triggers HALF_OPEN transition
         boolean allowed = breaker.allowRequest();
         assertThat(allowed).isTrue();
-        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
+        assertThat(breaker.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
     }
 
     // -- Helpers --

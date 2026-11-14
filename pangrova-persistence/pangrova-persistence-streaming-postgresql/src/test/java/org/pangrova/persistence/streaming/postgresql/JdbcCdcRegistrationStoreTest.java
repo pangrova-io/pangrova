@@ -3,7 +3,7 @@ package org.pangrova.persistence.streaming.postgresql;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import org.pangrova.streaming.api.cdc.CdcRegistration;
-import org.pangrova.streaming.api.cdc.CdcRegistration.CdcStreamState;
+import org.pangrova.streaming.api.enums.CdcStreamState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

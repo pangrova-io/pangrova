@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.fixture;
 
 import org.awaitility.Awaitility;
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;

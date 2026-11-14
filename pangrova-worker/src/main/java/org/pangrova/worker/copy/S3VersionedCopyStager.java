@@ -209,7 +209,7 @@ final class S3VersionedCopyStager {
         if (!profile.name().equals(staged.profileName()) || !sourceUrl.equals(staged.sourceUrl())
                 || !scope.equals(staged.tenantScope()) || staged.sourceVersionId() == null
                 || staged.sourceVersionId().isBlank() || "null".equals(staged.sourceVersionId())
-                || staged.contentSha256() == null || !staged.contentSha256().matches("[0-9a-f]{64}")
+                || staged.contentSha256() == null || !DigestUtils.isSha256Hex(staged.contentSha256())
                 || staged.contentSize() < 0 || staged.contentSize() > maxSourceBytes
                 || !managedStorage.objectUri(new BlobObjectId(scope, staged.contentSha256(), staged.contentSize()))
                         .equals(staged.managedObjectUri())) {

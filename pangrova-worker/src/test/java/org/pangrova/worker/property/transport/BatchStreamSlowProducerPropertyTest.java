@@ -1,5 +1,7 @@
 package org.pangrova.worker.property.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.jqwik.api.Arbitraries;
@@ -107,7 +109,7 @@ class BatchStreamSlowProducerPropertyTest {
         byte[] batchData = buildIpc(rowCount);
         registry.put(queryId, new SlowProducerState(nullsBefore, batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
 
         assertThat(received).isNotNull();
@@ -129,7 +131,7 @@ class BatchStreamSlowProducerPropertyTest {
         // Zero nulls before data — immediate delivery, then EOF
         registry.put(queryId, new SlowProducerState(0, batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
 
         assertThat(received).isNotNull();

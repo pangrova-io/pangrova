@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.property.query.execution.split;
 
+import org.pangrova.coordinator.enums.SplitFetchOutcome;
 import org.pangrova.query.api.task.QuerySplit;
 
 import java.util.ArrayList;
@@ -79,12 +80,12 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void outcomeEnumHasExactlyThreeValues() {
-        SplitFetchResult.SplitFetchOutcome[] values = SplitFetchResult.SplitFetchOutcome.values();
+        SplitFetchOutcome[] values = SplitFetchOutcome.values();
         assertThat(values).hasSize(3);
         assertThat(values).containsExactlyInAnyOrder(
-                SplitFetchResult.SplitFetchOutcome.SUCCESS,
-                SplitFetchResult.SplitFetchOutcome.FAILED,
-                SplitFetchResult.SplitFetchOutcome.LIMIT_REACHED);
+                SplitFetchOutcome.SUCCESS,
+                SplitFetchOutcome.FAILED,
+                SplitFetchOutcome.LIMIT_REACHED);
     }
 
     // ── Property 5: SplitFetchResult factory methods produce correct outcomes ──
@@ -95,7 +96,7 @@ class SplitFetchFailFastPropertyTest {
 
         SplitFetchResult result = SplitFetchResult.success(splits);
 
-        assertThat(result.outcome()).isEqualTo(SplitFetchResult.SplitFetchOutcome.SUCCESS);
+        assertThat(result.outcome()).isEqualTo(SplitFetchOutcome.SUCCESS);
         assertThat(result.splits()).hasSize(count);
         assertThat(result.failureReason()).isNull();
     }
@@ -104,7 +105,7 @@ class SplitFetchFailFastPropertyTest {
     void failedResultCarriesReasonAndEmptySplits(@ForAll("failureReasons") String reason) {
         SplitFetchResult result = SplitFetchResult.failed(reason);
 
-        assertThat(result.outcome()).isEqualTo(SplitFetchResult.SplitFetchOutcome.FAILED);
+        assertThat(result.outcome()).isEqualTo(SplitFetchOutcome.FAILED);
         assertThat(result.splits()).isEmpty();
         assertThat(result.failureReason()).isEqualTo(reason);
     }
@@ -118,7 +119,7 @@ class SplitFetchFailFastPropertyTest {
         SplitFetchResult result =
                 SplitFetchResult.limitReached(splits, reason);
 
-        assertThat(result.outcome()).isEqualTo(SplitFetchResult.SplitFetchOutcome.LIMIT_REACHED);
+        assertThat(result.outcome()).isEqualTo(SplitFetchOutcome.LIMIT_REACHED);
         assertThat(result.splits()).hasSize(count);
         assertThat(result.failureReason()).isEqualTo(reason);
     }

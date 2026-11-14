@@ -1,5 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.page.GenerationPage;
@@ -34,7 +35,7 @@ final class PostgresGenerationAdmission {
         }
         if (job.artifactType().equals(org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT)
                 && (dispatchSpec.stageGraph().purpose()
-                        != org.pangrova.generation.api.graph.GenerationStageGraph.Purpose.RELATIONAL_EXPORT
+                        != GenerationGraphPurpose.RELATIONAL_EXPORT
                         || pages.isEmpty())) {
             throw new IllegalArgumentException("Tabular export requires a real relational terminal partition cohort");
         }

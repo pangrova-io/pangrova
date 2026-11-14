@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -15,7 +17,6 @@ import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
 import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.scheduler.api.speculation.TaskDuration;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.enums.QueueType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -108,7 +109,7 @@ class SchedulerChainTest extends org.pangrova.server.coordinator.testinfra.Signe
 
         assertThat(tracker.allTasksFinished(queryId)).isTrue();
         assertThat(tracker.getTaskState(queryId, "t1"))
-                .isEqualTo(TaskStateMachine.State.FINISHED);
+                .isEqualTo(ScheduledTaskState.FINISHED);
     }
 
     // -- JUnit scenario tests --
@@ -176,7 +177,7 @@ class SchedulerChainTest extends org.pangrova.server.coordinator.testinfra.Signe
 
         assertThat(tracker.hasFailedTask("q1")).isTrue();
         assertThat(tracker.getTaskState("q1", "t1"))
-                .isEqualTo(TaskStateMachine.State.FAILED);
+                .isEqualTo(ScheduledTaskState.FAILED);
     }
 
     // -- Bootstrap helpers --

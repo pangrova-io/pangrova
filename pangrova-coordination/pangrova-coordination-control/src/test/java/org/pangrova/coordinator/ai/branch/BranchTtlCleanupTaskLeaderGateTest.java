@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.ai.branch;
 
+import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -251,7 +252,7 @@ class BranchTtlCleanupTaskLeaderGateTest {
             return refs.stream()
                     .filter(r -> r.schema.equals(h.schema()) && r.table.equals(h.table()))
                     .map(r -> new SnapshotReference(r.name,
-                            SnapshotReference.Type.valueOf(r.type), r.snapshotId))
+                            SnapshotReferenceType.valueOf(r.type), r.snapshotId))
                     .toList();
         }
 

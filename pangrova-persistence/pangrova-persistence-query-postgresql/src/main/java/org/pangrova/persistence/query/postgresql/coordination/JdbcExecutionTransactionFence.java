@@ -2,7 +2,7 @@ package org.pangrova.persistence.query.postgresql.coordination;
 
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.exception.ExecutionOwnerLostException;
-import org.pangrova.query.api.exception.ExecutionOwnerLostException.Reason;
+import org.pangrova.query.api.enums.ExecutionOwnerLossReason;
 import org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence;
 
 import java.sql.Connection;
@@ -33,7 +33,7 @@ public final class JdbcExecutionTransactionFence implements ExecutionTransaction
             statement.setString(1, executionId);
             try (var result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new ExecutionOwnerLostException(Reason.ABSENT);
+                    throw new ExecutionOwnerLostException(ExecutionOwnerLossReason.ABSENT);
                 }
                 anchor = new ExecutionAnchor(executionId, result.getString("owner_id"),
                         result.getString("owner_incarnation"), result.getLong("fencing_token"),
@@ -42,7 +42,7 @@ public final class JdbcExecutionTransactionFence implements ExecutionTransaction
         }
         if (!anchor.ownerId().equals(ownerId) || !anchor.ownerIncarnation().equals(ownerIncarnation)
                 || anchor.fencingToken() != fencingToken) {
-            throw new ExecutionOwnerLostException(Reason.REPLACED);
+            throw new ExecutionOwnerLostException(ExecutionOwnerLossReason.REPLACED);
         }
         // LockRows may evaluate SELECT projections before waiting for a lock. Sample
         // wall-clock time in a separate statement after the exact anchor row is held.
@@ -52,7 +52,7 @@ public final class JdbcExecutionTransactionFence implements ExecutionTransaction
                 throw new SQLException("Execution fence database clock returned no row");
             }
             if (!anchor.expiresAt().isAfter(time.getTimestamp(1).toInstant())) {
-                throw new ExecutionOwnerLostException(Reason.EXPIRED);
+                throw new ExecutionOwnerLostException(ExecutionOwnerLossReason.EXPIRED);
             }
         }
         return anchor;

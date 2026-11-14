@@ -13,22 +13,22 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.kernel.MaterializationTestFixtures;
 import org.pangrova.materialization.api.domain.AttemptId;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.Dependency;
 import org.pangrova.materialization.api.enums.DependencyKind;
 import org.pangrova.materialization.api.domain.Generation;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.enums.RefreshMode;
@@ -69,7 +69,7 @@ class MaterializationServiceDropTest {
                 MaterializationTestFixtures.REQUESTER, new CommandId("drop-1")));
 
         assertThat(repository.storedObject(object).orElseThrow().state())
-                .isEqualTo(ObjectState.Dropped.INSTANCE);
+                .isEqualTo(ObjectState.DROPPED);
         assertThat(repository.findSchedule(object).orElseThrow().state())
                 .isEqualTo(ScheduleState.SUSPENDED);
     }
@@ -83,7 +83,7 @@ class MaterializationServiceDropTest {
                 MaterializationTestFixtures.REQUESTER, new CommandId("drop-2")));
 
         assertThat(repository.storedObject(object).orElseThrow().state())
-                .isEqualTo(ObjectState.Dropped.INSTANCE);
+                .isEqualTo(ObjectState.DROPPED);
     }
 
     @Test
@@ -95,7 +95,7 @@ class MaterializationServiceDropTest {
         Generation published = Generation.candidate(MaterializationTestFixtures.GENERATION_ID,
                         object, MaterializationTestFixtures.INCARNATION, 1,
                         MaterializationTestFixtures.ATTEMPT_ID, Optional.empty(), headTable,
-                        RefreshKind.Full.INSTANCE, vector, MaterializationTestFixtures.NOW)
+                        RefreshKind.FULL, vector, MaterializationTestFixtures.NOW)
                 .commit(MaterializationTestFixtures.evidence("commit-head"),
                         MaterializationTestFixtures.NOW)
                 .publish(MaterializationTestFixtures.NOW);
@@ -110,11 +110,11 @@ class MaterializationServiceDropTest {
                                 "00000000-0000-0000-0000-0000000000dd")),
                         object, MaterializationTestFixtures.INCARNATION, 1, inFlightId,
                         Optional.empty(), inFlightTable,
-                        RefreshKind.Full.INSTANCE, vector, MaterializationTestFixtures.NOW)
+                        RefreshKind.FULL, vector, MaterializationTestFixtures.NOW)
                 .quarantine();
         repository.putGeneration(inFlight);
         repository.putAttempt(MaterializationTestFixtures.attempt(object, inFlightId,
-                        inFlightTable, RefreshKind.Full.INSTANCE, vector,
+                        inFlightTable, RefreshKind.FULL, vector,
                         Optional.empty())
                 .markBuilding(MaterializationTestFixtures.NOW)
                 .quarantine("ambiguous commit", MaterializationTestFixtures.NOW));
@@ -123,12 +123,12 @@ class MaterializationServiceDropTest {
                 MaterializationTestFixtures.REQUESTER, new CommandId("drop-retire")));
 
         MaterializationObject stored = repository.storedObject(object).orElseThrow();
-        assertThat(stored.state()).isEqualTo(ObjectState.Dropped.INSTANCE);
+        assertThat(stored.state()).isEqualTo(ObjectState.DROPPED);
         assertThat(stored.publishedGeneration()).isEmpty();
         assertThat(repository.findGeneration(MaterializationTestFixtures.GENERATION_ID)
-                .orElseThrow().state()).isEqualTo(GenerationState.Retired.INSTANCE);
+                .orElseThrow().state()).isEqualTo(GenerationState.RETIRED);
         assertThat(repository.findAttempt(inFlightId).orElseThrow().state())
-                .isEqualTo(AttemptState.Abandoned.INSTANCE);
+                .isEqualTo(AttemptState.ABANDONED);
         assertThat(repository.findActiveAttempt(object)).isEmpty();
     }
 
@@ -150,9 +150,9 @@ class MaterializationServiceDropTest {
                 .extracting(failure -> ((MaterializationException) failure).getErrorCode())
                 .isEqualTo(PangrovaErrorCode.MATERIALIZATION_DEPENDENCY_CONFLICT);
         assertThat(repository.storedObject(upstream).orElseThrow().state())
-                .isEqualTo(ObjectState.Active.INSTANCE);
+                .isEqualTo(ObjectState.ACTIVE);
         assertThat(repository.storedObject(downstream).orElseThrow().state())
-                .isEqualTo(ObjectState.Active.INSTANCE);
+                .isEqualTo(ObjectState.ACTIVE);
     }
 
     @Test
@@ -176,11 +176,11 @@ class MaterializationServiceDropTest {
                 MaterializationTestFixtures.REQUESTER, new CommandId("drop-4"), true));
 
         assertThat(repository.storedObject(upstream).orElseThrow().state())
-                .isEqualTo(ObjectState.Dropped.INSTANCE);
+                .isEqualTo(ObjectState.DROPPED);
         assertThat(repository.storedObject(downstream).orElseThrow().state())
-                .isEqualTo(ObjectState.Dropped.INSTANCE);
+                .isEqualTo(ObjectState.DROPPED);
         assertThat(repository.storedObject(leaf).orElseThrow().state())
-                .isEqualTo(ObjectState.Dropped.INSTANCE);
+                .isEqualTo(ObjectState.DROPPED);
         assertThat(repository.events())
                 .extracting(event -> event.object().name() + ":" + event.eventType())
                 .containsSubsequence(

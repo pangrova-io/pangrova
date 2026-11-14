@@ -59,8 +59,8 @@ public final class IndexStorageManager {
 
     /**
      * Reads serialized index data from the given path, distinguishing a normal
-     * "no index built yet" outcome ({@link IndexFileReadResult.Status#MISSING})
-     * from a genuine read failure ({@link IndexFileReadResult.Status#ERROR}).
+     * "no index built yet" outcome ({@link IndexFileReadStatus#MISSING})
+     * from a genuine read failure ({@link IndexFileReadStatus#ERROR}).
      *
      * <p>Files exceeding {@code maxIndexFileBytes} are reported as {@code ERROR}
      * to prevent OOM from loading oversized index files into the JVM heap.

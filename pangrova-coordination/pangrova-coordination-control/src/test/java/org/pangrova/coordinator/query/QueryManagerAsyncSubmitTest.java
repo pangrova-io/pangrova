@@ -36,7 +36,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -25,7 +25,7 @@ class PaimonSchemaBuilderTest {
     @Test
     void lanceVectorKeepsDimensionAndDoubleElementInActualSdkSchema() {
         var vector = new org.pangrova.types.VectorType(3,
-                org.pangrova.types.VectorType.ElementType.DOUBLE);
+                org.pangrova.types.enums.VectorElementType.DOUBLE);
         var schema = schema(new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
                 OptionalInt.empty(), vector), Map.of("file.format", "lance"));
         var actual = (org.apache.paimon.types.VectorType) schema.fields().get(0).type();

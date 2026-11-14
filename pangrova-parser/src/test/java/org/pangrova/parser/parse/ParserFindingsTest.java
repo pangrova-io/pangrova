@@ -1,9 +1,9 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.LiteralType;
+import org.pangrova.parser.api.enums.QueryHintType;
 import org.pangrova.parser.api.enums.TableRefKind;
-
 import org.pangrova.parser.format.AstPrinter;
-
 import org.pangrova.parser.api.ast.*;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +29,7 @@ class ParserFindingsTest {
         Expression expr = ((ExpressionItem) q.selectItems().get(0)).expression();
         assertThat(expr).isInstanceOf(Literal.class);
         Literal lit = (Literal) expr;
-        assertThat(lit.literalType()).isEqualTo(Literal.LiteralType.INTERVAL);
+        assertThat(lit.literalType()).isEqualTo(LiteralType.INTERVAL);
         assertThat(lit.value()).isInstanceOf(LiteralValue.IntervalValue.class);
         var iv = (LiteralValue.IntervalValue) lit.value();
         assertThat(iv.expression()).isEqualTo("5");
@@ -44,7 +44,7 @@ class ParserFindingsTest {
         Query q = (Query) stmt;
         Expression expr = ((ExpressionItem) q.selectItems().get(0)).expression();
         Literal lit = (Literal) expr;
-        assertThat(lit.literalType()).isEqualTo(Literal.LiteralType.INTERVAL);
+        assertThat(lit.literalType()).isEqualTo(LiteralType.INTERVAL);
         var iv = (LiteralValue.IntervalValue) lit.value();
         assertThat(iv.expression()).isEqualTo("1-6");
         assertThat(iv.fromUnit()).isEqualTo("YEAR");
@@ -73,7 +73,7 @@ class ParserFindingsTest {
         Expression expr = ((ExpressionItem) q.selectItems().get(0)).expression();
         assertThat(expr).isInstanceOf(Literal.class);
         Literal lit = (Literal) expr;
-        assertThat(lit.literalType()).isEqualTo(Literal.LiteralType.BINARY_HEX);
+        assertThat(lit.literalType()).isEqualTo(LiteralType.BINARY_HEX);
         assertThat(lit.value()).isInstanceOf(LiteralValue.BinaryHexValue.class);
         var bv = (LiteralValue.BinaryHexValue) lit.value();
         assertThat(bv.hexDigits()).isEqualTo("DEADBEEF");
@@ -103,7 +103,7 @@ class ParserFindingsTest {
         Query q = (Query) stmt;
         Expression expr = ((ExpressionItem) q.selectItems().get(0)).expression();
         Literal lit = (Literal) expr;
-        assertThat(lit.literalType()).isEqualTo(Literal.LiteralType.BINARY_HEX);
+        assertThat(lit.literalType()).isEqualTo(LiteralType.BINARY_HEX);
         assertThat(((LiteralValue.BinaryHexValue) lit.value()).hexDigits()).isEmpty();
     }
 
@@ -116,7 +116,7 @@ class ParserFindingsTest {
         Expression expr = ((ExpressionItem) q.selectItems().get(0)).expression();
         assertThat(expr).isInstanceOf(Literal.class);
         Literal lit = (Literal) expr;
-        assertThat(lit.literalType()).isEqualTo(Literal.LiteralType.TIMESTAMP_WITH_TIME_ZONE);
+        assertThat(lit.literalType()).isEqualTo(LiteralType.TIMESTAMP_WITH_TIME_ZONE);
         assertThat(lit.value()).isInstanceOf(LiteralValue.TimestampWithTimeZoneValue.class);
         var tv = (LiteralValue.TimestampWithTimeZoneValue) lit.value();
         assertThat(tv.value()).isEqualTo("2024-01-15 10:30:00+05:30");
@@ -196,7 +196,7 @@ class ParserFindingsTest {
     @Test
     void queryHintResolvesBroadcast() {
         QueryHint hint = QueryHint.of("BROADCAST", List.of("orders"));
-        assertThat(hint.hintType()).isEqualTo(QueryHint.HintType.JOIN_STRATEGY);
+        assertThat(hint.hintType()).isEqualTo(QueryHintType.JOIN_STRATEGY);
         assertThat(hint.name()).isEqualTo("BROADCAST");
         assertThat(hint.parameters()).containsExactly("orders");
     }
@@ -204,7 +204,7 @@ class ParserFindingsTest {
     @Test
     void queryHintResolvesParallel() {
         QueryHint hint = QueryHint.of("PARALLEL", List.of("8"));
-        assertThat(hint.hintType()).isEqualTo(QueryHint.HintType.PARALLELISM);
+        assertThat(hint.hintType()).isEqualTo(QueryHintType.PARALLELISM);
         assertThat(hint.name()).isEqualTo("PARALLEL");
         assertThat(hint.parameters()).containsExactly("8");
     }
@@ -212,19 +212,19 @@ class ParserFindingsTest {
     @Test
     void queryHintResolvesTimeout() {
         QueryHint hint = QueryHint.of("QUERY_TIMEOUT", List.of("30000"));
-        assertThat(hint.hintType()).isEqualTo(QueryHint.HintType.TIMEOUT);
+        assertThat(hint.hintType()).isEqualTo(QueryHintType.TIMEOUT);
     }
 
     @Test
     void queryHintResolvesIndex() {
         QueryHint hint = QueryHint.of("USE_INDEX", List.of("idx_customer_id"));
-        assertThat(hint.hintType()).isEqualTo(QueryHint.HintType.INDEX_USAGE);
+        assertThat(hint.hintType()).isEqualTo(QueryHintType.INDEX_USAGE);
     }
 
     @Test
     void queryHintResolvesGenericForUnknown() {
         QueryHint hint = QueryHint.of("CUSTOM_HINT", List.of("param1", "param2"));
-        assertThat(hint.hintType()).isEqualTo(QueryHint.HintType.GENERIC);
+        assertThat(hint.hintType()).isEqualTo(QueryHintType.GENERIC);
         assertThat(hint.name()).isEqualTo("CUSTOM_HINT");
         assertThat(hint.parameters()).containsExactly("param1", "param2");
     }

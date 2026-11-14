@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.materialization;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
+import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
 import org.pangrova.common.util.DigestUtils;
 
 import java.util.LinkedHashMap;
@@ -23,7 +26,7 @@ import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.api.domain.PolicySnapshot;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.port.DefinitionPlanner;
@@ -118,18 +121,18 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
      * into the definition result.
      */
     private static PartitionAlignment partitionAlignment(PlannedQuery planned) {
-        PartitionAlignment.Shape shape = planned.isAppendOnlyScanCompatible()
-                ? PartitionAlignment.Shape.SCAN
+        PartitionAlignmentShape shape = planned.isAppendOnlyScanCompatible()
+                ? PartitionAlignmentShape.SCAN
                 : planned.isPartitionLocalAggregate()
-                        ? PartitionAlignment.Shape.AGGREGATE
-                        : PartitionAlignment.Shape.UNSUPPORTED;
-        if (shape == PartitionAlignment.Shape.UNSUPPORTED) {
+                        ? PartitionAlignmentShape.AGGREGATE
+                        : PartitionAlignmentShape.UNSUPPORTED;
+        if (shape == PartitionAlignmentShape.UNSUPPORTED) {
             return PartitionAlignment.NONE;
         }
-        boolean groupingKey = shape == PartitionAlignment.Shape.AGGREGATE;
+        boolean groupingKey = shape == PartitionAlignmentShape.AGGREGATE;
         Map<String, PartitionAlignment.Column> columns = new LinkedHashMap<>();
         for (ColumnDerivation derivation : planned.columnLineage()) {
-            if (derivation.expression() != ColumnDerivation.DerivationType.DIRECT
+            if (derivation.expression() != ColumnDerivationKind.DIRECT
                     || derivation.sourceColumns().size() != 1) {
                 continue;
             }
@@ -153,7 +156,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
     private Set<RefreshKind> supportedRefreshKinds(PlannedQuery planned, Set<SourceRef> sources,
             Set<SourceRef> fullOnlySources, PartitionAlignment alignment) {
         Set<RefreshKind> kinds = new LinkedHashSet<>();
-        kinds.add(RefreshKind.Full.INSTANCE);
+        kinds.add(RefreshKind.FULL);
         // An upstream materialization is read through its current physical
         // table, and every publication replaces that table. A change proof can
         // therefore never span the base generation and the newly pinned table,
@@ -175,18 +178,18 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
         capabilities.requireCompatibleVersion();
         if (capabilities.supports(ChangeSetMode.APPEND_ONLY)
                 && planned.isAppendOnlyScanCompatible()) {
-            kinds.add(RefreshKind.IncrementalAppendOnly.INSTANCE);
+            kinds.add(RefreshKind.INCREMENTAL_APPEND_ONLY);
         }
         if (capabilities.supports(ChangeSetMode.PARTITION_REPLACE)
                 && partitionReplaceAligned(alignment, provider.get().partitionColumns(source))) {
-            kinds.add(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+            kinds.add(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         }
         return Set.copyOf(kinds);
     }
 
     private static boolean partitionReplaceAligned(
             PartitionAlignment alignment, List<String> partitionColumns) {
-        if (alignment.shape() == PartitionAlignment.Shape.UNSUPPORTED
+        if (alignment.shape() == PartitionAlignmentShape.UNSUPPORTED
                 || partitionColumns.isEmpty()) {
             return false;
         }
@@ -195,7 +198,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
             if (mapped.isEmpty()) {
                 return false;
             }
-            if (alignment.shape() == PartitionAlignment.Shape.AGGREGATE
+            if (alignment.shape() == PartitionAlignmentShape.AGGREGATE
                     && !mapped.get().groupingKey()) {
                 return false;
             }
@@ -228,8 +231,8 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
                     MaterializationException.capabilityUnavailable(
                             "source " + descriptor.qualifiedName()
                                     + " cannot be pinned for materialization"));
-            boolean empty = binding.state() == ConnectorReadBinding.SnapshotState.EMPTY;
-            if (binding.state() != ConnectorReadBinding.SnapshotState.SNAPSHOT && !empty) {
+            boolean empty = binding.state() == ReadSnapshotState.EMPTY;
+            if (binding.state() != ReadSnapshotState.SNAPSHOT && !empty) {
                 throw MaterializationException.capabilityUnavailable(
                         "source " + descriptor.qualifiedName() + " in state " + binding.state()
                                 + " has no exact snapshot and cannot be materialized");
@@ -323,7 +326,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
                     .append(accessControl.getColumnMask(definer, source.catalog(),
                             source.schema(), source.table(), column).orElse(""));
         }
-        return sha256(state.toString());
+        return DigestUtils.sha256Hex(state.toString());
     }
 
     private static List<String> referencedColumns(PlannedQuery planned, SourceRef source) {
@@ -350,9 +353,5 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
     private String connectorId(String catalogName) {
         return catalogs.getCatalog(catalogName).getDescriptor().provider()
                 .toLowerCase(Locale.ROOT);
-    }
-
-    private static String sha256(String value) {
-        return DigestUtils.sha256Hex(value);
     }
 }

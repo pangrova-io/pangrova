@@ -1,4 +1,6 @@
 package org.pangrova.server.coordinator.sql.tenant;
+
+import org.pangrova.security.api.enums.TenantMembershipOperation;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.util.List;
@@ -27,13 +29,13 @@ public final class TenantStatementTasks {
     /** Registers tenant membership statement handlers. */
     public void register(MetadataExecutionFactory factory) {
         factory.registerTask(GrantTenantStatement.class, (statement, context) -> execute(context,
-                statement.tenantName(), statement.principal(), TenantMembershipMutation.Operation.GRANT));
+                statement.tenantName(), statement.principal(), TenantMembershipOperation.GRANT));
         factory.registerTask(RevokeTenantStatement.class, (statement, context) -> execute(context,
-                statement.tenantName(), statement.principal(), TenantMembershipMutation.Operation.REVOKE));
+                statement.tenantName(), statement.principal(), TenantMembershipOperation.REVOKE));
     }
 
     private StatementResult execute(StatementExecutionContext context, Identifier tenant, Identifier principal,
-            TenantMembershipMutation.Operation operation) {
+            TenantMembershipOperation operation) {
         var actor = context.session().userIdentity();
         if (actor == null) throw new AuthorizationDeniedException("Authenticated tenant administrator is required");
         if (tenant.parts().size() != 1 || principal.parts().size() != 1) {

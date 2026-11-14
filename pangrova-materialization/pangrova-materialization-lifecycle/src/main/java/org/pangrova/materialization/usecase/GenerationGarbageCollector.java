@@ -1,11 +1,13 @@
 package org.pangrova.materialization.usecase;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.Generation;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.materialization.api.port.MaterializationEvent;
@@ -68,7 +70,7 @@ public final class GenerationGarbageCollector {
         int skipped = 0;
         int failed = 0;
         for (Generation generation : candidates) {
-            if (!generation.state().canTransitionTo(GenerationState.Collected.INSTANCE)) {
+            if (!generation.state().canTransitionTo(GenerationState.COLLECTED)) {
                 skipped++;
                 continue;
             }
@@ -98,7 +100,7 @@ public final class GenerationGarbageCollector {
     private void markFailed(GcLedgerEntry entry, RuntimeException failure) {
         try {
             repository.updateGcDecision(
-                    entry.entryId(), GcLedgerEntry.GcState.FAILED, clock.now());
+                    entry.entryId(), GcState.FAILED, clock.now());
         } catch (RuntimeException ledgerFailure) {
             failure.addSuppressed(ledgerFailure);
         }
@@ -113,19 +115,19 @@ public final class GenerationGarbageCollector {
     }
 
     private static String stateName(GenerationState state) {
-        if (state == GenerationState.Candidate.INSTANCE) {
+        if (state == GenerationState.CANDIDATE) {
             return "CANDIDATE";
         }
-        if (state == GenerationState.Committed.INSTANCE) {
+        if (state == GenerationState.COMMITTED) {
             return "COMMITTED";
         }
-        if (state == GenerationState.Published.INSTANCE) {
+        if (state == GenerationState.PUBLISHED) {
             return "PUBLISHED";
         }
-        if (state == GenerationState.Retired.INSTANCE) {
+        if (state == GenerationState.RETIRED) {
             return "RETIRED";
         }
-        if (state == GenerationState.Quarantined.INSTANCE) {
+        if (state == GenerationState.QUARANTINED) {
             return "QUARANTINED";
         }
         return "COLLECTED";

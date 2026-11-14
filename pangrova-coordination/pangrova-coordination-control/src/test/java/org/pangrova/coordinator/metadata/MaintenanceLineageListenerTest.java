@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.governance.api.enums.LineageEventType;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageBackend;
@@ -58,7 +60,7 @@ class MaintenanceLineageListenerTest {
             action.accept(new MaintenanceLineageListener(emitter));
         }
         assertThat(events).extracting(LineageEvent::eventType)
-                .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.COMPLETE);
+                .containsExactly(LineageEventType.START, LineageEventType.COMPLETE);
         assertThat(events.get(0).runId()).isEqualTo(events.get(1).runId());
         return events.get(1);
     }

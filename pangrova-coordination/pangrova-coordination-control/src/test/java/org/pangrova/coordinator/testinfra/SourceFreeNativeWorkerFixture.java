@@ -23,7 +23,7 @@ import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
 import org.pangrova.worker.resource.spill.SpillManager;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;

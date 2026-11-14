@@ -1,12 +1,16 @@
 package org.pangrova.execution.stage.binding;
 
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
+import org.pangrova.execution.stage.enums.RetrievalSourceKind;
+
 import java.util.List;
 
 import org.pangrova.protocol.v2.ScoreDirection;
 
 /** Query-scoped metadata for a Native global retrieval merge stage. */
 public record RetrievalMergeIntent(
-        Strategy strategy,
+        RetrievalMergeStrategy strategy,
         int outputLimit,
         long rrfK,
         List<Source> sources) {
@@ -17,26 +21,15 @@ public record RetrievalMergeIntent(
                 || sources.size() > org.pangrova.protocol.retrieval.RetrievalMergeBinding.MAX_FAN_IN
                 || sources.stream().map(Source::sourceId).distinct().count()
                         != sources.size()
-                || (strategy == Strategy.RRF && rrfK <= 0)) {
+                || (strategy == RetrievalMergeStrategy.RRF && rrfK <= 0)) {
             throw new IllegalArgumentException("retrieval merge intent is invalid");
         }
         sources = List.copyOf(sources);
     }
 
-    public enum Strategy {
-        RRF,
-        LINEAR
-    }
-
-    /** Typed retrieval semantics; {@code sourceId} remains an opaque identity. */
-    public enum SourceKind {
-        VECTOR,
-        FULL_TEXT
-    }
-
     public record Source(
             String sourceId,
-            SourceKind kind,
+            RetrievalSourceKind kind,
             ScoreDirection scoreDirection,
             double weight,
             int candidateLimit) {

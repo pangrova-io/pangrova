@@ -13,6 +13,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.paimon.PaimonMetadata;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.coordinator.task.TestConnectorQuery;
@@ -65,7 +66,7 @@ class PaimonMetadataSnapshotPinningTest {
         var query = query("q-1");
         var empty = bind(query);
         assertThat(empty.snapshotId()).isEmpty();
-        assertThat(empty.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+        assertThat(empty.state()).isEqualTo(ReadSnapshotState.EMPTY);
         assertThat(bind(query)).isSameAs(empty);
     }
 

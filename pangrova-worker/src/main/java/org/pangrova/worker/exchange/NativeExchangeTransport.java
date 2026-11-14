@@ -1,5 +1,7 @@
 package org.pangrova.worker.exchange;
 
+import org.pangrova.shuffle.api.enums.ShuffleReadFailureReason;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import com.google.protobuf.Message;
@@ -399,7 +401,7 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     private static ExecutionError toExecutionError(RuntimeException failure) {
         boolean corruption = failure instanceof ShuffleReadException readFailure
-                && readFailure.reason() == ShuffleReadException.Reason.CORRUPTION;
+                && readFailure.reason() == ShuffleReadFailureReason.CORRUPTION;
         return ExecutionError.newBuilder()
                 .setErrorClass(corruption
                         ? ErrorClass.ERROR_CLASS_DATA_CORRUPTION

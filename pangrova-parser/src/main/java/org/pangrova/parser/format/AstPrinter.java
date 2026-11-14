@@ -1,6 +1,9 @@
 package org.pangrova.parser.format;
 
-
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.SetOperatorType;
+import org.pangrova.parser.api.enums.SqlJoinType;
+import org.pangrova.parser.api.enums.TableFunctionType;
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.ArrayConstructor;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
@@ -32,6 +35,7 @@ import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
 
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,7 +101,7 @@ public final class AstPrinter {
         return sb.toString();
     }
 
-    private static String joinTypeText(JoinClause.JoinType type) {
+    private static String joinTypeText(SqlJoinType type) {
         return switch (type) {
             case INNER -> "INNER";
             case LEFT -> "LEFT";
@@ -167,7 +171,7 @@ public final class AstPrinter {
         return sb.toString();
     }
 
-    private String setOpText(SetQuery.SetOperatorType op) {
+    private String setOpText(SetOperatorType op) {
         return switch (op) {
             case UNION_ALL -> "UNION ALL";
             case UNION_DISTINCT -> "UNION";
@@ -432,10 +436,10 @@ public final class AstPrinter {
         if (ref.isTableFunction()) {
             var funcRef = ref.tableFunctionRef().orElseThrow();
             var sb = new StringBuilder();
-            if (funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST
-                    || funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+            if (funcRef.functionType() == TableFunctionType.UNNEST
+                    || funcRef.functionType() == TableFunctionType.UNNEST_WITH_ORDINALITY) {
                 sb.append("UNNEST(").append(printExpr(funcRef.argument())).append(")");
-                if (funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+                if (funcRef.functionType() == TableFunctionType.UNNEST_WITH_ORDINALITY) {
                     sb.append(" WITH ORDINALITY");
                 }
             } else {
@@ -536,7 +540,7 @@ public final class AstPrinter {
 
     // ── Enum helpers ──
 
-    private String opSymbol(BinaryExpression.Operator op) {
+    private String opSymbol(BinaryExpressionOperator op) {
         return switch (op) {
             case ADD -> "+";
             case SUBTRACT -> "-";
@@ -562,7 +566,7 @@ public final class AstPrinter {
     }
 
     private boolean needsQuoting(String name) {
-        if (name.isEmpty() || RESERVED.contains(name.toUpperCase())) return true;
+        if (name.isEmpty() || RESERVED.contains(name.toUpperCase(Locale.ROOT))) return true;
         char first = name.charAt(0);
         if (!Character.isLetter(first) && first != '_') return true;
         for (int i = 1; i < name.length(); i++) {

@@ -1,6 +1,7 @@
 package org.pangrova.shuffle.api;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.enums.ShuffleRetentionPolicy;
 
 import java.util.Objects;
 

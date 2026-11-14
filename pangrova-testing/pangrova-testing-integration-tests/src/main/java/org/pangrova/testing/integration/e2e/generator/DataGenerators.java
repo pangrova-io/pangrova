@@ -7,7 +7,7 @@ import net.jqwik.api.Provide;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestDataGenerator;
-import org.pangrova.testing.testkit.TestDataGenerator.ColumnType;
+import org.pangrova.testing.testkit.enums.GeneratedColumnType;
 import org.pangrova.testing.testkit.TestDataGenerator.TableSchema;
 
 import java.util.LinkedHashMap;
@@ -51,7 +51,7 @@ public final class DataGenerators {
      * @return arbitrary producing random column values
      */
     @Provide
-    public static Arbitrary<ColumnValue> valueForType(ColumnType type) {
+    public static Arbitrary<ColumnValue> valueForType(GeneratedColumnType type) {
         Objects.requireNonNull(type, "type must not be null");
         return switch (type) {
             case STRING -> Arbitraries.strings().alpha()

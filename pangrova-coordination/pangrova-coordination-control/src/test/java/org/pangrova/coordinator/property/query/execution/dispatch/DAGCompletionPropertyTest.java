@@ -79,41 +79,7 @@ class DAGCompletionPropertyTest {
     }
 
     /**
-     * Task retry counter increments correctly per task.
-     * Each call to incrementTaskRetryCount returns a monotonically increasing value.
-     *
-     * <b>Validates: Requirements R11</b>
-     */
-    @Property(tries = 30)
-    void taskRetryCounterIncrementsMonotonically(
-            @ForAll @IntRange(min = 1, max = 5) int retryAttempts) {
-        Stage stage = createRunningStage(1);
-        for (int i = 1; i <= retryAttempts; i++) {
-            int count = stage.incrementTaskRetryCount("task-0");
-            assertThat(count).isEqualTo(i);
-        }
-    }
-
-    /**
-     * Task retry exhausted beyond MAX_TASK_RETRIES → counter exceeds limit.
-     * After MAX_TASK_RETRIES+1 increments, the counter exceeds the limit,
-     * signaling that retry should not be attempted.
-     *
-     * <b>Validates: Requirements R11</b>
-     */
-    @Property(tries = 20)
-    void taskRetryExhaustedExceedsLimit(
-            @ForAll @IntRange(min = 1, max = 3) int ignored) {
-        Stage stage = createRunningStage(1);
-        for (int i = 0; i < Stage.MAX_TASK_RETRIES; i++) {
-            stage.incrementTaskRetryCount("task-0");
-        }
-        int finalCount = stage.incrementTaskRetryCount("task-0");
-        assertThat(finalCount).isGreaterThan(Stage.MAX_TASK_RETRIES);
-    }
-
-    /**
-     * Stage tryPrepareRetry resets task tracking for re-dispatch.
+     * A stage restart resets task tracking for re-dispatch.
      * After retry preparation, all task IDs, finished/failed sets, and
      * retry counters are cleared. Generation is incremented.
      *
@@ -126,7 +92,8 @@ class DAGCompletionPropertyTest {
         stage.onTaskFailed("task-0", new QueryFailure(
                 "EXCHANGE-0004", "ExchangeFetchFailed", "shuffle data lost"));
         int genBefore = stage.currentGeneration();
-        boolean prepared = stage.tryPrepareRetry();
+        for (int i = 1; i < taskCount; i++) stage.onTaskFinished("task-" + i);
+        boolean prepared = stage.tryRestartFailedGeneration(genBefore, 3, "EXCHANGE-0004");
         assertThat(prepared).isTrue();
         assertThat(stage.taskIds()).isEmpty();
         assertThat(stage.currentGeneration()).isEqualTo(genBefore + 1);
@@ -135,7 +102,7 @@ class DAGCompletionPropertyTest {
 
     /**
      * Stale generation callbacks are discarded.
-     * After tryPrepareRetry increments the generation, callbacks from the
+     * After a restart increments the generation, callbacks from the
      * old generation should not affect stage state.
      *
      * <b>Validates: Requirements R12</b>
@@ -145,7 +112,9 @@ class DAGCompletionPropertyTest {
             @ForAll @IntRange(min = 1, max = 3) int ignored) {
         Stage stage = createRunningStage(2);
         int oldGen = stage.currentGeneration();
-        stage.tryPrepareRetry();
+        stage.onTaskFinished("task-0");
+        stage.onTaskFailed("task-1", new QueryFailure("WORKER_LOST", "worker", "lost"));
+        assertThat(stage.tryRestartFailedGeneration(oldGen, 1, "WORKER_LOST")).isTrue();
         stage.addTaskId("new-task-0");
         stage.addTaskId("new-task-1");
         stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);

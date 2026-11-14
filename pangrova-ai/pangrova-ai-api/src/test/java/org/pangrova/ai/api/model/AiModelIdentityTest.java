@@ -1,9 +1,11 @@
 package org.pangrova.ai.api.model;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.exception.AiInvocationException;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -22,14 +24,14 @@ class AiModelIdentityTest {
                 32,
                 new AiCapabilityDescriptor.RetryPolicy(
                         4, Duration.ofMillis(500), Duration.ofSeconds(4),
-                        Set.of(AiInvocationException.Category.RATE_LIMIT)));
+                        Set.of(AiFailureCategory.RATE_LIMIT)));
         AiCapabilityDescriptor invocationLimitChanged = capability(
                 33, baseline.retryPolicy());
         AiCapabilityDescriptor retryChanged = capability(
                 32,
                 new AiCapabilityDescriptor.RetryPolicy(
                         3, Duration.ofMillis(500), Duration.ofSeconds(4),
-                        Set.of(AiInvocationException.Category.RATE_LIMIT)));
+                        Set.of(AiFailureCategory.RATE_LIMIT)));
 
         byte[] signature = AiModelIdentity.signatureSha256(model(baseline));
 
@@ -67,10 +69,10 @@ class AiModelIdentityTest {
             AiCapabilityDescriptor.RetryPolicy retryPolicy) {
         return new AiCapabilityDescriptor(
                 "inference:model", "v1",
-                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                AiOperation.TEXT_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VARCHAR", List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.BATCH),
+                Set.of(AiExecutionMode.BATCH),
                 Set.of(Modality.TEXT),
                 8,
                 new AiCapabilityDescriptor.ResourceLimits(

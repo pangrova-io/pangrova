@@ -26,7 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.pangrova.protocol.capability.BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN;
+import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 class PhysicalRowLocatorPlanAugmenterTest {
     private static final List<String> SOURCE = List.of("catalog", "schema", "documents");

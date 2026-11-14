@@ -42,7 +42,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     public static final String USER_IDENTITY_PROPERTY = "pangrova.userIdentity";
     static final String INTERNAL_IDENTITY_PROPERTY = "pangrova.internalServiceIdentity";
 
-    enum InternalServiceIdentity { AUTHENTICATED }
+    private static final Object AUTHENTICATED_SERVICE = new Object();
 
     private static final String HEALTH_PATH = "v1/health";
     private static final String HEALTH_LIVE_PATH = "v1/health/live";
@@ -106,7 +106,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
         // If valid on a user-facing route, reject with 403 (token isolation).
         if (isInternalToken(requestContext)) {
             if (isInternalRoute(requestContext)) {
-                requestContext.setProperty(INTERNAL_IDENTITY_PROPERTY, InternalServiceIdentity.AUTHENTICATED);
+                requestContext.setProperty(INTERNAL_IDENTITY_PROPERTY, AUTHENTICATED_SERVICE);
                 return;
             }
             rejectForbidden(requestContext, "internal service token not allowed on user-facing endpoints");
@@ -146,7 +146,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
     static boolean hasInternalServiceIdentity(ContainerRequestContext context) {
         return context != null && context.getProperty(INTERNAL_IDENTITY_PROPERTY)
-                == InternalServiceIdentity.AUTHENTICATED;
+                == AUTHENTICATED_SERVICE;
     }
 
     private boolean isInternalToken(ContainerRequestContext ctx) {

@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.exception.CommitNotificationException;
+
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
@@ -130,7 +132,7 @@ final class IcebergWriteCommitter {
                                      IcebergCollectedFragments collected, RuntimeException e,
                                      DistributedWriteCommitContext context) {
         if (context != null || e instanceof CommitStateUnknownException
-                || e instanceof IcebergCommitNotifier.NotificationFailure) {
+                || e instanceof CommitNotificationException) {
             LOG.warn("event=distributed_write_commit_timeout_orphans_possible table={}.{} "
                             + "dataFiles={} deleteFiles={} note=left_for_maintenance_cleanup",
                     handle.schemaName(), handle.tableName(),

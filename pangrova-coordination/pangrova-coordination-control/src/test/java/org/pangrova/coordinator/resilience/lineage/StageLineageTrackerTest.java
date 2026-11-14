@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.resilience.lineage;
 
-import org.pangrova.coordinator.resilience.lineage.StageLineageTracker.RecoveryMode;
+import org.pangrova.coordinator.enums.StageRecoveryMode;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -17,15 +17,15 @@ class StageLineageTrackerTest {
 
     @Test
     void shortDuration_selectsRecompute() {
-        RecoveryMode mode = tracker.selectRecoveryMode(Duration.ofSeconds(10), 500_000L);
-        assertThat(mode).isEqualTo(RecoveryMode.RECOMPUTE);
+        StageRecoveryMode mode = tracker.selectRecoveryMode(Duration.ofSeconds(10), 500_000L);
+        assertThat(mode).isEqualTo(StageRecoveryMode.RECOMPUTE);
     }
 
     @Test
     void largeShuffle_selectsMemoryAndRemote() {
-        RecoveryMode mode = tracker.selectRecoveryMode(
+        StageRecoveryMode mode = tracker.selectRecoveryMode(
                 Duration.ofMinutes(5), 2L * 1024 * 1024 * 1024);
-        assertThat(mode).isEqualTo(RecoveryMode.MEMORY_AND_REMOTE);
+        assertThat(mode).isEqualTo(StageRecoveryMode.MEMORY_AND_REMOTE);
     }
 
     @Test
@@ -41,16 +41,16 @@ class StageLineageTrackerTest {
         // 31000 < X/1048576 → X > 31000 * 1048576 ≈ 32GB (but that exceeds 1GB threshold)
         // So in practice, cost-based always picks MEMORY_AND_REMOTE for durations > 30s
         // Let's just verify the MEMORY_AND_REMOTE path
-        RecoveryMode mode = tracker.selectRecoveryMode(Duration.ofSeconds(31), 100_000_000L);
-        assertThat(mode).isEqualTo(RecoveryMode.MEMORY_AND_REMOTE);
+        StageRecoveryMode mode = tracker.selectRecoveryMode(Duration.ofSeconds(31), 100_000_000L);
+        assertThat(mode).isEqualTo(StageRecoveryMode.MEMORY_AND_REMOTE);
     }
 
     @Test
     void costBasedSelection_highRecomputeCost_selectsMemoryAndRemote() {
         // Duration > 30s, shuffle < 1GB, but recompute cost > shuffle cost
-        RecoveryMode mode = tracker.selectRecoveryMode(
+        StageRecoveryMode mode = tracker.selectRecoveryMode(
                 Duration.ofMinutes(10), 500L * 1024 * 1024);
-        assertThat(mode).isEqualTo(RecoveryMode.MEMORY_AND_REMOTE);
+        assertThat(mode).isEqualTo(StageRecoveryMode.MEMORY_AND_REMOTE);
     }
 
     @Test

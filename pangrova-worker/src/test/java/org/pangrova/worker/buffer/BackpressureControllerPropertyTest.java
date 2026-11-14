@@ -3,7 +3,7 @@ package org.pangrova.worker.buffer;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.worker.buffer.BackpressureController.Action;
+import org.pangrova.worker.enums.BackpressureAction;
 import org.pangrova.worker.buffer.BackpressureController.BackpressureResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,19 +23,19 @@ class BackpressureControllerPropertyTest {
     @Property(tries = 10)
     void belowLowWaterMark_alwaysProceeds(@ForAll @IntRange(min = 0, max = 499) int pending) {
         BackpressureResult result = controller.checkBackpressure(pending);
-        assertThat(result.action()).isEqualTo(Action.PROCEED);
+        assertThat(result.action()).isEqualTo(BackpressureAction.PROCEED);
     }
 
     @Property(tries = 10)
     void atOrAboveMax_alwaysRejects(@ForAll @IntRange(min = 1000, max = 2000) int pending) {
         BackpressureResult result = controller.checkBackpressure(pending);
-        assertThat(result.action()).isEqualTo(Action.REJECT);
+        assertThat(result.action()).isEqualTo(BackpressureAction.REJECT);
     }
 
     @Property(tries = 10)
     void betweenHighAndMax_slowsDown(@ForAll @IntRange(min = 800, max = 999) int pending) {
         BackpressureResult result = controller.checkBackpressure(pending);
-        assertThat(result.action()).isEqualTo(Action.SLOW_DOWN);
+        assertThat(result.action()).isEqualTo(BackpressureAction.SLOW_DOWN);
         assertThat(result.delay()).isNotNull();
         assertThat(result.delay().toMillis()).isGreaterThanOrEqualTo(0);
     }

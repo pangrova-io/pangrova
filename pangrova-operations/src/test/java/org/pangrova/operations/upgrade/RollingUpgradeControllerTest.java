@@ -1,5 +1,7 @@
 package org.pangrova.operations.upgrade;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -11,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RollingUpgradeControllerTest {
     private final List<String> calls = new ArrayList<>();
-    private final NodeInfo worker = new NodeInfo("worker", NodeInfo.NodeType.WORKER, "1.0");
-    private final NodeInfo coordinator = new NodeInfo("coordinator", NodeInfo.NodeType.COORDINATOR, "1.0");
+    private final NodeInfo worker = new NodeInfo("worker", ClusterNodeType.WORKER, "1.0");
+    private final NodeInfo coordinator = new NodeInfo("coordinator", ClusterNodeType.COORDINATOR, "1.0");
     private boolean verificationFails;
 
     @Test

@@ -3,8 +3,6 @@
 
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.control.NoOpSchedulerControlLoop;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
@@ -18,7 +16,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for {@link SchedulerControlLoop} and its
- * {@link NoOpSchedulerControlLoop} default implementation.
+ * {@link NoOpSchedulerControlLoop} test implementation.
  */
 class SchedulerControlLoopTest {
 

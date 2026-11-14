@@ -1,14 +1,12 @@
 package org.pangrova.security.authorization.deferred;
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
-
 import org.pangrova.persistence.jdbc.api.security.policy.AuthorizationPublicationLock;
-
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentGrantReader;
 import java.util.Objects;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
-import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
@@ -43,7 +41,7 @@ public final class DeferredAuthorization {
         List<PrivilegeGrant> grants = currentGrants.readRoleGrants(connection, roles);
         for (TablePermission permission : scope.permissions()) {
             requirePermission(grants, permission);
-            if (permission.readMode() != ReadMode.NONE) {
+            if (permission.readMode() != AuthorizedReadMode.NONE) {
                 requireCurrentPolicy(connection, principal, roles, permission, observer);
             }
         }
@@ -65,7 +63,7 @@ public final class DeferredAuthorization {
     private static void requireCurrentPolicy(Connection connection, String principal, Set<String> roles,
             TablePermission permission, PolicyObserver observer) throws SQLException {
         var current = observer.observe(connection, principal, roles, permission);
-        if (permission.readMode() == ReadMode.RAW_READ) {
+        if (permission.readMode() == AuthorizedReadMode.RAW_READ) {
             if (current.rowFilter().isPresent()
                     || current.columnMasks().values().stream().anyMatch(java.util.Optional::isPresent)) {
                 throw new AuthorizationDeniedException(

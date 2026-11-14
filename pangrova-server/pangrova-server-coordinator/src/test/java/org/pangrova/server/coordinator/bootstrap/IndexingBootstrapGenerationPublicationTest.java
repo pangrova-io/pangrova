@@ -1,9 +1,8 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
@@ -79,7 +78,7 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
         var job = emptyExportJob();
         var spec = GenerationDispatchSpecFactory.create(job.jobId(),
                 new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                        GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                        GenerationGraphPurpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
                                 org.pangrova.generation.api.enums.GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[] {1}, GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),

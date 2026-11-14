@@ -1,5 +1,8 @@
 package org.pangrova.generation.api.graph;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
@@ -17,12 +20,10 @@ import java.util.Objects;
 import java.util.Set;
 
 /** Canonical durable stage topology. Metadata stores bytes and identities, never planner nodes or row data. */
-public record GenerationStageGraph(int formatVersion, Purpose purpose, List<StagePlan> stages,
+public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose purpose, List<StagePlan> stages,
         List<Exchange> exchanges, List<ModelSnapshot> modelSnapshots) {
     public static final int FORMAT_VERSION = 2;
     private static final int MAX_GRAPH_ENTRIES = 4096;
-
-    public enum Purpose { ARTIFACT_GENERATION, RELATIONAL_EXPORT }
 
     public GenerationStageGraph {
         if (formatVersion != FORMAT_VERSION) {
@@ -84,10 +85,8 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
 
     /** Native exchange shape; runtime addresses and ephemeral credentials are allocated separately. */
     public record Exchange(String exchangeId, int upstreamStageId, int downstreamStageId,
-            Distribution distribution, List<Integer> distributionKeys, int partitionCount,
+            GenerationExchangeDistribution distribution, List<Integer> distributionKeys, int partitionCount,
             String batchSerde, boolean requireComplete) {
-        public enum Distribution { HASH, ROUND_ROBIN, SINGLETON, BROADCAST }
-
         public Exchange {
             Objects.requireNonNull(distribution, "distribution");
             distributionKeys = List.copyOf(distributionKeys);
@@ -96,8 +95,8 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
                     || !"BATCH_SERDE_ARROW_BATCH".equals(batchSerde)
                     || distributionKeys.stream().anyMatch(key -> key < 0)
                     || new HashSet<>(distributionKeys).size() != distributionKeys.size()
-                    || (distribution == Distribution.HASH) != !distributionKeys.isEmpty()
-                    || (distribution == Distribution.SINGLETON && partitionCount != 1)) {
+                    || (distribution == GenerationExchangeDistribution.HASH) != !distributionKeys.isEmpty()
+                    || (distribution == GenerationExchangeDistribution.SINGLETON && partitionCount != 1)) {
                 throw new IllegalArgumentException("Invalid durable Native exchange contract");
             }
         }
@@ -110,7 +109,7 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
     }
 
     private static byte[] decode(String encoded, String sha, boolean allowEmpty, String name) {
-        if (encoded == null || sha == null || !sha.matches("[0-9a-f]{64}")) {
+        if (encoded == null || !DigestUtils.isSha256Hex(sha)) {
             throw new IllegalArgumentException(name + " identity is required");
         }
         byte[] bytes;
@@ -126,7 +125,7 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
         return bytes;
     }
 
-    private static void validate(Purpose purpose, List<StagePlan> stages, List<Exchange> exchanges) {
+    private static void validate(GenerationGraphPurpose purpose, List<StagePlan> stages, List<Exchange> exchanges) {
         if (stages.isEmpty() || stages.size() > MAX_GRAPH_ENTRIES || exchanges.size() > MAX_GRAPH_ENTRIES) {
             throw new IllegalArgumentException("Durable graph must have bounded non-empty stage metadata");
         }
@@ -150,13 +149,13 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
             remaining.compute(target.stageId(), (ignored, count) -> count + 1);
         }
         validateAcyclic(stages.size(), downstream, remaining);
-        if (purpose == Purpose.RELATIONAL_EXPORT && stages.stream().anyMatch(stage ->
+        if (purpose == GenerationGraphPurpose.RELATIONAL_EXPORT && stages.stream().anyMatch(stage ->
                 !stage.publicationOutput() && !downstream.containsKey(stage.stageId()))) {
             throw new IllegalArgumentException("Durable relational graph has a detached compute stage");
         }
     }
 
-    private static Map<Integer, StagePlan> indexStages(Purpose purpose, List<StagePlan> stages) {
+    private static Map<Integer, StagePlan> indexStages(GenerationGraphPurpose purpose, List<StagePlan> stages) {
         Map<Integer, StagePlan> byId = new HashMap<>();
         for (var stage : stages) {
             if (byId.put(stage.stageId(), stage) != null) {
@@ -164,7 +163,7 @@ public record GenerationStageGraph(int formatVersion, Purpose purpose, List<Stag
             }
             boolean relational = stage.pageKind() == GenerationPageKind.RELATIONAL_COMPUTE
                     || stage.pageKind() == GenerationPageKind.RELATIONAL_PARTITION;
-            if (relational != (purpose == Purpose.RELATIONAL_EXPORT)) {
+            if (relational != (purpose == GenerationGraphPurpose.RELATIONAL_EXPORT)) {
                 throw new IllegalArgumentException("Durable stage kind differs from terminal purpose");
             }
         }

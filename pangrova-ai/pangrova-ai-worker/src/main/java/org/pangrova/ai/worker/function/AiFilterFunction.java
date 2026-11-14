@@ -7,6 +7,7 @@ import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.function.api.scalar.ScalarFunction;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Set;
 
@@ -67,7 +68,7 @@ public final class AiFilterFunction implements ScalarFunction {
         String prompt = "Does the following text match this criteria: \""
                 + criteria + "\"? Answer only 'true' or 'false'.\n\nText: " + text;
         String result = provider.complete(prompt, GenerationParameters.deterministic()).text();
-        boolean matches = TRUE_TOKENS.contains(result.strip().toLowerCase());
+        boolean matches = TRUE_TOKENS.contains(result.strip().toLowerCase(Locale.ROOT));
         return new ColumnValue.BooleanValue(matches);
     }
 

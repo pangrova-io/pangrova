@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.bootstrap;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -136,7 +138,9 @@ class MetadataToSqlCompilerChainPropertyTest {
         assertThat(schemas).contains(SCHEMA_NAME);
 
         // Verify: CalciteSchema tree has catalog → schema hierarchy (Req 15.4)
-        CalciteSchema rootSchema = metadataBootstrap.buildCalciteSchema(
+        CalciteSchema rootSchema = new MetadataSchemaBuilder(
+                metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
+                .buildRootSchema(
                 org.pangrova.coordinator.metadata.MetadataPlanningTestSessions.session());
         assertThat(rootSchema.getSubSchemaMap()).containsKey(CATALOG_NAME);
         CalciteSchema catalogSchema = rootSchema.getSubSchema(CATALOG_NAME, false);

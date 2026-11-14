@@ -27,7 +27,7 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 import java.net.URI;

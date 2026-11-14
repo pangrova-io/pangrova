@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 import java.util.Optional;
 
@@ -11,7 +13,7 @@ public record SourcePublicationReservation(SourceTableState base, String executi
         java.util.Objects.requireNonNull(base);
         java.util.Objects.requireNonNull(baseSnapshot);
         if (executionId == null || executionId.isBlank() || fingerprint == null
-                || !fingerprint.matches("[0-9a-f]{64}")
+                || !DigestUtils.isSha256Hex(fingerprint)
                 || !manifestRelativePath.equals("_pangrova/prepared/" + fingerprint + ".manifest")
                 || (base.version() == 0) != baseSnapshot.isEmpty()) {
             throw new IllegalArgumentException("Invalid source publication reservation");

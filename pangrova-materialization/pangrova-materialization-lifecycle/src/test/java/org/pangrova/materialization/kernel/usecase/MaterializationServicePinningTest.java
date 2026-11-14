@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.kernel.MaterializationTestFixtures;
@@ -20,7 +21,7 @@ import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
@@ -29,7 +30,7 @@ import org.pangrova.materialization.api.enums.PinState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourceVector;
@@ -50,7 +51,7 @@ import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.connector.api.exception.MaterializationSourceException;
 import org.pangrova.connector.api.materialization.PinnedSource;
 import org.pangrova.connector.api.materialization.SourceRef;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.usecase.CreateMaterialization;
 import org.pangrova.materialization.usecase.KernelPorts;
@@ -114,9 +115,9 @@ class MaterializationServicePinningTest {
         assertThat(execution.requests).isEmpty();
         MaterializationWriteCapability capability = authorizer.singleCapability();
         assertThat(repository.findAttempt(capability.attempt()).orElseThrow().state())
-                .isEqualTo(org.pangrova.materialization.api.domain.AttemptState.Failed.INSTANCE);
+                .isEqualTo(org.pangrova.materialization.api.enums.AttemptState.FAILED);
         Generation generation = repository.findGeneration(capability.generation()).orElseThrow();
-        assertThat(generation.state()).isEqualTo(GenerationState.Collected.INSTANCE);
+        assertThat(generation.state()).isEqualTo(GenerationState.COLLECTED);
         assertThat(pins.released()).isEqualTo(pins.pinned());
         assertThat(repository.sourcePins(capability.attempt()))
                 .isNotEmpty()
@@ -127,7 +128,7 @@ class MaterializationServicePinningTest {
     void firstPinFailureFailsTheAttemptWithoutExecuting() {
         SourceRef source = MaterializationTestFixtures.source("orders");
         pins.failNextPin(new MaterializationSourceException(
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE, "expired tag"));
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE, "expired tag"));
 
         assertThatThrownBy(() -> service(MaterializationTestFixtures.vector(source)).create(command()))
                 .isInstanceOfSatisfying(MaterializationException.class, error -> {
@@ -141,9 +142,9 @@ class MaterializationServicePinningTest {
         assertThat(execution.requests).isEmpty();
         MaterializationWriteCapability capability = authorizer.singleCapability();
         assertThat(repository.findAttempt(capability.attempt()).orElseThrow().state())
-                .isEqualTo(org.pangrova.materialization.api.domain.AttemptState.Failed.INSTANCE);
+                .isEqualTo(org.pangrova.materialization.api.enums.AttemptState.FAILED);
         assertThat(repository.findGeneration(capability.generation()).orElseThrow().state())
-                .isEqualTo(GenerationState.Collected.INSTANCE);
+                .isEqualTo(GenerationState.COLLECTED);
         assertThat(pins.pinned()).isEmpty();
         assertThat(repository.sourcePins(capability.attempt()))
                 .isNotEmpty()
@@ -156,7 +157,7 @@ class MaterializationServicePinningTest {
         SourceRef customers = MaterializationTestFixtures.source("customers");
         SourceVector vector = MaterializationTestFixtures.vector(orders, customers);
         pins.failPinOnCall(2, new MaterializationSourceException(
-                MaterializationSourceException.Reason.PIN_UNSUPPORTED, "no retention"));
+                MaterializationSourceFailureReason.PIN_UNSUPPORTED, "no retention"));
 
         assertThatThrownBy(() -> service(vector).create(command()))
                 .isInstanceOfSatisfying(MaterializationException.class, error ->
@@ -215,7 +216,7 @@ class MaterializationServicePinningTest {
                 vector,
                 Set.of(),
                 MaterializationTestFixtures.policies(vector.snapshots().keySet()),
-                Set.of(RefreshKind.Full.INSTANCE),
+                Set.of(RefreshKind.FULL),
                 org.pangrova.materialization.api.domain.PartitionAlignment.NONE);
         return new MaterializationService(new KernelPorts(
                 repository, new EmptyCatalog(), planner, execution, pins, authorizer,

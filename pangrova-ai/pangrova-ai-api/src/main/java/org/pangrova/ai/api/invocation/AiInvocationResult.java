@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.api.invocation;
 
+import org.pangrova.ai.api.enums.AiFinishReason;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
@@ -29,7 +30,7 @@ public record AiInvocationResult(
         String modelVersion,
         List<Output> outputs,
         String providerRequestId,
-        FinishReason finishReason,
+        AiFinishReason finishReason,
         Map<String, String> attributes) {
 
     public sealed interface Output permits
@@ -74,12 +75,6 @@ public record AiInvocationResult(
                 throw new IllegalArgumentException("score must be finite");
             }
         }
-    }
-
-    public enum FinishReason {
-        COMPLETE,
-        LENGTH_LIMIT,
-        CONTENT_FILTERED
     }
 
     public AiInvocationResult {

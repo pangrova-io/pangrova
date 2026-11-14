@@ -202,7 +202,7 @@ public final class SplitFetcher {
             metadata.validateColumnAccess(session, tableHandle, projectedColumns);
         }
 
-        if (binding.state() == org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+        if (binding.state() == org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY) {
             return List.of();
         }
 

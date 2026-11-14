@@ -1,5 +1,6 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.LiteralType;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.format.AstPrinter;
 
@@ -25,7 +26,7 @@ class UuidLiteralTest {
     void typedUuidLiteralsSurviveTheNeutralAstPrintAndParse(String text) {
         Query query = (Query) parser.parse("SELECT UUID '" + text + "' AS id");
         var literal = (Literal) ((ExpressionItem) query.selectItems().get(0)).expression();
-        assertThat(literal.literalType()).isEqualTo(Literal.LiteralType.UUID);
+        assertThat(literal.literalType()).isEqualTo(LiteralType.UUID);
         assertThat(literal.value()).isEqualTo(new LiteralValue.UuidValue(UUID.fromString(text)));
         Query restored = (Query) parser.parse(new AstPrinter().print(query));
         assertThat(((Literal) ((ExpressionItem) restored.selectItems().get(0)).expression()).value())

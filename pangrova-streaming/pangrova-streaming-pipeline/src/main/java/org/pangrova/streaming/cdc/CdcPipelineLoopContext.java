@@ -13,18 +13,13 @@ import java.util.Objects;
 /**
  * Encapsulates all dependencies for {@link CdcPipelineLoop}.
  *
- * <p>Extracted as a record to comply with the constructor-deps-max-4 governance rule.
- * {@link CdcPipelineLoop} takes {@link CdcPipelineConfig} + this record = 2 constructor params.
- * The failure listener, retry backoff, and optional 2PC coordinator are grouped in
- * {@link CdcPipelineRuntimeHooks} to stay within the constructor-parameter limit.</p>
- *
  * @param sourceReader          reads raw batches from the message source
  * @param converter             format-specific CDC record deserializer
  * @param writeSink             writes CDC envelopes to the target table
  * @param quotaEnforcer         backpressure control for write throughput
  * @param watermarkTracker      per-table watermark state machine
  * @param maintenanceScheduler  compaction scheduling on write completion
- * @param runtimeHooks          failure listener, retry backoff, and optional 2PC
+ * @param runtimeHooks          metrics provider, failure listener, retry backoff, and optional 2PC
  *                               coordinator; a null coordinator inside the hooks
  *                               falls back to at-least-once semantics
  */

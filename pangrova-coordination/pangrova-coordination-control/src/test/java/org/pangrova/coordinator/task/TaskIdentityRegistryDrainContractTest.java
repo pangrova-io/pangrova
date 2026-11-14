@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
-import org.pangrova.protocol.task.TerminalReportDeliveryPolicy;
+import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;

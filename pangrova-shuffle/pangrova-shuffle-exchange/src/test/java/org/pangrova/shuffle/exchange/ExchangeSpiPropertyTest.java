@@ -1,9 +1,8 @@
 package org.pangrova.shuffle.exchange;
 
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
-
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
-
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 
 import java.io.IOException;

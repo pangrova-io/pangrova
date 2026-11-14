@@ -1,5 +1,7 @@
 package org.pangrova.planner.embedding;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.type.RelDataType;
@@ -72,7 +74,7 @@ public final class GeneratedMutationFixture {
                 new ConnectorTableMetadata.Column("title", PangrovaType.VARCHAR),
                 new ConnectorTableMetadata.Column("body", PangrovaType.VARCHAR),
                 new ConnectorTableMetadata.Column("vector", PangrovaType.VECTOR, OptionalInt.of(5),
-                        new VectorType(3, VectorType.ElementType.FLOAT)));
+                        new VectorType(3, VectorElementType.FLOAT)));
     }
 
     private static final class DeclaredTable extends AbstractTable {

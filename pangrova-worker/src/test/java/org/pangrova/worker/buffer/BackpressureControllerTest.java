@@ -1,6 +1,6 @@
 package org.pangrova.worker.buffer;
 
-import org.pangrova.worker.buffer.BackpressureController.Action;
+import org.pangrova.worker.enums.BackpressureAction;
 import org.pangrova.worker.buffer.BackpressureController.BackpressureResult;
 import org.junit.jupiter.api.Test;
 
@@ -18,46 +18,46 @@ class BackpressureControllerTest {
     @Test
     void belowLowWaterMark_proceeds() {
         BackpressureResult result = controller.checkBackpressure(100);
-        assertThat(result.action()).isEqualTo(Action.PROCEED);
+        assertThat(result.action()).isEqualTo(BackpressureAction.PROCEED);
         assertThat(result.delay()).isEqualTo(Duration.ZERO);
     }
 
     @Test
     void atHighWaterMark_slowsDown() {
         BackpressureResult result = controller.checkBackpressure(800);
-        assertThat(result.action()).isEqualTo(Action.SLOW_DOWN);
+        assertThat(result.action()).isEqualTo(BackpressureAction.SLOW_DOWN);
         assertThat(result.delay().toMillis()).isGreaterThan(0);
     }
 
     @Test
     void atMaxPending_rejects() {
         BackpressureResult result = controller.checkBackpressure(1000);
-        assertThat(result.action()).isEqualTo(Action.REJECT);
+        assertThat(result.action()).isEqualTo(BackpressureAction.REJECT);
         assertThat(result.delay()).isEqualTo(Duration.ZERO);
     }
 
     @Test
     void aboveMaxPending_rejects() {
         BackpressureResult result = controller.checkBackpressure(1500);
-        assertThat(result.action()).isEqualTo(Action.REJECT);
+        assertThat(result.action()).isEqualTo(BackpressureAction.REJECT);
     }
 
     @Test
     void betweenLowAndHighWaterMark_proceeds() {
         BackpressureResult result = controller.checkBackpressure(600);
-        assertThat(result.action()).isEqualTo(Action.PROCEED);
+        assertThat(result.action()).isEqualTo(BackpressureAction.PROCEED);
     }
 
     @Test
     void zeroPending_proceeds() {
         BackpressureResult result = controller.checkBackpressure(0);
-        assertThat(result.action()).isEqualTo(Action.PROCEED);
+        assertThat(result.action()).isEqualTo(BackpressureAction.PROCEED);
     }
 
     @Test
     void defaultConstructor_usesDefaultThresholds() {
         BackpressureController defaultController = new BackpressureController();
-        assertThat(defaultController.checkBackpressure(0).action()).isEqualTo(Action.PROCEED);
-        assertThat(defaultController.checkBackpressure(1000).action()).isEqualTo(Action.REJECT);
+        assertThat(defaultController.checkBackpressure(0).action()).isEqualTo(BackpressureAction.PROCEED);
+        assertThat(defaultController.checkBackpressure(1000).action()).isEqualTo(BackpressureAction.REJECT);
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.testing.testkit.result;
 
+import org.pangrova.testing.testkit.enums.ResultScalarType;
+
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightProducer;
 import org.apache.arrow.flight.FlightServer;
@@ -37,7 +39,7 @@ public final class TestResultEndpoint implements AutoCloseable {
 
     /** Starts a real OS-assigned endpoint that emits the supplied value followed by EOF. */
     public TestResultEndpoint(int value) throws Exception {
-        this(List.of(new Column("value", ScalarType.INTEGER)), List.of(List.of(new IntegerCell(value))));
+        this(List.of(new Column("value", ResultScalarType.INTEGER)), List.of(List.of(new IntegerCell(value))));
     }
 
     /** Starts an actual tabular stream from immutable, framework-free typed test data. */
@@ -49,7 +51,7 @@ public final class TestResultEndpoint implements AutoCloseable {
                 if (row.size() != names.size()) throw new IllegalArgumentException("Row width does not match schema");
                 for (int i = 0; i < row.size(); i++) {
                     boolean integer = row.get(i) instanceof IntegerCell;
-                    if (integer != (names.get(i).type() == ScalarType.INTEGER)) {
+                    if (integer != (names.get(i).type() == ResultScalarType.INTEGER)) {
                         throw new IllegalArgumentException("Cell type does not match schema");
                     }
                 }
@@ -94,11 +96,8 @@ public final class TestResultEndpoint implements AutoCloseable {
         closed = true;
     }
 
-    /** Primitive kinds supported by this component fixture, not a query type system. */
-    public enum ScalarType { INTEGER, TEXT }
-
     /** Immutable test column description with no SDK dependency in its signature. */
-    public record Column(String name, ScalarType type) {
+    public record Column(String name, ResultScalarType type) {
         public Column {
             java.util.Objects.requireNonNull(name);
             java.util.Objects.requireNonNull(type);
@@ -122,7 +121,7 @@ public final class TestResultEndpoint implements AutoCloseable {
 
         private TableProducer(List<Column> columns, List<List<Cell>> rows) {
             schema = new Schema(columns.stream().map(column -> new Field(column.name(), FieldType.nullable(
-                    column.type() == ScalarType.INTEGER ? new ArrowType.Int(32, true) : new ArrowType.Utf8()),
+                    column.type() == ResultScalarType.INTEGER ? new ArrowType.Int(32, true) : new ArrowType.Utf8()),
                     null)).toList());
             this.rows = rows;
         }

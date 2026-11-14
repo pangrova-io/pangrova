@@ -1,5 +1,7 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 
 import java.util.EnumSet;
 import java.util.List;
@@ -64,7 +66,7 @@ class AstTypeCompletenessTest {
                 new MapConstructor(List.of()),
                 new StructConstructor(List.of(StructConstructor.Field.positional(DUMMY_LIT))),
                 new BetweenExpression(DUMMY_LIT, DUMMY_LIT, DUMMY_LIT),
-                new BinaryExpression(DUMMY_LIT, BinaryExpression.Operator.ADD, DUMMY_LIT),
+                new BinaryExpression(DUMMY_LIT, BinaryExpressionOperator.ADD, DUMMY_LIT),
                 new CaseExpression(null, List.of(), java.util.Optional.empty()),
                 new CastExpression(DUMMY_LIT, "INT"),
                 new ExistsExpression(DUMMY_QUERY),
@@ -75,7 +77,7 @@ class AstTypeCompletenessTest {
                 new IsNullExpression(DUMMY_LIT, false),
                 new LikeExpression(DUMMY_LIT, DUMMY_LIT),
                 new org.pangrova.parser.api.ast.expression.TruthTestExpression(DUMMY_LIT,
-                        org.pangrova.parser.api.ast.expression.TruthTestExpression.TruthValue.TRUE, false),
+                        org.pangrova.parser.api.enums.TruthValue.TRUE, false),
                 new NotExpression(DUMMY_LIT),
                 new NotInExpression(DUMMY_LIT, List.of()),
                 new NotInSubqueryExpression(DUMMY_LIT, DUMMY_QUERY),

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamDdlContext;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
@@ -322,7 +324,7 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
 
     private StreamSchedulerContext context(Function<StreamState, CdcSourceReader> readers,
             Function<StreamState, CdcWriteSink> sinks) {
-        return new StreamSchedulerContext(states, new JdbcStreamOffsetStore(dataSource),
+        return new StreamSchedulerContext(TestObservability.METRICS, states, new JdbcStreamOffsetStore(dataSource),
                 new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)),
                 new CdcRecordConverterRegistry(List.of(new StreamSchedulerStopAllRaceTest.NoOpConverter())),
                 new WatermarkTracker(new StreamSchedulerStopAllRaceTest.InMemoryWatermarkStore()),

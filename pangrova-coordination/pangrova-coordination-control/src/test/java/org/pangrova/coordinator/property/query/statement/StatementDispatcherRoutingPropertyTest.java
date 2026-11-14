@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.query.statement;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 import net.jqwik.api.*;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
@@ -17,7 +19,6 @@ import org.pangrova.parser.api.ast.statement.AlterTableStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;
-import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
 import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
@@ -135,7 +136,7 @@ class StatementDispatcherRoutingPropertyTest {
                         Optional.empty(),
                         new org.pangrova.parser.api.ast.TableRef(Identifier.of("cat", "sch", "src")),
                         new BinaryExpression(Identifier.of("id"),
-                                BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
+                                BinaryExpressionOperator.EQUAL, Literal.ofInteger(1)),
                         List.of()));
     }
 

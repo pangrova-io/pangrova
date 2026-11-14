@@ -10,7 +10,7 @@ import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -41,7 +41,7 @@ class MetadataSharedDispatcherSdkIntegrationTest extends ContainerTestBase {
             var observer = new TieredMetadataCache();
             dispatcher.addListener(primary);
             dispatcher.addListener(observer);
-            var service = new DefaultMetadataService(fixture.bootstrap.catalogRegistry(), primary, dispatcher,
+            var service = new CatalogMetadata(fixture.bootstrap.catalogRegistry(), primary, dispatcher,
                     new SchemaEvolutionValidator());
             var session = new MetadataSessionContext("reader", "bound", "db", "UTC", "en", Map.of(),
                     "tenant", "", fixture.context.queryId());

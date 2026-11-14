@@ -1,5 +1,6 @@
 package org.pangrova.parser.api.ast;
 
+import org.pangrova.parser.api.enums.SetOperatorType;
 import org.pangrova.parser.api.enums.StatementType;
 
 import java.util.List;
@@ -23,13 +24,6 @@ public record SetQuery(List<Query> queries, List<SetOperatorType> operators) imp
     private static List<SetOperatorType> buildDefaultOperators(int queryCount) {
         if (queryCount <= 1) return List.of();
         return java.util.Collections.nCopies(queryCount - 1, SetOperatorType.UNION_ALL);
-    }
-
-    public enum SetOperatorType {
-        UNION_ALL,
-        UNION_DISTINCT,
-        INTERSECT,
-        EXCEPT
     }
 
     @Override

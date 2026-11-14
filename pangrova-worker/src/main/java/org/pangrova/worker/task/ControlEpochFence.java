@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.ControlEpochFenceReason;
 import org.pangrova.worker.exception.ControlEpochFenceException;
 
 import java.util.OptionalLong;
@@ -31,15 +32,15 @@ final class ControlEpochFence {
         }
         long expected = controlEpoch.get();
         if (expected == UNARMED) {
-            throw rejected(ControlEpochFenceException.Reason.CONTROL_PLANE_NOT_READY,
+            throw rejected(ControlEpochFenceReason.CONTROL_PLANE_NOT_READY,
                     "Worker has not completed a control-epoch handshake");
         }
         if (taskEpoch == null) {
-            throw rejected(ControlEpochFenceException.Reason.MISSING_EPOCH,
+            throw rejected(ControlEpochFenceReason.MISSING_EPOCH,
                     "Task submission is missing control_epoch; expected " + expected);
         }
         if (taskEpoch <= 0) {
-            throw rejected(ControlEpochFenceException.Reason.INVALID_EPOCH,
+            throw rejected(ControlEpochFenceReason.INVALID_EPOCH,
                     "Task control_epoch must be positive: " + taskEpoch);
         }
         if (taskEpoch != expected) {
@@ -61,27 +62,27 @@ final class ControlEpochFence {
         if (!required.get()) return;
         long observed = controlEpoch.get();
         if (observed == UNARMED) {
-            throw rejected(ControlEpochFenceException.Reason.CONTROL_PLANE_NOT_READY,
+            throw rejected(ControlEpochFenceReason.CONTROL_PLANE_NOT_READY,
                     "Worker has not completed a control-epoch handshake");
         }
         if (targetEpoch == null || targetEpoch <= 0) {
-            throw rejected(ControlEpochFenceException.Reason.INVALID_EPOCH,
+            throw rejected(ControlEpochFenceReason.INVALID_EPOCH,
                     "Exact cleanup identity requires a positive control epoch");
         }
         if (targetEpoch > observed) throw mismatch(targetEpoch, observed);
     }
 
     private static ControlEpochFenceException mismatch(long actual, long expected) {
-        ControlEpochFenceException.Reason reason = actual > expected
-                ? ControlEpochFenceException.Reason.EPOCH_AHEAD
-                : ControlEpochFenceException.Reason.EPOCH_MISMATCH;
+        ControlEpochFenceReason reason = actual > expected
+                ? ControlEpochFenceReason.EPOCH_AHEAD
+                : ControlEpochFenceReason.EPOCH_MISMATCH;
         return rejected(reason,
                 "Task control_epoch " + actual
                         + " does not match Worker control-plane epoch " + expected);
     }
 
     private static ControlEpochFenceException rejected(
-            ControlEpochFenceException.Reason reason, String message) {
+            ControlEpochFenceReason reason, String message) {
         return new ControlEpochFenceException(reason, message);
     }
 }

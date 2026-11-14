@@ -40,6 +40,7 @@ import org.apache.paimon.table.source.Split;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -458,7 +459,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         Map<String, String> options = table.options();
         List<String> primaryKeys = table.primaryKeys();
         String mergeEngine = options.getOrDefault("merge-engine", "DEDUPLICATE")
-                .replace("-", "_").toUpperCase();
+                .replace("-", "_").toUpperCase(Locale.ROOT);
         boolean deletionVectorsEnabled = "true".equalsIgnoreCase(
                 options.getOrDefault("deletion-vectors.enabled", "false"));
         boolean changelogMode = isChangelogCapable(changelogProducer);
@@ -508,7 +509,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
     private static String resolveChangelogProducer(Table table) {
         String value = table.options().getOrDefault("changelog-producer", "NONE");
-        return value.replace("-", "_").toUpperCase();
+        return value.replace("-", "_").toUpperCase(Locale.ROOT);
     }
 
     private static boolean isChangelogCapable(String changelogProducer) {

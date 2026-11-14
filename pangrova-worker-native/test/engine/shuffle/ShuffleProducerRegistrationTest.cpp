@@ -34,7 +34,6 @@ TEST(ShuffleProducerRegistrationTest, ExactReplayAtCapacityDoesNotAdmitAnotherOw
 TEST(ShuffleProducerRegistrationTest, EveryIdentityConflictLeavesOriginalProducerIntact) {
   SerializedShuffleQueue queue(8), other(1);
   FlightShuffleServerConfig config;
-  config.reuse_port = false;
   config.hmac_current_key = "registration-test-key-012345678901";
   FlightShuffleServer server(config);
   ASSERT_GT(server.start(), 0);

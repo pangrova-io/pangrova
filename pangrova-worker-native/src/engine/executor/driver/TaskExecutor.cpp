@@ -60,7 +60,7 @@ void TaskExecutor::start() {
   execution_driver_->executeAsync();
 }
 
-void TaskExecutor::bindHandle(int64_t executor_handle) {
+void TaskExecutor::bindHandle(int64_t executor_handle, const TaskFailureReporter& failure_reporter) {
   if (executor_handle <= 0) {
     throw std::invalid_argument("executor handle must be positive");
   }
@@ -72,6 +72,7 @@ void TaskExecutor::bindHandle(int64_t executor_handle) {
     throw std::logic_error("executor handle must be bound before task start");
   }
   config_.executor_handle = executor_handle;
+  config_.failure_reporter = &failure_reporter;
 }
 
 void TaskExecutor::cancel() {

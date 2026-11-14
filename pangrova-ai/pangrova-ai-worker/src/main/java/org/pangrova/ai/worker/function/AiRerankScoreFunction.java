@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.reranking.RerankingProvider;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.scalar.BatchableScalarFunction;
@@ -131,7 +132,7 @@ public final class AiRerankScoreFunction implements BatchableScalarFunction {
         binding.requireExactProvider(
                 provider.modelName(), provider.modelVersion(),
                 provider.modelSignatureSha256(),
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.RERANKING);
+                AiOperation.RERANKING);
         return provider;
     }
 
@@ -149,7 +150,7 @@ public final class AiRerankScoreFunction implements BatchableScalarFunction {
         String query = decoded.nullableText("query");
         String document = decoded.nullableText("document");
         BoundAiInvocation binding = decoded.binding(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.RERANKING);
+                AiOperation.RERANKING);
         return query == null || document == null
                 ? null
                 : new Values(model, query, document, binding);

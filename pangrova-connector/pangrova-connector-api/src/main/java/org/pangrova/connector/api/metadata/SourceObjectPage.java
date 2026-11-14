@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.SourceObjectPurpose;
 import org.pangrova.common.util.DigestUtils;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -20,11 +21,9 @@ public record SourceObjectPage(int index, String afterPath, List<ObjectReference
 
     private static final int MAX_OBJECT_PATH_LENGTH = 2048;
 
-    @Experimental
-    public enum Purpose { SOURCE, WINNER_SIDECAR }
 
     @Experimental
-    public record ObjectReference(String relativePath, long sizeBytes, Purpose purpose) {
+    public record ObjectReference(String relativePath, long sizeBytes, SourceObjectPurpose purpose) {
         public ObjectReference {
             AcceptedSourceSnapshot.requireRelativePath(relativePath);
             if (relativePath.length() > MAX_OBJECT_PATH_LENGTH || !relativePath.matches("[A-Za-z0-9/_.=\\-]+")) {
@@ -81,7 +80,7 @@ public record SourceObjectPage(int index, String afterPath, List<ObjectReference
             output.writeInt(path.length);
             output.write(path);
             output.writeLong(object.sizeBytes());
-            output.writeInt(object.purpose() == Purpose.SOURCE ? 1 : 2);
+            output.writeInt(object.purpose() == SourceObjectPurpose.SOURCE ? 1 : 2);
             return bytes.toByteArray();
         } catch (IOException impossible) {
             throw new IllegalStateException(impossible);

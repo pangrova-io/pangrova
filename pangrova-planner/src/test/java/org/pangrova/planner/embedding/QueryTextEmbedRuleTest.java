@@ -1,6 +1,6 @@
 package org.pangrova.planner.embedding;
 
-import org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor.EmbeddingMode;
+import org.pangrova.parser.api.enums.EmbeddingMode;
 import org.pangrova.planner.embedding.QueryTextEmbedRule.QueryEmbedDirective;
 import org.junit.jupiter.api.Test;
 

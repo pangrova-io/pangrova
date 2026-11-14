@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -146,7 +148,7 @@ public final class TaskTimingTracker {
     private TaskDuration buildTaskDuration(String taskId, TaskStateMachine sm,
                                            Set<String> speculativeTaskIds, Instant now) {
         Instant startTime = taskStartTimes.get(taskId);
-        boolean completed = sm.getState() == TaskStateMachine.State.FINISHED;
+        boolean completed = sm.getState() == ScheduledTaskState.FINISHED;
         Instant endTime = completed ? taskFinishTimes.getOrDefault(taskId, now) : now;
         long durationMs = startTime != null
                 ? Duration.between(startTime, endTime).toMillis()
@@ -167,7 +169,7 @@ public final class TaskTimingTracker {
         }
         Set<String> stageIds = new java.util.HashSet<>();
         for (Map.Entry<String, TaskStateMachine> entry : tasks.entrySet()) {
-            if (entry.getValue().getState() == TaskStateMachine.State.RUNNING) {
+            if (entry.getValue().getState() == ScheduledTaskState.RUNNING) {
                 String stageId = taskStageMapping.get(entry.getKey());
                 if (stageId != null) {
                     stageIds.add(stageId);

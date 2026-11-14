@@ -6,6 +6,7 @@ import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.SetQuery;
 import org.pangrova.parser.api.ast.TableRef;
 
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ public final class CteReferenceCounter {
     public static List<CTEReference> count(CteQuery cteQuery) {
         Map<String, Integer> counts = new HashMap<>();
         for (CteQuery.CteDefinition def : cteQuery.ctes()) {
-            counts.put(def.name().toLowerCase(), 0);
+            counts.put(def.name().toLowerCase(Locale.ROOT), 0);
         }
         countInStatement(cteQuery.body(), counts);
         for (CteQuery.CteDefinition def : cteQuery.ctes()) {
@@ -36,7 +37,7 @@ public final class CteReferenceCounter {
         }
         return cteQuery.ctes().stream()
                 .map(def -> {
-                    String name = def.name().toLowerCase();
+                    String name = def.name().toLowerCase(Locale.ROOT);
                     int refCount = counts.getOrDefault(name, 0);
                     return new CTEReference(def.name(), estimateCost(def.query()), refCount);
                 })
@@ -71,7 +72,7 @@ public final class CteReferenceCounter {
             ref.subquery().ifPresent(sub -> countInStatement(sub, counts));
         } else {
             List<String> parts = ref.name().parts();
-            String tableName = parts.get(parts.size() - 1).toLowerCase();
+            String tableName = parts.get(parts.size() - 1).toLowerCase(Locale.ROOT);
             if (counts.containsKey(tableName)) {
                 counts.merge(tableName, 1, Integer::sum);
             }

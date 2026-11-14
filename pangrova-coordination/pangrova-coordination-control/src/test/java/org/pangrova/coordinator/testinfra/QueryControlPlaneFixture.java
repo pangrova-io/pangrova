@@ -15,7 +15,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 
 /** Real control-plane collaborators for REST registry tests; no Native task or SQL result is simulated. */
 public final class QueryControlPlaneFixture implements AutoCloseable {

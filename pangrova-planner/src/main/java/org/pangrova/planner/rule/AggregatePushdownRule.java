@@ -2,6 +2,7 @@ package org.pangrova.planner.rule;
 
 import org.pangrova.planner.metadata.PlanTable;
 
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -72,7 +73,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         // Build the AggregationApplication from Calcite's Aggregate
         List<AggregateFunction> functions = new ArrayList<>();
         for (AggregateCall aggCall : agg.getAggCallList()) {
-            String funcName = aggCall.getAggregation().getName().toLowerCase();
+            String funcName = aggCall.getAggregation().getName().toLowerCase(Locale.ROOT);
             // For now, use empty column handles (connector resolves by position)
             functions.add(new AggregateFunction(funcName, List.of(), aggCall.isDistinct()));
         }

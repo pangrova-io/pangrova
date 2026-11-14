@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.module;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
@@ -89,18 +91,18 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
                     .pollInterval(java.time.Duration.ofMillis(50))
                     .pollDelay(java.time.Duration.ZERO)
                     .until(() -> backend.events.stream()
-                                    .filter(e -> e.eventType() == LineageEvent.EventType.START)
+                                    .filter(e -> e.eventType() == LineageEventType.START)
                                     .count() >= 1
                             && backend.events.stream()
-                                    .filter(e -> e.eventType() == LineageEvent.EventType.COMPLETE)
+                                    .filter(e -> e.eventType() == LineageEventType.COMPLETE)
                                     .count() >= 1);
 
             assertThat(backend.events).hasSizeGreaterThanOrEqualTo(2);
             assertThat(backend.events.stream()
-                    .filter(e -> e.eventType() == LineageEvent.EventType.START)
+                    .filter(e -> e.eventType() == LineageEventType.START)
                     .count()).isGreaterThanOrEqualTo(1);
             assertThat(backend.events.stream()
-                    .filter(e -> e.eventType() == LineageEvent.EventType.COMPLETE)
+                    .filter(e -> e.eventType() == LineageEventType.COMPLETE)
                     .count()).isGreaterThanOrEqualTo(1);
         }
 
@@ -118,11 +120,11 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
                     .pollInterval(java.time.Duration.ofMillis(50))
                     .pollDelay(java.time.Duration.ZERO)
                     .until(() -> backend.events.stream()
-                            .filter(e -> e.eventType() == LineageEvent.EventType.FAIL)
+                            .filter(e -> e.eventType() == LineageEventType.FAIL)
                             .count() >= 1);
 
             assertThat(backend.events.stream()
-                    .filter(e -> e.eventType() == LineageEvent.EventType.FAIL)
+                    .filter(e -> e.eventType() == LineageEventType.FAIL)
                     .count()).isGreaterThanOrEqualTo(1);
         }
     }
@@ -149,7 +151,7 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
             breaker.onFailure();
 
             assertThat(breaker.getState())
-                    .isEqualTo(CircuitBreaker.State.OPEN);
+                    .isEqualTo(CircuitBreakerPhase.OPEN);
             assertThat(breaker.allowRequest()).isFalse();
         }
 
@@ -167,7 +169,7 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
             breaker.onSuccess();
 
             assertThat(breaker.getState())
-                    .isEqualTo(CircuitBreaker.State.CLOSED);
+                    .isEqualTo(CircuitBreakerPhase.CLOSED);
             assertThat(breaker.allowRequest()).isTrue();
         }
     }

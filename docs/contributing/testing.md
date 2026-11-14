@@ -792,116 +792,15 @@ public class E2ETestFramework {
 ```
 
 
-`CoordinatorRestartChaosTest` exercises network isolation, Coordinator restart and Worker loss in Docker. The test checks the supplied image ID and source revision, starts the production Coordinator and Worker roles, then queries their LDAP-protected REST endpoints. PostgreSQL keeps the query journal. Toxiproxy interrupts Worker control traffic until the Coordinator removes the Worker or marks its ID dead. After SIGKILL and restart, a new Coordinator must serve the same FINISHED query and the exact persisted RUNNING state of a second query whose Native terminal report is held. This checks non-HA journal visibility. Killing the only Worker while its terminal report is held must produce a durable FAILED state. After restarting that Worker, another real query must complete with a matching native task receipt.
+## 7. Distributed failure tests
 
-Run the same-source Linux image with the release properties `pangrova.e2e.image`, `pangrova.e2e.image-id` and `pangrova.e2e.local.source-commit`. The selected class is `CoordinatorRestartChaosTest`.
+`CoordinatorRestartChaosTest` exercises network isolation, Coordinator restart and Worker loss in Docker. The test checks the supplied image ID and source revision, starts the production Coordinator and Worker roles, then queries their LDAP-protected REST endpoints. PostgreSQL keeps the query journal. Toxiproxy interrupts Worker control traffic until the Coordinator removes the Worker or marks its ID dead. After SIGKILL and restart, a new Coordinator must serve the same FINISHED query and the exact persisted RUNNING state of a second query whose Native terminal report is held. This checks non-HA journal visibility. Killing the only Worker while its terminal report is held must produce a durable FAILED state. After restarting that Worker, another real query must complete with a matching native task receipt.
 
 `IndependentClientCancellationE2ETest` uses a Coordinator and two Worker processes. The relay holds an actual Native terminal task report while `Statement.cancel()` or the packaged CLI timeout cancels the matching query over HTTP. The checks require the same UUID to become CANCELLED. Each client must also have one PostgreSQL query history row with its exact SQL, LDAP principal, tenant and unsuccessful outcome. The security audit must contain one submission and one cancellation event in that order for the same ID. Submission records the already authenticated principal and SQL. The cancellation event records the tenant resolved during admission. The CLI case holds the first FINISHED notification while its real retry proceeds. After PostgreSQL shows that the tenant admission slot was released, it delivers the original delayed notification and requires separate acknowledgements for that superseded notice and the actual Native release receipt. JDBC then consumes a TLS result stream on the same connection, and a fresh CLI query also reads its result. Supply the local role classpaths, CLI and Native manifest used by the independent-process suites.
 
-## 7. Chaos Testing Framework
+Run the same-source Linux image with the release properties `pangrova.e2e.image`, `pangrova.e2e.image-id` and `pangrova.e2e.local.source-commit`. The selected class is `CoordinatorRestartChaosTest`.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Chaos Testing Framework                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Fault injection types:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Fault Type        │ Injection method      │ Expected behavior          │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Worker Crash      │ Kill process          │ Task rescheduled, query succeeds│   │
-│  │  Coordinator Crash │ Kill process          │ After ZK session expiry (~30s) another Coordinator competes to take over the query ([01 §3.5](../architecture/distributed.md)); the query ultimately succeeds but latency increases by 30-60s│   │
-
-│  │  Network Partition │ iptables isolation    │ Retry on timeout, eventually succeeds│   │
-│  │  Network Delay     │ tc netem              │ Latency increases, correctness unaffected│   │
-│  │  Disk Full         │ Fill disk             │ Spill fails, graceful degradation│   │
-│  │  Memory Pressure   │ Limit cgroup          │ Triggers Spill, query succeeds│   │
-│  │  CPU Throttle      │ cgroup cpu.cfs_quota  │ Latency increases, correctness unaffected│   │
-│  │  Clock Skew        │ Modify system time    │ Correctness unaffected     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-```java
-// ChaosTestFramework.java - chaos testing framework
-package org.pangrova.testing.integration.chaos;
-
-/**
- * Chaos testing framework
- * Injects various faults to verify the system's fault-tolerance
- */
-public class ChaosTestFramework {
-    
-    private final TestCluster cluster;
-    private final FaultInjector faultInjector;
-    private final QueryExecutor queryExecutor;
-    
-    /**
-     * Run the chaos test
-     */
-    public ChaosTestReport runChaosTest(ChaosTestConfig config) {
-        ChaosTestReport report = new ChaosTestReport();
-        
-        for (int i = 0; i < config.getIterations(); i++) {
-            // 1. Start background queries
-            List<Future<QueryResult>> queries = startBackgroundQueries(config);
-            
-            // 2. Inject a random fault
-            Fault fault = faultInjector.injectRandomFault(config.getFaultTypes());
-            report.recordFaultInjection(fault);
-            
-            // 3. Wait for a period of time
-            Thread.sleep(config.getFaultDuration().toMillis());
-            
-            // 4. Recover from the fault
-            faultInjector.recover(fault);
-            
-            // 5. Wait for queries to complete
-            List<QueryResult> results = waitForQueries(queries, config.getQueryTimeout());
-            
-            // 6. Validate the results
-            for (QueryResult result : results) {
-                if (result.isSuccess()) {
-                    report.recordSuccess(fault, result);
-                } else if (isExpectedFailure(fault, result)) {
-                    report.recordExpectedFailure(fault, result);
-                } else {
-                    report.recordUnexpectedFailure(fault, result);
-                }
-            }
-        }
-        
-        return report;
-    }
-    
-    /**
-     * Fault injector
-     */
-    public interface FaultInjector {
-        Fault injectWorkerCrash(String workerId);
-        Fault injectCoordinatorCrash(String coordinatorId);
-        Fault injectNetworkPartition(List<String> isolatedNodes);
-        Fault injectNetworkDelay(String node, Duration delay);
-        Fault injectDiskFull(String node);
-        Fault injectMemoryPressure(String node, long limitBytes);
-        void recover(Fault fault);
-    }
-    
-    /**
-     * Fault types
-     */
-    public enum FaultType {
-        WORKER_CRASH,
-        COORDINATOR_CRASH,
-        NETWORK_PARTITION,
-        NETWORK_DELAY,
-        DISK_FULL,
-        MEMORY_PRESSURE,
-        CPU_THROTTLE
-    }
-}
-```
+For scenarios using a dedicated Docker network, `ContainerFaultInjector` implements `FaultInjector` with explicit partition, reconnect, process-kill and clock operations. A test owns its containers and restores its injected fault during cleanup.
 
 ## 8. Test Data Generator
 

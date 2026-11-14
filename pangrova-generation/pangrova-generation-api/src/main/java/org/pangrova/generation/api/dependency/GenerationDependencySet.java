@@ -16,9 +16,9 @@ import java.util.Set;
 public record GenerationDependencySet(List<GenerationDependency> dependencies, String sha256) {
 
     private static final Comparator<GenerationDependency> ORDER = Comparator
-            .comparing(GenerationDependency::kind, Utf8Order.UNSIGNED)
-            .thenComparing(GenerationDependency::id, Utf8Order.UNSIGNED)
-            .thenComparing(GenerationDependency::version, Utf8Order.UNSIGNED);
+            .comparing(GenerationDependency::kind, Utf8Order::compareUnsigned)
+            .thenComparing(GenerationDependency::id, Utf8Order::compareUnsigned)
+            .thenComparing(GenerationDependency::version, Utf8Order::compareUnsigned);
 
     public GenerationDependencySet {
         dependencies = List.copyOf(dependencies).stream().sorted(ORDER).toList();

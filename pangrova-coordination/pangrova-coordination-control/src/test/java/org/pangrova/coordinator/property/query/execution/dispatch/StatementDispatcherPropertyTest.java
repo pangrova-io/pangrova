@@ -1,13 +1,12 @@
 package org.pangrova.coordinator.property.query.execution.dispatch;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.parser.api.ast.statement.tenant.GrantTenantStatement;
 import org.pangrova.parser.api.ast.statement.tenant.RevokeTenantStatement;
 import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementCompletionListener;
-
 import org.pangrova.query.statement.StatementClassifier;
-
 import org.pangrova.query.api.enums.StatementCategory;
 
 import net.jqwik.api.*;
@@ -17,7 +16,6 @@ import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 import org.pangrova.parser.api.ast.statement.*;
 import org.pangrova.parser.api.ast.statement.dml.*;
-import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
@@ -97,7 +95,7 @@ class StatementDispatcherPropertyTest {
                 new MergeStatement(name, Optional.empty(),
                         new TableRef(Identifier.of("src")),
                         new BinaryExpression(Identifier.of("id"),
-                                BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
+                                BinaryExpressionOperator.EQUAL, Literal.ofInteger(1)),
                         List.of())
         ));
     }
@@ -385,7 +383,7 @@ class StatementDispatcherPropertyTest {
                 new MergeStatement(name, Optional.empty(),
                         new TableRef(Identifier.of("src")),
                         new BinaryExpression(Identifier.of("id"),
-                                BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
+                                BinaryExpressionOperator.EQUAL, Literal.ofInteger(1)),
                         List.of())
         ));
     }
@@ -404,7 +402,7 @@ class StatementDispatcherPropertyTest {
                 new MergeStatement(name, Optional.empty(),
                         new TableRef(Identifier.of("src")),
                         new BinaryExpression(Identifier.of("id"),
-                                BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
+                                BinaryExpressionOperator.EQUAL, Literal.ofInteger(1)),
                         List.of(new MergeStatement.MergeClause.WhenMatchedUpdate(Optional.empty(),
                                 List.of(new UpdateStatement.Assignment("col", Literal.ofInteger(42))))))
         ));

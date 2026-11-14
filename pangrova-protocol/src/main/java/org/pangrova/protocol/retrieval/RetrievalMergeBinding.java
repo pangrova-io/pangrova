@@ -1,5 +1,8 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -10,7 +13,7 @@ import org.pangrova.common.api.annotation.Internal;
 /** Wire-neutral input used to bind a Native retrieval merge at a singleton stage. */
 @Internal
 public record RetrievalMergeBinding(
-        Strategy strategy,
+        RetrievalMergeStrategy strategy,
         int scoreFieldIndex,
         int sourceIdFieldIndex,
         List<Integer> stableKeyFieldIndexes,
@@ -81,8 +84,8 @@ public record RetrievalMergeBinding(
         }
     }
 
-    private static void validateStrategy(Strategy strategy, long rrfK) {
-        if (strategy == Strategy.RRF && rrfK <= 0) {
+    private static void validateStrategy(RetrievalMergeStrategy strategy, long rrfK) {
+        if (strategy == RetrievalMergeStrategy.RRF && rrfK <= 0) {
             throw new IllegalArgumentException("RRF k must be positive");
         }
     }
@@ -97,8 +100,6 @@ public record RetrievalMergeBinding(
     public byte[] candidateSchema() {
         return candidateSchema.clone();
     }
-
-    public enum Strategy { RRF, LINEAR }
 
     public record Source(
             String sourceId,

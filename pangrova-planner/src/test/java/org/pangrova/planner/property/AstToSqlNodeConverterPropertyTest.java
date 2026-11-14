@@ -1,5 +1,7 @@
 package org.pangrova.planner.property;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.SetOperatorType;
 import org.pangrova.planner.parse.AstToSqlNodeConverter;
 import net.jqwik.api.*;
 import org.pangrova.parser.api.ast.*;
@@ -21,7 +23,6 @@ import org.pangrova.parser.api.ast.expression.BetweenExpression;
 import org.pangrova.parser.api.ast.expression.WindowedFunctionCall;
 import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.api.ast.statement.AlterTableStatement;
-import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;
@@ -152,7 +153,7 @@ class AstToSqlNodeConverterPropertyTest {
 
     private Arbitrary<Expression> binaryExpressions() {
         return Combinators.combine(leafExpressions(),
-                        Arbitraries.of(BinaryExpression.Operator.values()),
+                        Arbitraries.of(BinaryExpressionOperator.values()),
                         leafExpressions())
                 .as(BinaryExpression::new);
     }
@@ -261,15 +262,15 @@ class AstToSqlNodeConverterPropertyTest {
     private Arbitrary<Statement> setQueryStatements() {
         return Combinators.combine(
                         simpleQueries().list().ofMinSize(2).ofMaxSize(3),
-                        Arbitraries.of(SetQuery.SetOperatorType.values())
+                        Arbitraries.of(SetOperatorType.values())
                                 .list().ofMinSize(1).ofMaxSize(2))
                 .as((queries, ops) -> {
                     // ensure operators.size() == queries.size() - 1
-                    List<SetQuery.SetOperatorType> trimmed = ops.subList(0,
+                    List<SetOperatorType> trimmed = ops.subList(0,
                             Math.min(ops.size(), queries.size() - 1));
                     while (trimmed.size() < queries.size() - 1) {
                         trimmed = new java.util.ArrayList<>(trimmed);
-                        trimmed.add(SetQuery.SetOperatorType.UNION_ALL);
+                        trimmed.add(SetOperatorType.UNION_ALL);
                     }
                     return (Statement) new SetQuery(queries, trimmed);
                 });
@@ -317,7 +318,7 @@ class AstToSqlNodeConverterPropertyTest {
                         .as((target, source) -> (Statement) new MergeStatement(target, Optional.empty(),
                                 new TableRef(source),
                                 new BinaryExpression(Identifier.of("a"),
-                                        BinaryExpression.Operator.EQUAL, Identifier.of("b")),
+                                        BinaryExpressionOperator.EQUAL, Identifier.of("b")),
                                 List.of()))
         );
     }

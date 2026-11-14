@@ -1,7 +1,7 @@
 package org.pangrova.security.authorization;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
-
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 
 import org.junit.jupiter.api.Test;
@@ -36,9 +36,9 @@ class GeneratedWriteScopeTest {
     void canonicalWriteReceiptRoundTripsByValueAndRejectsCorruptedModelReceipt() {
         var scope = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("body"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.RAW_READ, DeferredAuthorizationScope.PolicySnapshot.empty()),
+                        AuthorizedReadMode.RAW_READ, DeferredAuthorizationScope.PolicySnapshot.empty()),
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of(), Privilege.INSERT,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration(true), List.of(MODEL))));
         var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
         assertThat(DeferredAuthorizationScopeCodec.decodeWriteReceipt(receipt.authorizationScope())).isEqualTo(receipt);

@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata.table;
 
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
@@ -20,10 +22,8 @@ import java.util.OptionalLong;
 @Experimental
 public record ConnectorReadBinding(ConnectorTableHandle handle,
         ConnectorTableReadMetadata declaration, TableStatistics statistics,
-        SnapshotState state, OptionalLong snapshotId, String sourceIdentity,
+        ReadSnapshotState state, OptionalLong snapshotId, String sourceIdentity,
         Optional<ConnectorReadSchemaIdentity> schemaIdentity) {
-    /** An absent data snapshot is distinct from a source that has no snapshot capability. */
-    public enum SnapshotState { SNAPSHOT, EMPTY, METADATA, UNVERSIONED }
 
     public ConnectorReadBinding {
         Objects.requireNonNull(handle, "handle");
@@ -33,14 +33,14 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         Objects.requireNonNull(snapshotId, "snapshotId");
         Objects.requireNonNull(sourceIdentity, "sourceIdentity");
         Objects.requireNonNull(schemaIdentity, "schemaIdentity");
-        if ((state == SnapshotState.SNAPSHOT) != snapshotId.isPresent()
+        if ((state == ReadSnapshotState.SNAPSHOT) != snapshotId.isPresent()
                 || (snapshotId.isPresent() && snapshotId.getAsLong() <= 0)) {
             throw new IllegalArgumentException("Selected data snapshot must have a positive exact identity");
         }
-        if (state == SnapshotState.EMPTY && statistics.rowCount() != 0) {
+        if (state == ReadSnapshotState.EMPTY && statistics.rowCount() != 0) {
             throw new IllegalArgumentException("Empty read binding requires proven zero cardinality");
         }
-        if (state != SnapshotState.UNVERSIONED && sourceIdentity.isBlank()) {
+        if (state != ReadSnapshotState.UNVERSIONED && sourceIdentity.isBlank()) {
             throw new IllegalArgumentException("Versioned read binding requires source identity evidence");
         }
         if (statistics.rowCount() < -1 || statistics.dataSize() < -1
@@ -50,8 +50,8 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         if (schemaIdentity.isPresent()) {
             var evidence = schemaIdentity.orElseThrow();
             var metadata = declaration.metadata();
-            if (state == SnapshotState.UNVERSIONED
-                    || declaration.declarationEvidence() != ConnectorTableReadMetadata.DeclarationEvidence.EXACT
+            if (state == ReadSnapshotState.UNVERSIONED
+                    || declaration.declarationEvidence() != TableDeclarationEvidence.EXACT
                     || !evidence.fields().equals(metadata.typedColumns())
                     || !metadata.columns().equals(evidence.fields().stream()
                             .map(ConnectorTableMetadata.Column::name).toList())) {

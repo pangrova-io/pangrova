@@ -1,5 +1,7 @@
 package org.pangrova.generation.publication.read;
 
+import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.generation.api.output.GenerationOutputFormat;
 import org.pangrova.generation.api.publication.GenerationManifest;
@@ -86,8 +88,8 @@ public final class PublishedGenerationBindingResolver {
         return Optional.of(bindingTemplate(manifest, writeTemplate));
     }
 
-    private static boolean matchesCoverage(SourceCoverage coverage, long published, long requested) {
-        return coverage == SourceCoverage.COMPLETE_GENERATION ? published == requested : published >= requested;
+    private static boolean matchesCoverage(GenerationSourceCoverage coverage, long published, long requested) {
+        return coverage == GenerationSourceCoverage.COMPLETE_GENERATION ? published == requested : published >= requested;
     }
 
     private boolean matchesPublishedSourceRanges(
@@ -303,7 +305,7 @@ public final class PublishedGenerationBindingResolver {
             String generation,
             String sourceId,
             String sourceSnapshot,
-            SourceCoverage coverage) {
+            GenerationSourceCoverage coverage) {
 
         public GenerationResolutionIntent {
             requireText(tenantId, "tenantId");
@@ -314,11 +316,5 @@ public final class PublishedGenerationBindingResolver {
             requireText(sourceSnapshot, "sourceSnapshot");
             Objects.requireNonNull(coverage, "coverage");
         }
-    }
-
-    /** Declares whether the consumer needs every published source or an exact checksummed query subset. */
-    public enum SourceCoverage {
-        COMPLETE_GENERATION,
-        QUERY_SOURCE_SUBSET
     }
 }

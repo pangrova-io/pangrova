@@ -1,6 +1,6 @@
 package org.pangrova.worker.resource.guard;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.ArrayList;
 import java.util.List;

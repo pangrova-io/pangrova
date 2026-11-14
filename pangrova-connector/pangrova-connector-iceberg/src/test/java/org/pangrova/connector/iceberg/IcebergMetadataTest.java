@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
@@ -208,9 +209,9 @@ class IcebergMetadataTest {
         ConnectorTableHandle handle = metadata.getTableHandle(
                 SESSION, new SchemaTableName("db", "orders"));
         assertThat(metadata.listSnapshotReferences(SESSION, handle)).containsExactlyInAnyOrder(
-                new SnapshotReference("main", SnapshotReference.Type.BRANCH, snapshotId),
-                new SnapshotReference("feature", SnapshotReference.Type.BRANCH, snapshotId),
-                new SnapshotReference("release", SnapshotReference.Type.TAG, snapshotId));
+                new SnapshotReference("main", SnapshotReferenceType.BRANCH, snapshotId),
+                new SnapshotReference("feature", SnapshotReferenceType.BRANCH, snapshotId),
+                new SnapshotReference("release", SnapshotReferenceType.TAG, snapshotId));
     }
 
     @Test

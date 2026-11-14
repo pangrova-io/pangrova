@@ -1,5 +1,6 @@
 package org.pangrova.security.rowfilter;
 
+import org.pangrova.security.api.enums.FilterParameterType;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -150,7 +151,7 @@ class RowLevelSecurityInjectionTest {
                 "(owner = $1)",
                 List.of(new ParameterizedFilter.BoundParameter(
                         "current_user", "' OR 1=1 --",
-                        ParameterizedFilter.ParameterType.STRING)));
+                        FilterParameterType.STRING)));
 
         assertThatThrownBy(malicious::toSafeExpression)
                 .isInstanceOf(IllegalArgumentException.class)

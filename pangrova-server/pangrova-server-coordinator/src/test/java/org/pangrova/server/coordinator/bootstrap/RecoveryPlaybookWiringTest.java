@@ -61,7 +61,7 @@ class RecoveryPlaybookWiringTest {
     void fullBootstrap_recoveryPlaybookAccessibleViaCoordinatorBootstrap() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig("coord-recovery", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -86,7 +86,7 @@ class RecoveryPlaybookWiringTest {
     private static CoordinatorBootstrapConfig operationsEnabled() {
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig("coord-ops", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

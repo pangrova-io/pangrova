@@ -1,7 +1,8 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.enums.ShuffleType;
-
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
@@ -47,9 +48,9 @@ class AuthorizedStageGraphTest {
         var left = stage(1, 4, "COMPUTE", "left", producerPlan());
         var right = stage(2, 4, "COMPUTE", "right", producerPlan());
         var output = stage(0, 1, "OUTPUT", null, consumerPlan(List.of(first, second)));
-        var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var graph = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(right, output, left), List.of(second, first));
-        var reordered = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var reordered = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, left, right), List.of(first, second));
         assertThat(graph.stages()).extracting(SerializedStage::stageId).containsExactly(0, 1, 2);
         assertThat(graph.stages().stream().flatMap(stage -> stage.sources().stream()).toList())
@@ -63,15 +64,15 @@ class AuthorizedStageGraphTest {
     @Test
     void identityIncludesTypedInvocationIntentsAndOutputNames() throws Exception {
         var bytes = plan().planBytes();
-        var plain = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var plain = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(stage(0, 1, "OUTPUT", null,
                 new SerializedPlanFragment(bytes, List.of(), List.of()))), List.of());
-        var governed = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var governed = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(stage(0, 1, "OUTPUT", null,
                 new SerializedPlanFragment(bytes, List.of(), List.of(new AiInvocationPlanHint(
                         "invocation-1", "ai_embed", "registered-model",
-                        AiInvocationPlanHint.Operation.EMBEDDING, false))))), List.of());
-        var renamed = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+                        AiInvocationOperation.EMBEDDING, false))))), List.of());
+        var renamed = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new SerializedStage(0, 1, "OUTPUT", plan(),
                 List.of(), List.of("renamed"), List.of(), List.of(), -1, -1)), List.of());
         assertThat(plain.sha256()).isNotEqualTo(governed.sha256()).isNotEqualTo(renamed.sha256());
@@ -89,10 +90,10 @@ class AuthorizedStageGraphTest {
         var firstType = ResultColumnLogicalType.newBuilder().setColumnIndex(0)
                 .setLogicalType(VectorLogicalType.create(3)).build();
         var secondType = firstType.toBuilder().setLogicalType(VectorLogicalType.create(4)).build();
-        var first = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+        var first = new AuthorizedStageGraph(StageTerminalPurpose.QUERY_RESULT,
                 List.of(new SerializedStage(0, 1, "OUTPUT", serialized, List.of(), List.of("embedding"),
                         List.of(), List.of(firstType), -1, -1)), List.of());
-        var second = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+        var second = new AuthorizedStageGraph(StageTerminalPurpose.QUERY_RESULT,
                 List.of(new SerializedStage(0, 1, "OUTPUT", serialized, List.of(), List.of("embedding"),
                         List.of(), List.of(secondType), -1, -1)), List.of());
         assertThat(first.sha256()).isNotEqualTo(second.sha256());
@@ -105,22 +106,22 @@ class AuthorizedStageGraphTest {
         var output = stage(0, 1, "OUTPUT", null, plan());
         var first = stage(1, 1, "COMPUTE", "left", plan());
         var second = stage(2, 1, "COMPUTE", "right", plan());
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, first), List.of()))
                 .hasMessageContaining("detached");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, first), List.of(edge(3, 0, "missing"))))
                 .hasMessageContaining("invalid exchange");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, first, second),
                 List.of(edge(1, 2, "forward"), edge(2, 1, "backward"), edge(2, 0, "terminal"))))
                 .hasMessageContaining("cycle");
         var partial = new StageTransfer(1, 0, ShuffleType.SINGLETON, List.of(), "partial", 1,
                 BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, first), List.of(partial)))
                 .hasMessageContaining("invalid exchange");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, output), List.of()))
                 .hasMessageContaining("Duplicate");
     }

@@ -22,6 +22,9 @@ public final class LocalFsSpoolStoreFactory implements SpoolStoreFactory {
     static final String BASE_DIR_KEY = "spool.local-fs.base-dir";
 
     @Override
+    public int apiVersion() { return API_VERSION; }
+
+    @Override
     public String name() {
         return NAME;
     }

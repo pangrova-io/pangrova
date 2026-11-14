@@ -84,8 +84,8 @@ class PaimonPhysicalAllocationIntegrationTest {
             var column = allocation.schema().columns().get(1);
             assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
             assertThat(column.logicalType()).isEqualTo(new org.pangrova.types.VectorType(7,
-                    doubled ? org.pangrova.types.VectorType.ElementType.DOUBLE
-                            : org.pangrova.types.VectorType.ElementType.FLOAT).getTypeSignature());
+                    doubled ? org.pangrova.types.enums.VectorElementType.DOUBLE
+                            : org.pangrova.types.enums.VectorElementType.FLOAT).getTypeSignature());
             assertThat(column.nullable()).isTrue();
             assertThat(column.declaredType().children()).singleElement()
                     .satisfies(child -> assertThat(child.nullable()).isTrue());

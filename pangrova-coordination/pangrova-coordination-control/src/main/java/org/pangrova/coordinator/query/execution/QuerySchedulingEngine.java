@@ -39,7 +39,6 @@ import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.execution.stage.binding.RerankIntent;
 import org.pangrova.coordinator.query.execution.retrieval.RetrievalIntentCollector;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
-import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -49,7 +48,6 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.PlannedQuery;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
@@ -91,7 +89,6 @@ final class QuerySchedulingEngine {
             CoordinatorTaskTracker taskTracker,
             CatalogRegistry catalogRegistry,
             IndexAwareSplitFetcher indexAwareSplitFetcher,
-            RuntimeFilterStageHandler runtimeFilterStageHandler,
             long dagDispatchTimeoutMs) {}
 
     QuerySchedulingEngine(SchedulingDependencies deps, WriteAuthorityResolver writeAuthorityResolver) {
@@ -380,8 +377,6 @@ final class QuerySchedulingEngine {
         StageDAG rawDag = StageDAG.fromFragmentedPlan(fragments);
         StageDAG dag = rawDag.withStages(session.queryId());
         registerStageListeners(dag, sm);
-        registerRuntimeFilterTargets(
-                ctx.runtimeFilterDescriptors(), dag, session.queryId());
 
         WriteConfig writeConfig = ctx.dmlWriteContext()
                 .map(d -> new WriteConfig(d.targetTable().toString(), d.writeMode(),
@@ -494,32 +489,6 @@ final class QuerySchedulingEngine {
             stage.stateMachine().addStateChangeListener(
                     (stageId, oldState, newState) ->
                             querySm.updateStageState(stageId, newState));
-        }
-    }
-
-    private void registerRuntimeFilterTargets(
-            List<RuntimeFilterDescriptor> descriptors,
-            StageDAG dag, String queryId) {
-        if (deps.runtimeFilterStageHandler() == null
-                || descriptors.isEmpty()) {
-            return;
-        }
-        var roots = dag.leafStages();
-        if (roots.size() < 2) {
-            return;
-        }
-        String buildStageId = String.valueOf(roots.get(0).stageId());
-        String probeStageId = String.valueOf(roots.get(1).stageId());
-        for (var descriptor : descriptors) {
-            deps.runtimeFilterStageHandler().registerFilterTarget(
-                    buildStageId, probeStageId,
-                    descriptor.buildColumn(), descriptor.probeColumn(),
-                    descriptor.buildColumnType());
-            LOG.info("event=runtime_filter_target_wired queryId={} "
-                            + "buildStageId={} probeStageId={} "
-                            + "buildColumn={} probeColumn={}",
-                    queryId, buildStageId, probeStageId,
-                    descriptor.buildColumn(), descriptor.probeColumn());
         }
     }
 }

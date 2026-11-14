@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -48,11 +50,13 @@ class MetadataBootstrapTest {
     }
 
     @Test
-    void buildCalciteSchemaReturnsNonNull() {
+    void metadataServicesSupplyThePlannerCatalogSchema() {
         InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(memoryTableStores(), store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
-        CalciteSchema schema = bootstrap.buildCalciteSchema(MetadataPlanningTestSessions.session());
+        CalciteSchema schema = new MetadataSchemaBuilder(
+                bootstrap.metadataService(), bootstrap.catalogRegistry())
+                .buildRootSchema(MetadataPlanningTestSessions.session());
 
         assertThat(schema).isNotNull();
         bootstrap.shutdown();

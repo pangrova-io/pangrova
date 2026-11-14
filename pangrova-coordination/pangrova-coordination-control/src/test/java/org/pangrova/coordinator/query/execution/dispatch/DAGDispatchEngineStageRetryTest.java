@@ -112,9 +112,7 @@ class DAGDispatchEngineStageRetryTest {
         stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
         stage.stateMachine().tryTransitionTo(StageState.RUNNING);
         stage.onTaskFailed("task-1", error);
-        // onTaskFailed may skip FAILED transition if shouldRetry() is true,
-        // so force the terminal state for test setup.
-        stage.stateMachine().tryTransitionTo(StageState.FAILED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FAILED);
     }
 
     private static org.pangrova.planner.analysis.PlanFragment dummyPlan() {

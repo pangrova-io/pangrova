@@ -1,6 +1,5 @@
 // Tests that FlightShuffleServer multiplexes all shuffle handles on a single
-// port without port exhaustion. Verifies SO_REUSEPORT configuration and
-// concurrent handle registration/unregistration.
+// worker port and rejects a competing listener on the advertised port.
 
 #include <gtest/gtest.h>
 
@@ -14,7 +13,6 @@ class FlightShuffleServerPortReuseTest : public ::testing::Test {
   void SetUp() override {
     FlightShuffleServerConfig config;
     config.port = 0;  // Auto-assign port.
-    config.reuse_port = true;
     server_ = std::make_unique<FlightShuffleServer>(config);
   }
 
@@ -32,6 +30,18 @@ TEST_F(FlightShuffleServerPortReuseTest, StartsOnSinglePort) {
   ASSERT_GT(port, 0);
   EXPECT_TRUE(server_->isRunning());
   EXPECT_EQ(server_->boundPort(), port);
+}
+
+TEST_F(FlightShuffleServerPortReuseTest, RejectsSecondWorkerOnTheAdvertisedPort) {
+  const int port = server_->start();
+  ASSERT_GT(port, 0);
+
+  FlightShuffleServerConfig competing_config;
+  competing_config.port = port;
+  FlightShuffleServer competing_server(competing_config);
+  EXPECT_THROW(competing_server.start(), std::runtime_error);
+  EXPECT_FALSE(competing_server.isRunning());
+  EXPECT_TRUE(server_->isRunning());
 }
 
 TEST_F(FlightShuffleServerPortReuseTest, RegisterAndUnregisterHandle) {

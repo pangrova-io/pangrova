@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
 import com.google.protobuf.Any;
@@ -79,13 +82,13 @@ class DurableStageExchangeContractsTest {
                 RelationDetailEnvelope.newBuilder().setSchemaVersion(1).setExchangeInput(input).build()))).build();
         byte[] output = plan(consumer);
         var template = FrozenStageBindings.freeze(new BoundExecutionPlan(output, List.of(binding())), List.of());
-        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE, plan(producer),
                                 GenerationStageTemplate.of(new byte[0], List.of(), List.of()), List.of(), List.of("display"), false),
                         GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION, output,
                                 template, List.of(), List.of("display"), true)),
                 List.of(new GenerationStageGraph.Exchange("gather", 1, 0,
-                        GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1,
+                        GenerationExchangeDistribution.SINGLETON, List.of(), 1,
                         "BATCH_SERDE_ARROW_BATCH", true)), List.of());
     }
 

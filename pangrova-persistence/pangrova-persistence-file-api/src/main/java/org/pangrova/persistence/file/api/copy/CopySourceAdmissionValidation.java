@@ -1,5 +1,7 @@
 package org.pangrova.persistence.file.api.copy;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +32,7 @@ final class CopySourceAdmissionValidation {
     }
 
     static boolean isSha256(String value) {
-        return value != null && value.matches("[0-9a-f]{64}");
+        return DigestUtils.isSha256Hex(value);
     }
 
     static boolean isManagedObjectUri(String value, String scope, String checksum) {

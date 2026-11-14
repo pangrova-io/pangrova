@@ -194,7 +194,7 @@ class JournalRecoveryOwnerScopeTest {
     private QueryManager buildQueryManager(QueryStateJournal journal) {
         var transport = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                org.pangrova.testing.testkit.TestObservability.TRACING);
+                org.pangrova.testing.testkit.constants.TestObservability.TRACING);
         transports.add(transport);
         var dispatcherContext = new QueryDispatcherContext(
                 new org.pangrova.shuffle.skew.MedianSkewDetector(), new SqlCompiler(),
@@ -205,7 +205,7 @@ class JournalRecoveryOwnerScopeTest {
                 null, null, 0, null, null, null, null, null, null, journal, null, null, null, null);
         var dispatcher = new QueryDispatcher(dispatcherContext, null, null);
         return new QueryManager(new QueryManagerContext(dispatcher,
-                org.pangrova.testing.testkit.TestObservability.TRACING, null, null, null, null, null,
+                org.pangrova.testing.testkit.constants.TestObservability.TRACING, null, null, null, null, null,
                 null, null, null, journal, null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 }

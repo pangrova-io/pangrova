@@ -13,8 +13,10 @@
  */
 package org.pangrova.ai.api.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.exception.AiInvocationException;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.common.api.annotation.Experimental;
@@ -39,8 +41,8 @@ public record AiInvocationRequest(
         String modelVersion,
         byte[] modelSignatureSha256,
         String capabilityVersion,
-        AiCapabilityDescriptor.Operation operation,
-        AiCapabilityDescriptor.ExecutionMode executionMode,
+        AiOperation operation,
+        AiExecutionMode executionMode,
         Optional<EmbeddingPurpose> embeddingPurpose,
         List<Input> inputs,
         GenerationParameters generationParameters,
@@ -109,7 +111,7 @@ public record AiInvocationRequest(
         Objects.requireNonNull(operation, "operation must not be null");
         Objects.requireNonNull(executionMode, "executionMode must not be null");
         embeddingPurpose = Objects.requireNonNull(embeddingPurpose, "embeddingPurpose required");
-        if ((operation == AiCapabilityDescriptor.Operation.EMBEDDING) != embeddingPurpose.isPresent()) {
+        if ((operation == AiOperation.EMBEDDING) != embeddingPurpose.isPresent()) {
             throw new IllegalArgumentException("only embedding requests require an explicit purpose");
         }
         inputs = List.copyOf(Objects.requireNonNull(inputs, "inputs must not be null"));
@@ -138,7 +140,7 @@ public record AiInvocationRequest(
     public void requireNotExpired(Instant now) {
         if (!deadline.isAfter(now)) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT, false,
+                    AiFailureCategory.TIMEOUT, false,
                     "AI invocation deadline has expired for request " + requestId);
         }
     }

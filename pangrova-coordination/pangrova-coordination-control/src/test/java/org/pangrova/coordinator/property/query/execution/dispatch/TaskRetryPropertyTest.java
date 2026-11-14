@@ -45,82 +45,46 @@ class TaskRetryPropertyTest {
     private static final QueryFailure NON_RETRYABLE_USER =
             new QueryFailure("VALIDATION-0001", "InvalidArgument", "bad input");
 
-    /**
-     * Per-task retry counter starts at 0 and increments monotonically.
-     * Each call returns the new count (1-based).
-     */
     @Property(tries = 30)
-    void taskRetryCounterStartsAtZeroAndIncrements(
-            @ForAll @IntRange(min = 1, max = 6) int attempts) {
-        Stage stage = createRunningStage(1);
-        for (int i = 1; i <= attempts; i++) {
-            int count = stage.incrementTaskRetryCount("task-0");
-            assertThat(count).isEqualTo(i);
+    void retryBudgetFollowsEachReplacementAndRemainsIndependentForSiblings(
+            @ForAll @IntRange(min = 1, max = 6) int budget) {
+        Stage stage = createRunningStage(2);
+        for (String first : java.util.List.of("task-0", "task-1")) {
+            String current = first;
+            for (int i = 1; i <= budget; i++) {
+                String next = first + "-retry-" + i;
+                assertThat(stage.tryPrepareTaskRetry(current, next, budget)).isTrue();
+                current = next;
+            }
+            assertThat(stage.tryPrepareTaskRetry(current, first + "-extra", budget)).isFalse();
         }
     }
 
-    /**
-     * Different tasks have independent retry counters within the same stage.
-     */
     @Property(tries = 20)
-    void perTaskCountersAreIndependent(
-            @ForAll @IntRange(min = 2, max = 5) int taskCount) {
+    void stageRetryResetsTaskRetryBudgets(@ForAll @IntRange(min = 1, max = 4) int taskCount) {
         Stage stage = createRunningStage(taskCount);
-        stage.incrementTaskRetryCount("task-0");
-        stage.incrementTaskRetryCount("task-0");
-        int task0Count = stage.incrementTaskRetryCount("task-0");
-        int task1Count = stage.incrementTaskRetryCount("task-1");
-        assertThat(task0Count).isEqualTo(3);
-        assertThat(task1Count)
-                .as("task-1 counter should be independent from task-0")
-                .isEqualTo(1);
-    }
-
-    /**
-     * After MAX_TASK_RETRIES increments, the counter exceeds the limit,
-     * signaling that task-level retry should not be attempted.
-     */
-    @Property(tries = 20)
-    void retryExhaustedAfterMaxAttempts(
-            @ForAll @IntRange(min = 1, max = 3) int ignored) {
-        Stage stage = createRunningStage(1);
-        for (int i = 0; i < Stage.MAX_TASK_RETRIES; i++) {
-            int count = stage.incrementTaskRetryCount("task-0");
-            assertThat(count).isLessThanOrEqualTo(Stage.MAX_TASK_RETRIES);
-        }
-        int exhausted = stage.incrementTaskRetryCount("task-0");
-        assertThat(exhausted).isGreaterThan(Stage.MAX_TASK_RETRIES);
-    }
-
-    /**
-     * tryPrepareRetry clears task retry counters along with task tracking.
-     * After stage retry, task counters reset to 0.
-     */
-    @Property(tries = 20)
-    void stageRetryResetsTaskRetryCounters(
-            @ForAll @IntRange(min = 1, max = 4) int taskCount) {
-        Stage stage = createRunningStage(taskCount);
-        stage.incrementTaskRetryCount("task-0");
-        stage.incrementTaskRetryCount("task-0");
-        stage.onTaskFailed("task-0", RETRYABLE_EXCHANGE);
-        boolean prepared = stage.tryPrepareRetry();
-        assertThat(prepared).isTrue();
-        int countAfterReset = stage.incrementTaskRetryCount("task-0");
-        assertThat(countAfterReset)
-                .as("counter should restart at 1 after stage retry")
-                .isEqualTo(1);
+        assertThat(stage.tryPrepareTaskRetry("task-0", "retry", 1)).isTrue();
+        assertThat(stage.tryPrepareTaskRetry("retry", "extra", 1)).isFalse();
+        stage.onTaskFailed("retry", RETRYABLE_EXCHANGE);
+        for (int i = 1; i < taskCount; i++) stage.onTaskFinished("task-" + i);
+        assertThat(stage.tryRestartFailedGeneration(stage.currentGeneration(), 1, RETRYABLE_EXCHANGE.errorCode())).isTrue();
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("retry");
+        assertThat(stage.tryPrepareTaskRetry("retry", "next-generation", 1)).isTrue();
     }
 
     /**
      * Generation isolation: callbacks from old generation are discarded.
-     * After tryPrepareRetry, onTaskFinished with old generation has no effect.
+     * After restarting the failed generation, onTaskFinished with old generation has no effect.
      */
     @Property(tries = 20)
     void staleGenerationFinishedCallbackDiscarded(
             @ForAll @IntRange(min = 1, max = 3) int ignored) {
         Stage stage = createRunningStage(2);
         int oldGen = stage.currentGeneration();
-        stage.tryPrepareRetry();
+        stage.taskIds().forEach(id -> stage.onTaskFailed(id, RETRYABLE_EXCHANGE));
+        assertThat(stage.tryRestartFailedGeneration(oldGen, 3, RETRYABLE_EXCHANGE.errorCode())).isTrue();
         stage.addTaskId("new-0");
         stage.addTaskId("new-1");
         stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
@@ -133,14 +97,15 @@ class TaskRetryPropertyTest {
 
     /**
      * Generation isolation: failed callbacks from old generation are discarded.
-     * After tryPrepareRetry, onTaskFailed with old generation has no effect.
+     * After restarting the failed generation, onTaskFailed with old generation has no effect.
      */
     @Property(tries = 20)
     void staleGenerationFailedCallbackDiscarded(
             @ForAll @IntRange(min = 1, max = 3) int ignored) {
-        Stage stage = createRunningStage(1, StageRetryPolicy.NO_RETRY);
+        Stage stage = createRunningStage(1);
         int oldGen = stage.currentGeneration();
-        stage.tryPrepareRetry();
+        stage.taskIds().forEach(id -> stage.onTaskFailed(id, RETRYABLE_EXCHANGE));
+        assertThat(stage.tryRestartFailedGeneration(oldGen, 3, RETRYABLE_EXCHANGE.errorCode())).isTrue();
         stage.addTaskId("new-0");
         stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
         stage.stateMachine().tryTransitionTo(StageState.RUNNING);
@@ -148,18 +113,6 @@ class TaskRetryPropertyTest {
         assertThat(stage.stateMachine().getState())
                 .as("stale FAILED should not trigger stage failure")
                 .isEqualTo(StageState.RUNNING);
-    }
-
-    /**
-     * TaskRetryCallback can be set and retrieved on a Stage.
-     */
-    @Property(tries = 10)
-    void taskRetryCallbackSetAndRetrieved(
-            @ForAll @IntRange(min = 1, max = 2) int ignored) {
-        Stage stage = createRunningStage(1);
-        assertThat(stage.taskRetryCallback()).isNull();
-        stage.setTaskRetryCallback((taskId, stageId, gen, excludeWorker) -> {});
-        assertThat(stage.taskRetryCallback()).isNotNull();
     }
 
     /**

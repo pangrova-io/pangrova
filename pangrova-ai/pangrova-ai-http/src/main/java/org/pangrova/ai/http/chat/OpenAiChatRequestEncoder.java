@@ -1,5 +1,7 @@
 package org.pangrova.ai.http.chat;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -65,14 +67,14 @@ final class OpenAiChatRequestEncoder {
             BlobReference reference = file.reference();
             if (!reference.mimeType().toLowerCase(Locale.ROOT).startsWith("image/")) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.CAPABILITY_MISMATCH,
+                        AiFailureCategory.CAPABILITY_MISMATCH,
                         false,
                         "OpenAI chat-completions accepts only image FILE inputs; got "
                                 + reference.mimeType());
             }
             Function<BlobReference, byte[]> loader = blobLoader.orElseThrow(() ->
                     new AiInvocationException(
-                            AiInvocationException.Category.AUTHORIZATION,
+                            AiFailureCategory.AUTHORIZATION,
                             false,
                             "Multimodal FileRef access requires a governed blob loader"));
             // The governed loader returns bytes whose size and SHA-256 already

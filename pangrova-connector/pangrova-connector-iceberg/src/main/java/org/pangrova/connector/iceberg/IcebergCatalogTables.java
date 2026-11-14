@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
@@ -88,8 +89,8 @@ final class IcebergCatalogTables {
                 .toList();
         SchemaTableName name = new SchemaTableName(handle.schemaName(), handle.tableName());
         return new ConnectorTableReadMetadata(new ConnectorTableMetadata(name, columnNames, typedColumns, properties),
-                evidence.declarationProperties().isPresent() ? ConnectorTableReadMetadata.DeclarationEvidence.EXACT
-                        : ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
+                evidence.declarationProperties().isPresent() ? TableDeclarationEvidence.EXACT
+                        : TableDeclarationEvidence.UNAVAILABLE);
     }
 
     /** Builds column handles from the table schema for the given handle. */

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.statement.dml;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 import java.util.Map;
 import java.util.function.Function;
 import org.pangrova.parser.api.ast.Expression;
@@ -86,7 +88,7 @@ public final class DeleteFilterConverter {
     }
 
     private static DeleteFilter reversedComparison(
-            BinaryExpression.Operator operator, String column, Object value) {
+            BinaryExpressionOperator operator, String column, Object value) {
         return switch (operator) {
             case EQUAL -> new DeleteFilter.Equal(column, value);
             case NOT_EQUAL -> new DeleteFilter.NotEqual(column, value);

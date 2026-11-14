@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.error;
 
+import java.util.Locale;
+
 import org.pangrova.connector.api.exception.ConnectorException;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -67,7 +69,7 @@ public final class ConnectorExceptionTranslator {
     }
 
     private static String normalizedMessage(Throwable cause) {
-        return cause.getMessage() == null ? "" : cause.getMessage().toLowerCase();
+        return cause.getMessage() == null ? "" : cause.getMessage().toLowerCase(Locale.ROOT);
     }
 
     private static boolean isTableNotFound(String className, String message) {

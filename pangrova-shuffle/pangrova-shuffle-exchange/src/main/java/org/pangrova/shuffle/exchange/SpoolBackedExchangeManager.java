@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.exchange;
 
+import org.pangrova.shuffle.exchange.enums.SpoolSinkState;
+
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Objects;
@@ -15,6 +17,7 @@ import org.pangrova.shuffle.api.spool.SpoolStore;
 import org.pangrova.shuffle.api.spool.SpoolStoreContext;
 import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
 import org.pangrova.shuffle.api.spool.SpoolWriter;
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 
 /**
  * {@link ExchangeChannelManager} backed by a {@link SpoolStore} (ADR-002 D4).
@@ -48,6 +51,9 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
         var factories = new HashMap<String, SpoolStoreFactory>();
         for (var provider : providers) {
             String id = provider.name();
+            if (provider.apiVersion() != SpoolStoreFactory.API_VERSION) {
+                throw new IllegalArgumentException("Incompatible spool provider: " + id);
+            }
             if (id == null || id.isBlank()) {
                 throw new IllegalArgumentException("Blank spool provider ID: " + provider.getClass().getName());
             }
@@ -105,10 +111,9 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
     private static final class SpoolBackedExchangeSink implements ExchangeSink {
         private final SpoolStore store;
         private final ExchangeChannelContext context;
-        private Status status = Status.OPEN;
+        private SpoolSinkState status = SpoolSinkState.OPEN;
         private RuntimeException failure;
 
-        private enum Status { OPEN, FINISHED, ABORTED }
 
         private SpoolWriter writer;
 
@@ -134,11 +139,11 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
 
         @Override
         public synchronized void finish() {
-            if (status == Status.FINISHED) return;
+            if (status == SpoolSinkState.FINISHED) return;
             requireOpen();
             try {
                 writer().commit();
-                status = Status.FINISHED;
+                status = SpoolSinkState.FINISHED;
             } catch (RuntimeException commitFailure) {
                 failure = commitFailure;
                 throw commitFailure;
@@ -147,19 +152,19 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
 
         @Override
         public synchronized void abort() {
-            if (status != Status.FINISHED) status = Status.ABORTED;
+            if (status != SpoolSinkState.FINISHED) status = SpoolSinkState.ABORTED;
             closeWriter();
         }
 
         @Override
         public synchronized void close() {
-            if (status != Status.FINISHED) status = Status.ABORTED;
+            if (status != SpoolSinkState.FINISHED) status = SpoolSinkState.ABORTED;
             closeWriter();
         }
 
         private void requireOpen() {
             if (failure != null) throw failure;
-            if (status != Status.OPEN) throw new IllegalStateException("Spool sink is not open");
+            if (status != SpoolSinkState.OPEN) throw new IllegalStateException("Spool sink is not open");
         }
 
         private SpoolWriter writer() {

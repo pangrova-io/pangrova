@@ -64,6 +64,7 @@ class NativeFunctionBootstrapTest {
 
         NativeFunctionBootstrap.close(refs);
         assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionCallbacks()).isNull();
         assertThat(closed).containsExactly("single");
     }
 
@@ -222,6 +223,28 @@ class NativeFunctionBootstrapTest {
         Object aggResult = bridge.getAggregateResult("test_agg", acc);
         assertThat(aggResult).isEqualTo(2L);
     }
+
+    @Test
+    void ambiguousInstalledCallbackProjectorsRejectStartupBeforeConstruction(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var projectorType = org.pangrova.function.api.runtime.FunctionFailureProjector.class;
+        var descriptor = directory.resolve("META-INF/services/" + projectorType.getName());
+        java.nio.file.Files.createDirectories(descriptor.getParent());
+        java.nio.file.Files.writeString(descriptor, FirstProjector.class.getName() + "\n" + SecondProjector.class.getName());
+        try (var loader = new java.net.URLClassLoader(new java.net.URL[]{directory.toUri().toURL()},
+                getClass().getClassLoader())) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                    NativeFunctionBootstrap.bindCallbacks(new NativeFunctionCallbacks(), loader))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining(FirstProjector.class.getName()).hasMessageContaining(SecondProjector.class.getName());
+        }
+    }
+
+    public static class FirstProjector implements org.pangrova.function.api.runtime.FunctionFailureProjector {
+        public FirstProjector() { throw new AssertionError("Ambiguous provider was constructed"); }
+        public byte[] describeFailure(Throwable failure) { return null; }
+    }
+
+    public static final class SecondProjector extends FirstProjector {}
 
     private static final class SingleFunctionFactory
             implements FunctionFactory, AutoCloseable {

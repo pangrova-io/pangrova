@@ -1,4 +1,6 @@
 package org.pangrova.persistence.coordination.postgresql.membership;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.coordination.api.membership.WorkerRegistrationIdentity;
 
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
@@ -163,11 +165,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 }
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         }

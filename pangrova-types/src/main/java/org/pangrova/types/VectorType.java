@@ -1,5 +1,7 @@
 package org.pangrova.types;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import java.util.List;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -20,10 +22,7 @@ import org.pangrova.common.api.annotation.Experimental;
  * @param elementType scalar element precision; defaults to {@link ElementType#FLOAT} if null
  */
 @Experimental
-public record VectorType(int dimension, ElementType elementType) implements Type {
-
-    /** Scalar element precision for vector components. */
-    public enum ElementType { FLOAT, DOUBLE }
+public record VectorType(int dimension, VectorElementType elementType) implements Type {
 
     private static final int MIN_DIMENSION = 1;
     private static final int MAX_DIMENSION = 65_535;
@@ -36,7 +35,7 @@ public record VectorType(int dimension, ElementType elementType) implements Type
                     "dimension must be in [" + MIN_DIMENSION + ", " + MAX_DIMENSION + "], got: " + dimension);
         }
         if (elementType == null) {
-            elementType = ElementType.FLOAT;
+            elementType = VectorElementType.FLOAT;
         }
     }
 
@@ -44,12 +43,12 @@ public record VectorType(int dimension, ElementType elementType) implements Type
      * Returns the number of bytes required to store one vector.
      */
     public int bytesPerVector() {
-        return dimension * (elementType == ElementType.FLOAT ? FLOAT_BYTES : DOUBLE_BYTES);
+        return dimension * (elementType == VectorElementType.FLOAT ? FLOAT_BYTES : DOUBLE_BYTES);
     }
 
     @Override
     public String getDisplayName() {
-        return elementType == ElementType.FLOAT
+        return elementType == VectorElementType.FLOAT
                 ? "VECTOR(" + dimension + ")"
                 : "VECTOR(" + dimension + "," + elementType + ")";
     }

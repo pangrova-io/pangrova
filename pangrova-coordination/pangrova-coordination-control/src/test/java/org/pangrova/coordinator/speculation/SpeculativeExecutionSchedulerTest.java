@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.speculation;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
@@ -25,7 +26,6 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -137,7 +137,7 @@ class SpeculativeExecutionSchedulerTest {
                     String copyId = copy.orElseThrow();
                     assertThat(taskTracker.getTaskIds(QUERY_ID)).contains(copyId);
                     assertThat(taskTracker.getTaskState(QUERY_ID, copyId))
-                            .isEqualTo(TaskStateMachine.State.RUNNING);
+                            .isEqualTo(ScheduledTaskState.RUNNING);
                     assertThat(taskTracker.getWorkerForTask(copyId)).isEqualTo("worker-b");
                 });
     }

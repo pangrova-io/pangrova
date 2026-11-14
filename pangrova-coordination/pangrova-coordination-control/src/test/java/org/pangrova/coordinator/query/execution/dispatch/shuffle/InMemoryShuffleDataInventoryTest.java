@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import org.pangrova.shuffle.api.DecommissionAssessment;
 import org.pangrova.shuffle.api.ShuffleDataRef;
-import org.pangrova.shuffle.api.ShuffleRetentionPolicy;
+import org.pangrova.shuffle.api.enums.ShuffleRetentionPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

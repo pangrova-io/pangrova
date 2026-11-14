@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
@@ -134,7 +134,7 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
 
             // Verify MAINTENANCE role config would block query serving
             CoreConfig maintenanceCore = new CoreConfig("maint-coord", 0,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
             CoordinatorBootstrapConfig maintenanceConfig = new CoordinatorBootstrapConfig(
                     maintenanceCore,
                     CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
@@ -166,9 +166,9 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
         @DisplayName("QUERY and MAINTENANCE roles are complementary in multi-coordinator setup")
         void queryAndMaintenanceRolesAreComplementary() {
             CoreConfig queryCore = new CoreConfig("query-coord", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY, "0.0.0.0");
             CoreConfig maintenanceCore = new CoreConfig("maint-coord", 8081,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
 
             // QUERY handles queries, not maintenance
             assertThat(queryCore.role().isQuery()).isTrue();

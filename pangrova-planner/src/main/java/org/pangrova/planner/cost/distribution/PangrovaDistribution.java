@@ -1,5 +1,7 @@
 package org.pangrova.planner.cost.distribution;
 
+import org.pangrova.planner.enums.DistributionType;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -25,19 +27,19 @@ public final class PangrovaDistribution implements RelTrait {
      * Used when the exact partition keys are not yet determined or for trait comparison.
      * Prefer {@link #hash(List)} with explicit keys in physical rules.
      */
-    public static final PangrovaDistribution HASH = new PangrovaDistribution(Type.HASH, List.of());
+    public static final PangrovaDistribution HASH = new PangrovaDistribution(DistributionType.HASH, List.of());
 
     /** Full data copy broadcast to every node. */
-    public static final PangrovaDistribution BROADCAST = new PangrovaDistribution(Type.BROADCAST, List.of());
+    public static final PangrovaDistribution BROADCAST = new PangrovaDistribution(DistributionType.BROADCAST, List.of());
 
     /** All data on a single node. */
-    public static final PangrovaDistribution SINGLETON = new PangrovaDistribution(Type.SINGLETON, List.of());
+    public static final PangrovaDistribution SINGLETON = new PangrovaDistribution(DistributionType.SINGLETON, List.of());
 
     /** Data evenly distributed across nodes without key affinity. */
-    public static final PangrovaDistribution ROUND_ROBIN = new PangrovaDistribution(Type.ROUND_ROBIN, List.of());
+    public static final PangrovaDistribution ROUND_ROBIN = new PangrovaDistribution(DistributionType.ROUND_ROBIN, List.of());
 
     /** No specific distribution requirement — any distribution satisfies this. */
-    public static final PangrovaDistribution ANY = new PangrovaDistribution(Type.ANY, List.of());
+    public static final PangrovaDistribution ANY = new PangrovaDistribution(DistributionType.ANY, List.of());
 
     /**
      * Creates a HASH distribution partitioned by the given key column indices.
@@ -51,26 +53,18 @@ public final class PangrovaDistribution implements RelTrait {
         if (keys.isEmpty()) {
             throw new IllegalArgumentException("HASH distribution requires at least one key column");
         }
-        return new PangrovaDistribution(Type.HASH, List.copyOf(keys));
+        return new PangrovaDistribution(DistributionType.HASH, List.copyOf(keys));
     }
 
-    public enum Type {
-        HASH,
-        BROADCAST,
-        SINGLETON,
-        ROUND_ROBIN,
-        ANY
-    }
-
-    private final Type type;
+    private final DistributionType type;
     private final List<Integer> keys;
 
-    private PangrovaDistribution(Type type, List<Integer> keys) {
+    private PangrovaDistribution(DistributionType type, List<Integer> keys) {
         this.type = type;
         this.keys = keys;
     }
 
-    public Type type() {
+    public DistributionType type() {
         return type;
     }
 
@@ -98,13 +92,13 @@ public final class PangrovaDistribution implements RelTrait {
         if (!(trait instanceof PangrovaDistribution required)) {
             return false;
         }
-        if (required.type == Type.ANY) {
+        if (required.type == DistributionType.ANY) {
             return true;
         }
         if (this.type != required.type) {
             return false;
         }
-        if (this.type == Type.HASH) {
+        if (this.type == DistributionType.HASH) {
             return this.keys.equals(required.keys);
         }
         return true;
@@ -117,7 +111,7 @@ public final class PangrovaDistribution implements RelTrait {
 
     @Override
     public String toString() {
-        if (type == Type.HASH && !keys.isEmpty()) {
+        if (type == DistributionType.HASH && !keys.isEmpty()) {
             return "PangrovaDist.HASH" + keys;
         }
         return "PangrovaDist." + type.name();

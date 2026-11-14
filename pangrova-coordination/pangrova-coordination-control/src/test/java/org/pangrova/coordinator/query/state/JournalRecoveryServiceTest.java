@@ -26,7 +26,7 @@ import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real PostgreSQL recovery projection; journal history is not a Native exit authority. */
@@ -53,9 +53,9 @@ class JournalRecoveryServiceTest {
             assertThat(fixture.tracker.getWorkerForTask("t-1")).isEqualTo("w-1");
             assertThat(fixture.tracker.getWorkerForTask("t-2")).isEqualTo("w-2");
             assertThat(fixture.tracker.getTaskState("q-1", "t-1"))
-                    .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING);
+                    .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING);
             assertThat(fixture.tracker.getTaskState("q-1", "t-2"))
-                    .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED);
+                    .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.SCHEDULED);
         }
     }
 

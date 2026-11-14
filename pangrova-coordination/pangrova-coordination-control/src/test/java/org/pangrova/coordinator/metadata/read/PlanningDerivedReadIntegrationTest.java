@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
 import org.pangrova.planner.metadata.catalog.PlanningReadBindings;
 
@@ -44,8 +46,8 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "summary"),
                     List.of("record_count", "id_sum"), columns, Map.of());
             var derived = new ConnectorReadBinding(new DerivedHandle(definition),
-                    new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
-                    TableStatistics.UNKNOWN, ConnectorReadBinding.SnapshotState.METADATA,
+                    new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
+                    TableStatistics.UNKNOWN, ReadSnapshotState.METADATA,
                     OptionalLong.empty(), selected.sourceIdentity(), java.util.Optional.empty());
             var root = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false, false);
             var catalog = root.add("bound", new org.apache.calcite.schema.impl.AbstractSchema());

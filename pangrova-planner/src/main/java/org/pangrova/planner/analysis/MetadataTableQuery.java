@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,9 +30,9 @@ public record MetadataTableQuery(List<String> baseTable, MetadataTableListing li
         Expression predicate = null;
         for (var filter : listing.equalityFilters().entrySet()) {
             Expression equality = new BinaryExpression(Identifier.of(filter.getKey()),
-                    BinaryExpression.Operator.EQUAL, Literal.ofString(filter.getValue()));
+                    BinaryExpressionOperator.EQUAL, Literal.ofString(filter.getValue()));
             predicate = predicate == null ? equality : new BinaryExpression(
-                    predicate, BinaryExpression.Operator.AND, equality);
+                    predicate, BinaryExpressionOperator.AND, equality);
         }
         var source = TableRef.systemTable(new SystemTableReference(
                 new Identifier(baseTable), listing.source().suffix()), Optional.empty(), Optional.empty());

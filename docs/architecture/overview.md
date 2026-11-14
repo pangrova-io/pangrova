@@ -150,7 +150,7 @@ serves them through Native Flight. Arrow can share buffers at specific boundarie
 IPC encoding, format conversion,
 compression, Java callbacks, and network transfer still require separate accounting;
 the whole query pipeline is not established as zero-copy.
-See [JNI Bridge](jni-runtime.md), [Native Execution](native-execution.md), and
+See [JNI Runtime](jni-runtime.md), [Native Execution](native-execution.md), and
 [Query Execution](query-execution.md).
 
 ## 5. Component Ownership

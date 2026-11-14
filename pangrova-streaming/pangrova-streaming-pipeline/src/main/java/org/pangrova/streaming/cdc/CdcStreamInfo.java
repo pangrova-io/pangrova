@@ -1,6 +1,6 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.streaming.api.cdc.CdcRegistration.CdcStreamState;
+import org.pangrova.streaming.api.enums.CdcStreamState;
 
 import java.time.Instant;
 

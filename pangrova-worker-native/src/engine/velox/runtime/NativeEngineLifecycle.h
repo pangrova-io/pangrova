@@ -10,7 +10,7 @@
 //   - initialize() after initialize() calls shutdown() first (clean re-init)
 //   - shutdown() after shutdown() is a no-op (idempotent)
 //   - Thread-safe: std::mutex guards all init/shutdown transitions
-//   - HandleRegistry::destroyAll() is called during shutdown to force-release
+//   - The process owner drains registered executors during shutdown to release
 //     all active task executor handles before destroying memory pools
 //
 // @ThreadSafe — all public methods are safe for concurrent access.
@@ -69,21 +69,24 @@ struct NativeRuntimeConfig;
 //
 // Usage:
 //   auto& mgr = NativeEngineLifecycle::instance();
-//   mgr.initialize(config, env, listener);  // production init
+//   mgr.initialize(config, env, listener, drain);  // production init
 //   // ... run queries ...
-//   mgr.shutdown();                          // clean teardown
-//   mgr.initialize(config, env, listener);  // safe re-init
+//   mgr.shutdown(drain);                          // clean teardown
+//   mgr.initialize(config, env, listener, drain);  // safe re-init
 class NativeEngineLifecycle {
  public:
+  // Invoked inside the lifecycle lock, ahead of memory teardown on every
+  // shutdown, reinitialization, and partial initialization rollback.
+  using ExecutorDrain = void (&)();
   static NativeEngineLifecycle& instance();
 
   NativeEngineLifecycle(const NativeEngineLifecycle&) = delete;
   NativeEngineLifecycle& operator=(const NativeEngineLifecycle&) = delete;
 
   void initialize(const NativeRuntimeConfig& config,
-                  JNIEnv* env, jobject allocationListener);
-  void initialize(const NativeRuntimeConfig& config);
-  void shutdown();
+                  JNIEnv* env, jobject allocationListener, ExecutorDrain drain);
+  void initialize(const NativeRuntimeConfig& config, ExecutorDrain drain);
+  void shutdown(ExecutorDrain drain);
   bool isInitialized() const;
 
   pangrova::velox::VeloxMemoryGovernor* veloxMemoryGovernor();
@@ -107,7 +110,7 @@ class NativeEngineLifecycle {
   void registerVeloxFileSystems(const NativeRuntimeConfig& config);
   void registerVeloxConnector(const NativeRuntimeConfig& config);
   void initAsyncDataCache(const NativeRuntimeConfig& config);
-  void shutdownInternal(FunctionRetirement& retirement);
+  void shutdownInternal(FunctionRetirement& retirement, ExecutorDrain drain);
 
   mutable std::mutex mutex_;
   std::atomic<bool> initialized_{false};

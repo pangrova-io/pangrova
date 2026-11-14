@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.planner.enums.StageTerminalPurpose;
+
 import io.substrait.proto.Plan;
 import org.pangrova.planner.analysis.AuthorizedRelation;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -38,7 +40,7 @@ final class GeneratedProtectedInputFixtures {
         byte[] bytes = plan.build().toByteArray();
         var source = new SplitSourceDescriptor("lake", "sales", "documents", Constraint.EMPTY, columns,
                 java.util.Optional.empty());
-        var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var graph = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(0, 1, "OUTPUT",
                         new SerializedPlanFragment(bytes, List.of(), List.of()), List.of(source),
                         List.of("title", "body"), List.of(), List.of(), 0, 0)), List.of());

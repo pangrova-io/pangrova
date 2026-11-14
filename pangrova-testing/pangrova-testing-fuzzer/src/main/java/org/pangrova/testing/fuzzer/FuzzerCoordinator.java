@@ -1,5 +1,7 @@
 package org.pangrova.testing.fuzzer;
 
+import org.pangrova.testing.fuzzer.enums.FuzzerType;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -7,10 +9,6 @@ import java.util.Objects;
  * Coordinates C++ fuzzer execution from the Java side using a supplied runner.
  */
 public final class FuzzerCoordinator {
-
-    public enum FuzzerType {
-        EXPRESSION, JOIN, AGGREGATION, MEMORY, WRITE, PLAN
-    }
 
     public record FuzzerResult(
         FuzzerType type,

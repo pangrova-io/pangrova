@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.Any;
@@ -93,7 +94,7 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         assertThatThrownBy(() -> WorkerNativeDatasetControl.requireIssuedPage(decoded.objects(), 0, "other"))
                 .hasMessageContaining("sequence or cursor differs");
         assertThat(execution.intent().publication()).isNull();
-        assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(execution.intent().state()).isEqualTo(WriteCommitState.PENDING);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.decodePreparation(response(actual), "another", execution.catalog()))
                 .isInstanceOf(NativeDatasetControlRpcException.class).hasCauseInstanceOf(IllegalArgumentException.class);
         var malformed = actual.toBuilder().setPublication(actual.getPublication().toBuilder().setObjectsSha256(

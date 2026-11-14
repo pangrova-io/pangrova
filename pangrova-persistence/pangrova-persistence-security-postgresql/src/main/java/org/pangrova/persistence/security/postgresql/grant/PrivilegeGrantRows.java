@@ -1,5 +1,7 @@
 package org.pangrova.persistence.security.postgresql.grant;
 
+import org.pangrova.security.api.enums.RevokeBehavior;
+import org.pangrova.security.api.enums.PrivilegeOperation;
 import org.pangrova.security.api.grant.PrivilegeMutation;
 import org.pangrova.security.api.grant.PrivilegeScope;
 import org.pangrova.security.api.enums.Privilege;
@@ -69,7 +71,7 @@ final class PrivilegeGrantRows {
                         if (privilege == Privilege.OWNER || (!owner && !principal.equals(rows.getString(3)))) continue;
                         if (!mutation.privileges().contains(Privilege.ALL)
                                 && !mutation.privileges().contains(privilege)) continue;
-                        if (mutation.operation() == PrivilegeMutation.Operation.REVOKE_GRANT_OPTION
+                        if (mutation.operation() == PrivilegeOperation.REVOKE_GRANT_OPTION
                                 && !rows.getBoolean(4)) continue;
                         selected.add(rows.getLong(1));
                     }
@@ -79,15 +81,15 @@ final class PrivilegeGrantRows {
         if (selected.isEmpty()) return 0;
         Set<Long> descendants = descendants(connection, selected);
         Set<Long> restricted = new LinkedHashSet<>(descendants);
-        if (mutation.operation() == PrivilegeMutation.Operation.REVOKE) restricted.removeAll(selected);
-        if (!restricted.isEmpty() && mutation.revokeBehavior() == PrivilegeMutation.RevokeBehavior.RESTRICT) {
+        if (mutation.operation() == PrivilegeOperation.REVOKE) restricted.removeAll(selected);
+        if (!restricted.isEmpty() && mutation.revokeBehavior() == RevokeBehavior.RESTRICT) {
             throw new IllegalStateException("Dependent privilege grants exist; use REVOKE CASCADE");
         }
         selected.removeAll(descendants);
         int changed = descendants.size();
         // Delete descendants before changing grant-option so the database's defensive trigger is a no-op.
         delete(connection, descendants);
-        if (mutation.operation() == PrivilegeMutation.Operation.REVOKE) {
+        if (mutation.operation() == PrivilegeOperation.REVOKE) {
             changed += selected.size();
             delete(connection, selected);
         } else {

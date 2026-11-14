@@ -1,7 +1,7 @@
 // FlightShuffleServer: Multiplexed Arrow Flight server that serves shuffle
 // data from multiple executor handles on a single port per worker.
 //
-// Configures SO_REUSEPORT on the server socket and routes DoGet requests
+// Binds one worker-owned listener and routes DoGet requests
 // to the correct PartitionDemuxer based on the executor handle in the ticket.
 
 #include "engine/shuffle/FlightShuffleServer.h"
@@ -462,13 +462,12 @@ int FlightShuffleServer::start() {
 
   arrow::flight::FlightServerOptions options(*location_result);
 
-  // Configure SO_REUSEPORT for port sharing across threads.
-  if (config_.reuse_port) {
-    options.builder_hook = [](void* raw_builder) {
-      auto* builder = static_cast<grpc::ServerBuilder*>(raw_builder);
-      builder->AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 1);
-    };
-  }
+  // Every ticket routes to a handle in this worker's registry. Sharing a
+  // listener with another process could deliver it to a different registry.
+  options.builder_hook = [](void* raw_builder) {
+    auto* builder = static_cast<grpc::ServerBuilder*>(raw_builder);
+    builder->AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
+  };
 
   // Configure TLS if certificate paths are provided.
   if (any_tls_path) {
@@ -547,8 +546,7 @@ int FlightShuffleServer::start() {
     }
   });
 
-  PANGROVA_LOG(INFO) << "event=flight_shuffle_server_started port=" << bound_port_
-                    << " reuse_port=" << config_.reuse_port;
+  PANGROVA_LOG(INFO) << "event=flight_shuffle_server_started port=" << bound_port_;
   return bound_port_;
 }
 

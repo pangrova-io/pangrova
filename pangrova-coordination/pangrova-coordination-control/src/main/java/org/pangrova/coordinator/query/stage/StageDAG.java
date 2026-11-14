@@ -7,11 +7,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.pangrova.planner.analysis.FragmentedPlan;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.analysis.FragmentedPlan;
 import org.pangrova.planner.analysis.PlanStage;
 import org.pangrova.planner.analysis.StageTransfer;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**
@@ -234,6 +234,14 @@ public record StageDAG(
                     return true;
                 })
                 .toList();
+    }
+
+    /** Revalidates producer state at admission after an earlier ready-stage snapshot. */
+    public boolean admitInputs(int stageId) {
+        for (int producerId : upstreamDeps(stageId)) {
+            if (!stageEntityIndex.get(producerId).admitDownstream()) return false;
+        }
+        return true;
     }
 
     /**

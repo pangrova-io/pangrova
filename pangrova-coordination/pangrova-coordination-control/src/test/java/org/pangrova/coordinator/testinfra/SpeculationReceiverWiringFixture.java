@@ -54,6 +54,8 @@ public final class SpeculationReceiverWiringFixture {
                             logicalSlot.set(task);
                         }
 
+                        @Override public boolean ownsQueryCompletion(String queryId) { return false; }
+
                         @Override
                         public boolean isQueryComplete(String query) { return logicalSlot.get() != null; }
 

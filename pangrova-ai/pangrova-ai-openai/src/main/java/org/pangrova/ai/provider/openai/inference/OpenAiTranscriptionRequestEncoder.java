@@ -1,5 +1,6 @@
 package org.pangrova.ai.provider.openai.inference;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.invocation.ContentPart;
@@ -52,7 +53,7 @@ final class OpenAiTranscriptionRequestEncoder {
     private static void requireSupportedParameters(GenerationParameters parameters) {
         if (parameters.maxTokens().isPresent() || parameters.responseFormat().isPresent()) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "OpenAI transcription does not accept maxTokens or responseFormat");
         }
@@ -69,14 +70,14 @@ final class OpenAiTranscriptionRequestEncoder {
                         && !(part instanceof ContentPart.FileRef));
         if (files.size() != 1 || unsupported) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.INVALID_REQUEST,
+                    AiFailureCategory.INVALID_REQUEST,
                     false,
                     "OpenAI transcription requires exactly one audio FILE");
         }
         BlobReference reference = files.get(0);
         if (!reference.mimeType().toLowerCase(Locale.ROOT).startsWith("audio/")) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    AiFailureCategory.CAPABILITY_MISMATCH,
                     false,
                     "OpenAI transcription requires audio MIME content; got "
                             + reference.mimeType());

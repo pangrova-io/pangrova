@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.speculation;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
@@ -24,7 +25,6 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -51,7 +51,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Validates: Requirements 1.45, 1.46, 2.45, 2.46 */
@@ -129,14 +128,14 @@ class SpeculativeExecutionWiringTest {
     }
     @Test void speculativeWinnerCompletesOriginalDagSlotWithoutFailingQuery() {
         AtomicReference<String> completedTask = new AtomicReference<>();
-        AtomicReference<String> failedTask = new AtomicReference<>();
-        tracker.setTaskFailureCallback((queryId, taskId) -> failedTask.set(taskId));
         var stageCallback = new org.pangrova.query.api.stage.StageCompletionCallback() {
             @Override public void onTaskTerminal(
                     String queryId, String taskId, String state,
                     org.pangrova.query.api.error.QueryFailure error) {
                 completedTask.set(taskId);
             }
+
+            @Override public boolean ownsQueryCompletion(String queryId) { return true; }
 
             @Override public boolean isQueryComplete(String queryId) { return completedTask.get() != null; }
 
@@ -154,7 +153,7 @@ class SpeculativeExecutionWiringTest {
 
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(completedTask.get()).isEqualTo("to");
-        assertThat(failedTask.get()).isNull();
+        assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(tracker.getTaskRequest("to")).isNotNull();
         receiver.onTaskStatus(fin("to", WA));
         assertThat(tracker.getTaskIds(QID)).doesNotContain("to");
@@ -162,36 +161,28 @@ class SpeculativeExecutionWiringTest {
     }
     @Test void failedCopyDoesNotFailOriginalLogicalTask() {
         String copy = runningPair();
-        AtomicInteger failures = new AtomicInteger();
-        tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(receiver.onTaskStatus(failed(copy, WB))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(receiver.onTaskStatus(fin("to", WA))).isTrue();
         assertThat(tracker.allTasksFinished(QID)).isTrue();
-        assertThat(failures.get()).isZero();
     }
     @Test void failedOriginalCanBeReplacedBySuccessfulCopy() {
         String copy = runningPair();
-        AtomicInteger failures = new AtomicInteger();
-        tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(receiver.onTaskStatus(failed("to", WA))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(tracker.getTaskIds(QID)).isEmpty();
-        assertThat(failures.get()).isZero();
     }
     @Test void bothFailedAttemptsFailTheirLogicalTaskOnce() {
         String copy = runningPair();
-        AtomicInteger failures = new AtomicInteger();
-        tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(receiver.onTaskStatus(failed(copy, WB))).isTrue();
         assertThat(receiver.onTaskStatus(failed("to", WA))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isTrue();
+        assertThat(tracker.getTaskState(QID, "to")).isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FAILED);
         assertThat(tracker.getTaskIds(QID)).doesNotContain(copy);
-        assertThat(failures.get()).isEqualTo(1);
     }
     @RepeatedTest(20) void concurrentSpeculativeLoserDoesNotContributeWriteFragment() throws Exception {
         var fragments = new NativeWriteCommitTracker();
@@ -279,7 +270,7 @@ class SpeculativeExecutionWiringTest {
         // Verify the speculative task was registered in the tracker
         assertThat(tracker.getTaskState(QID, specTaskId))
                 .as("Speculative task should be in RUNNING state after dispatch")
-                .isEqualTo(TaskStateMachine.State.RUNNING);
+                .isEqualTo(ScheduledTaskState.RUNNING);
 
         // Verify the speculative task was assigned to a different worker
         String assignedWorker = tracker.getWorkerForTask(specTaskId);
@@ -320,8 +311,6 @@ class SpeculativeExecutionWiringTest {
                 new org.pangrova.coordinator.task.TaskCancelRetrier(rejectingDispatcher, tracker)));
         run("to");
         tracker.assignWorker("to", WA);
-        AtomicInteger failures = new AtomicInteger();
-        tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(launcher.launchSpeculative("to", WA, QID)).isNull();
         assertThat(launcher.getOriginalTasksWithCopies()).contains("to");
@@ -334,7 +323,6 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
-        assertThat(failures.get()).isZero();
         assertThat(rejectingDispatcher.last).startsWith("spec-");
     }
 
@@ -390,6 +378,8 @@ class SpeculativeExecutionWiringTest {
         assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
         assertThat(tracker.getTaskRequest(retryId)).isNotNull();
         assertThat(tracker.getTaskIds(QID)).contains(retryId);
+        assertThat(tracker.getTaskRequest(retryId).taskRequest().getAttempt().getWorkerExecutionIdentity())
+                .isEqualTo(wm.getWorker(WB).workerExecutionIdentity().toProto());
         // The attempt identity advances so the dead attempt is fenced.
         assertThat(tracker.getTaskRequest(retryId).taskRequest().getAttempt().getAttemptId())
                 .isGreaterThan(tracker.getTaskRequest("dead").taskRequest().getAttempt().getAttemptId());
@@ -427,6 +417,30 @@ class SpeculativeExecutionWiringTest {
         run("neg");
         assertThatThrownBy(() -> launcher.retryFailedTask(QID, "neg", WA, admission(retryStage("neg"), "neg", -1)))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test void exchangeBoundRequestsCannotBeMovedWithClonedTicketsOrProducerAssignments() {
+        for (boolean consumer : List.of(true, false)) {
+            String id = consumer ? "reader" : "writer";
+            var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                    id, QID, 1, 0, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[] {1});
+            if (consumer) {
+                var input = request.addExchangeInputsBuilder().setExchangeId("upstream").setPlanNodeId("input")
+                        .setReadMode(org.pangrova.protocol.v2.ExchangeReadMode.EXCHANGE_READ_MODE_BLOCKING)
+                        .setExpectedSourcePartitions(1);
+                input.getDirectBuilder().addSourcesBuilder().setSourceTaskId("producer").setPlanEpoch(1).setAttemptId(1)
+                        .setFencingToken(1).setHost("ha").setPort(9411).setSignedTicket(
+                                com.google.protobuf.ByteString.copyFromUtf8("issued-to-original"));
+            } else {
+                request.getExecutionOptionsBuilder().getShuffleBuilder();
+            }
+            tracker.registerTask(QID, id);
+            tracker.registerTaskRequest(id, SubmitTaskRequest.from(request.build()));
+            assertThat(launcher.retryFailedTask(QID, id, WA, new TaskRetryAdmission() {
+                @Override public boolean reserve(String ignored) { throw new AssertionError("exchange retry admitted"); }
+                @Override public void rollback(String ignored) { throw new AssertionError("no budget was reserved"); }
+            })).isNull();
+        }
     }
 
     @Test void retryFailedTask_returnsNullForUnknownTask() {
@@ -485,6 +499,8 @@ class SpeculativeExecutionWiringTest {
                     @Override public void rollback(String id) { rolledBack.set(id); }
                 })).isInstanceOf(IllegalStateException.class);
         assertThat(rolledBack.get()).isNotNull();
+        assertThat(rec.last).isEqualTo(rolledBack.get());
+        assertThat(tracker.getTaskRequest(rolledBack.get())).isNotNull();
     }
 
     @Test void retryFailedTask_rejectsMismatchedQueryIdentity() {

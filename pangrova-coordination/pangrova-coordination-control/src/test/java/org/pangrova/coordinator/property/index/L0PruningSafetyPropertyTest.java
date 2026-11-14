@@ -7,7 +7,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 
 import java.util.List;
 
@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Validates: Requirements 2.AC5</p>
  *
- * <p>Strategy: for each ComparisonOp, generate random [min, max] ranges and a random
+ * <p>Strategy: for each ColumnComparisonOperator, generate random [min, max] ranges and a random
  * witness value within that range. If {@code noRowsSatisfy(op, queryValue)} returns true,
  * then the witness must NOT satisfy the predicate — proving no false negatives.</p>
  */
@@ -36,7 +36,7 @@ class L0PruningSafetyPropertyTest {
     @Property(tries = 10)
     void equalPruneSafety_noWitnessInRangeSatisfies(
             @ForAll("statsAndQuery") StatsAndQuery sq) {
-        boolean pruned = sq.stats.noRowsSatisfy(ComparisonOp.EQUAL, sq.queryValue);
+        boolean pruned = sq.stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, sq.queryValue);
         if (pruned) {
             // Safety: queryValue must be outside [min, max]
             @SuppressWarnings("unchecked")
@@ -61,7 +61,7 @@ class L0PruningSafetyPropertyTest {
     @Property(tries = 10)
     void lessThanPruneSafety_noWitnessInRangeSatisfies(
             @ForAll("statsWithWitness") StatsWithWitness sw) {
-        boolean pruned = sw.stats.noRowsSatisfy(ComparisonOp.LESS_THAN, sw.queryValue);
+        boolean pruned = sw.stats.noRowsSatisfy(ColumnComparisonOperator.LESS_THAN, sw.queryValue);
         if (pruned) {
             // Safety: witness (in [min, max]) must NOT be < queryValue
             assertThat(compareLongs(sw.witness, sw.queryValue) < 0)
@@ -76,7 +76,7 @@ class L0PruningSafetyPropertyTest {
     @Property(tries = 10)
     void lessThanOrEqualPruneSafety_noWitnessInRangeSatisfies(
             @ForAll("statsWithWitness") StatsWithWitness sw) {
-        boolean pruned = sw.stats.noRowsSatisfy(ComparisonOp.LESS_THAN_OR_EQUAL, sw.queryValue);
+        boolean pruned = sw.stats.noRowsSatisfy(ColumnComparisonOperator.LESS_THAN_OR_EQUAL, sw.queryValue);
         if (pruned) {
             // Safety: witness (in [min, max]) must NOT be <= queryValue
             assertThat(compareLongs(sw.witness, sw.queryValue) <= 0)
@@ -91,7 +91,7 @@ class L0PruningSafetyPropertyTest {
     @Property(tries = 10)
     void greaterThanPruneSafety_noWitnessInRangeSatisfies(
             @ForAll("statsWithWitness") StatsWithWitness sw) {
-        boolean pruned = sw.stats.noRowsSatisfy(ComparisonOp.GREATER_THAN, sw.queryValue);
+        boolean pruned = sw.stats.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN, sw.queryValue);
         if (pruned) {
             // Safety: witness (in [min, max]) must NOT be > queryValue
             assertThat(compareLongs(sw.witness, sw.queryValue) > 0)
@@ -106,7 +106,7 @@ class L0PruningSafetyPropertyTest {
     @Property(tries = 10)
     void greaterThanOrEqualPruneSafety_noWitnessInRangeSatisfies(
             @ForAll("statsWithWitness") StatsWithWitness sw) {
-        boolean pruned = sw.stats.noRowsSatisfy(ComparisonOp.GREATER_THAN_OR_EQUAL, sw.queryValue);
+        boolean pruned = sw.stats.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN_OR_EQUAL, sw.queryValue);
         if (pruned) {
             // Safety: witness (in [min, max]) must NOT be >= queryValue
             assertThat(compareLongs(sw.witness, sw.queryValue) >= 0)
@@ -123,7 +123,7 @@ class L0PruningSafetyPropertyTest {
      */
     @Property(tries = 10)
     void nullStatsSafety_neverPrunes(
-            @ForAll("comparisonOp") ComparisonOp op,
+            @ForAll("comparisonOp") ColumnComparisonOperator op,
             @ForAll("queryLong") Long queryValue) {
         FileColumnStatistics nullMin = new FileColumnStatistics(
                 "col", null, 100L, 0, 100, 10, 1024);
@@ -150,7 +150,7 @@ class L0PruningSafetyPropertyTest {
     void inListPruneSafety_allValuesPrunedMeansNoneInRange(
             @ForAll("statsAndInList") StatsAndInList sil) {
         boolean allPruned = sil.listValues.stream()
-                .allMatch(v -> sil.stats.noRowsSatisfy(ComparisonOp.EQUAL, v));
+                .allMatch(v -> sil.stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, v));
         if (allPruned) {
             // Safety: every list value must be outside [min, max]
             for (Comparable<?> v : sil.listValues) {
@@ -209,8 +209,8 @@ class L0PruningSafetyPropertyTest {
     }
 
     @Provide
-    Arbitrary<ComparisonOp> comparisonOp() {
-        return Arbitraries.of(ComparisonOp.values());
+    Arbitrary<ColumnComparisonOperator> comparisonOp() {
+        return Arbitraries.of(ColumnComparisonOperator.values());
     }
 
     @Provide

@@ -1,11 +1,13 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.governance.api.enums.QualityQueryType;
+
 import java.util.Objects;
 import java.util.UUID;
 
 /** A rule read is structured data; only the query adapter may parse its expression and construct SQL. */
 public record QualityReadRequest(String catalog, String schema, String table, UUID tableId, String expression,
-                                 GovernanceQueryRunner.QueryType type) {
+                                 QualityQueryType type) {
     public QualityReadRequest {
         requireName(catalog, "catalog");
         requireName(schema, "schema");

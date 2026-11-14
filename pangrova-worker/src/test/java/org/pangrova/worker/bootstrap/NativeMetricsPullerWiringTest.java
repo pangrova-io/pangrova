@@ -5,7 +5,7 @@ import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.AfterAll;

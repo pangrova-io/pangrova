@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.generation.runtime;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
@@ -46,7 +46,7 @@ public final class DurableGenerationGraphs {
     /** Routing metadata is not execution authority; the same-PG preparation below supplies that capability. */
     public boolean resume(GenerationJobKey key, ExecutionAnchor anchor) {
         var spec = dependencies.jobs().findDispatchSpec(key.tenantId(), key.jobId()).orElseThrow();
-        if (spec.stageGraph().purpose() != GenerationStageGraph.Purpose.RELATIONAL_EXPORT
+        if (spec.stageGraph().purpose() != GenerationGraphPurpose.RELATIONAL_EXPORT
                 || spec.stageGraph().exchanges().isEmpty()) {
             return false;
         }

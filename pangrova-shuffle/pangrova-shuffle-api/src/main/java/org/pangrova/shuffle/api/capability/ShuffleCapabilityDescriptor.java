@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
 
 /**
  * Immutable, explicit Shuffle guarantees. An absent capability is unsupported, never inferred.

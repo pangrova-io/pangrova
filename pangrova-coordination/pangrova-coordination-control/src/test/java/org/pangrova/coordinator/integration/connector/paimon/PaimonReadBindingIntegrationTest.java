@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.integration.connector.paimon;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.PaimonMetadata;
@@ -145,7 +146,7 @@ class PaimonReadBindingIntegrationTest {
             var table = create(catalog, "empty");
             var metadata = new PaimonMetadata(catalog, "bound", new org.pangrova.connector.paimon.PaimonSplitRegistry());
             var selected = bind(metadata, "empty");
-            assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+            assertThat(selected.state()).isEqualTo(ReadSnapshotState.EMPTY);
             assertThat(selected.statistics().rowCount()).isZero();
             assertThat(selected.snapshotId()).isEmpty();
             write(table, 2);

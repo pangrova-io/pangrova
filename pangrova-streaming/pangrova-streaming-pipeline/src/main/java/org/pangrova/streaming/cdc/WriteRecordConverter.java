@@ -1,5 +1,6 @@
 package org.pangrova.streaming.cdc;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.WriteRecord;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
@@ -21,16 +22,16 @@ public final class WriteRecordConverter {
     /** Convert a {@link CdcEnvelope} to a WriteRecord. */
     public static WriteRecord fromCdcEnvelope(CdcEnvelope envelope) {
         Objects.requireNonNull(envelope, "CDC envelope must not be null");
-        WriteRecord.WriteOperation op = mapOperation(envelope.operation());
+        WriteOperation op = mapOperation(envelope.operation());
         TypedRow data = selectData(envelope);
         return new WriteRecord(data, op, envelope.eventTime());
     }
 
-    private static WriteRecord.WriteOperation mapOperation(CdcOperation cdcOp) {
+    private static WriteOperation mapOperation(CdcOperation cdcOp) {
         return switch (cdcOp) {
-            case INSERT -> WriteRecord.WriteOperation.INSERT;
-            case UPDATE -> WriteRecord.WriteOperation.UPDATE;
-            case DELETE -> WriteRecord.WriteOperation.DELETE;
+            case INSERT -> WriteOperation.INSERT;
+            case UPDATE -> WriteOperation.UPDATE;
+            case DELETE -> WriteOperation.DELETE;
         };
     }
 

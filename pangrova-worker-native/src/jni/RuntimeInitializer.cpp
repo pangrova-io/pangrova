@@ -1,20 +1,11 @@
 // Copyright (c) Pangrova contributors. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-// RuntimeInitializer.cpp — Thin delegation layer.
-//
-// All runtime state and lifecycle logic now lives in NativeEngineLifecycle
-// (Task 4, native-jvm-reuse). The free functions declared in
-// RuntimeInitializer.h are preserved for backward compatibility — every
-// existing caller (JniEntryPoints.cpp, NativeCommandDispatcher.cpp, tests)
-// continues to work without changes.
-//
-// This file retains only:
-//   - parseNativeConfig()       — pure config parsing (no state)
-//   - buildFileSystemConfigMap() — pure config builder (no state)
-//   - Thin wrappers that delegate to NativeEngineLifecycle::instance()
+// Composes process-wide Flight admission and executor-handle draining around
+// the engine's Velox lifecycle. Configuration parsing does not own runtime state.
 
 #include "jni/RuntimeInitializer.h"
+#include "command/resource/HandleRegistry.h"
 #include "command/flight/FlightServerRegistry.h"
 
 #include <stdexcept>
@@ -236,22 +227,28 @@ std::unordered_map<std::string, std::string> buildFileSystemConfigMap(
 // Thin delegation wrappers — all state lives in NativeEngineLifecycle
 // ---------------------------------------------------------------------------
 
+namespace {
+void drainExecutorHandles() {
+  HandleRegistry::instance().destroyAll();
+}
+}  // namespace
+
 void initializeVeloxRuntime(const NativeRuntimeConfig& config,
                             JNIEnv* env, jobject allocationListener) {
   FlightServerRegistry::instance().shutdownAll();
-  NativeEngineLifecycle::instance().initialize(config, env, allocationListener);
+  NativeEngineLifecycle::instance().initialize(config, env, allocationListener, drainExecutorHandles);
   FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void initializeVeloxRuntime(const NativeRuntimeConfig& config) {
   FlightServerRegistry::instance().shutdownAll();
-  NativeEngineLifecycle::instance().initialize(config);
+  NativeEngineLifecycle::instance().initialize(config, drainExecutorHandles);
   FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void shutdownVeloxRuntime() {
   FlightServerRegistry::instance().shutdownAll();
-  NativeEngineLifecycle::instance().shutdown();
+  NativeEngineLifecycle::instance().shutdown(drainExecutorHandles);
 }
 
 pangrova::velox::VeloxMemoryGovernor* globalVeloxMemoryGovernor() {

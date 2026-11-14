@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.worker.function.file.FileStruct;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.embedding.EmbeddingResultValidator;
@@ -177,7 +178,7 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
             var response = provider.embed(batch);
             if (response == null) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                        AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                         false,
                         "Embedding provider returned null batch result");
             }

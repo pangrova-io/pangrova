@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.security.expression;
 
+import org.pangrova.planner.exception.MaskParseException;
+
 import org.apache.calcite.config.CalciteConnectionConfigImpl;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.RelOptCluster;
@@ -152,10 +154,4 @@ public final class MaskExpressionParser {
         }
     }
 
-    /** Exception thrown when a mask expression cannot be parsed or converted. */
-    public static final class MaskParseException extends RuntimeException {
-        public MaskParseException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

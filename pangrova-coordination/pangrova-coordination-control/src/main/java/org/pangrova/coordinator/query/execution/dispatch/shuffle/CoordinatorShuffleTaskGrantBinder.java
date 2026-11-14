@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
+import org.pangrova.shuffle.api.enums.ShuffleDataOperation;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
@@ -36,7 +37,7 @@ public final class CoordinatorShuffleTaskGrantBinder {
             }
             var granted = grantTaskAccess(binding.getCommitAddress(),
                     binding.getShuffleId(), binding.getExecutionOwner(), attempt,
-                    ShuffleTaskAccess.Operation.WRITE);
+                    ShuffleDataOperation.WRITE);
             bound.setExecutionOptions(options.toBuilder().setShuffle(
                     shuffle.toBuilder().setExecutionBinding(binding.toBuilder()
                             .setWriteCapability(granted))));
@@ -50,7 +51,7 @@ public final class CoordinatorShuffleTaskGrantBinder {
             requireGrantAttempt(attempt, external.getExecutionOwner());
             var granted = grantTaskAccess(external.getCommitAddress(),
                     external.getShuffleId(), external.getExecutionOwner(), attempt,
-                    ShuffleTaskAccess.Operation.READ);
+                    ShuffleDataOperation.READ);
             bound.setExchangeInputs(index, input.toBuilder().setExternal(
                     external.toBuilder().setReadCapability(granted)));
         }
@@ -62,7 +63,7 @@ public final class CoordinatorShuffleTaskGrantBinder {
             String shuffleId,
             ExecutionOwnerIdentity owner,
             TaskAttemptId attempt,
-            ShuffleTaskAccess.Operation operation) {
+            ShuffleDataOperation operation) {
         if (shuffleId.isBlank() || address.getHost().isBlank()
                 || address.getPort() <= 0) {
             throw new IllegalArgumentException("shuffle task grant destination is incomplete");

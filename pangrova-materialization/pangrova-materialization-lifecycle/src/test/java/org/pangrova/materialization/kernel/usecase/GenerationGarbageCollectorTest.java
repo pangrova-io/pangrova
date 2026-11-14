@@ -1,5 +1,7 @@
 package org.pangrova.materialization.kernel.usecase;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
@@ -18,7 +20,7 @@ import org.pangrova.materialization.api.domain.AttemptId;
 import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
@@ -27,7 +29,7 @@ import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.Clock;
@@ -90,12 +92,12 @@ class GenerationGarbageCollectorTest {
         assertThat(report.failed()).isZero();
         assertThat(store.dropped).containsExactly(candidateTable(0));
         assertThat(repository.findGeneration(RETIRED_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Collected.INSTANCE);
+                .isEqualTo(GenerationState.COLLECTED);
         assertThat(repository.findGeneration(HEAD_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Published.INSTANCE);
+                .isEqualTo(GenerationState.PUBLISHED);
         assertThat(repository.gcLedger()).hasSize(1);
         assertThat(repository.gcLedger().get(0).state())
-                .isEqualTo(GcLedgerEntry.GcState.APPLIED);
+                .isEqualTo(GcState.APPLIED);
         assertThat(repository.events())
                 .extracting(event -> event.eventType())
                 .contains(MaterializationEventType.GC_COLLECTED);
@@ -138,7 +140,7 @@ class GenerationGarbageCollectorTest {
         repository.recordGcDecision(entry);
         // A reader pins the generation after the collector selected it and
         // before the row lock is taken.
-        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId(java.util.UUID.randomUUID().toString())), "query-owner",
+        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId("test-reader")), "query-owner",
                 NOW.plus(Duration.ofMinutes(10)), NOW));
 
         boolean collected = repository.collectGeneration(retired, entry,
@@ -152,9 +154,9 @@ class GenerationGarbageCollectorTest {
         assertThat(collected).isFalse();
         assertThat(store.dropped).isEmpty();
         assertThat(repository.findGeneration(RETIRED_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Retired.INSTANCE);
+                .isEqualTo(GenerationState.RETIRED);
         assertThat(repository.gcLedger()).singleElement().satisfies(ledger ->
-                assertThat(ledger.state()).isEqualTo(GcLedgerEntry.GcState.PENDING));
+                assertThat(ledger.state()).isEqualTo(GcState.PENDING));
     }
 
     @Test
@@ -165,7 +167,7 @@ class GenerationGarbageCollectorTest {
         repository.putObject(object.publish(HEAD_ID, 0, NOW));
         repository.putGeneration(head);
         repository.putGeneration(retired);
-        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId(java.util.UUID.randomUUID().toString())), "query-owner",
+        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId("test-reader")), "query-owner",
                 NOW.minus(Duration.ofMinutes(1)), NOW.minus(Duration.ofMinutes(2))));
 
         GcReport report = collector.runOnce(new GcPolicy(RETENTION, 10));
@@ -180,7 +182,7 @@ class GenerationGarbageCollectorTest {
         PhysicalTableRef table = candidateTable(2);
         repository.putGeneration(Generation.candidate(CANDIDATE_ID, object.id(),
                 MaterializationTestFixtures.INCARNATION, 1, ABANDONED_ATTEMPT, Optional.empty(),
-                table, RefreshKind.Full.INSTANCE, VECTOR, NOW.minus(Duration.ofHours(2))));
+                table, RefreshKind.FULL, VECTOR, NOW.minus(Duration.ofHours(2))));
         repository.putAttempt(attempt(ABANDONED_ATTEMPT, table)
                 .markBuilding(NOW.minus(Duration.ofHours(2)))
                 .abandon("owner lost", NOW.minus(Duration.ofHours(2))));
@@ -190,7 +192,7 @@ class GenerationGarbageCollectorTest {
         assertThat(report.collected()).isEqualTo(1);
         assertThat(store.dropped).containsExactly(table);
         assertThat(repository.findGeneration(CANDIDATE_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Collected.INSTANCE);
+                .isEqualTo(GenerationState.COLLECTED);
     }
 
     @Test
@@ -198,7 +200,7 @@ class GenerationGarbageCollectorTest {
         PhysicalTableRef table = candidateTable(3);
         repository.putGeneration(Generation.candidate(QUARANTINED_ID, object.id(),
                         MaterializationTestFixtures.INCARNATION, 1, QUARANTINED_ATTEMPT,
-                        Optional.empty(), table, RefreshKind.Full.INSTANCE, VECTOR,
+                        Optional.empty(), table, RefreshKind.FULL, VECTOR,
                         NOW.minus(Duration.ofHours(3)))
                 .quarantine());
         repository.putAttempt(attempt(QUARANTINED_ATTEMPT, table)
@@ -210,7 +212,7 @@ class GenerationGarbageCollectorTest {
         assertThat(report.examined()).isZero();
         assertThat(store.dropped).isEmpty();
         assertThat(repository.findGeneration(QUARANTINED_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Quarantined.INSTANCE);
+                .isEqualTo(GenerationState.QUARANTINED);
     }
 
     @Test
@@ -229,10 +231,10 @@ class GenerationGarbageCollectorTest {
         assertThat(report.collected()).isZero();
         assertThat(report.failed()).isEqualTo(1);
         assertThat(repository.findGeneration(RETIRED_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Retired.INSTANCE);
+                .isEqualTo(GenerationState.RETIRED);
         assertThat(repository.gcLedger()).hasSize(1);
         assertThat(repository.gcLedger().get(0).state())
-                .isEqualTo(GcLedgerEntry.GcState.FAILED);
+                .isEqualTo(GcState.FAILED);
     }
 
     @Test
@@ -241,13 +243,13 @@ class GenerationGarbageCollectorTest {
         PhysicalTableRef dependentTable = candidateTable(5);
         repository.putGeneration(Generation.candidate(BASE_ID, object.id(),
                 MaterializationTestFixtures.INCARNATION, 1, ABANDONED_ATTEMPT, Optional.empty(),
-                baseTable, RefreshKind.Full.INSTANCE, VECTOR, NOW.minus(Duration.ofHours(3))));
+                baseTable, RefreshKind.FULL, VECTOR, NOW.minus(Duration.ofHours(3))));
         repository.putAttempt(attempt(ABANDONED_ATTEMPT, baseTable)
                 .markBuilding(NOW.minus(Duration.ofHours(3)))
                 .abandon("owner lost", NOW.minus(Duration.ofHours(3))));
         repository.putGeneration(Generation.candidate(DEPENDENT_ID, object.id(),
                 MaterializationTestFixtures.INCARNATION, 2, BUILDING_ATTEMPT,
-                Optional.of(BASE_ID), dependentTable, RefreshKind.IncrementalAppendOnly.INSTANCE,
+                Optional.of(BASE_ID), dependentTable, RefreshKind.INCREMENTAL_APPEND_ONLY,
                 VECTOR, NOW.minus(Duration.ofHours(2))));
         repository.putAttempt(attempt(BUILDING_ATTEMPT, dependentTable)
                 .markBuilding(NOW.minus(Duration.ofHours(2))));
@@ -257,13 +259,13 @@ class GenerationGarbageCollectorTest {
         assertThat(report.examined()).isZero();
         assertThat(store.dropped).isEmpty();
         assertThat(repository.findGeneration(BASE_ID).orElseThrow().state())
-                .isEqualTo(GenerationState.Candidate.INSTANCE);
+                .isEqualTo(GenerationState.CANDIDATE);
     }
 
     private Generation published(GenerationId id, AttemptId attemptId, PhysicalTableRef table,
             Instant at) {
         return Generation.candidate(id, object.id(), MaterializationTestFixtures.INCARNATION, 1,
-                        attemptId, Optional.empty(), table, RefreshKind.Full.INSTANCE, VECTOR, at)
+                        attemptId, Optional.empty(), table, RefreshKind.FULL, VECTOR, at)
                 .commit(MaterializationTestFixtures.evidence("commit-" + id.value()), at)
                 .publish(at);
     }
@@ -272,7 +274,7 @@ class GenerationGarbageCollectorTest {
         return RefreshAttempt.reserve(attemptId, object,
                 MaterializationTestFixtures.definition(object.id(), VECTOR),
                 MaterializationTestFixtures.REQUESTER,
-                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE, VECTOR,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.FULL, VECTOR,
                         TriggerKind.MANUAL, MaterializationTestFixtures.fence(), table),
                 NOW.minus(Duration.ofHours(3)));
     }

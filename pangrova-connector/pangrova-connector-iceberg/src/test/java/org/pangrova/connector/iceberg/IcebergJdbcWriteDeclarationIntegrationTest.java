@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogUtil;
@@ -166,7 +168,7 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
     private static ConnectorTableMetadata nestedTableMetadata() {
         var columns = List.of(
                 new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR, OptionalInt.empty(),
-                        new VectorType(3, VectorType.ElementType.FLOAT)),
+                        new VectorType(3, VectorElementType.FLOAT)),
                 new ConnectorTableMetadata.Column("items", PangrovaType.ARRAY, OptionalInt.empty(),
                         new ArrayType(BigIntType.INSTANCE)),
                 new ConnectorTableMetadata.Column("attributes", PangrovaType.MAP, OptionalInt.empty(),

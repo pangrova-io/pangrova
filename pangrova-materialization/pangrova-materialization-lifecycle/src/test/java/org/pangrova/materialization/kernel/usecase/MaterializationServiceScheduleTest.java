@@ -19,7 +19,7 @@ import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.enums.RefreshMode;
@@ -66,7 +66,7 @@ class MaterializationServiceScheduleTest {
         assertThat(suspended.targetLag())
                 .contains(new TargetLag(Duration.ofMinutes(1)));
         MaterializationObject suspendedHeader = repository.findObject(object).orElseThrow();
-        assertThat(suspendedHeader.state()).isEqualTo(ObjectState.Suspended.INSTANCE);
+        assertThat(suspendedHeader.state()).isEqualTo(ObjectState.SUSPENDED);
 
         service.suspend(new SuspendMaterialization(object,
                 MaterializationTestFixtures.REQUESTER, new CommandId("suspend-2")));
@@ -80,7 +80,7 @@ class MaterializationServiceScheduleTest {
     void resumeActivatesSuspendedScheduleAndRepeatsAsNoOp() {
         MaterializationId object = MaterializationTestFixtures.objectId("orders_dt");
         MaterializationObject suspendedObject = active(object)
-                .transitionTo(ObjectState.Suspended.INSTANCE, 1, MaterializationTestFixtures.NOW);
+                .transitionTo(ObjectState.SUSPENDED, 1, MaterializationTestFixtures.NOW);
         repository.putObject(suspendedObject);
         repository.putSchedule(Schedule.scheduled(object,
                 new TargetLag(Duration.ofMinutes(1)), MaterializationTestFixtures.NOW)
@@ -93,7 +93,7 @@ class MaterializationServiceScheduleTest {
         assertThat(active.state()).isEqualTo(ScheduleState.ACTIVE);
         assertThat(active.nextDueAt()).contains(MaterializationTestFixtures.NOW);
         MaterializationObject resumed = repository.findObject(object).orElseThrow();
-        assertThat(resumed.state()).isEqualTo(ObjectState.Active.INSTANCE);
+        assertThat(resumed.state()).isEqualTo(ObjectState.ACTIVE);
         assertThat(resumed.revision()).isEqualTo(suspendedObject.revision() + 1);
 
         service.resume(new ResumeMaterialization(object,
@@ -179,9 +179,9 @@ class MaterializationServiceScheduleTest {
         MaterializationId object = MaterializationTestFixtures.objectId("orders_dt");
         MaterializationObject active = active(object);
         MaterializationObject dropping = active.transitionTo(
-                ObjectState.Dropping.INSTANCE, active.revision(), MaterializationTestFixtures.NOW);
+                ObjectState.DROPPING, active.revision(), MaterializationTestFixtures.NOW);
         repository.putObject(dropping.transitionTo(
-                ObjectState.Dropped.INSTANCE, dropping.revision(), MaterializationTestFixtures.NOW));
+                ObjectState.DROPPED, dropping.revision(), MaterializationTestFixtures.NOW));
         repository.putSchedule(Schedule.scheduled(object,
                 new TargetLag(Duration.ofMinutes(1)), MaterializationTestFixtures.NOW));
 

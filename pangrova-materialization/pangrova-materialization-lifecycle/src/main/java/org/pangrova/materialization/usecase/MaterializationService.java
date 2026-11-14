@@ -9,11 +9,11 @@ import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.materialization.api.enums.MaterializationAction;
@@ -78,7 +78,7 @@ public final class MaterializationService {
         Optional<MaterializationObject> existing = ports.repository().findObject(command.object());
         MaterializationObject dropped = null;
         if (existing.isPresent()) {
-            if (existing.get().state() == ObjectState.Dropped.INSTANCE) {
+            if (existing.get().state() == ObjectState.DROPPED) {
                 // A dropped name is free again; the new incarnation keeps the
                 // durable audit trail of the previous one.
                 dropped = existing.get();
@@ -127,7 +127,7 @@ public final class MaterializationService {
                     .orElseThrow(() -> MaterializationException.repositoryFailure(
                             "a conflicting create disappeared for "
                                     + command.object().canonicalName(), null));
-            if (command.ifNotExists() && conflicting.state() != ObjectState.Dropped.INSTANCE) {
+            if (command.ifNotExists() && conflicting.state() != ObjectState.DROPPED) {
                 return existingOutcome(command, conflicting);
             }
             throw MaterializationException.requestRejected(
@@ -162,7 +162,7 @@ public final class MaterializationService {
         if (header == null) {
             return create(command);
         }
-        if (header.state() == ObjectState.Dropped.INSTANCE) {
+        if (header.state() == ObjectState.DROPPED) {
             // Replacing a dropped name is a fresh incarnation, not a redefine.
             return create(command);
         }
@@ -171,8 +171,8 @@ public final class MaterializationService {
                     "materialization " + command.object().canonicalName()
                             + " already exists as " + header.kind());
         }
-        if (header.state() != ObjectState.Active.INSTANCE
-                && header.state() != ObjectState.Suspended.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE
+                && header.state() != ObjectState.SUSPENDED) {
             throw MaterializationException.invalidStateTransition(
                     "replace requires an active or suspended materialization, found "
                             + header.state().stateName());
@@ -236,7 +236,7 @@ public final class MaterializationService {
                     MaterializationAction.ALTER);
             return applyRefreshConfiguration(command, strategy, header, false);
         }
-        if (header.state() != ObjectState.Active.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE) {
             throw MaterializationException.invalidStateTransition(
                     "refresh mode change requires an active materialization, found "
                             + header.state().stateName());
@@ -293,8 +293,8 @@ public final class MaterializationService {
         }
         MaterializationObject header = ports.repository().findObject(command.object())
                 .orElseThrow(() -> MaterializationException.notFound(command.object().canonicalName()));
-        if (header.state() != ObjectState.Active.INSTANCE
-                && header.state() != ObjectState.Suspended.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE
+                && header.state() != ObjectState.SUSPENDED) {
             throw MaterializationException.invalidStateTransition(
                     "rename requires an active or suspended materialization, found "
                             + header.state().stateName());
@@ -387,7 +387,7 @@ public final class MaterializationService {
         }
         MaterializationObject header = ports.repository().findObject(command.object())
                 .orElseThrow(() -> MaterializationException.notFound(command.object().canonicalName()));
-        if (header.state() != ObjectState.Active.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE) {
             throw MaterializationException.invalidStateTransition(
                     "refresh requires an active materialization, found " + header.state().stateName());
         }
@@ -421,8 +421,8 @@ public final class MaterializationService {
         }
         MaterializationObject header = ports.repository().findObject(command.object())
                 .orElseThrow(() -> MaterializationException.notFound(command.object().canonicalName()));
-        if (header.state() != ObjectState.Active.INSTANCE
-                && header.state() != ObjectState.Suspended.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE
+                && header.state() != ObjectState.SUSPENDED) {
             throw MaterializationException.invalidStateTransition(
                     "redefine requires an active or suspended materialization, found "
                             + header.state().stateName());
@@ -469,10 +469,10 @@ public final class MaterializationService {
         if (current.state() == org.pangrova.materialization.api.enums.ScheduleState.DISABLED) {
             return;
         }
-        if (header.state() == ObjectState.Active.INSTANCE) {
+        if (header.state() == ObjectState.ACTIVE) {
             Instant now = ports.clock().now();
             MaterializationObject suspended = header.transitionTo(
-                    ObjectState.Suspended.INSTANCE, header.revision(), now);
+                    ObjectState.SUSPENDED, header.revision(), now);
             ports.repository().updateObject(suspended, header.revision(), command.commandId(),
                     MaterializationEvents.of(MaterializationEventType.OBJECT_ALTERED, command.object(),
                             command.requester(), header.definer(), command.commandId(),
@@ -493,10 +493,10 @@ public final class MaterializationService {
                     "materialization " + command.object().canonicalName()
                             + " has no target lag to resume");
         });
-        if (header.state() == ObjectState.Suspended.INSTANCE) {
+        if (header.state() == ObjectState.SUSPENDED) {
             Instant now = ports.clock().now();
             MaterializationObject active = header.transitionTo(
-                    ObjectState.Active.INSTANCE, header.revision(), now);
+                    ObjectState.ACTIVE, header.revision(), now);
             ports.repository().updateObject(active, header.revision(), command.commandId(),
                     MaterializationEvents.of(MaterializationEventType.OBJECT_ALTERED, command.object(),
                             command.requester(), header.definer(), command.commandId(),
@@ -515,8 +515,8 @@ public final class MaterializationService {
             MaterializationId object, Principal requester) {
         MaterializationObject header = ports.repository().findObject(object)
                 .orElseThrow(() -> MaterializationException.notFound(object.canonicalName()));
-        if (header.state() == ObjectState.Dropping.INSTANCE
-                || header.state() == ObjectState.Dropped.INSTANCE) {
+        if (header.state() == ObjectState.DROPPING
+                || header.state() == ObjectState.DROPPED) {
             throw MaterializationException.invalidStateTransition(
                     "materialization " + object.canonicalName() + " is " + header.state().stateName());
         }
@@ -530,7 +530,7 @@ public final class MaterializationService {
         if (header.publishedGeneration().isPresent()) {
             return replay(command.object());
         }
-        if (header.state() != ObjectState.Creating.INSTANCE) {
+        if (header.state() != ObjectState.CREATING) {
             throw MaterializationException.invalidStateTransition(
                     "cannot resume creation of " + command.object().canonicalName()
                             + " in state " + header.state().stateName());

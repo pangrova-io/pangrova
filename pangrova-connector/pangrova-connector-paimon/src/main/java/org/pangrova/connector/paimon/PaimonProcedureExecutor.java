@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +50,7 @@ final class PaimonProcedureExecutor {
     /** Dispatches a procedure invocation to the matching handler. */
     List<TypedRow> execute(String procedureName, Map<String, String> arguments) {
         String tableName = arguments.getOrDefault("arg0", "");
-        return switch (procedureName.toLowerCase()) {
+        return switch (procedureName.toLowerCase(Locale.ROOT)) {
             case "compact" -> executeCompactProcedure(tableName);
             case "expire_snapshots" -> executeExpireSnapshotsProcedure(tableName, arguments);
             case "create_tag" -> executeCreateTagProcedure(tableName, arguments);

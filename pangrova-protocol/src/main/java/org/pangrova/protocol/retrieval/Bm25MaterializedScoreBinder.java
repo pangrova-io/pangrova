@@ -1,11 +1,12 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import java.util.Map;
 
 import io.substrait.proto.Expression;
 import io.substrait.proto.Rel;
 import io.substrait.proto.Type;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.common.api.annotation.Internal;
 
@@ -75,7 +76,7 @@ final class Bm25MaterializedScoreBinder {
         var layout = SubstraitRelationLayout.describe(relation);
         if (!read.hasBaseSchema() || !read.hasNamedTable()
                 || read.getBaseSchema().getNamesList().contains(
-                        BuiltInCapabilityCatalog.MATERIALIZED_RETRIEVAL_SCORE_COLUMN)) {
+                        BuiltInCapabilityIdentifiers.MATERIALIZED_RETRIEVAL_SCORE_COLUMN)) {
             throw new IllegalArgumentException(
                     "BM25 materialized score requires a collision-free named table scan");
         }
@@ -95,7 +96,7 @@ final class Bm25MaterializedScoreBinder {
             read.setBestEffortFilter(rewriteSatisfiedMatch(read.getBestEffortFilter(), baseCall, functionNames));
         }
         var schema = read.getBaseSchema().toBuilder()
-                .addNames(BuiltInCapabilityCatalog.MATERIALIZED_RETRIEVAL_SCORE_COLUMN);
+                .addNames(BuiltInCapabilityIdentifiers.MATERIALIZED_RETRIEVAL_SCORE_COLUMN);
         schema.getStructBuilder().addTypes(nullableFp64());
         read.setBaseSchema(schema);
         read.setCommon(SubstraitRelationLayout.withAppendedInput(read.getCommon(), directFields, 0, 1, true));

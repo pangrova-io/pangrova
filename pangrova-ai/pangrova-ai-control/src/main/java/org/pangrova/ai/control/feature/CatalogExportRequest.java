@@ -17,6 +17,8 @@
  */
 package org.pangrova.ai.control.feature;
 
+import org.pangrova.ai.control.enums.CatalogExportKind;
+
 import java.time.Instant;
 import java.util.Objects;
 
@@ -25,7 +27,7 @@ import static org.pangrova.common.util.Preconditions.requireText;
 /** Immutable link between one catalog object version and its artifact build job. */
 public record CatalogExportRequest(
         String tenantId,
-        ObjectKind objectKind,
+        CatalogExportKind objectKind,
         String catalogName,
         String schemaName,
         String objectName,
@@ -53,9 +55,6 @@ public record CatalogExportRequest(
         requireText(requestedBy, "requestedBy");
         requestedAt = Objects.requireNonNull(requestedAt, "requestedAt must not be null");
     }
-
-    /** Catalog object family that owns the exported immutable version. */
-    public enum ObjectKind { FEATURE_VIEW, TRAINING_DATASET }
 
     private static void requireSha(String value, String name) {
         if (value == null || !value.matches("[0-9a-fA-F]{64}")) {

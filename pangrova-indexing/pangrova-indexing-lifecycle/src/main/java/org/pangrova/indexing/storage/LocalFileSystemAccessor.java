@@ -13,9 +13,8 @@ import java.util.stream.Stream;
 /**
  * {@link FileSystemAccessor} backed by the local file system ({@link java.nio.file.Files}).
  *
- * <p>Used as the default ServiceLoader-discovered accessor for standalone
- * mode and development. Production deployments use connector-specific
- * implementations (Iceberg/Paimon FileIO wrappers).</p>
+ * <p>Explicit local accessor for callers that own and authorize the supplied paths.
+ * Catalog-backed indexing obtains accessors from the selected connector.</p>
  */
 public final class LocalFileSystemAccessor implements FileSystemAccessor {
 

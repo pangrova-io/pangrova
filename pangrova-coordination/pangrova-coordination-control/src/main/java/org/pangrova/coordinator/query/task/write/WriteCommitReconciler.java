@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.task.write;
 
+import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 
 /**
@@ -21,15 +22,6 @@ public interface WriteCommitReconciler {
      * @param pendingEntry the durable intent (carries catalog/table/fragments/idempotency key)
      * @return the decided outcome; must not be null
      */
-    RecoveryOutcome reconcile(WriteCommitEntry pendingEntry);
+    WriteRecoveryOutcome reconcile(WriteCommitEntry pendingEntry);
 
-    /** The terminal decision for a pending intent during recovery. */
-    enum RecoveryOutcome {
-        /** The commit was applied (or confirmed already applied); mark it COMMITTED. */
-        COMMITTED,
-        /** The write is known not to have landed and cannot be safely retried; discard the intent. */
-        ABORTED,
-        /** The outcome is ambiguous; retain the intent and raise an alarm for manual reconciliation. */
-        QUARANTINED
-    }
 }

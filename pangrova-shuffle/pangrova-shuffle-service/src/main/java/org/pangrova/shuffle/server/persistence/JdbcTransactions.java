@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server.persistence;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -19,10 +21,10 @@ public final class JdbcTransactions {
                 connection.commit();
                 return result;
             } catch (Exception failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw propagate(failure);
             } catch (Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -36,14 +38,6 @@ public final class JdbcTransactions {
             return work.execute(connection);
         } catch (Exception failure) {
             throw propagate(failure);
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 

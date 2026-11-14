@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.feature;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.planner.enums.StageTerminalPurpose;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.execution.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
 import org.pangrova.generation.api.page.GenerationPage;
@@ -50,10 +54,10 @@ final class FeatureExportStageGraph {
         }
         var edges = graph.transfers().stream().map(edge -> new GenerationStageGraph.Exchange(edge.exchangeId(),
                 edge.upstreamStageId(), edge.downstreamStageId(),
-                GenerationStageGraph.Exchange.Distribution.valueOf(edge.shuffleType().name()), edge.distributionKeys(),
+                GenerationExchangeDistribution.valueOf(edge.shuffleType().name()), edge.distributionKeys(),
                 edge.partitionCount(), edge.batchSerde().name(), edge.requireComplete())).toList();
         return new Prepared(new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                GenerationStageGraph.Purpose.RELATIONAL_EXPORT, stages, edges, List.of()), List.copyOf(pages));
+                GenerationGraphPurpose.RELATIONAL_EXPORT, stages, edges, List.of()), List.copyOf(pages));
     }
 
     private static List<AuthorizedStageGraph.SerializedStage> topologicalStages(AuthorizedStageGraph graph) {
@@ -110,7 +114,7 @@ final class FeatureExportStageGraph {
     }
 
     static void requireAdmitted(AuthorizedStageGraph graph, String sourceId) {
-        if (graph.terminalPurpose() != AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT) {
+        if (graph.terminalPurpose() != StageTerminalPurpose.RELATIONAL_EXPORT) {
             throw new IllegalArgumentException(
                     "Feature materialization requires the protected export-purpose stage graph");
         }

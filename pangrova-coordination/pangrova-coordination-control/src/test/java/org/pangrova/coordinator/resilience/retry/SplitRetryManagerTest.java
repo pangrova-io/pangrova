@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.resilience.retry;
 
+import org.pangrova.coordinator.enums.SplitRetryState;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.resilience.policy.ErrorClassifier;
 import org.pangrova.common.resilience.policy.RetryPolicy;
@@ -27,7 +28,7 @@ class SplitRetryManagerTest {
 
         assertThat(shouldRetry).isTrue();
         assertThat(manager.getState("t1", "s1"))
-                .isEqualTo(SplitRetryManager.SplitState.RETRY);
+                .isEqualTo(SplitRetryState.RETRY);
     }
 
     @Test
@@ -38,7 +39,7 @@ class SplitRetryManagerTest {
 
         assertThat(shouldRetry).isFalse();
         assertThat(manager.getState("t1", "s2"))
-                .isEqualTo(SplitRetryManager.SplitState.FAILED);
+                .isEqualTo(SplitRetryState.FAILED);
     }
 
     @Test
@@ -63,22 +64,22 @@ class SplitRetryManagerTest {
                 PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
         assertThat(retry).isFalse();
         assertThat(manager.getState("t1", "s4"))
-                .isEqualTo(SplitRetryManager.SplitState.FAILED);
+                .isEqualTo(SplitRetryState.FAILED);
     }
 
     @Test
     void stateLifecycle_pendingToRunningToDone() {
         manager.markPending("t2", "s1");
         assertThat(manager.getState("t2", "s1"))
-                .isEqualTo(SplitRetryManager.SplitState.PENDING);
+                .isEqualTo(SplitRetryState.PENDING);
 
         manager.markRunning("t2", "s1");
         assertThat(manager.getState("t2", "s1"))
-                .isEqualTo(SplitRetryManager.SplitState.RUNNING);
+                .isEqualTo(SplitRetryState.RUNNING);
 
         manager.markDone("t2", "s1");
         assertThat(manager.getState("t2", "s1"))
-                .isEqualTo(SplitRetryManager.SplitState.DONE);
+                .isEqualTo(SplitRetryState.DONE);
     }
 
     @Test

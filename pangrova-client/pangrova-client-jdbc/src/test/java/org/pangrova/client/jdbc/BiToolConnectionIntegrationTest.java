@@ -1,5 +1,7 @@
 package org.pangrova.client.jdbc;
 
+import org.pangrova.testing.testkit.enums.ResultScalarType;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.json.JsonMapperFactory;
@@ -225,15 +227,15 @@ class BiToolConnectionIntegrationTest {
     // --- Test infrastructure ---
 
     private void startCatalogResultServer() throws Exception {
-        resultServer = new TestResultEndpoint(List.of(new TestResultEndpoint.Column("TABLE_CAT", TestResultEndpoint.ScalarType.TEXT)),
+        resultServer = new TestResultEndpoint(List.of(new TestResultEndpoint.Column("TABLE_CAT", ResultScalarType.TEXT)),
                 List.of(List.of(new TestResultEndpoint.TextCell("lakehouse"))));
     }
 
     private void startOrdersResultServer() throws Exception {
         resultServer = new TestResultEndpoint(List.of(
-                new TestResultEndpoint.Column("order_id", TestResultEndpoint.ScalarType.INTEGER),
-                new TestResultEndpoint.Column("customer_name", TestResultEndpoint.ScalarType.TEXT),
-                new TestResultEndpoint.Column("amount", TestResultEndpoint.ScalarType.INTEGER)), List.of(
+                new TestResultEndpoint.Column("order_id", ResultScalarType.INTEGER),
+                new TestResultEndpoint.Column("customer_name", ResultScalarType.TEXT),
+                new TestResultEndpoint.Column("amount", ResultScalarType.INTEGER)), List.of(
                 List.of(new TestResultEndpoint.IntegerCell(1), new TestResultEndpoint.TextCell("Alice"), new TestResultEndpoint.IntegerCell(250)),
                 List.of(new TestResultEndpoint.IntegerCell(2), new TestResultEndpoint.TextCell("Bob"), new TestResultEndpoint.IntegerCell(175))));
     }

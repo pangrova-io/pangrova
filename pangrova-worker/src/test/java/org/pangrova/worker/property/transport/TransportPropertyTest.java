@@ -1,5 +1,6 @@
 package org.pangrova.worker.property.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.worker.transport.TransportClient;
 import org.pangrova.transport.flight.TransportServer;
 
@@ -96,7 +97,7 @@ class TransportPropertyTest {
         String ticketId = "rt-" + ticketCounter.incrementAndGet();
         dataRegistry.put(ticketId, originalBatchData);
 
-        DataTicket ticket = new DataTicket(ticketId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(ticketId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
         assertRoundTripEquivalence(received, rowCount);
     }
@@ -113,7 +114,7 @@ class TransportPropertyTest {
         assertThat(server.isRunning()).isTrue();
 
         String probeId = "probe-" + ticketCounter.incrementAndGet();
-        DataTicket ticket = new DataTicket(probeId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(probeId, "t1", 0, DataTicketType.RESULT);
         byte[] response = client.doGet(ticket);
         assertThat(response).isNotNull();
     }

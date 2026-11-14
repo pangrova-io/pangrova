@@ -1031,10 +1031,10 @@ This section defines the complete bootstrap sequence for an Pangrova cluster, fr
 │                              ▼                                                   │
 │  Phase C: Worker cluster (≥1 node)                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  C1. nativeBridge.loadLibrary()     → JNI loads the Native library     │   │
-│  │  C2. nativeBridge.initializeVelox() → Velox engine initialization       │   │
-│  │  C3. memoryManager.initialize()     → Memory pool initialization        │   │
-│  │  C4. connectorManager.loadPlugins() → Connector plugin loading          │   │
+│  │  C1. WorkerCatalogRuntime.discover() → Load role connector plugins     │   │
+│  │  C2. nativeBridge.loadLibrary()      → Load the Native library          │   │
+│  │  C3. nativeBridge.initializeVelox()  → Velox engine initialization        │   │
+│  │  C4. memoryManager.initialize()      → Memory pool initialization         │   │
 │  │  C5. flightServer.start()           → Data Plane ready                 │   │
 │  │  C6. httpServer.start()             → Control Plane ready              │   │
 │  │  C7. serviceRegistry.register()     → ZK Ephemeral Node               │   │

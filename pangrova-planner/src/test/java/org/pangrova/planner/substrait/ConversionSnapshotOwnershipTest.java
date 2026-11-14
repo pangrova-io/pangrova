@@ -1,5 +1,9 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
+
 import io.substrait.plan.Plan;
 import io.substrait.plan.ImmutablePlan;
 import io.substrait.plan.ImmutableExecutionBehavior;
@@ -21,11 +25,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ConversionSnapshotOwnershipTest {
     @Test
     void conversionHintsCannotBeChangedAfterBinding() {
-        var retrieval = new RetrievalTopKPlanHint(RetrievalTopKPlanHint.Kind.EXACT,
-                "", 0, 10, RetrievalTopKPlanHint.ScoreDirection.LOWER_IS_BETTER,
+        var retrieval = new RetrievalTopKPlanHint(RetrievalKind.EXACT,
+                "", 0, 10, RetrievalScoreDirection.LOWER_IS_BETTER,
                 List.of(1), new byte[]{1});
         var invocation = new AiInvocationPlanHint("0", "ai_complete", "model",
-                AiInvocationPlanHint.Operation.TEXT_GENERATION, false);
+                AiInvocationOperation.TEXT_GENERATION, false);
         var retrievals = new ArrayList<>(List.of(retrieval));
         var invocations = new ArrayList<>(List.of(invocation));
         var plan = ImmutablePlan.builder().executionBehavior(ImmutableExecutionBehavior.builder()

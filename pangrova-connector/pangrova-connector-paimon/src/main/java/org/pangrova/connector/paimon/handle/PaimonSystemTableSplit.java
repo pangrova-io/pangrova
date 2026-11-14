@@ -5,6 +5,7 @@ import java.util.HexFormat;
 
 import com.google.protobuf.ByteString;
 
+import org.pangrova.connector.paimon.enums.PaimonSystemTableKind;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -15,7 +16,7 @@ import org.pangrova.connector.api.metadata.ConnectorSplit;
 public record PaimonSystemTableSplit(
         String tableName,
         String sourceIdentity,
-        PaimonSystemTableHandle.Kind kind,
+        PaimonSystemTableKind kind,
         PaimonSystemTableHandle.MetadataObject object) implements ConnectorSplit {
 
     @Override

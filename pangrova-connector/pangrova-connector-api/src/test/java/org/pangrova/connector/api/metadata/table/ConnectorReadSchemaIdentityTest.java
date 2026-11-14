@@ -1,6 +1,7 @@
 package org.pangrova.connector.api.metadata.table;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.FieldIdStability;
 import org.pangrova.types.enums.PangrovaType;
 
 import java.util.ArrayList;
@@ -22,7 +23,7 @@ class ConnectorReadSchemaIdentityTest {
         assertThatThrownBy(() -> evidence(new TableIdentity("FORMAT", "owner", "location", ""),
                 List.of(field(0)))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConnectorReadSchemaIdentity(OWNER, " ", List.of(field(0)),
-                ConnectorReadSchemaIdentity.FieldIdStability.SELECTED_SOURCE))
+                FieldIdStability.SELECTED_SOURCE))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -44,14 +45,14 @@ class ConnectorReadSchemaIdentityTest {
         fields.clear();
         assertThat(evidence.fields()).hasSize(1);
         assertThatThrownBy(() -> evidence.fields().clear()).isInstanceOf(UnsupportedOperationException.class);
-        assertThat(evidence.stability()).isEqualTo(ConnectorReadSchemaIdentity.FieldIdStability.SELECTED_SOURCE);
+        assertThat(evidence.stability()).isEqualTo(FieldIdStability.SELECTED_SOURCE);
         assertThat(evidence.toString()).contains("FORMAT", "fields=1")
                 .doesNotContain("credential-must-not-print", "private_email", "selected-schema");
     }
 
     private static ConnectorReadSchemaIdentity evidence(TableIdentity owner, List<ConnectorTableMetadata.Column> fields) {
         return new ConnectorReadSchemaIdentity(owner, "qualified-allocator", fields,
-                ConnectorReadSchemaIdentity.FieldIdStability.SELECTED_SOURCE);
+                FieldIdStability.SELECTED_SOURCE);
     }
 
     private static ConnectorTableMetadata.Column field(int id) {

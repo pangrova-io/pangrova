@@ -1,5 +1,7 @@
 package org.pangrova.testing.testkit;
 
+import org.pangrova.testing.testkit.enums.GeneratedColumnType;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,13 +21,8 @@ import org.pangrova.types.value.TypedRow;
  */
 public final class TestDataGenerator {
 
-    /** Supported column types for test data generation. */
-    public enum ColumnType {
-        STRING, LONG, DOUBLE, DATE, BOOLEAN
-    }
-
     /** Definition of a single column: name and type. */
-    public record ColumnDef(String name, ColumnType type) {}
+    public record ColumnDef(String name, GeneratedColumnType type) {}
 
     /** Schema definition as an ordered list of column definitions. */
     public record TableSchema(List<ColumnDef> columns) {
@@ -169,7 +166,7 @@ public final class TestDataGenerator {
         return builder.build();
     }
 
-    private Object generateValue(String columnName, ColumnType type, int rowIndex) {
+    private Object generateValue(String columnName, GeneratedColumnType type, int rowIndex) {
         if (NULLABLE_COLUMNS.contains(columnName) && shouldBeNull(rowIndex)) {
             return null;
         }
@@ -225,102 +222,102 @@ public final class TestDataGenerator {
 
     private static TableSchema buildLineitemSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("l_orderkey", ColumnType.LONG),
-            new ColumnDef("l_partkey", ColumnType.LONG),
-            new ColumnDef("l_suppkey", ColumnType.LONG),
-            new ColumnDef("l_linenumber", ColumnType.LONG),
-            new ColumnDef("l_quantity", ColumnType.DOUBLE),
-            new ColumnDef("l_extendedprice", ColumnType.DOUBLE),
-            new ColumnDef("l_discount", ColumnType.DOUBLE),
-            new ColumnDef("l_tax", ColumnType.DOUBLE),
-            new ColumnDef("l_returnflag", ColumnType.STRING),
-            new ColumnDef("l_linestatus", ColumnType.STRING),
-            new ColumnDef("l_shipdate", ColumnType.DATE),
-            new ColumnDef("l_commitdate", ColumnType.DATE),
-            new ColumnDef("l_receiptdate", ColumnType.DATE),
-            new ColumnDef("l_shipinstruct", ColumnType.STRING),
-            new ColumnDef("l_shipmode", ColumnType.STRING),
-            new ColumnDef("l_comment", ColumnType.STRING)
+            new ColumnDef("l_orderkey", GeneratedColumnType.LONG),
+            new ColumnDef("l_partkey", GeneratedColumnType.LONG),
+            new ColumnDef("l_suppkey", GeneratedColumnType.LONG),
+            new ColumnDef("l_linenumber", GeneratedColumnType.LONG),
+            new ColumnDef("l_quantity", GeneratedColumnType.DOUBLE),
+            new ColumnDef("l_extendedprice", GeneratedColumnType.DOUBLE),
+            new ColumnDef("l_discount", GeneratedColumnType.DOUBLE),
+            new ColumnDef("l_tax", GeneratedColumnType.DOUBLE),
+            new ColumnDef("l_returnflag", GeneratedColumnType.STRING),
+            new ColumnDef("l_linestatus", GeneratedColumnType.STRING),
+            new ColumnDef("l_shipdate", GeneratedColumnType.DATE),
+            new ColumnDef("l_commitdate", GeneratedColumnType.DATE),
+            new ColumnDef("l_receiptdate", GeneratedColumnType.DATE),
+            new ColumnDef("l_shipinstruct", GeneratedColumnType.STRING),
+            new ColumnDef("l_shipmode", GeneratedColumnType.STRING),
+            new ColumnDef("l_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildOrdersSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("o_orderkey", ColumnType.LONG),
-            new ColumnDef("o_custkey", ColumnType.LONG),
-            new ColumnDef("o_orderstatus", ColumnType.STRING),
-            new ColumnDef("o_totalprice", ColumnType.DOUBLE),
-            new ColumnDef("o_orderdate", ColumnType.DATE),
-            new ColumnDef("o_orderpriority", ColumnType.STRING),
-            new ColumnDef("o_clerk", ColumnType.STRING),
-            new ColumnDef("o_shippriority", ColumnType.LONG),
-            new ColumnDef("o_comment", ColumnType.STRING)
+            new ColumnDef("o_orderkey", GeneratedColumnType.LONG),
+            new ColumnDef("o_custkey", GeneratedColumnType.LONG),
+            new ColumnDef("o_orderstatus", GeneratedColumnType.STRING),
+            new ColumnDef("o_totalprice", GeneratedColumnType.DOUBLE),
+            new ColumnDef("o_orderdate", GeneratedColumnType.DATE),
+            new ColumnDef("o_orderpriority", GeneratedColumnType.STRING),
+            new ColumnDef("o_clerk", GeneratedColumnType.STRING),
+            new ColumnDef("o_shippriority", GeneratedColumnType.LONG),
+            new ColumnDef("o_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildCustomerSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("c_custkey", ColumnType.LONG),
-            new ColumnDef("c_name", ColumnType.STRING),
-            new ColumnDef("c_address", ColumnType.STRING),
-            new ColumnDef("c_nationkey", ColumnType.LONG),
-            new ColumnDef("c_phone", ColumnType.STRING),
-            new ColumnDef("c_acctbal", ColumnType.DOUBLE),
-            new ColumnDef("c_mktsegment", ColumnType.STRING),
-            new ColumnDef("c_comment", ColumnType.STRING)
+            new ColumnDef("c_custkey", GeneratedColumnType.LONG),
+            new ColumnDef("c_name", GeneratedColumnType.STRING),
+            new ColumnDef("c_address", GeneratedColumnType.STRING),
+            new ColumnDef("c_nationkey", GeneratedColumnType.LONG),
+            new ColumnDef("c_phone", GeneratedColumnType.STRING),
+            new ColumnDef("c_acctbal", GeneratedColumnType.DOUBLE),
+            new ColumnDef("c_mktsegment", GeneratedColumnType.STRING),
+            new ColumnDef("c_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildPartSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("p_partkey", ColumnType.LONG),
-            new ColumnDef("p_name", ColumnType.STRING),
-            new ColumnDef("p_mfgr", ColumnType.STRING),
-            new ColumnDef("p_brand", ColumnType.STRING),
-            new ColumnDef("p_type", ColumnType.STRING),
-            new ColumnDef("p_size", ColumnType.LONG),
-            new ColumnDef("p_container", ColumnType.STRING),
-            new ColumnDef("p_retailprice", ColumnType.DOUBLE),
-            new ColumnDef("p_comment", ColumnType.STRING)
+            new ColumnDef("p_partkey", GeneratedColumnType.LONG),
+            new ColumnDef("p_name", GeneratedColumnType.STRING),
+            new ColumnDef("p_mfgr", GeneratedColumnType.STRING),
+            new ColumnDef("p_brand", GeneratedColumnType.STRING),
+            new ColumnDef("p_type", GeneratedColumnType.STRING),
+            new ColumnDef("p_size", GeneratedColumnType.LONG),
+            new ColumnDef("p_container", GeneratedColumnType.STRING),
+            new ColumnDef("p_retailprice", GeneratedColumnType.DOUBLE),
+            new ColumnDef("p_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildSupplierSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("s_suppkey", ColumnType.LONG),
-            new ColumnDef("s_name", ColumnType.STRING),
-            new ColumnDef("s_address", ColumnType.STRING),
-            new ColumnDef("s_nationkey", ColumnType.LONG),
-            new ColumnDef("s_phone", ColumnType.STRING),
-            new ColumnDef("s_acctbal", ColumnType.DOUBLE),
-            new ColumnDef("s_comment", ColumnType.STRING)
+            new ColumnDef("s_suppkey", GeneratedColumnType.LONG),
+            new ColumnDef("s_name", GeneratedColumnType.STRING),
+            new ColumnDef("s_address", GeneratedColumnType.STRING),
+            new ColumnDef("s_nationkey", GeneratedColumnType.LONG),
+            new ColumnDef("s_phone", GeneratedColumnType.STRING),
+            new ColumnDef("s_acctbal", GeneratedColumnType.DOUBLE),
+            new ColumnDef("s_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildPartsuppSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("ps_partkey", ColumnType.LONG),
-            new ColumnDef("ps_suppkey", ColumnType.LONG),
-            new ColumnDef("ps_availqty", ColumnType.LONG),
-            new ColumnDef("ps_supplycost", ColumnType.DOUBLE),
-            new ColumnDef("ps_comment", ColumnType.STRING)
+            new ColumnDef("ps_partkey", GeneratedColumnType.LONG),
+            new ColumnDef("ps_suppkey", GeneratedColumnType.LONG),
+            new ColumnDef("ps_availqty", GeneratedColumnType.LONG),
+            new ColumnDef("ps_supplycost", GeneratedColumnType.DOUBLE),
+            new ColumnDef("ps_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildNationSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("n_nationkey", ColumnType.LONG),
-            new ColumnDef("n_name", ColumnType.STRING),
-            new ColumnDef("n_regionkey", ColumnType.LONG),
-            new ColumnDef("n_comment", ColumnType.STRING)
+            new ColumnDef("n_nationkey", GeneratedColumnType.LONG),
+            new ColumnDef("n_name", GeneratedColumnType.STRING),
+            new ColumnDef("n_regionkey", GeneratedColumnType.LONG),
+            new ColumnDef("n_comment", GeneratedColumnType.STRING)
         ));
     }
 
     private static TableSchema buildRegionSchema() {
         return new TableSchema(List.of(
-            new ColumnDef("r_regionkey", ColumnType.LONG),
-            new ColumnDef("r_name", ColumnType.STRING),
-            new ColumnDef("r_comment", ColumnType.STRING)
+            new ColumnDef("r_regionkey", GeneratedColumnType.LONG),
+            new ColumnDef("r_name", GeneratedColumnType.STRING),
+            new ColumnDef("r_comment", GeneratedColumnType.STRING)
         ));
     }
 }

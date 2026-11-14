@@ -4,9 +4,11 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.security.api.secret.SecretProvider;
+import org.pangrova.security.api.secret.SecretProviderFactory;
 import org.pangrova.security.api.secret.SecretReference;
 import org.pangrova.security.api.secret.SecretResolver;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.ServiceLoader;
@@ -25,10 +27,28 @@ public final class SecretResolverRegistry implements SecretResolver {
 
     /** Creates an isolated registry for the installed providers of one process or plugin classloader. */
     public static SecretResolverRegistry discover(ClassLoader loader) {
-        var registry = new SecretResolverRegistry();
-        for (var provider : ServiceLoader.load(SecretProvider.class, loader)) {
-            registry.register(provider);
+        return install(ServiceLoader.load(SecretProviderFactory.class, loader));
+    }
+
+    static SecretResolverRegistry install(Iterable<SecretProviderFactory> installed) {
+        var factories = new LinkedHashMap<String, SecretProviderFactory>();
+        for (var factory : installed) {
+            String prefix = requirePrefix(factory.prefix());
+            if (factory.apiVersion() != SecretProviderFactory.API_VERSION) {
+                throw new IllegalArgumentException("Incompatible secret provider API for prefix: " + prefix);
+            }
+            if (factories.putIfAbsent(prefix, factory) != null) {
+                throw new IllegalArgumentException("Secret provider prefix already registered: " + prefix);
+            }
         }
+        var registry = new SecretResolverRegistry();
+        factories.forEach((prefix, factory) -> {
+            var provider = Objects.requireNonNull(factory.create(), "secret provider");
+            if (!prefix.equals(provider.prefix())) {
+                throw new IllegalArgumentException("Secret provider does not implement its declared prefix: " + prefix);
+            }
+            registry.register(provider);
+        });
         return registry;
     }
 
@@ -40,13 +60,16 @@ public final class SecretResolverRegistry implements SecretResolver {
      */
     public void register(SecretProvider provider) {
         Objects.requireNonNull(provider, "provider must not be null");
-        String prefix = Objects.requireNonNull(provider.prefix(), "provider prefix must not be null");
-        if (prefix.isBlank()) {
-            throw new IllegalArgumentException("Secret provider prefix must not be blank");
-        }
+        String prefix = requirePrefix(provider.prefix());
         if (providers.putIfAbsent(prefix, provider) != null) {
             throw new IllegalArgumentException("Secret provider prefix already registered: " + prefix);
         }
+    }
+
+    private static String requirePrefix(String prefix) {
+        Objects.requireNonNull(prefix, "provider prefix must not be null");
+        if (prefix.isBlank()) throw new IllegalArgumentException("Secret provider prefix must not be blank");
+        return prefix;
     }
 
     @Override

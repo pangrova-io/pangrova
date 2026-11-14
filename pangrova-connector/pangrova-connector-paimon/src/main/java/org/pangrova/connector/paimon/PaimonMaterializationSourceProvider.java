@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.time.Instant;
@@ -90,7 +90,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long snapshotId = parseSnapshotToken(snapshotToken, source);
         if (!table.snapshotManager().snapshotExists(snapshotId)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Paimon snapshot " + snapshotId + " of " + source.canonicalName()
                             + " is not available");
         }
@@ -109,14 +109,14 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long snapshotId = parseSnapshot(expected, source);
         if (!table.snapshotManager().snapshotExists(snapshotId)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Paimon snapshot " + snapshotId + " of " + source.canonicalName()
                             + " is no longer available");
         }
         String actualSchema = schemaFingerprint(table.schema());
         if (!actualSchema.equals(expected.schemaFingerprint())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Paimon source " + source.canonicalName()
                             + " changed schema since planning");
         }
@@ -128,7 +128,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
                 table.createTag(tag, snapshotId, null);
             } catch (RuntimeException failure) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                        MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                         "Could not pin Paimon snapshot " + snapshotId + " of "
                                 + source.canonicalName(), failure);
             }
@@ -144,7 +144,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         requireSource(source);
         if (!from.snapshot().hasSameShape(to.snapshot())) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                    MaterializationSourceFailureReason.SHAPE_MISMATCH,
                     "Paimon source " + source.canonicalName()
                             + " changed schema or policy shape inside the change interval");
         }
@@ -156,7 +156,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long fromId = snapshotId(from, table);
         long toId = snapshotId(to, table);
         requireAppendOnly(table, fromId, toId, source);
-        String fingerprint = sha256("paimon-change-set-v1|" + source.canonicalName()
+        String fingerprint = DigestUtils.sha256Hex("paimon-change-set-v1|" + source.canonicalName()
                 + '|' + fromId + '|' + toId + '|' + mode.name());
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
                 fingerprint, Instant.now(), List.of());
@@ -171,7 +171,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long toId = parseSnapshot(plan.toSnapshot(), source);
         boolean complete = appendOnly(table, fromId, toId, source);
         return new ChangeProof(source, Long.toString(fromId), Long.toString(toId),
-                plan.mode(), sha256(plan.planFingerprint() + "|verified|" + complete),
+                plan.mode(), DigestUtils.sha256Hex(plan.planFingerprint() + "|verified|" + complete),
                 STRATEGY_VERSION, Instant.now(), complete);
     }
 
@@ -189,7 +189,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             table.deleteTag(tag);
         } catch (RuntimeException failure) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                    MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                     "Could not release Paimon pin " + tag + " of "
                             + pinned.source().canonicalName(), failure);
         }
@@ -199,7 +199,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         long snapshotId = parseSnapshot(pinned.snapshot(), pinned.source());
         if (!table.snapshotManager().snapshotExists(snapshotId)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Paimon snapshot " + snapshotId + " of "
                             + pinned.source().canonicalName() + " is no longer available");
         }
@@ -210,7 +210,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             FileStoreTable table, long fromId, long toId, SourceRef source) {
         if (!appendOnly(table, fromId, toId, source)) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PROOF_INCOMPLETE,
+                    MaterializationSourceFailureReason.PROOF_INCOMPLETE,
                     "Paimon change interval " + fromId + ".." + toId + " of "
                             + source.canonicalName() + " is not append-only");
         }
@@ -229,7 +229,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             Snapshot snapshot = snapshots.snapshot(id);
             if (snapshot == null) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                        MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                         "Paimon snapshot " + id + " of " + source.canonicalName()
                                 + " is no longer available");
             }
@@ -249,7 +249,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             return Long.parseLong(token);
         } catch (NumberFormatException invalid) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                     "Invalid Paimon snapshot token for " + source.canonicalName()
                             + ": " + token, invalid);
         }
@@ -270,14 +270,14 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             Table table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(source.schema(), source.table()));
             if (!(table instanceof FileStoreTable fileStore)) {
                 throw new MaterializationSourceException(
-                        MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                        MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                         "Paimon table " + source.canonicalName()
                                 + " is not a file-store table");
             }
             return fileStore;
         } catch (Catalog.TableNotExistException missing) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,
+                    MaterializationSourceFailureReason.SOURCE_UNAVAILABLE,
                     "Paimon table " + source.canonicalName() + " does not exist", missing);
         }
     }
@@ -315,7 +315,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
             if (entry.getValue().contains(tag)) {
                 if (result != null) {
                     throw new MaterializationSourceException(
-                            MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                            MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                             "Paimon tag resolves to multiple snapshots: " + tag);
                 }
                 result = entry.getKey().id();
@@ -325,13 +325,13 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
     }
 
     private static String tagName(String pinOwner, long snapshotId) {
-        return TAG_PREFIX + sha256(pinOwner).substring(0, 32) + '_' + snapshotId;
+        return TAG_PREFIX + DigestUtils.sha256Hex(pinOwner).substring(0, 32) + '_' + snapshotId;
     }
 
     private static void requireExact(Long actual, long snapshotId, String tag) {
         if (actual == null || actual != snapshotId) {
             throw new MaterializationSourceException(
-                    MaterializationSourceException.Reason.PIN_UNSUPPORTED,
+                    MaterializationSourceFailureReason.PIN_UNSUPPORTED,
                     "Paimon materialization pin " + tag + " differs from snapshot " + snapshotId);
         }
     }
@@ -339,12 +339,8 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
     private static MaterializationSourceException unsupported(
             SourceRef source, ChangeSetMode mode) {
         return new MaterializationSourceException(
-                MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED,
                 "Paimon source " + source.canonicalName()
                         + " does not support change-set mode " + mode);
-    }
-
-    private static String sha256(String value) {
-        return DigestUtils.sha256Hex(value);
     }
 }

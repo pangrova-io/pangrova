@@ -40,11 +40,11 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     private static final Logger LOG = LoggerFactory.getLogger(RemoteTaskStatusReporter.class);
 
     static final int MAX_RETRY_ATTEMPTS =
-            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND;
+            org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND;
     static final long INITIAL_BACKOFF_MS =
-            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.INITIAL_BACKOFF.toMillis();
+            org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.INITIAL_BACKOFF.toMillis();
     static final long MAX_BACKOFF_MS =
-            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_BACKOFF.toMillis();
+            org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.MAX_BACKOFF.toMillis();
     private static final String FINAL_STATE_FAILED = "FAILED";
     private static final String FINAL_STATE_FINISHED = "FINISHED";
     private static final String FINAL_STATE_CANCELLED = "CANCELLED";
@@ -58,20 +58,21 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     private final String internalAuthSecret;
 
     /**
-     * Constructs reporter with default HTTP client and NoOp metrics.
+     * Creates and owns the HTTP client and registers the terminal delivery failure counter.
      *
      * @param coordinatorBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
      * @param tracingProvider tracing context propagation
      */
     public RemoteTaskStatusReporter(
-            String coordinatorBaseUrl, TracingProvider tracingProvider, String internalAuthSecret) {
+            String coordinatorBaseUrl, TracingProvider tracingProvider,
+            MetricsProvider metricsProvider, String internalAuthSecret) {
         checkNotNull(coordinatorBaseUrl, "coordinatorBaseUrl must not be null");
         checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.baseUrl = coordinatorBaseUrl;
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
-        this.reportFailedCounter = NoOpCounter.INSTANCE;
+        this.reportFailedCounter = deliveryFailures(metricsProvider);
         this.managedClient = org.pangrova.transport.http.client.HttpClientFactory.createDefault();
         this.httpClient = managedClient.httpClient();
     }
@@ -82,7 +83,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
      * @param coordinatorBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
      * @param httpClient JDK HttpClient for sending requests
      * @param tracingProvider tracing context propagation
-     * @param metricsProvider metrics recording (nullable — uses no-op counter if null)
+     * @param metricsProvider metrics recording for terminal delivery failures
      */
     public RemoteTaskStatusReporter(
             String coordinatorBaseUrl,
@@ -99,13 +100,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
-        this.reportFailedCounter =
-                metricsProvider != null
-                        ? metricsProvider.createCounter(
-                                "task_status_report_failed",
-                                "Number of final-state task status reports that failed after all retries",
-                                "reports")
-                        : NoOpCounter.INSTANCE;
+        this.reportFailedCounter = deliveryFailures(metricsProvider);
     }
 
     /**
@@ -229,7 +224,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
                 HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .timeout(
-                                org.pangrova.protocol.task.TerminalReportDeliveryPolicy
+                                org.pangrova.protocol.constants.TerminalReportDeliveryPolicy
                                         .REQUEST_TIMEOUT)
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofByteArray(body));
@@ -294,7 +289,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     }
 
     private static boolean retiredResultNotice(String command, TaskStatusReport report) throws IOException {
-        if (!org.pangrova.protocol.task.TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE.equals(command)
+        if (!org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE.equals(command)
                 || !"OUTPUT".equals(report.taskType()) || !"FINISHED".equals(report.state())
                 || report.writeResult() != null || report.canonicalTaskReport() == null) return false;
         var actual = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
@@ -324,18 +319,10 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         ThreadUtils.sleepQuietly(millis);
     }
 
-    /** No-op counter for when no MetricsProvider is supplied. */
-    private enum NoOpCounter implements LongCounter {
-        INSTANCE;
-
-        @Override
-        public void add(long value, org.pangrova.observability.api.metrics.MetricAttributes attributes) {
-            java.util.Objects.requireNonNull(attributes, "attributes");
-        }
-
-        @Override
-        public void add(long value) {
-            // intentionally empty
-        }
+    private static LongCounter deliveryFailures(MetricsProvider metrics) {
+        return checkNotNull(metrics, "metricsProvider must not be null").createCounter(
+                "task_status_report_failed",
+                "Number of final-state task status reports that failed after all retries",
+                "reports");
     }
 }

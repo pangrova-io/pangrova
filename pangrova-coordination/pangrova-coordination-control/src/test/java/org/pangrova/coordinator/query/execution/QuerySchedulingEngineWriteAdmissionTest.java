@@ -107,7 +107,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.metadata.capabilities =
                     new org.pangrova.connector.api.metadata.table.TableCapabilities(
                             true, false, false, true, true, true, Set.of(), Set.of(),
-                            org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
+                            org.pangrova.connector.api.enums.WriterFenceKind
                                     .FORMAT_IDENTITY);
             var context = new DmlWriteContext(
                     new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
@@ -505,7 +505,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
     private static QuerySchedulingEngine engine(CatalogRegistry catalogs) {
         return new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
-                null, null, null, null, catalogs, null, null, 0), null);
+                null, null, null, null, catalogs, null, 0), null);
     }
 
     private static DmlWriteContext context(QualifiedTableName table) {

@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
-
 import org.pangrova.query.api.enums.StageState;
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 
@@ -125,7 +125,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         workers.registerWorker(TestWorkerInfoBuilder.active("worker-1", "localhost", 8080, 8081));
         queries = queryManager(workers, tracker);
-        var terminal = new TaskTerminalRegistry();
+        var terminal = new TaskTerminalRegistry(KEY.executionId());
         producer = producerStage();
         producer.addTaskId(TASK);
         terminal.register(KEY.executionId(), TASK, producer);
@@ -140,6 +140,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                     org.pangrova.query.api.error.QueryFailure error) {
                 terminal.onTerminal(queryId, taskId, state, error);
             }
+
+            @Override public boolean ownsQueryCompletion(String queryId) { return true; }
 
             @Override
             public boolean isQueryComplete(String queryId) {
@@ -170,7 +172,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
         assertThat(producer.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(queries.getQueryState(KEY.executionId())).isEmpty();
         assertThat(stages.preparePartition(claim(0, 1), value -> value.lease())).isEmpty();
@@ -207,11 +209,11 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages()).isZero();
         assertThat(producer.stateMachine().getState()).isEqualTo(StageState.RUNNING);
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.PENDING);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.PENDING);
         tracker.markScheduled(KEY.executionId(), TASK);
         assertThat(receiver.onTaskStatus(finished)).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
     }
 
     @Test
@@ -375,7 +377,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private static GenerationDispatchSpec specification() {
-        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE,
                                 new byte[]{1}, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
                                 List.of("lake.raw.items"), List.of("id"), false),
@@ -383,7 +385,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                                 new byte[]{2}, GenerationStageTemplate.of(new byte[]{3}, List.of(), List.of()),
                                 List.of(), List.of("id"), true)),
                 List.of(new GenerationStageGraph.Exchange("exchange-1-0", 1, 0,
-                        GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
+                        GenerationExchangeDistribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
         return GenerationDispatchSpecFactory.create(KEY.jobId(), graph, KEY.tenantId(), "report-principal",
                 DeferredAuthorizationScope.raw(new QualifiedTableName("lake", "raw", "items"), Set.of("id"),
                         new QualifiedTableName("lake", "features", "output")),

@@ -50,18 +50,10 @@ public final class MaterializedViewRewritePass {
     }
 
     /**
-     * Analyzes the optimized plan for eligible joins and registers runtime filter
-     * descriptors in the registry. No-op when DPP is disabled via feature flag.
+     * Analyzes the optimized plan for eligible joins when DPP analysis is enabled.
      *
-     * <p><b>Design note on placeholder filters:</b> The registry stores placeholder
-     * MIN_MAX filters with {@code Integer.MIN_VALUE}/{@code Integer.MAX_VALUE} bounds.
-     * Actual filter values are generated at the worker level — the coordinator passes
-     * filter metadata (column names, filter IDs) to probe-side workers via
-     * {@code DynamicFilterPayload}, and workers apply filters using the native engine's
-     * dynamic filter injection ({@code Task::addDynamicFilter}). A future enhancement
-     * could add a build-side completion callback in {@code DAGDispatchEngine} that
-     * uses {@link org.pangrova.planner.runtimefilter.RuntimeFilterGenerator} to replace
-     * placeholders with actual filters before dispatching probe-side tasks.</p>
+     * Descriptors identify logical candidates only. This pass has no build-attempt values
+     * or physical scan binding and never publishes a predicate to the execution registry.
      */
     public List<RuntimeFilterDescriptor> analyzeForRuntimeFilters(RelNode optimized) {
         if (!dynamicPartitionPruningConfig.enabled()) {

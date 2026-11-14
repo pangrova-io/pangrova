@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 import org.apache.calcite.rel.core.TableScan;
@@ -22,7 +24,7 @@ import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
@@ -110,7 +112,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         assertThat(observation.reads()).singleElement().satisfies(permission -> {
             assertThat(permission.table().toString()).isEqualTo("default.default.target_rows");
             assertThat(permission.columns()).containsExactlyInAnyOrder("id", "tenant", "score");
-            assertThat(permission.readMode()).isEqualTo(ReadMode.SECURITY_TRANSFORMED);
+            assertThat(permission.readMode()).isEqualTo(AuthorizedReadMode.SECURITY_TRANSFORMED);
             assertThat(permission.observedPolicy().rowFilter()).contains("(tenant = 1)");
             assertThat(permission.observedPolicy().columnMasks()).containsEntry("score", Optional.of("0"))
                     .containsEntry("id", Optional.empty()).containsEntry("tenant", Optional.empty());
@@ -145,7 +147,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         assertThat(observation.reads()).hasSize(2).allSatisfy(permission -> {
             assertThat(permission.columns()).containsExactlyInAnyOrder("id", "tenant", "score");
             assertThat(permission.privilege()).isEqualTo(Privilege.SELECT);
-            assertThat(permission.readMode()).isEqualTo(ReadMode.SECURITY_TRANSFORMED);
+            assertThat(permission.readMode()).isEqualTo(AuthorizedReadMode.SECURITY_TRANSFORMED);
         });
         var target = observation.reads().stream().filter(read -> read.table().table().equals("target_rows"))
                 .findFirst().orElseThrow();
@@ -250,7 +252,9 @@ class WritePolicyObservationTest extends ContainerTestBase {
                 getClass().getClassLoader(), new org.pangrova.security.secret.resolution.SecretResolverRegistry(),
                 ignored -> Optional.empty());
         metadata = org.pangrova.coordinator.metadata.MetadataBootstrap.initialize(memoryTableStores(), directory, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectorFactory);
-        var root = metadata.buildCalciteSchema(
+        var root = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(actor));
         return new SqlCompiler(new PangrovaPlanner(root, List.of("default", "default")),
                 new SubstraitConverter(), new SubstraitPlanSerializer());

@@ -17,6 +17,8 @@
  */
 package org.pangrova.persistence.ai.postgresql.evaluation;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
 import org.pangrova.ai.control.evaluation.EvaluationMetric;
@@ -95,7 +97,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
                 }
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -176,7 +178,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
                 insertRun(connection, run);
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -235,7 +237,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -272,7 +274,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -322,7 +324,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
                 insertReleaseDecision(connection, decision);
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -634,14 +636,6 @@ public final class JdbcEvaluationStore implements EvaluationStore {
     private static void requirePositive(long value, String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 

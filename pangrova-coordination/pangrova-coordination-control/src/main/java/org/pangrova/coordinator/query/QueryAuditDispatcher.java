@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.enums.ColumnDerivationKind;
-
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import java.util.List;
@@ -51,8 +51,8 @@ final class QueryAuditDispatcher {
     void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
         if (lineageEnabled) {
-            QueryLineageFact fact = state.freezeLineage(QueryLineageFact.Phase.START,
-                    () -> new QueryLineageFact(lineageEmitter.namespace(), queryId, QueryLineageFact.Phase.START,
+            QueryLineageFact fact = state.freezeLineage(LineageEventType.START,
+                    () -> new QueryLineageFact(lineageEmitter.namespace(), queryId, LineageEventType.START,
                             state.getCreatedAt().toEpochMilli(), sql, null, QueryLineageMetadata.empty()));
             lineageEmitter.record(fact);
         }
@@ -112,14 +112,14 @@ final class QueryAuditDispatcher {
 
     QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryState target) {
         if (!lineageEnabled) return null;
-        QueryLineageFact.Phase phase = switch (target) {
-            case FINISHED -> QueryLineageFact.Phase.COMPLETE;
-            case FAILED -> QueryLineageFact.Phase.FAIL;
-            case CANCELLED -> QueryLineageFact.Phase.ABORT;
+        LineageEventType phase = switch (target) {
+            case FINISHED -> LineageEventType.COMPLETE;
+            case FAILED -> LineageEventType.FAIL;
+            case CANCELLED -> LineageEventType.ABORT;
             default -> throw new IllegalArgumentException("Lineage requires a terminal query state");
         };
         return state.freezeLineage(phase, () -> {
-            String failureMessage = phase == QueryLineageFact.Phase.FAIL
+            String failureMessage = phase == LineageEventType.FAIL
                     ? state.getError().map(QueryFailure::message).orElse("unknown") : null;
             return new QueryLineageFact(lineageEmitter.namespace(), queryId, phase,
                     System.currentTimeMillis(), null, failureMessage, state.lineageMetadata());

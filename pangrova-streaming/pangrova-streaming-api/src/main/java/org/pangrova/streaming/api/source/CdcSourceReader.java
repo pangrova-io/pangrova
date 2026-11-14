@@ -6,6 +6,7 @@ import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * Kafka-agnostic SPI for CDC source message consumption.
@@ -57,6 +58,11 @@ public interface CdcSourceReader extends AutoCloseable {
      * @param offsets map of topic-partition to the offset to seek to
      */
     void seekToOffsets(Map<TopicPartitionOffset, Long> offsets);
+
+    /** Last known unconsumed offset distance across assigned partitions, sampled on the polling thread. */
+    default OptionalLong currentLag() {
+        return OptionalLong.empty();
+    }
 
     @Override
     void close();

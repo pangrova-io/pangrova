@@ -1,11 +1,12 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.SourceObjectPurpose;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,7 +55,7 @@ class ManagedLanceCleanupIntegrationTest extends ContainerTestBase {
         assertDeletedCount(fixture, candidate.getMembershipId(), candidateCount(prepared));
         prepared.sdk().cleanup(prepared.allocation().executionId());
         assertDeletedCount(fixture, candidate.getMembershipId(), candidateCount(prepared));
-        assertThat(fixture.journal().getEntry(prepared.allocation().executionId()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.ABORTED);
+        assertThat(fixture.journal().getEntry(prepared.allocation().executionId()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
         assertThatThrownBy(() -> fixture.reference(candidate.getDatasetUri(), 0)).hasMessageContaining("No accepted source");
         assertThatThrownBy(() -> prepared.accept()).isInstanceOf(IllegalStateException.class);
     }

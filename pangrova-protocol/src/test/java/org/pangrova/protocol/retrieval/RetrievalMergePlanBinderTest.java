@@ -1,5 +1,8 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
+
 import java.util.List;
 
 import com.google.protobuf.Any;
@@ -26,7 +29,7 @@ class RetrievalMergePlanBinderTest {
         NamedStruct schema = candidateSchema();
         byte[] bound = RetrievalMergePlanBinder.bind(
                 exchangePlan(schema, true, ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON),
-                binding(schema, RetrievalMergeBinding.Strategy.RRF),
+                binding(schema, RetrievalMergeStrategy.RRF),
                 "query-1-stage-2-merge");
 
         Rel root = Plan.parseFrom(bound).getRelations(0).getRoot().getInput();
@@ -50,7 +53,7 @@ class RetrievalMergePlanBinderTest {
         NamedStruct schema = candidateSchema();
         byte[] bound = RetrievalMergePlanBinder.bind(
                 exchangePlan(schema, true, ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON),
-                binding(schema, RetrievalMergeBinding.Strategy.LINEAR),
+                binding(schema, RetrievalMergeStrategy.LINEAR),
                 "query-1-stage-2-merge");
 
         RelationDetailEnvelope envelope = Plan.parseFrom(bound).getRelations(0)
@@ -67,7 +70,7 @@ class RetrievalMergePlanBinderTest {
     void bindsMatchingOperatorExecutionContract() {
         NamedStruct schema = candidateSchema();
         RetrievalMergeBinding binding = binding(
-                schema, RetrievalMergeBinding.Strategy.RRF);
+                schema, RetrievalMergeStrategy.RRF);
 
         BoundExecutionPlan bound = RetrievalMergePlanBinder.bindExecution(
                 exchangePlan(schema, true,
@@ -96,7 +99,7 @@ class RetrievalMergePlanBinderTest {
         NamedStruct schema = candidateSchema();
         BoundExecutionPlan bound = RetrievalMergePlanBinder.bindFinalTopKExecution(
                 globalTopKPlan(visibleSchema()),
-                binding(schema, RetrievalMergeBinding.Strategy.RRF),
+                binding(schema, RetrievalMergeStrategy.RRF),
                 "query-1-stage-2-merge");
 
         Rel root = Plan.parseFrom(bound.planBytes()).getRelations(0)
@@ -123,7 +126,7 @@ class RetrievalMergePlanBinderTest {
     @Test
     void rejectsPartialNonSingletonAndSchemaDrift() {
         NamedStruct schema = candidateSchema();
-        RetrievalMergeBinding binding = binding(schema, RetrievalMergeBinding.Strategy.RRF);
+        RetrievalMergeBinding binding = binding(schema, RetrievalMergeStrategy.RRF);
         assertThatThrownBy(() -> RetrievalMergePlanBinder.bind(
                 exchangePlan(schema, false, ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON),
                 binding, "merge"))
@@ -145,7 +148,7 @@ class RetrievalMergePlanBinderTest {
     }
 
     private static RetrievalMergeBinding binding(
-            NamedStruct schema, RetrievalMergeBinding.Strategy strategy) {
+            NamedStruct schema, RetrievalMergeStrategy strategy) {
         return new RetrievalMergeBinding(
                 strategy,
                 1,

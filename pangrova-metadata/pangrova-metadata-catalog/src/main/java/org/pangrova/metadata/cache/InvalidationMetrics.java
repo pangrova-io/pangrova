@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * </ul>
  *
  * <p>Registered once at coordinator startup. {@code JdbcInvalidationPoller}
- * and {@link org.pangrova.metadata.service.DefaultMetadataService} call
+ * and {@link org.pangrova.metadata.catalog.CatalogMetadata} call
  * recording methods after operations.</p>
  */
 public final class InvalidationMetrics {

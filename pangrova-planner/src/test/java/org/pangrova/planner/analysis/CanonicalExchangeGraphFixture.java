@@ -1,7 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.enums.ShuffleType;
-
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import com.google.protobuf.Any;
@@ -90,7 +90,7 @@ final class CanonicalExchangeGraphFixture {
     }
 
     static AuthorizedStageGraph graph(NamedStruct source, NamedStruct consumer) {
-        return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        return new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(stage(1, producer(values(source, 3)), source.getNamesList()),
                         stage(0, consumer(consumer), consumer.getNamesList())), List.of(edge()));
     }

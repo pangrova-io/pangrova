@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.parser.api.enums.EmbeddingMode;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -73,7 +74,7 @@ class DdlExecutorGeneratedColumnTest {
                         "embedding", org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3)"), true,
                         Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                                 "embed-v1", List.of("title", "body"),
-                                AutoEmbeddingColumnSpec.EmbeddingMode.ASYNC)))), statementSession());
+                                EmbeddingMode.ASYNC)))), statementSession());
 
         GeneratedColumnSet definitions = GeneratedColumnMetadataCodec.decode(
                 metadata.created.properties());
@@ -112,7 +113,7 @@ class DdlExecutorGeneratedColumnTest {
                 "embedding", org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3)"), false,
                 Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                         "embed-v1", List.of("title"),
-                        AutoEmbeddingColumnSpec.EmbeddingMode.SYNC)));
+                        EmbeddingMode.SYNC)));
 
         assertThatThrownBy(() -> executor.executeCreateTable(table(sync), statementSession()))
                 .hasMessageContaining("Native write relation")
@@ -152,7 +153,7 @@ class DdlExecutorGeneratedColumnTest {
                         "embedding_2", org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3)"),
                         Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                                 "embed-v1", List.of("body"),
-                                AutoEmbeddingColumnSpec.EmbeddingMode.SYNC))),
+                                EmbeddingMode.SYNC))),
                 statementSession()))
                 .hasMessageContaining("requires atomic schema");
     }
@@ -182,7 +183,7 @@ class DdlExecutorGeneratedColumnTest {
                 target, org.pangrova.parser.build.type.RawSqlTypeParser.parse("VECTOR(3)"), nullable,
                 Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                         "embed-v1", sources,
-                        AutoEmbeddingColumnSpec.EmbeddingMode.ASYNC)));
+                        EmbeddingMode.ASYNC)));
     }
 
     private static final class RecordingMetadata implements ConnectorMetadata {

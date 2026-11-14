@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

@@ -1,5 +1,9 @@
 package org.pangrova.persistence.security.postgresql.tenant;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.security.api.enums.TenantMembershipOperation;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -250,15 +254,12 @@ public final class JdbcTenantStore implements TenantStore {
                 connection.commit();
                 return changed;
             } catch (SQLException | RuntimeException | Error failure) {
-                try {
-                    connection.rollback();
-                } catch (SQLException close) {
-                    failure.addSuppressed(close);
-                }
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
-        } catch (SQLException failure) {
+        } catch (SQLException | RuntimeException failure) {
             if (committing) throw new org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException(failure);
+            if (failure instanceof RuntimeException runtime) throw runtime;
             throw new TenantPersistenceException("Failed changing tenant membership", failure);
         }
     }
@@ -294,7 +295,7 @@ public final class JdbcTenantStore implements TenantStore {
                 }
             }
         }
-        if (mutation.operation() == org.pangrova.security.api.tenant.TenantMembershipMutation.Operation.GRANT) {
+        if (mutation.operation() == TenantMembershipOperation.GRANT) {
             if (role != null) return false;
             try (var statement = connection.prepareStatement(SQL_MERGE_MEMBERSHIP)) {
                 statement.setString(1, mutation.principal());
@@ -385,11 +386,7 @@ public final class JdbcTenantStore implements TenantStore {
                 }
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException failure) {

@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 
@@ -127,7 +128,7 @@ class OpenAiCompatibleInferenceProviderTest {
                         AiInvocationException invocation =
                                 (AiInvocationException) failure;
                         assertThat(invocation.category()).isEqualTo(
-                                AiInvocationException.Category.AUTHENTICATION);
+                                AiFailureCategory.AUTHENTICATION);
                         assertThat(invocation.retryable()).isFalse();
                     });
         }
@@ -192,7 +193,7 @@ class OpenAiCompatibleInferenceProviderTest {
                     GenerationParameters.DEFAULTS))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                    .isEqualTo(AiFailureCategory.AUTHORIZATION);
         }
     }
 
@@ -214,7 +215,7 @@ class OpenAiCompatibleInferenceProviderTest {
                     GenerationParameters.DEFAULTS))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
+                    .isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH);
         }
     }
 

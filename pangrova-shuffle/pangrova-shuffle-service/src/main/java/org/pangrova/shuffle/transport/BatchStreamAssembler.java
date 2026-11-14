@@ -10,8 +10,8 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
-import org.pangrova.shuffle.server.error.FailureKind;
-import org.pangrova.shuffle.server.error.ShuffleServiceFailure;
+import org.pangrova.shuffle.server.enums.FailureKind;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 
 /** Strict bounded reassembly for one producer-attempt client stream. */
 public final class BatchStreamAssembler {
@@ -81,7 +81,7 @@ public final class BatchStreamAssembler {
                 chunk.getChunkChecksum(), "chunk checksum");
         if (!MessageDigest.isEqual(chunkChecksum,
                 ShuffleChecksums.sha256(chunk.getData().toByteArray()))) {
-            throw new ShuffleServiceFailure(FailureKind.CORRUPT,
+            throw new ShuffleServiceException(FailureKind.CORRUPT,
                     "write chunk checksum does not match payload");
         }
         ShuffleChecksums.requireSha256(chunk.getBatchChecksum(), "batch checksum");
@@ -160,7 +160,7 @@ public final class BatchStreamAssembler {
                     first.getChunk().getBatchChecksum(), "batch checksum");
             if (canonical.length != first.getChunk().getBatchSizeBytes()
                     || !MessageDigest.isEqual(ShuffleChecksums.sha256(canonical), expected)) {
-                throw new ShuffleServiceFailure(FailureKind.CORRUPT,
+                throw new ShuffleServiceException(FailureKind.CORRUPT,
                         "complete batch does not match declared size or checksum");
             }
             return new CompleteWriteBatch(first.getShuffleId(), first.getPartitionId(),

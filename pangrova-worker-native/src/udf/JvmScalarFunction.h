@@ -11,6 +11,10 @@
 
 #include "udf/NativeUdfRegistry.h"
 
+namespace pangrova::executor {
+class TaskFailureReporter;
+}
+
 namespace pangrova::protocol::v2 {
 class NativeFunctionDescriptor;
 }
@@ -22,7 +26,8 @@ using JvmFunctionCallbackOwner = std::shared_ptr<const JvmFunctionCallbacks>;
 
 /// Prepares an immutable callback generation without changing the active one.
 /// JNI references and method IDs are validated before registration can publish.
-JvmFunctionCallbackOwner prepareJvmFunctionCallbacks(JNIEnv* env, jobject callback);
+JvmFunctionCallbackOwner prepareJvmFunctionCallbacks(
+    JNIEnv* env, jobject callback, const executor::TaskFailureReporter& failures);
 
 /// Publishes a successfully registered generation. Existing compiled factories
 /// retain their own owner; publication never redirects an already bound call.

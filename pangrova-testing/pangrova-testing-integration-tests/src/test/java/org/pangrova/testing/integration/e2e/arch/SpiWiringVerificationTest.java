@@ -13,11 +13,37 @@
  */
 package org.pangrova.testing.integration.e2e.arch;
 
-import org.pangrova.scheduler.control.NoOpSchedulerControlLoop;
+import java.util.Map;
+import java.util.UUID;
+import org.pangrova.batch.api.block.Block;
+import org.pangrova.governance.runtime.lineage.LineageQueryEventListener;
+import org.pangrova.persistence.query.postgresql.event.JdbcQueryEventListener;
+import org.pangrova.query.api.enums.QueryState;
+import org.pangrova.query.api.event.QueryCompletedEvent;
+import org.pangrova.query.api.event.QueryCreatedEvent;
+import org.pangrova.query.api.event.QueryStatistics;
+import org.pangrova.query.event.QueryEventDispatcher;
+import java.util.concurrent.CopyOnWriteArrayList;
+import javax.sql.DataSource;
+import org.pangrova.coordinator.metadata.MaintenanceLineageListener;
+import org.pangrova.governance.api.enums.LineageEventType;
+import org.pangrova.governance.api.lineage.LineageBackend;
+import org.pangrova.governance.api.lineage.LineageEvent;
+import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
+import org.pangrova.metadata.api.enums.ObjectKind;
+import org.pangrova.metadata.api.relation.ObjectRef;
+import org.pangrova.metadata.relation.ObjectDependencyService;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.persistence.catalog.postgresql.dependency.JdbcObjectDependencyStore;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.TestProjectPaths;
-import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
-import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
-import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
+import org.pangrova.common.annotation.DeadCode;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -53,9 +79,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * artifact declared in {@code .pangrova/modules.yaml}; adding a contract
  * artifact to the manifest enrolls it here automatically.</p>
  *
- * <p>Classes annotated with {@code @DeadCode} or {@code @Experimental} are
- * excluded from this check. Known pre-existing violations are baselined and
- * tracked for resolution — the test fails only on NEW unreachable classes.</p>
+ * <p>Published independent library entry points must be constructed and exercised by
+ * the explicit library acceptance test. Historic unreachable classes remain listed separately.
+ * A class must leave that list once its role entry point becomes reachable.</p>
  */
 @DisplayName("ArchUnit — SPI Wiring Verification")
 class SpiWiringVerificationTest {
@@ -69,10 +95,6 @@ class SpiWiringVerificationTest {
     // that QueryManager never references directly.
     private static final String ENTRY_POINT_COORDINATOR_BOOTSTRAP =
             "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap";
-    private static final String DEAD_CODE_ANNOTATION =
-            "org.pangrova.common.annotation.DeadCode";
-    private static final String EXPERIMENTAL_ANNOTATION =
-            "org.pangrova.common.annotation.Experimental";
 
     /**
      * Known pre-existing violations tracked for resolution in P0 tasks.
@@ -82,212 +104,43 @@ class SpiWiringVerificationTest {
     private static final Set<String> CONTRACT_PACKAGE_ROOTS = loadContractPackageRoots();
 
     private static final Set<String> BASELINED_VIOLATIONS = Set.of(
-            // AI runtime providers declared in modules.yaml and loaded through
-            // META-INF/services by the optional Worker AI plane; the ServiceLoader
-            // site is reached only when AI execution is enabled.
-            "org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle",
-            "org.pangrova.ai.worker.provider.WorkerAiModelCatalog",
-            // Connector — Iceberg (wired via CatalogManager dynamic loading)
-            "org.pangrova.connector.iceberg.IcebergConnector",
-            "org.pangrova.connector.iceberg.IcebergConnectorFactory",
-            "org.pangrova.connector.iceberg.IcebergIncrementalScanCapability",
-            "org.pangrova.connector.iceberg.IcebergIndexAccessors",
-            "org.pangrova.connector.iceberg.IcebergMetadata",
-            "org.pangrova.connector.iceberg.IcebergPageSourceProvider",
-            "org.pangrova.connector.iceberg.IcebergSplitManager",
-            "org.pangrova.connector.iceberg.fs.IcebergColumnValueReader",
-            "org.pangrova.connector.iceberg.fs.IcebergCatalogColumnValueReader",
-            "org.pangrova.connector.iceberg.fs.IcebergFileSystemAccessor",
-            "org.pangrova.connector.iceberg.handle.IcebergColumnHandle",
-            "org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle",
-            "org.pangrova.connector.iceberg.handle.IcebergSplit",
-            "org.pangrova.connector.iceberg.handle.IcebergTableHandle",
-            "org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator",
-            "org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata",
-            "org.pangrova.connector.iceberg.read.IcebergPageSource",
-            "org.pangrova.connector.iceberg.system.IcebergEntriesSystemTable",
-            "org.pangrova.connector.iceberg.system.IcebergFilesSystemTable",
-            "org.pangrova.connector.iceberg.system.IcebergHistorySystemTable",
-            "org.pangrova.connector.iceberg.system.IcebergManifestsSystemTable",
-            "org.pangrova.connector.iceberg.system.IcebergRefsSystemTable",
-            "org.pangrova.connector.iceberg.write.AbstractIcebergPageSink",
-            "org.pangrova.connector.iceberg.write.IcebergOverwritePageSink",
-            "org.pangrova.connector.iceberg.write.IcebergPageSink",
-            "org.pangrova.connector.iceberg.write.IcebergPageSinkProvider",
-            // Connector — Paimon (wired via CatalogManager dynamic loading)
-            "org.pangrova.connector.paimon.PaimonConnector",
-            "org.pangrova.connector.paimon.PaimonConnectorFactory",
-            "org.pangrova.connector.paimon.PaimonConnectorIndexSupport",
-            "org.pangrova.connector.paimon.PaimonIncrementalScanCapability",
-            "org.pangrova.connector.paimon.PaimonMetadata",
-            "org.pangrova.connector.paimon.PaimonPageSourceProvider",
-            "org.pangrova.connector.paimon.PaimonSplitManager",
-            "org.pangrova.connector.paimon.fs.PaimonColumnValueReader",
-            "org.pangrova.connector.paimon.fs.PaimonFileSystemAccessor",
-            "org.pangrova.connector.paimon.handle.PaimonColumnHandle",
-            "org.pangrova.connector.paimon.handle.PaimonOutputTableHandle",
-            "org.pangrova.connector.paimon.handle.PaimonSplit",
-            "org.pangrova.connector.paimon.handle.PaimonTableHandle",
-            "org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator",
-            "org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata",
-            "org.pangrova.connector.paimon.read.PaimonPageSource",
-            "org.pangrova.connector.paimon.system.PaimonAuditLogSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonBranchesSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonConsumersSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonFilesSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonManifestsSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonOptionsSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonSchemasSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonSnapshotsSystemTable",
-            "org.pangrova.connector.paimon.system.PaimonTagsSystemTable",
-            "org.pangrova.connector.paimon.write.AbstractPaimonPageSink",
-            "org.pangrova.connector.paimon.write.PaimonDeletePageSink",
-            "org.pangrova.connector.paimon.write.PaimonOverwritePageSink",
-            "org.pangrova.connector.paimon.write.PaimonPageSink",
-            "org.pangrova.connector.paimon.write.PaimonPageSinkProvider",
-            // Coordinator — pending wiring
-            "org.pangrova.coordinator.ai.branch.BranchConnectorSession",
-            "org.pangrova.coordinator.bootstrap.DefaultAiModuleContext",
-            "org.pangrova.server.coordinator.bootstrap.IndexingBootstrap",
-            "org.pangrova.server.coordinator.bootstrap.ModuleIntegrationBootstrap",
-            "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
             "org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry",
-            "org.pangrova.coordinator.indexing.lifecycle.IndexCommitHandler",
             "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
-            "org.pangrova.coordinator.result.CoordinatorDataProducer",
-            "org.pangrova.streaming.coordinator.ConnectorPageSinkCdcWriter",
-            "org.pangrova.streaming.source.kafka.KafkaCdcSourceReader",
-            "org.pangrova.streaming.source.kafka.KafkaCdcSourceFactory",
-            // Indexing — pending index build pipeline P0
-            "org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider",
-            "org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider",
-            "org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider",
-            "org.pangrova.indexing.builtin.gin.provider.GinStrategyProvider",
-            "org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider",
-            "org.pangrova.indexing.builtin.ngram.provider.NGramBloomStrategyProvider",
-            "org.pangrova.indexing.builtin.prefix.provider.PrefixStrategyProvider",
-            "org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider",
-            "org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider",
             "org.pangrova.indexing.storage.LocalFileSystemAccessor",
-            "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData",
-            // Metadata — pending metadata P0 wiring
-            "org.pangrova.metadata.catalog.federation.FederationColumnHandle",
-            "org.pangrova.metadata.catalog.federation.FederationConnectorMetadata",
-            "org.pangrova.metadata.catalog.federation.FederationTableHandle",
-            "org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry",
-            "org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease",
-            "org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal",
-            "org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry",
-            "org.pangrova.metadata.connector.DefaultConnectorSession",
-            // Resilience — checkpoint removed per streaming positioning clarification
-            // Security
-            // SPI data structures (used by connectors via dynamic loading)
-            "org.pangrova.batch.api.block.ArrayBlock",
-            "org.pangrova.batch.api.block.DictionaryBlock",
-            "org.pangrova.batch.api.block.DoubleBlock",
-            "org.pangrova.batch.api.block.IntBlock",
-            "org.pangrova.batch.api.block.LazyBlock",
-            "org.pangrova.batch.api.block.LongBlock",
-            "org.pangrova.batch.api.block.RunLengthEncodedBlock",
-            "org.pangrova.batch.api.block.SliceBlock",
             "org.pangrova.planner.type.StandardTypeRegistry",
-            "org.pangrova.connector.runtime.scan.FixedSplitSource",
-            "org.pangrova.indexing.api.data.BTreeIndexData",
-            "org.pangrova.indexing.api.data.BloomFilterIndexData",
-            "org.pangrova.indexing.api.data.HashIndexData",
-            "org.pangrova.indexing.api.data.bitmap.BitmapIndexData",
-            "org.pangrova.indexing.api.data.spatial.RTreeIndexData",
-            "org.pangrova.indexing.api.data.spatial.SparseIndexData",
-            "org.pangrova.indexing.api.data.text.GinIndexData",
-            "org.pangrova.indexing.api.data.text.NGramBloomIndexData",
-            "org.pangrova.indexing.api.data.text.PrefixIndexData",
-            // Streaming — pending streaming P0 wiring
-            "org.pangrova.streaming.cdc.CdcRegistrationHandler",
-            "org.pangrova.persistence.streaming.memory.InMemoryCdcRegistrationStore",
-            "org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore",
-            "org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore",
-            "org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore",
             "org.pangrova.streaming.writer.lake.LakeTableWriter",
             "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
-            // Exchange/shuffle — pending distributed correctness P0
-            "org.pangrova.shuffle.pangrova.client.HybridExchangeManager",
-            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeManager",
-            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSink",
-            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource",
-            "org.pangrova.worker.exchange.source.BufferedExchangeSink",
-            "org.pangrova.worker.exchange.source.RemoteExchangeManager",
-            "org.pangrova.worker.exchange.source.RemoteExchangeSource",
-            // Transport — pending native result path wiring
-            "org.pangrova.worker.transport.PangrovaDataProducer",
-            // Module integration — pending bootstrap wiring
-            "org.pangrova.coordinator.cache.CacheEvictionBroadcaster",
-            "org.pangrova.coordinator.columnar.ColumnarSessionContext",
-            "org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease",
-            "org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal",
-            "org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory",
-            "org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter",
-            "org.pangrova.coordinator.query.resourcegroup.ResourceGroupAdmissionController",
-            // Governance — pending lineage wiring
-            "org.pangrova.governance.runtime.lineage.LineageQueryEventListener",
-            // Metadata — JdbcWriteCommitJournal IS wired in production (QueryBootstrap builds it as
-            // the durable write-commit journal when a metadata datasource is configured — A-COMMIT-01).
-            // It stays listed here only because the reachability roots (QueryManager/WorkerBootstrap)
-            // do not traverse bootstrap wiring classes, same as the other Jdbc* bootstrap-wired impls.
-            "org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal",
-            // Metadata — pending metadata service wiring
-            "org.pangrova.metadata.service.DefaultMetadataService",
-            // Observability — pending event listener wiring
-            "org.pangrova.persistence.query.postgresql.event.JdbcQueryEventListener",
-            "org.pangrova.observability.logging.MdcTaskWrapping",
-            // Resilience — pending checkpoint wiring
-            "org.pangrova.coordinator.resilience.checkpoint.InMemoryCheckpointStore",
-            "org.pangrova.coordinator.resilience.checkpoint.InMemoryQueryCheckpoint",
-            // Resource — pending memory ledger wiring
-            "org.pangrova.worker.resource.memory.UnifiedMemoryLedger",
-            // Security — pending RBAC/mask/tenant wiring
-            "org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl",
-            "org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore",
-            // Coordinator — no-op scheduler control loop (pending wiring)
-            "org.pangrova.scheduler.control.NoOpSchedulerControlLoop",
-            // Coordinator — AI index lifecycle (wired via ServiceLoader)
-            "org.pangrova.coordinator.indexing.ai.lifecycle.DefaultIndexAvailabilityPublisher",
-            // AI Worker — optional runtime installed on the Worker classpath; its
-            // ServiceLoader adapters are not reachable from the Worker bootstrap roots.
-            "org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider",
-            "org.pangrova.ai.worker.function.AiClassifyFunction",
-            "org.pangrova.ai.worker.function.AiCompletionFunction",
-            "org.pangrova.ai.worker.function.AiEmbedFunction",
-            "org.pangrova.ai.worker.function.AiExtractFunction",
-            "org.pangrova.ai.worker.function.AiFilterFunction",
-            "org.pangrova.ai.worker.function.AiFunctionFactory",
-            "org.pangrova.ai.worker.function.AiGuardFunction",
-            "org.pangrova.ai.worker.function.AiPredictFunction",
-            "org.pangrova.ai.worker.function.AiSummarizeFunction",
-            "org.pangrova.ai.worker.function.AiTranslateFunction",
-            // Multimodal AI functions (wired via ServiceLoader in AiFunctionFactory)
-            "org.pangrova.ai.worker.function.AiDescribeImageFunction",
-            "org.pangrova.ai.worker.function.AiOcrFunction",
-            "org.pangrova.ai.worker.function.AiParseDocumentFunction",
-            "org.pangrova.ai.worker.function.AiTranscribeFunction",
-            "org.pangrova.ai.worker.function.file.FileFromBytesFunction",
-            "org.pangrova.ai.worker.function.file.FileFromUrlFunction",
-            "org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider",
-            "org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry"
-    );
+            "org.pangrova.worker.resource.memory.UnifiedMemoryLedger");
 
+    // Each independently callable component is exercised against the real database below.
+    // A library class may be excluded from the process-only check only if that test constructs it.
+    private static Set<String> independentLibraryImplementations;
     private static JavaClasses importedClasses;
+    private static Set<String> reachableClassNames;
 
     @BeforeAll
     static void importClasses() {
         importedClasses = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .withImportOption(location -> !location.asURI().toString()
+                        .matches(".*-(?:tests|native-fixtures|query-fixtures)\\.jar!.*"))
                 .importPackages("org.pangrova");
+        reachableClassNames = computeReachableClasses();
+        var client = new ClassFileImporter().importClasses(SpiWiringVerificationTest.class)
+                .get(SpiWiringVerificationTest.class);
+        independentLibraryImplementations = client.getConstructorCallsFromSelf().stream()
+                .filter(call -> Set.of("explicitCatalogLibrariesWorkWithoutStartingAServer",
+                        "explicitQueryObserversConsumePublishedEvents").contains(call.getOrigin().getName()))
+                .map(call -> call.getTarget().getOwner().getName())
+                .filter(importedClasses::contain)
+                .filter(name -> !importedClasses.get(name).isMemberClass() && !importedClasses.get(name).isAnonymousClass())
+                .filter(name -> implementsSpiInterface(importedClasses.get(name)))
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Test
     @DisplayName("No new unreachable SPI implementations introduced")
     void noNewUnreachableSpiImplementations() {
-        Set<String> reachableClassNames = computeReachableClasses();
 
         List<String> unreachableClasses = importedClasses.stream()
                 .filter(SpiWiringVerificationTest::implementsSpiInterface)
@@ -296,37 +149,29 @@ class SpiWiringVerificationTest {
                 .filter(c -> !c.isAnonymousClass())
                 .filter(c -> !c.getName().startsWith("org.pangrova.testing."))
                 .filter(c -> !c.getSimpleName().equals("InMemoryWorkerRegistry"))
-                .filter(c -> !c.isAnnotatedWith(DEAD_CODE_ANNOTATION))
-                .filter(c -> !c.isAnnotatedWith(EXPERIMENTAL_ANNOTATION))
+                .filter(c -> !c.isAnnotatedWith(DeadCode.class))
                 .filter(c -> !reachableClassNames.contains(c.getName()))
+                .filter(c -> !independentLibraryImplementations.contains(c.getName()))
                 .filter(c -> !BASELINED_VIOLATIONS.contains(c.getName()))
                 .map(JavaClass::getName)
                 .sorted()
                 .collect(Collectors.toList());
 
         assertThat(unreachableClasses)
-                .as("New SPI implementations must be reachable from QueryManager or "
-                        + "WorkerBootstrap. Either wire into production path, annotate "
-                        + "with @DeadCode(issueReference=...), or add to baseline with "
-                        + "tracking issue.")
+                .as("SPI implementations require a reachable role caller or an exercised independent library contract")
                 .isEmpty();
     }
 
     @Test
     @DisplayName("Baselined violations have not grown")
     void baselinedViolationsNotGrown() {
-        Set<String> reachableClassNames = computeReachableClasses();
 
         List<String> resolvedBaseline = BASELINED_VIOLATIONS.stream()
                 .filter(reachableClassNames::contains)
                 .sorted()
                 .collect(Collectors.toList());
 
-        if (!resolvedBaseline.isEmpty()) {
-            System.out.println("INFO: The following baselined violations are now "
-                    + "resolved and can be removed from BASELINED_VIOLATIONS:");
-            resolvedBaseline.forEach(c -> System.out.println("  - " + c));
-        }
+        assertThat(resolvedBaseline).as("Remove newly reachable classes from the historical baseline").isEmpty();
     }
 
     @Test
@@ -346,7 +191,119 @@ class SpiWiringVerificationTest {
 
     private static boolean implementsSpiInterface(JavaClass javaClass) {
         return javaClass.getAllRawInterfaces().stream()
-                .anyMatch(i -> liesUnderContractRoot(i.getName()));
+                .anyMatch(i -> liesUnderContractRoot(i.getName())
+                        && !i.getName().equals(org.pangrova.metadata.api.object.Asset.class.getName())
+                        && !(i.getName().equals(Block.class.getName())
+                                && javaClass.getPackageName().equals(Block.class.getPackageName())));
+    }
+
+    @Test
+    void libraryConsumersAndSealedValuesAreDistinctFromDiscoveredRoleServices() {
+        assertThat(importedClasses.get(org.pangrova.metadata.api.object.Asset.class).reflect().isSealed()).isTrue();
+        var variants = org.pangrova.metadata.api.object.Asset.class.getPermittedSubclasses();
+        assertThat(variants).allSatisfy(value -> {
+            assertThat(value.isRecord()).isTrue();
+            assertThat(implementsSpiInterface(importedClasses.get(value))).isFalse();
+        });
+        assertThat(implementsSpiInterface(importedClasses.get(org.pangrova.batch.api.block.DictionaryBlock.class)))
+                .isFalse();
+        assertThat(implementsSpiInterface(new ClassFileImporter().importClasses(ExternalBlock.class)
+                .get(ExternalBlock.class))).isTrue();
+        assertThat(independentLibraryImplementations).containsExactlyInAnyOrder(
+                JdbcQueryEventListener.class.getName(), LineageQueryEventListener.class.getName(),
+                "org.pangrova.persistence.catalog.postgresql.dependency.JdbcObjectDependencyStore",
+                "org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository",
+                "org.pangrova.coordinator.metadata.MaintenanceLineageListener");
+        assertThat(independentLibraryImplementations).allSatisfy(name -> {
+            assertThat(importedClasses.contain(name)).isTrue();
+            assertThat(implementsSpiInterface(importedClasses.get(name))).isTrue();
+            assertThat(BASELINED_VIOLATIONS).doesNotContain(name);
+        });
+        importedClasses.stream().filter(c -> c.isAnnotatedWith(DeadCode.class)).forEach(c -> {
+            assertThat(c.getAnnotationOfType(DeadCode.class).issueReference())
+                    .as("tracked unsupported implementation " + c.getName()).isNotBlank();
+            assertThat(reachableClassNames).as("remove obsolete DeadCode marker").doesNotContain(c.getName());
+        });
+        assertThat(importedClasses.contain("org.pangrova.metadata.testinfra.TestCatalogRegistry")).isFalse();
+        assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleOutputCollector")).isFalse();
+        assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler")).isFalse();
+        assertThat(importedClasses.contain("org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter")).isFalse();
+        assertThat(reachableClassNames).contains(
+                "org.pangrova.ai.worker.context.WorkerAiCallbackScope",
+                "org.pangrova.ai.worker.function.AiFunctionFailureProjector",
+                "org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle",
+                "org.pangrova.streaming.source.kafka.KafkaCdcSourceFactory");
+    }
+
+    @Test
+    void explicitCatalogLibrariesWorkWithoutStartingAServer() throws java.sql.SQLException {
+        var source = MigratedPostgres.create();
+        observeExternalSchema(source);
+        var schemas = new PostgresSchemaProjectionRepository(source);
+        assertThat(schemas.loadSchemas("catalog")).containsExactly("observed");
+
+        var store = new JdbcObjectDependencyStore(source);
+        var graph = new ObjectDependencyService(store);
+        var events = new CopyOnWriteArrayList<LineageEvent>();
+        var parent = graphRef("parent", ObjectKind.TABLE);
+        var child = graphRef("child", ObjectKind.VIEW);
+        try (var emitter = new LineageEventEmitter(
+                new LineageBackend() {
+                    public void send(LineageEvent event) { events.add(event); }
+                    public void close() {}
+                })) {
+            var listener = new MaintenanceLineageListener(emitter);
+            graph.addMaintenanceHook(listener);
+            graph.recordDependency(child, parent);
+            assertThat(graph.removeMaintenanceHook(listener)).isTrue();
+        }
+        assertThat(store.getParentsOf(child)).containsExactly(parent);
+        assertThat(events).extracting(LineageEvent::eventType)
+                .containsExactly(LineageEventType.START,
+                        LineageEventType.COMPLETE);
+        assertThat(events.get(1).inputDatasets().get(0).name()).isEqualTo("parent");
+        assertThat(events.get(1).outputDatasets().get(0).name()).isEqualTo("child");
+    }
+
+    private abstract static class ExternalBlock implements Block {}
+
+    @Test
+    void explicitQueryObserversConsumePublishedEvents() throws java.sql.SQLException {
+        var source = MigratedPostgres.create();
+        var events = new CopyOnWriteArrayList<LineageEvent>();
+        var id = UUID.randomUUID().toString();
+        var terminal = new QueryCompletedEvent(id, "SELECT 1", "alice", QueryState.FINISHED,
+                10, 15, new QueryStatistics(5, 3, 1, 8), java.util.Optional.empty());
+        try (var audit = new JdbcQueryEventListener(source);
+             var emitter = new LineageEventEmitter(new LineageBackend() {
+                 public void send(LineageEvent event) { events.add(event); }
+                 public void close() {}
+             })) {
+            var observers = QueryEventDispatcher.of(audit, new LineageQueryEventListener(emitter));
+            observers.fireQueryCreated(new QueryCreatedEvent(id, "SELECT 1", "alice", 10));
+            observers.fireQueryCompleted(terminal);
+        }
+        try (var reopened = new JdbcQueryEventListener(source)) {
+            assertThat(reopened.findByQueryId(id)).contains(terminal);
+        }
+        assertThat(events).extracting(LineageEvent::eventType)
+                .containsExactly(LineageEventType.START, LineageEventType.COMPLETE);
+    }
+
+    private static ObjectRef graphRef(String name, ObjectKind kind) {
+        return new ObjectRef("catalog", "observed", name, kind);
+    }
+
+    private static void observeExternalSchema(DataSource source) {
+        var descriptor = new CatalogDescriptor("catalog",
+                CatalogType.FEDERATION,
+                "inventory", CatalogState.ACTIVE,
+                Map.of(), "", Set.of("tenant"));
+        new PostgresCatalogDeploymentRepository(source)
+                .saveCatalogDescriptor(descriptor);
+        new PostgresMetadataProjectionTransactions(source)
+                .apply(new MetadataProjectionMutation.ObserveSchemas(
+                        UUID.randomUUID(), descriptor.identity(), List.of("observed")));
     }
 
     private static boolean liesUnderContractRoot(String className) {
@@ -403,7 +360,7 @@ class SpiWiringVerificationTest {
         return roots;
     }
 
-    private Set<String> computeReachableClasses() {
+    private static Set<String> computeReachableClasses() {
         Set<String> visited = new HashSet<>();
         Queue<String> queue = new ArrayDeque<>();
 
@@ -420,31 +377,29 @@ class SpiWiringVerificationTest {
             ServiceLoaderReachability.enqueueProviders(
                     current, importedClasses, queue, visited);
 
-            importedClasses.stream()
-                    .filter(c -> c.getName().equals(current))
-                    .findFirst()
-                    .ifPresent(javaClass -> {
-                        javaClass.getFields().forEach(field ->
+            if (importedClasses.contain(current)) {
+                var javaClass = importedClasses.get(current);
+                javaClass.getFields().forEach(field ->
+                        enqueueIfPangrova(queue, visited,
+                                field.getRawType().getName()));
+
+                javaClass.getConstructors().forEach(ctor ->
+                        ctor.getRawParameterTypes().forEach(param ->
                                 enqueueIfPangrova(queue, visited,
-                                        field.getRawType().getName()));
+                                        param.getName())));
 
-                        javaClass.getConstructors().forEach(ctor ->
-                                ctor.getRawParameterTypes().forEach(param ->
-                                        enqueueIfPangrova(queue, visited,
-                                                param.getName())));
-
-                        javaClass.getMethods().forEach(method -> {
+                javaClass.getMethods().forEach(method -> {
+                    enqueueIfPangrova(queue, visited,
+                            method.getRawReturnType().getName());
+                    method.getRawParameterTypes().forEach(param ->
                             enqueueIfPangrova(queue, visited,
-                                    method.getRawReturnType().getName());
-                            method.getRawParameterTypes().forEach(param ->
-                                    enqueueIfPangrova(queue, visited,
-                                            param.getName()));
-                        });
+                                    param.getName()));
+                });
 
-                        javaClass.getDirectDependenciesFromSelf().forEach(dep ->
-                                enqueueIfPangrova(queue, visited,
-                                        dep.getTargetClass().getName()));
-                    });
+                javaClass.getDirectDependenciesFromSelf().forEach(dep ->
+                        enqueueIfPangrova(queue, visited,
+                                dep.getTargetClass().getName()));
+            }
         }
 
         return visited;

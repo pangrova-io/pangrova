@@ -1,5 +1,6 @@
 package org.pangrova.transport.flight;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.protocol.transport.DataProducer;
 import org.pangrova.protocol.exception.DataProducerException;
@@ -169,7 +170,7 @@ public final class BatchStreamProducer implements FlightProducer {
         } catch (IllegalArgumentException e) {
             String raw = new String(ticketBytes, java.nio.charset.StandardCharsets.UTF_8);
             LOG.debug("event=raw_ticket_fallback raw={}", raw);
-            return new DataTicket(raw, "result", 0, DataTicket.TicketType.RESULT);
+            return new DataTicket(raw, "result", 0, DataTicketType.RESULT);
         }
     }
 

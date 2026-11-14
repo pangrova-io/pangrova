@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 
 import java.time.Instant;
@@ -43,12 +44,6 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         taskIdentityStore.onConnectorOperationExit(this::notifyQueryOperationExit);
     }
 
-    private volatile TaskFailureCallback taskFailureCallback;
-
-    public void setTaskFailureCallback(TaskFailureCallback callback) {
-        this.taskFailureCallback = callback;
-    }
-
     /** Registers a logical task under the query issuance authority. */
     public void registerTask(String queryId, String taskId) {
         taskIdentityStore.registerLogicalTask(queryId, () -> {
@@ -78,8 +73,8 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         if (state == null) {
             return;
         }
-        if (state.getState() != TaskStateMachine.State.PENDING
-                && state.getState() != TaskStateMachine.State.SCHEDULED) {
+        if (state.getState() != ScheduledTaskState.PENDING
+                && state.getState() != ScheduledTaskState.SCHEDULED) {
             throw new IllegalStateException(
                     "cannot unregister a started task: " + taskId);
         }
@@ -115,29 +110,34 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
 
     public void markScheduled(String queryId, String taskId) {
         TaskStateMachine sm = getStateMachine(queryId, taskId);
-        sm.tryTransition(TaskStateMachine.State.SCHEDULED);
+        sm.tryTransition(ScheduledTaskState.SCHEDULED);
     }
 
     /** Returns whether the reported state is accepted, including an exact idempotent state observation. */
     public boolean updateTaskState(String queryId, String taskId, String workerState) {
         TaskStateMachine sm = getStateMachine(queryId, taskId);
-        TaskStateMachine.State target = TaskLogicalCompletion.mapWorkerState(workerState);
+        ScheduledTaskState target = TaskLogicalCompletion.mapWorkerState(workerState);
         boolean transitioned = sm.tryTransition(target);
         boolean accepted = transitioned || sm.getState() == target;
-        if (transitioned && target == TaskStateMachine.State.FINISHED) {
+        if (transitioned && target == ScheduledTaskState.FINISHED) {
             timingTracker.recordTaskFinish(taskId);
         }
-        if (accepted && (target == TaskStateMachine.State.FAILED
-                || target == TaskStateMachine.State.ABANDONED)) {
+        if (accepted && (target == ScheduledTaskState.FAILED
+                || target == ScheduledTaskState.ABANDONED)) {
             completeTaskFutureIfTerminal(taskId, sm);
         }
-        if (transitioned && target == TaskStateMachine.State.FAILED) {
-            TaskFailureCallback callback = this.taskFailureCallback;
-            if (callback != null) {
-                callback.onTaskFailed(queryId, taskId);
-            }
-        }
         return accepted;
+    }
+
+    /** Loss detection operates on an earlier snapshot. A finished or retired attempt cannot fail its query. */
+    public boolean markLostTaskFailed(String queryId, String taskId) {
+        TaskStateMachine sm = findStateMachine(queryId, taskId);
+        if (sm == null) return false;
+        if (sm.tryTransition(ScheduledTaskState.FAILED) || sm.getState() == ScheduledTaskState.FAILED) {
+            completeTaskFutureIfTerminal(taskId, sm);
+            return true;
+        }
+        return false;
     }
 
     /** Completes the task future after an accepted terminal state. */
@@ -160,7 +160,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
             return false;
         }
         for (TaskStateMachine sm : tasks.values()) {
-            if (sm.getState() != TaskStateMachine.State.FINISHED) {
+            if (sm.getState() != ScheduledTaskState.FINISHED) {
                 return false;
             }
         }
@@ -174,14 +174,14 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
             return false;
         }
         for (TaskStateMachine sm : tasks.values()) {
-            if (sm.getState() == TaskStateMachine.State.FAILED) {
+            if (sm.getState() == ScheduledTaskState.FAILED) {
                 return true;
             }
         }
         return false;
     }
 
-    public TaskStateMachine.State getTaskState(String queryId, String taskId) {
+    public ScheduledTaskState getTaskState(String queryId, String taskId) {
         return getStateMachine(queryId, taskId).getState();
     }
 

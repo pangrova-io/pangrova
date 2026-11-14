@@ -1,5 +1,7 @@
 package org.pangrova.operations.ddl;
 
+import org.pangrova.operations.enums.DdlJobState;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -16,5 +18,5 @@ public interface DdlJobStore {
     List<DdlJob> findAll();
 
     /** Atomically replaces the expected state. Missing jobs and competing transitions return false. */
-    boolean compareAndUpdateState(String jobId, DdlJob.DdlJobState expectedState, DdlJob.DdlJobState newState);
+    boolean compareAndUpdateState(String jobId, DdlJobState expectedState, DdlJobState newState);
 }

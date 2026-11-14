@@ -4,7 +4,7 @@ import java.net.URI;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.model.AiModelDescriptor;
@@ -28,9 +28,9 @@ public final class QwenProviderFactory implements AiProviderFactory {
     }
 
     @Override
-    public void validate(String dialect, URI endpoint, Set<Operation> capabilities, Set<Modality> modalities,
+    public void validate(String dialect, URI endpoint, Set<AiOperation> capabilities, Set<Modality> modalities,
                          int maxBatchSize, String modelName) {
-        if (!"qwen".equals(dialect) || !capabilities.equals(Set.of(Operation.TEXT_GENERATION))
+        if (!"qwen".equals(dialect) || !capabilities.equals(Set.of(AiOperation.TEXT_GENERATION))
                 || !modalities.equals(Set.of(Modality.TEXT)) || !PATH.equals(endpoint.getRawPath())) {
             throw new IllegalArgumentException("Qwen model '" + modelName
                     + "' requires TEXT inference at " + PATH);

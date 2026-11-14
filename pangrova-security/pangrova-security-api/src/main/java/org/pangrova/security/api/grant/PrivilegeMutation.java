@@ -1,5 +1,8 @@
 package org.pangrova.security.api.grant;
 
+import org.pangrova.security.api.enums.PrivilegeObjectType;
+import org.pangrova.security.api.enums.RevokeBehavior;
+import org.pangrova.security.api.enums.PrivilegeOperation;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.security.api.enums.Privilege;
 
@@ -9,7 +12,7 @@ import java.util.UUID;
 
 /** One atomic privilege statement. Role names are case-sensitive; order and duplicates have no semantic effect. */
 @Experimental
-public record PrivilegeMutation(UUID requestId, Operation operation, Set<Privilege> privileges,
+public record PrivilegeMutation(UUID requestId, PrivilegeOperation operation, Set<Privilege> privileges,
         PrivilegeScope scope, Set<String> roles, boolean withGrantOption, RevokeBehavior revokeBehavior) {
     public PrivilegeMutation {
         Objects.requireNonNull(requestId, "requestId");
@@ -26,15 +29,15 @@ public record PrivilegeMutation(UUID requestId, Operation operation, Set<Privile
         if (privileges.contains(Privilege.OWNER)) {
             throw new IllegalArgumentException("OWNER requires the ownership transfer operation");
         }
-        if (operation != Operation.GRANT && withGrantOption) {
+        if (operation != PrivilegeOperation.GRANT && withGrantOption) {
             throw new IllegalArgumentException("WITH GRANT OPTION applies only to GRANT");
         }
-        if (operation == Operation.GRANT && revokeBehavior != RevokeBehavior.RESTRICT) {
+        if (operation == PrivilegeOperation.GRANT && revokeBehavior != RevokeBehavior.RESTRICT) {
             throw new IllegalArgumentException("CASCADE applies only to REVOKE");
         }
     }
 
-    private static void validateScope(Privilege privilege, PrivilegeScope.ObjectType type) {
+    private static void validateScope(Privilege privilege, PrivilegeObjectType type) {
         if (privilege == Privilege.ALL) return;
         boolean valid = switch (type) {
             case TABLE -> Set.of(Privilege.SELECT, Privilege.INSERT, Privilege.UPDATE, Privilege.DELETE,
@@ -49,16 +52,11 @@ public record PrivilegeMutation(UUID requestId, Operation operation, Set<Privile
             case CATALOG, SCHEMA -> switch (privilege) {
                 case OWNER, MANAGE_STORAGE_PROFILE, VIEW_STORAGE_PROFILE, READ_STORAGE_PROFILE,
                         EXECUTE_QUERY, KILL_QUERY, VIEW_QUERY, SET_SESSION -> false;
-                case CREATE_CATALOG, DROP_CATALOG, ALTER_CATALOG -> type == PrivilegeScope.ObjectType.CATALOG;
+                case CREATE_CATALOG, DROP_CATALOG, ALTER_CATALOG -> type == PrivilegeObjectType.CATALOG;
                 default -> true;
             };
         };
         if (!valid) throw new IllegalArgumentException(privilege + " is not grantable on " + type);
     }
 
-    @Experimental
-    public enum Operation { GRANT, REVOKE, REVOKE_GRANT_OPTION }
-
-    @Experimental
-    public enum RevokeBehavior { RESTRICT, CASCADE }
 }

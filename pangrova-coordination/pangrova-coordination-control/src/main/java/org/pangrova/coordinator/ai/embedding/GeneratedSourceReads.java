@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.ai.embedding;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
-
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.planner.analysis.AuthorizedRelation;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
@@ -52,7 +52,7 @@ final class GeneratedSourceReads {
             throw new AuthorizationDeniedException("Generated input has incomplete actual policy observations");
         }
         return new ObservedRead(compiled, new DeferredAuthorizationScope.TablePermission(table, readColumns,
-                Privilege.SELECT, DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED, observed));
+                Privilege.SELECT, AuthorizedReadMode.SECURITY_TRANSFORMED, observed));
     }
 
     private static void requireActor(ConnectorSession session, String tenant) {

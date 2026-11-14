@@ -14,6 +14,7 @@ import java.security.MessageDigest;
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 /** Issues and verifies service-signed, owner-fenced shuffle capabilities. */
 public final class ShuffleCapabilityAuthority {

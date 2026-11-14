@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,8 +58,7 @@ class DynamicFilterWiringTest {
         RuntimeFilterStageHandler handler = new RuntimeFilterStageHandler(
                 generator, registry, dispatcher, tracker, collector);
 
-        // Simulate what QueryDispatcher.registerRuntimeFilterTargets does:
-        // map planner descriptors to DAG stage IDs
+        // This fixture provides explicit test stages and complete build-side values.
         List<RuntimeFilterDescriptor> descriptors = List.of(
                 new RuntimeFilterDescriptor("dpp-1", "customer_id", "customer_id", "INNER",
                         PangrovaType.BIGINT));
@@ -71,7 +72,7 @@ class DynamicFilterWiringTest {
                 Map.of(2, List.of(0, 1)), List.of()
         ).withStages("q-dpp-wiring");
 
-        // Register filter targets (this is what the coordinator execution path does)
+        // Register the fixture-owned build and probe targets.
         List<StageNode> roots = dag.leafStages();
         assertThat(roots).hasSize(2);
         String buildStageId = String.valueOf(roots.get(0).stageId());
@@ -201,7 +202,7 @@ class DynamicFilterWiringTest {
         // F-AQE-02: registry key is namespaced by queryId
         Optional<RuntimeFilter> filter = registry.getFilter("q-bloom-wiring:1");
         assertThat(filter).isPresent();
-        assertThat(filter.get().type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.get().filterType()).isEqualTo(DynamicFilterType.BLOOM);
 
         // Verify propagated to probe task
         assertThat(dispatcher.injections).hasSize(1);

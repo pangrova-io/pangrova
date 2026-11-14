@@ -39,9 +39,16 @@ public final class CatalogTableResolution {
     private static final Logger LOG = LoggerFactory.getLogger(CatalogTableResolution.class);
     private static final Duration OBSERVED_RESOLUTION_CACHE_TTL = Duration.ofSeconds(30);
 
+    private static final long DEFAULT_MAX_SIZE = 10_000;
+    private static final Duration DEFAULT_TTL = Duration.ofMinutes(5);
+
     private final CatalogRegistry catalogRegistry;
     private final MetadataCache cache;
     private final Cache<MetadataResolutionCacheKey, ResolvedTable> resolvedTableCache;
+
+    public CatalogTableResolution(CatalogRegistry catalogRegistry, MetadataCache cache) {
+        this(catalogRegistry, cache, DEFAULT_MAX_SIZE, DEFAULT_TTL);
+    }
 
     public CatalogTableResolution(CatalogRegistry catalogRegistry, MetadataCache cache,
             long resolutionCacheMaxSize, Duration resolutionCacheTtl) {

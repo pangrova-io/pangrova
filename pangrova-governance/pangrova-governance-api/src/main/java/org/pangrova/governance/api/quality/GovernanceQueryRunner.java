@@ -28,6 +28,4 @@ public interface GovernanceQueryRunner {
      */
     QualityQueryResult execute(QualityReadRequest request, QualityExecutionIdentity identity);
 
-    /** The producer declares the expected result shape; aliases alone cannot distinguish sample columns. */
-    enum QueryType { COUNTS, SAMPLES }
 }

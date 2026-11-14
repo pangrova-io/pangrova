@@ -1,6 +1,6 @@
 package org.pangrova.worker.resource.spill;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.MetricAttributes;
@@ -48,23 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @ThreadSafe
 public final class SpillMetrics {
 
-    /** Domain attribute value: spill triggered from Java-side {@link SpillManager}. */
-    public static final String DOMAIN_JAVA = "java";
-    /** Domain attribute value: spill reported from native (Velox) arbitrator. */
-    public static final String DOMAIN_NATIVE = "native";
 
-    /** Reason: triggered by Java-side memory pressure response. */
-    public static final String REASON_PRESSURE = "memory_pressure";
-    /** Reason: triggered by native arbitrator reclaim callback. */
-    public static final String REASON_NATIVE_RECLAIM = "native_reclaim";
-    /** Reason: triggered by native arbitrator shrink. */
-    public static final String REASON_NATIVE_SHRINK = "native_shrink";
-    /** Reason: out-of-memory event recorded for forensic counting. */
-    public static final String REASON_OOM = "oom";
-    /** Reason: no eligible candidates were available to spill. */
-    public static final String REASON_NO_CANDIDATES = "no_candidates";
-    /** Reason: candidates were selected but freed zero bytes. */
-    public static final String REASON_RECLAIM_NO_PROGRESS = "no_progress";
 
     /** Recommended duration buckets for spill operations. */
     private static final List<Double> DURATION_BOUNDARIES_S =

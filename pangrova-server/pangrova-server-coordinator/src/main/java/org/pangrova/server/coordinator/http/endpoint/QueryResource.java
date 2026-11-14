@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.http.endpoint;
 
+import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
+
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.enums.QueryState;
@@ -95,7 +97,7 @@ public final class QueryResource {
                 recorded = true;
             }
             if (recorded) {
-                throw new IdempotencyKeyRegistry.RecordedSubmissionFailure(queryId, failure);
+                throw new RecordedSubmissionException(queryId, failure);
             }
             throw failure;
         }

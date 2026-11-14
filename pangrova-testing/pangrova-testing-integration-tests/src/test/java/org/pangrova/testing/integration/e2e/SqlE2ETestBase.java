@@ -1,5 +1,8 @@
 package org.pangrova.testing.integration.e2e;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
+import org.pangrova.common.enums.ClusterNodeType;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import org.pangrova.coordinator.metadata.TestMetadataBootstrap;
@@ -37,7 +40,7 @@ import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.observability.sdk.metrics.CoordinatorMetrics;
 import org.pangrova.observability.sdk.metrics.WorkerMetrics;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.common.enums.BootstrapPhase;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
 import org.pangrova.common.lifecycle.SystemBootstrapSequence;
@@ -2085,7 +2088,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         int coordPort = coordinatorHttpServer != null ? coordinatorHttpServer.getPort() : 0;
         statusReporter = new RemoteTaskStatusReporter(
                 "http://localhost:" + coordPort,
-                TRACING_PROVIDER,
+                TRACING_PROVIDER, TestObservability.METRICS,
                 E2E_INTERNAL_AUTH_SECRET);
         statusReportDelivery = statusReporter::report;
         sharedStatusReporter = statusReporter;
@@ -2770,7 +2773,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             null, durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,
                             org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
-                    return new PangrovaPlanner(metadataBootstrap.buildCalciteSchema(session, bindings), schemaPath, deps);
+                    return new PangrovaPlanner(new MetadataSchemaBuilder(
+                            metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
+                            .buildRootSchema(session, bindings), schemaPath, deps);
                 });
     }
 
@@ -3089,13 +3094,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static HealthCheckEndpoint createCoordinatorHealthEndpoint() {
         return new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new CoordinatorHealthConditions());
     }
 
     private static HealthCheckEndpoint createWorkerHealthEndpoint() {
         return new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new WorkerHealthConditions());
     }
 

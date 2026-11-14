@@ -1,5 +1,8 @@
 package org.pangrova.planner.embedding;
 
+import org.pangrova.parser.api.enums.EmbeddingMode;
+import org.pangrova.planner.enums.EmbeddingSourceType;
+
 import java.util.List;
 
 /**
@@ -21,7 +24,7 @@ public record AutoEmbeddingColumnDescriptor(
         List<String> sourceColumns,
         EmbeddingMode mode,
         int dimension,
-        SourceType sourceType) {
+        EmbeddingSourceType sourceType) {
 
     /**
      * Canonical constructor with sourceType defaulting to TEXT for backward compatibility.
@@ -32,7 +35,7 @@ public record AutoEmbeddingColumnDescriptor(
             List<String> sourceColumns,
             EmbeddingMode mode,
             int dimension) {
-        this(vectorColumn, modelName, sourceColumns, mode, dimension, SourceType.TEXT);
+        this(vectorColumn, modelName, sourceColumns, mode, dimension, EmbeddingSourceType.TEXT);
     }
 
     public AutoEmbeddingColumnDescriptor {
@@ -50,27 +53,8 @@ public record AutoEmbeddingColumnDescriptor(
             throw new IllegalArgumentException("dimension must be positive");
         }
         if (sourceType == null) {
-            sourceType = SourceType.TEXT;
+            sourceType = EmbeddingSourceType.TEXT;
         }
     }
 
-    /**
-     * Embedding computation mode.
-     */
-    public enum EmbeddingMode {
-        /** Compute embedding synchronously before DML commits. */
-        SYNC,
-        /** Commit with NULL embedding, enqueue for background computation. */
-        ASYNC
-    }
-
-    /**
-     * The type of source data used for embedding computation.
-     */
-    public enum SourceType {
-        /** Text sources are concatenated and embedded with DOCUMENT purpose. */
-        TEXT,
-        /** A FILE source is embedded with DOCUMENT purpose through the same batch contract. */
-        FILE
-    }
 }

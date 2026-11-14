@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
+import org.pangrova.testing.testkit.constants.TestObservability;
+
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamScheduler;
 import org.pangrova.streaming.coordinator.StreamSchedulerContext;
@@ -61,7 +63,7 @@ class StreamSchedulerWatermarkCleanupTest extends org.pangrova.testing.testkit.C
                 new NoOpTableMaintenance(), MaintenanceConfig.defaults());
 
         StreamSchedulerContext deps = new StreamSchedulerContext(
-                new InMemoryStreamStateStore(),
+                TestObservability.METRICS, new InMemoryStreamStateStore(),
                 new InMemoryStreamOffsetStore(),
                 commitCoordinator(),
                 converterRegistry,

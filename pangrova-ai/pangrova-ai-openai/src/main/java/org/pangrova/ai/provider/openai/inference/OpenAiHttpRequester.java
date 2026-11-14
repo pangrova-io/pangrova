@@ -1,7 +1,7 @@
 package org.pangrova.ai.provider.openai.inference;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
-
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiProviderCallContext;
@@ -103,13 +103,13 @@ final class OpenAiHttpRequester implements AutoCloseable {
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "AI provider POST was interrupted with unknown outcome",
                     failure);
         } catch (IOException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "AI provider POST outcome is unknown",
                     failure);
@@ -121,14 +121,14 @@ final class OpenAiHttpRequester implements AutoCloseable {
             long waitMillis = AiProviderCallContext.remainingTimeout(timeout).toMillis();
             if (!rateLimiter.tryAcquire(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS)) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.RATE_LIMIT,
+                        AiFailureCategory.RATE_LIMIT,
                         true,
                         "Timed out waiting for AI provider admission");
             }
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
+                    AiFailureCategory.TIMEOUT,
                     false,
                     "AI provider admission was interrupted",
                     failure);
@@ -136,18 +136,18 @@ final class OpenAiHttpRequester implements AutoCloseable {
     }
 
     private static AiInvocationException statusFailure(int statusCode) {
-        AiInvocationException.Category category = switch (statusCode) {
+        AiFailureCategory category = switch (statusCode) {
             case HTTP_BAD_REQUEST,
                                     HTTP_NOT_FOUND,
                                     HTTP_CONFLICT,
                                     HTTP_UNPROCESSABLE_CONTENT ->
-                            AiInvocationException.Category.INVALID_REQUEST;
-            case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
-            case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
+                            AiFailureCategory.INVALID_REQUEST;
+            case HTTP_UNAUTHORIZED -> AiFailureCategory.AUTHENTICATION;
+            case HTTP_FORBIDDEN -> AiFailureCategory.AUTHORIZATION;
             case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
-                            AiInvocationException.Category.TIMEOUT;
-            case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
-            default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+                            AiFailureCategory.TIMEOUT;
+            case HTTP_TOO_MANY_REQUESTS -> AiFailureCategory.RATE_LIMIT;
+            default -> AiFailureCategory.PROVIDER_UNAVAILABLE;
         };
         return new AiInvocationException(
                 category, false, "AI provider returned HTTP " + statusCode);

@@ -1,8 +1,7 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.UnpivotNullHandling;
 import org.pangrova.parser.api.enums.TableRefKind;
-
-
 import org.pangrova.parser.api.ast.*;
 import org.junit.jupiter.api.Test;
 
@@ -90,7 +89,7 @@ class PivotUnpivotParserTest {
         assertThat(unpivot.valueColumn().parts()).containsExactly("amount");
         assertThat(unpivot.nameColumn().parts()).containsExactly("quarter");
         assertThat(unpivot.sourceColumns()).hasSize(4);
-        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotClause.NullHandling.EXCLUDE);
+        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotNullHandling.EXCLUDE);
     }
 
     @Test
@@ -101,7 +100,7 @@ class PivotUnpivotParserTest {
         Query q = (Query) stmt;
         TableRef ref = q.from().get(0);
         UnpivotClause unpivot = ref.unpivotClause().get();
-        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotClause.NullHandling.INCLUDE);
+        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotNullHandling.INCLUDE);
         assertThat(unpivot.sourceColumns()).hasSize(3);
     }
 
@@ -113,7 +112,7 @@ class PivotUnpivotParserTest {
         Query q = (Query) stmt;
         TableRef ref = q.from().get(0);
         UnpivotClause unpivot = ref.unpivotClause().get();
-        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotClause.NullHandling.EXCLUDE);
+        assertThat(unpivot.nullHandling()).isEqualTo(UnpivotNullHandling.EXCLUDE);
     }
 
     @Test

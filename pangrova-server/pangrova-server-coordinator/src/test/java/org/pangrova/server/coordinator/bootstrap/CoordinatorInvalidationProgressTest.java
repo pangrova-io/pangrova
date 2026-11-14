@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,19 +103,18 @@ class CoordinatorInvalidationProgressTest {
         registry.register(registration);
         registry.updateLastProcessedInvalidationId("query", 1);
         registry.register(registration);
-        var applied = new CopyOnWriteArrayList<String>();
-        var cache = new TieredMetadataCache() {
-            @Override public void invalidateCatalog(String catalog) {
-                applied.add(catalog);
-                super.invalidateCatalog(catalog);
-            }
-        };
+        var cache = new TieredMetadataCache();
+        for (String catalog : List.of("first", "second")) {
+            cache.putTable(catalog, "schema", "marker", new org.pangrova.metadata.api.object.TableMetadata(
+                    catalog, "schema", "marker", List.of(), null, null, null, null, null));
+        }
         try (var reader = CoordinatorInvalidationProgress.createPoller(
-                source, cache, registry, CoordinatorRole.QUERY, "query")) {
+                source, cache, registry, CoordinatorDeploymentRole.QUERY, "query")) {
             reader.start();
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
                     assertThat(registry.getCoordinator("query").orElseThrow().lastProcessedInvalidationId()).isEqualTo(2));
-            assertThat(applied).containsExactly("second");
+            assertThat(cache.getTable("first", "schema", "marker")).isPresent();
+            assertThat(cache.getTable("second", "schema", "marker")).isEmpty();
         }
     }
 
@@ -127,7 +126,7 @@ class CoordinatorInvalidationProgressTest {
         registry.register(coordinator("query", System.currentTimeMillis(), -1));
         var lease = new JdbcDistributedLease(source);
         try (var poller = CoordinatorInvalidationProgress.createPoller(
-                source, new TieredMetadataCache(), registry, CoordinatorRole.MAINTENANCE, "maintenance")) {
+                source, new TieredMetadataCache(), registry, CoordinatorDeploymentRole.MAINTENANCE, "maintenance")) {
             poller.start();
             await().atMost(Duration.ofSeconds(5)).until(() -> poller.getLastProcessedId() == 2);
             assertThat(registry.getCoordinator("maintenance")).isEmpty();

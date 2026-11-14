@@ -7,6 +7,10 @@ import java.util.Optional;
 /** Creates a consistent set of table repositories. The supplying process owns any JDBC pool. */
 @Experimental
 public interface TableStoreFactory {
+    int API_VERSION = 1;
+
+    int apiVersion();
+
     String identifier();
 
     TableStores create(Optional<DataSource> dataSource);

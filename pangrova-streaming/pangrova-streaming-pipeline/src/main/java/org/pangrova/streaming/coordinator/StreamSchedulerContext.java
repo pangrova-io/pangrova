@@ -1,9 +1,10 @@
 package org.pangrova.streaming.coordinator;
 
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
 import org.pangrova.streaming.api.source.CdcSourceReader;
-import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
 import org.pangrova.streaming.commit.CdcCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
@@ -19,6 +20,7 @@ import java.util.function.Function;
  * so the scheduler can create per-stream instances without depending on
  * concrete Kafka or connector types.</p>
  *
+ * @param metricsProvider     metrics backend selected by the Coordinator
  * @param stateStore          persistent stream state store
  * @param offsetStore         persistent stream offset store
  * @param commitCoordinator   durable source checkpoint and publication state
@@ -30,6 +32,7 @@ import java.util.function.Function;
  * @param writeSinkFactory    creates a CdcWriteSink from stream state
  */
 public record StreamSchedulerContext(
+        MetricsProvider metricsProvider,
         StreamStateStore stateStore,
         StreamOffsetStore offsetStore,
         CdcCommitCoordinator commitCoordinator,
@@ -42,6 +45,7 @@ public record StreamSchedulerContext(
 ) {
 
     public StreamSchedulerContext {
+        Objects.requireNonNull(metricsProvider, "metricsProvider");
         Objects.requireNonNull(stateStore, "stateStore must not be null");
         Objects.requireNonNull(offsetStore, "offsetStore must not be null");
         Objects.requireNonNull(commitCoordinator, "commitCoordinator must not be null");

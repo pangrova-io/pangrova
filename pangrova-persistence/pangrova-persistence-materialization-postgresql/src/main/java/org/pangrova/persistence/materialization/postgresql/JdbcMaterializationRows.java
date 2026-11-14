@@ -1,5 +1,7 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -11,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.pangrova.materialization.api.domain.AttemptId;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.Binding;
 import org.pangrova.materialization.api.domain.DefinitionRevision;
 import org.pangrova.materialization.api.domain.Dependency;
@@ -19,26 +21,26 @@ import org.pangrova.materialization.api.enums.DependencyKind;
 import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.domain.IncarnationId;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.domain.ScheduleLease;
 import org.pangrova.materialization.api.enums.ScheduleState;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourceVector;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TargetLag;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
@@ -293,69 +295,37 @@ final class JdbcMaterializationRows {
                 QualifiedName.parse(result.getString("object_name")));
     }
     static ObjectState objectState(String value) {
-        return switch (value) {
-            case "CREATING" -> ObjectState.Creating.INSTANCE;
-            case "ACTIVE" -> ObjectState.Active.INSTANCE;
-            case "SUSPENDED" -> ObjectState.Suspended.INSTANCE;
-            case "FAILED" -> ObjectState.Failed.INSTANCE;
-            case "DROPPING" -> ObjectState.Dropping.INSTANCE;
-            case "DROPPED" -> ObjectState.Dropped.INSTANCE;
-            default -> throw MaterializationJson.corrupt("unknown object state " + value);
-        };
+        try {
+            return ObjectState.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw MaterializationJson.corrupt("unknown object state " + value);
+        }
     }
 
     static AttemptState attemptState(String value) {
-        return switch (value) {
-            case "PREPARING" -> AttemptState.Preparing.INSTANCE;
-            case "BUILDING" -> AttemptState.Building.INSTANCE;
-            case "COMMITTED" -> AttemptState.Committed.INSTANCE;
-            case "PUBLISHED" -> AttemptState.Published.INSTANCE;
-            case "FAILED" -> AttemptState.Failed.INSTANCE;
-            case "ABANDONED" -> AttemptState.Abandoned.INSTANCE;
-            case "QUARANTINED" -> AttemptState.Quarantined.INSTANCE;
-            case "SUPERSEDED" -> AttemptState.Superseded.INSTANCE;
-            default -> throw MaterializationJson.corrupt("unknown attempt state " + value);
-        };
+        try {
+            return AttemptState.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw MaterializationJson.corrupt("unknown attempt state " + value);
+        }
     }
 
     static GenerationState generationState(String value) {
-        return switch (value) {
-            case "CANDIDATE" -> GenerationState.Candidate.INSTANCE;
-            case "COMMITTED" -> GenerationState.Committed.INSTANCE;
-            case "PUBLISHED" -> GenerationState.Published.INSTANCE;
-            case "RETIRED" -> GenerationState.Retired.INSTANCE;
-            case "QUARANTINED" -> GenerationState.Quarantined.INSTANCE;
-            case "COLLECTED" -> GenerationState.Collected.INSTANCE;
-            default -> throw MaterializationJson.corrupt("unknown generation state " + value);
-        };
+        try {
+            return GenerationState.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw MaterializationJson.corrupt("unknown generation state " + value);
+        }
     }
 
     static RefreshKind refreshKind(String value) {
-        return switch (value) {
-            case "FULL" -> RefreshKind.Full.INSTANCE;
-            case "INCREMENTAL_APPEND_ONLY" -> RefreshKind.IncrementalAppendOnly.INSTANCE;
-            case "INCREMENTAL_PARTITION_REPLACE" -> RefreshKind.IncrementalPartitionReplace.INSTANCE;
-            case "INCREMENTAL_AFFECTED_KEY" -> RefreshKind.IncrementalAffectedKey.INSTANCE;
-            case "INCREMENTAL_CDC" -> RefreshKind.IncrementalCdc.INSTANCE;
-            default -> throw MaterializationJson.corrupt("unknown refresh kind " + value);
-        };
+        try {
+            return RefreshKind.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw MaterializationJson.corrupt("unknown refresh kind " + value);
+        }
     }
 
-    static String refreshKindName(RefreshKind kind) {
-        if (kind == RefreshKind.Full.INSTANCE) {
-            return "FULL";
-        }
-        if (kind == RefreshKind.IncrementalAppendOnly.INSTANCE) {
-            return "INCREMENTAL_APPEND_ONLY";
-        }
-        if (kind == RefreshKind.IncrementalPartitionReplace.INSTANCE) {
-            return "INCREMENTAL_PARTITION_REPLACE";
-        }
-        if (kind == RefreshKind.IncrementalAffectedKey.INSTANCE) {
-            return "INCREMENTAL_AFFECTED_KEY";
-        }
-        return "INCREMENTAL_CDC";
-    }
     static void requireMatchingObject(MaterializationObject object,
             DefinitionRevision definition) {
         if (!object.id().equals(definition.object())) {
@@ -377,7 +347,7 @@ final class JdbcMaterializationRows {
     }
 
     static void requireStorableFingerprint(DefinitionRevision definition) {
-        if (!definition.binding().planFingerprint().matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(definition.binding().planFingerprint())) {
             throw MaterializationException.invalidDefinition(
                     "plan fingerprint must be a lowercase SHA-256 digest");
         }
@@ -419,7 +389,7 @@ final class JdbcMaterializationRows {
                 generation.definitionRevision(), generation.producingAttempt(),
                 generation.baseGeneration(), generation.physicalTable(), generation.refreshKind(),
                 generation.sourceVector(), Optional.of(evidence),
-                GenerationState.Published.INSTANCE, generation.createdAt(),
+                GenerationState.PUBLISHED, generation.createdAt(),
                 Optional.of(publishedAt));
     }
 
@@ -438,69 +408,6 @@ final class JdbcMaterializationRows {
         reference.put("generation", generation.value().toString());
         reference.put("revision", revision);
         return reference.toString();
-    }
-
-    static String objectStateName(ObjectState state) {
-        if (state == ObjectState.Creating.INSTANCE) {
-            return "CREATING";
-        }
-        if (state == ObjectState.Active.INSTANCE) {
-            return "ACTIVE";
-        }
-        if (state == ObjectState.Suspended.INSTANCE) {
-            return "SUSPENDED";
-        }
-        if (state == ObjectState.Failed.INSTANCE) {
-            return "FAILED";
-        }
-        if (state == ObjectState.Dropping.INSTANCE) {
-            return "DROPPING";
-        }
-        return "DROPPED";
-    }
-
-    static String attemptStateName(AttemptState state) {
-        if (state == AttemptState.Preparing.INSTANCE) {
-            return "PREPARING";
-        }
-        if (state == AttemptState.Building.INSTANCE) {
-            return "BUILDING";
-        }
-        if (state == AttemptState.Committed.INSTANCE) {
-            return "COMMITTED";
-        }
-        if (state == AttemptState.Published.INSTANCE) {
-            return "PUBLISHED";
-        }
-        if (state == AttemptState.Failed.INSTANCE) {
-            return "FAILED";
-        }
-        if (state == AttemptState.Abandoned.INSTANCE) {
-            return "ABANDONED";
-        }
-        if (state == AttemptState.Quarantined.INSTANCE) {
-            return "QUARANTINED";
-        }
-        return "SUPERSEDED";
-    }
-
-    static String generationStateName(GenerationState state) {
-        if (state == GenerationState.Candidate.INSTANCE) {
-            return "CANDIDATE";
-        }
-        if (state == GenerationState.Committed.INSTANCE) {
-            return "COMMITTED";
-        }
-        if (state == GenerationState.Published.INSTANCE) {
-            return "PUBLISHED";
-        }
-        if (state == GenerationState.Retired.INSTANCE) {
-            return "RETIRED";
-        }
-        if (state == GenerationState.Quarantined.INSTANCE) {
-            return "QUARANTINED";
-        }
-        return "COLLECTED";
     }
 
     static JsonNode parseCommandReference(String reference) {

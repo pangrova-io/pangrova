@@ -12,6 +12,7 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
@@ -20,7 +21,6 @@ import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.types.enums.PangrovaType;
-import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -127,7 +127,7 @@ class IcebergDeclarationMetadataIntegrationTest {
             assertThat(IcebergReadSchema.resolve(handle, table).declarationProperties()).isEmpty();
             var tables = new IcebergCatalogTables(catalog);
             assertThat(tables.getTableReadMetadata(handle).declarationEvidence())
-                    .isEqualTo(ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
+                    .isEqualTo(TableDeclarationEvidence.UNAVAILABLE);
             assertThatThrownBy(() -> tables.getTableMetadata(handle))
                     .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                     .hasMessageContaining("Historical generated declaration evidence is unavailable");

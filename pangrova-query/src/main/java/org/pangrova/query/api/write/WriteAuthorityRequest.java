@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.List;
 import java.util.Set;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.enums.Privilege;
 
 /** Authenticated write intent; contains no source rows or bearer credentials. */
@@ -36,8 +37,7 @@ public record WriteAuthorityRequest(
             throw new IllegalArgumentException("Original write actions must be explicit");
         }
         if (observedReadPermissions.stream().anyMatch(permission -> permission.privilege() != Privilege.SELECT
-                || permission.readMode() != org.pangrova.security.api.authorization.DeferredAuthorizationScope
-                        .ReadMode.SECURITY_TRANSFORMED)) {
+                || permission.readMode() != AuthorizedReadMode.SECURITY_TRANSFORMED)) {
             throw new IllegalArgumentException("Write reads require actual protected compilation observations");
         }
     }

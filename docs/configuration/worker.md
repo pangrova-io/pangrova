@@ -239,7 +239,7 @@ token, cost or billing statistics.
 | `worker.ai.models.<id>.provider-model` | string | — | Exact upstream provider model identifier; never inferred from the SQL-visible name |
 | `worker.ai.models.<id>.version` | string | — | Immutable, exact model/config version used in dispatch and audit |
 | `worker.ai.models.<id>.endpoint` | URI | — | Absolute HTTP(S) endpoint without URI user-info, query, or fragment; Responses and transcription require their exact canonical paths |
-| `worker.ai.models.<id>.secret-reference` | string | — | Opaque secret reference. The standard Worker includes the ENV provider for `env://VARIABLE`. Other schemes require an installed `SecretProvider`. |
+| `worker.ai.models.<id>.secret-reference` | string | — | Opaque secret reference. The standard Worker includes the ENV provider for `env://VARIABLE`. Other schemes require an installed `SecretProviderFactory`. |
 | `worker.ai.models.<id>.authentication` | string | `bearer` | `bearer` requires `secret-reference`; `none` forbids it and is intended only for explicitly trusted endpoints |
 | `worker.ai.models.<id>.capabilities` | CSV | — | `inference`, `embedding`, `reranking`, or `multimodal`; binary modalities require the governed FILE loader and their matching explicit provider dialect |
 | `worker.ai.models.<id>.modalities` | CSV | `text` | Exact accepted modalities. Chat: `text,image`; Responses: subset of `text,image,document`; transcription: exactly `text,audio` |
@@ -471,3 +471,10 @@ every `min(60, worker.task.result-retention-seconds)` seconds; cleanup occurs on
 the retention age is exceeded. This setting does not extend result authorization deadlines
 or impose a new timeout on running tasks. Resource release must succeed before registry removal.
 The timer is closed with the task subsystem, including partial bootstrap failure.
+
+### External connector plugins
+
+`connector.plugin-directory` is an optional local path. Each immediate subdirectory
+contains the provider JAR and its dependency JARs. The role discovers these
+alongside its bundled providers at startup. Install the matching plugin version
+in each role that will execute the connector. [Plugin layout and lifecycle](../architecture/connectors.md#23-connector-plugin-deployment-and-lifetime)

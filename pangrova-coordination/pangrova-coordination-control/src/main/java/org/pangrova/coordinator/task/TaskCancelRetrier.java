@@ -12,22 +12,9 @@ import org.slf4j.LoggerFactory;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**
- * Consolidates task cancellation with retry semantics for the coordinator.
- *
- * <p>BUG-D12/D26 fix: Both {@code DispatchCanceller.cancelAllTasks} and
- * {@code QueryDispatcher.cancelDispatchedTasks} previously logged cancel
- * failures at DEBUG level and swallowed them, leaving zombie tasks on
- * workers. This class centralizes cancel logic to:
- * <ol>
- *   <li>Log at WARN on failure (not DEBUG)</li>
- *   <li>Mark failed tasks as CANCEL_PENDING in the tracker</li>
- *   <li>Provide {@link #retryPendingCancels()} for periodic retry
- *       from the existing {@code checkTaskTimeouts} scheduler</li>
- * </ol>
- *
- * <p>Concurrency: {@code pendingCancels} is a ConcurrentHashMap; individual
- * operations are atomic at the map level. Multiple threads may call
- * {@link #cancelWithRetry} and {@link #retryPendingCancels} concurrently.</p>
+ * Tracks exact task cancellations across query cleanup, DAG failures and speculative attempts.
+ * The coordinator periodically retries retained targets until the Worker seal or an independently
+ * validated execution-drain receipt confirms the actual exit.
  */
 public final class TaskCancelRetrier {
 
@@ -56,8 +43,7 @@ public final class TaskCancelRetrier {
 
     /**
      * Attempts to cancel a task on its assigned worker. On failure, logs at
-     * WARN, marks the task as CANCEL_PENDING, and enqueues it for periodic
-     * retry via {@link #retryPendingCancels()}.
+     * WARN and keeps the exact target for periodic retry via {@link #retryPendingCancels()}.
      *
      * @param queryId    the owning query identifier
      * @param taskId     the task to cancel

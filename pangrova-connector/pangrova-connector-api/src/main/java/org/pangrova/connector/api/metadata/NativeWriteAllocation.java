@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.NativeWriteOperation;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
@@ -10,15 +11,13 @@ import static org.pangrova.common.util.Preconditions.requireText;
 /** Immutable connector allocation for a Native dataset sink; contains no rows or credentials. */
 @Experimental
 public record NativeWriteAllocation(
-        String datasetUri, Operation operation, long readVersion,
+        String datasetUri, NativeWriteOperation operation, long readVersion,
         byte[] schemaFenceSha256, String writeId, String stagingPrefix,
         String generation, List<String> writeColumnNames) {
 
     private static final int MAX_STAGING_PREFIX_LENGTH = 2048;
     private static final int SHA256_LENGTH = 32;
 
-    /** Dataset transaction operation owned by the connector. */
-    public enum Operation { CREATE, APPEND, OVERWRITE }
 
     /** Validates a stable allocation before it can cross the execution boundary. */
     public NativeWriteAllocation {
@@ -32,8 +31,8 @@ public record NativeWriteAllocation(
         writeColumnNames = copyWriteColumns(writeColumnNames);
     }
 
-    private static void requireVersion(Operation operation, long version) {
-        if (version < 0 || (operation == Operation.CREATE) != (version == 0)) {
+    private static void requireVersion(NativeWriteOperation operation, long version) {
+        if (version < 0 || (operation == NativeWriteOperation.CREATE) != (version == 0)) {
             throw new IllegalArgumentException(
                     "CREATE requires version 0; other operations require a positive version");
         }

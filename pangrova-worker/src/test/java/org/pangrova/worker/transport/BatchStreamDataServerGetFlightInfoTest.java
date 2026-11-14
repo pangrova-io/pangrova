@@ -1,5 +1,6 @@
 package org.pangrova.worker.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.transport.flight.TransportServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,7 +77,7 @@ class BatchStreamDataServerGetFlightInfoTest {
         registry.put("info-q", new OneShotBatch(ipc));
 
         DataTicket ticket = new DataTicket(
-                "info-q", "t1", 0, DataTicket.TicketType.RESULT);
+                "info-q", "t1", 0, DataTicketType.RESULT);
 
         byte[] result = client.doGet(ticket);
         assertThat(result).isNotNull();
@@ -89,7 +90,7 @@ class BatchStreamDataServerGetFlightInfoTest {
         registry.put("stream-q", new OneShotBatch(ipc));
 
         DataTicket ticket = new DataTicket(
-                "stream-q", "t1", 0, DataTicket.TicketType.RESULT);
+                "stream-q", "t1", 0, DataTicketType.RESULT);
         byte[] result = client.doGet(ticket);
 
         assertThat(result).isNotNull();
@@ -102,7 +103,7 @@ class BatchStreamDataServerGetFlightInfoTest {
         registry.put("no-consume-q", new OneShotBatch(ipc));
 
         DataTicket ticket = new DataTicket(
-                "no-consume-q", "t1", 0, DataTicket.TicketType.RESULT);
+                "no-consume-q", "t1", 0, DataTicketType.RESULT);
 
         // getFlightInfo must NOT consume data — the batch should still be available for doGet
         // We verify this by calling doGet and checking we get the full data back
@@ -114,7 +115,7 @@ class BatchStreamDataServerGetFlightInfoTest {
     @Test
     void emptyData_returnsEmptyResult() {
         DataTicket ticket = new DataTicket(
-                "empty-q", "t1", 0, DataTicket.TicketType.RESULT);
+                "empty-q", "t1", 0, DataTicketType.RESULT);
         byte[] result = client.doGet(ticket);
 
         assertThat(result).isNotNull();

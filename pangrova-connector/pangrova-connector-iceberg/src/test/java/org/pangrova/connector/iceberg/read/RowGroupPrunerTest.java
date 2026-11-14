@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.read;
 
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.pangrova.indexing.api.statistics.RowGroupSkipInfo;
 import org.pangrova.indexing.api.statistics.RowGroupStatistics;
 import org.pangrova.indexing.api.statistics.RowGroupStatistics.ColumnStats;
@@ -31,7 +31,7 @@ class RowGroupPrunerTest {
 
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 150)
+                        ColumnComparisonOperator.EQUAL, 150)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -54,7 +54,7 @@ class RowGroupPrunerTest {
         // WHERE price > 80.0
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("price",
-                        FileColumnStatistics.ComparisonOp.GREATER_THAN, 80.0)
+                        ColumnComparisonOperator.GREATER_THAN, 80.0)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -76,7 +76,7 @@ class RowGroupPrunerTest {
         // WHERE age < 30
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("age",
-                        FileColumnStatistics.ComparisonOp.LESS_THAN, 30)
+                        ColumnComparisonOperator.LESS_THAN, 30)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -97,7 +97,7 @@ class RowGroupPrunerTest {
         // WHERE x >= 20 — both row groups could contain x=20
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("x",
-                        FileColumnStatistics.ComparisonOp.GREATER_THAN_OR_EQUAL, 20)
+                        ColumnComparisonOperator.GREATER_THAN_OR_EQUAL, 20)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -189,7 +189,7 @@ class RowGroupPrunerTest {
         // WHERE id BETWEEN 50 AND 150 AND status = 'E'
         List<RowGroupPruner.Predicate> simple = List.of(
                 new RowGroupPruner.Predicate("status",
-                        FileColumnStatistics.ComparisonOp.EQUAL, "E")
+                        ColumnComparisonOperator.EQUAL, "E")
         );
         List<RowGroupPruner.RangePredicate> range = List.of(
                 new RowGroupPruner.RangePredicate("id", 50, 150, true, true)
@@ -218,7 +218,7 @@ class RowGroupPrunerTest {
 
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 500)
+                        ColumnComparisonOperator.EQUAL, 500)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -236,7 +236,7 @@ class RowGroupPrunerTest {
 
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 50)
+                        ColumnComparisonOperator.EQUAL, 50)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -249,7 +249,7 @@ class RowGroupPrunerTest {
     void emptyInputs_noPruning() {
         assertThat(RowGroupPruner.prune("test.parquet", List.of(), List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 1)
+                        ColumnComparisonOperator.EQUAL, 1)
         ))).isEqualTo(RowGroupSkipInfo.NONE);
 
         assertThat(RowGroupPruner.prune("test.parquet",
@@ -269,7 +269,7 @@ class RowGroupPrunerTest {
 
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 500)
+                        ColumnComparisonOperator.EQUAL, 500)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -292,7 +292,7 @@ class RowGroupPrunerTest {
 
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("id",
-                        FileColumnStatistics.ComparisonOp.EQUAL, 15)
+                        ColumnComparisonOperator.EQUAL, 15)
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);
@@ -313,7 +313,7 @@ class RowGroupPrunerTest {
         // WHERE name = 'Eve'
         List<RowGroupPruner.Predicate> predicates = List.of(
                 new RowGroupPruner.Predicate("name",
-                        FileColumnStatistics.ComparisonOp.EQUAL, "Eve")
+                        ColumnComparisonOperator.EQUAL, "Eve")
         );
 
         RowGroupSkipInfo result = RowGroupPruner.prune("test.parquet", stats, predicates);

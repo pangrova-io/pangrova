@@ -1,7 +1,9 @@
 package org.pangrova.security.api.authorization;
 
-import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.common.util.DigestUtils;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
+import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 
@@ -40,8 +42,8 @@ public record DeferredAuthorizationScope(
     public static DeferredAuthorizationScope raw(
             QualifiedTableName source, Set<String> columns, QualifiedTableName target) {
         return new DeferredAuthorizationScope(List.of(
-                new TablePermission(source, columns, Privilege.SELECT, ReadMode.RAW_READ, PolicySnapshot.empty()),
-                new TablePermission(target, Set.of(), Privilege.ALTER, ReadMode.NONE, PolicySnapshot.empty())),
+                new TablePermission(source, columns, Privilege.SELECT, AuthorizedReadMode.RAW_READ, PolicySnapshot.empty()),
+                new TablePermission(target, Set.of(), Privilege.ALTER, AuthorizedReadMode.NONE, PolicySnapshot.empty())),
                 Optional.empty());
     }
 
@@ -94,13 +96,10 @@ public record DeferredAuthorizationScope(
     }
 
     private static void requireDigest(String value) {
-        if (value == null || !value.matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(value)) {
             throw new IllegalArgumentException("Definition content requires a canonical SHA-256 digest");
         }
     }
-
-    /** Distinguishes raw physical reads from a plan containing observed security transformations. */
-    public enum ReadMode { RAW_READ, SECURITY_TRANSFORMED, NONE }
 
     /** Actual bound expressions observed by secure compilation, never an invented policy epoch. */
     public record PolicySnapshot(Optional<String> rowFilter, Map<String, Optional<String>> columnMasks) {
@@ -119,7 +118,7 @@ public record DeferredAuthorizationScope(
     /** One exact table action, with the complete columns read including security dependencies. */
     public record TablePermission(
             QualifiedTableName table, Set<String> columns, Privilege privilege,
-            ReadMode readMode, PolicySnapshot observedPolicy) {
+            AuthorizedReadMode readMode, PolicySnapshot observedPolicy) {
         /** Validates that every read declares columns and its transformation semantics. */
         public TablePermission {
             Objects.requireNonNull(table, "table");
@@ -138,24 +137,24 @@ public record DeferredAuthorizationScope(
         }
 
         private static void validateReadMode(Set<String> columns, Privilege privilege,
-                                             ReadMode readMode, PolicySnapshot observedPolicy) {
-            if ((privilege == Privilege.SELECT) != (readMode != ReadMode.NONE)
-                    || (readMode != ReadMode.NONE && columns.isEmpty())) {
+                                             AuthorizedReadMode readMode, PolicySnapshot observedPolicy) {
+            if ((privilege == Privilege.SELECT) != (readMode != AuthorizedReadMode.NONE)
+                    || (readMode != AuthorizedReadMode.NONE && columns.isEmpty())) {
                 throw new IllegalArgumentException("Deferred reads require explicit SELECT columns and read mode");
             }
             validateObservedPolicies(columns, readMode, observedPolicy);
         }
 
-        private static void validateObservedPolicies(Set<String> columns, ReadMode readMode,
+        private static void validateObservedPolicies(Set<String> columns, AuthorizedReadMode readMode,
                                                      PolicySnapshot observedPolicy) {
-            if (readMode != ReadMode.SECURITY_TRANSFORMED
+            if (readMode != AuthorizedReadMode.SECURITY_TRANSFORMED
                     && !observedPolicy.equals(PolicySnapshot.empty())) {
                 throw new IllegalArgumentException("Only transformed reads may retain observed policy content");
             }
             if (!columns.containsAll(observedPolicy.columnMasks().keySet())) {
                 throw new IllegalArgumentException("Observed masks must belong to declared read columns");
             }
-            if (readMode == ReadMode.SECURITY_TRANSFORMED
+            if (readMode == AuthorizedReadMode.SECURITY_TRANSFORMED
                     && !columns.equals(observedPolicy.columnMasks().keySet())) {
                 throw new IllegalArgumentException("Transformed reads require an observation for every read column");
             }

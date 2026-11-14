@@ -1,5 +1,6 @@
 package org.pangrova.transport.flight;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.transport.flight.exception.TicketValidationException;
 
 import java.time.Clock;
@@ -24,7 +25,7 @@ class TransportTicketSignerTest {
     @Test
     void validTicketAccepted() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket original = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket original = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
 
         byte[] signed = signer.sign(original);
         DataTicket validated = signer.validate(signed);
@@ -32,7 +33,7 @@ class TransportTicketSignerTest {
         assertThat(validated.queryId()).isEqualTo("query-1");
         assertThat(validated.taskId()).isEqualTo("task-1");
         assertThat(validated.outputPartition()).isEqualTo(0);
-        assertThat(validated.type()).isEqualTo(DataTicket.TicketType.SHUFFLE);
+        assertThat(validated.type()).isEqualTo(DataTicketType.SHUFFLE);
     }
 
     @Test
@@ -41,7 +42,7 @@ class TransportTicketSignerTest {
         // signatures collided. SHA-256 key derivation makes distinct secrets produce distinct keys.
         TransportTicketSigner signerAb = new TransportTicketSigner("ab", TTL);
         TransportTicketSigner signerAbab = new TransportTicketSigner("abab", TTL);
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
 
         byte[] sigAb = signerAb.sign(ticket);
         byte[] sigAbab = signerAbab.sign(ticket);
@@ -55,7 +56,7 @@ class TransportTicketSignerTest {
     @Test
     void unsignedTicketRejected() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
 
         // Raw unsigned ticket bytes (not signed)
         byte[] unsigned = ticket.serialize();
@@ -70,7 +71,7 @@ class TransportTicketSignerTest {
         Clock signingClock = Clock.fixed(now, ZoneId.of("UTC"));
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL, signingClock);
 
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.RESULT);
         byte[] signed = signer.sign(ticket);
 
         // Validate with a clock that is 10 minutes in the future (past the 5-min TTL)
@@ -86,7 +87,7 @@ class TransportTicketSignerTest {
     @Test
     void tamperedTicketRejected() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
 
         byte[] signed = signer.sign(ticket);
         // Tamper with a byte in the middle of the payload
@@ -100,7 +101,7 @@ class TransportTicketSignerTest {
     @Test
     void wrongSecretRejected() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
         byte[] signed = signer.sign(ticket);
 
         byte[] differentSecret = "another-32-byte-secret-key-here!".getBytes();
@@ -114,7 +115,7 @@ class TransportTicketSignerTest {
     @Test
     void secretRotationInvalidatesOldTickets() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("query-1", "task-1", 0, DataTicketType.SHUFFLE);
         byte[] signed = signer.sign(ticket);
 
         // Rotate the secret
@@ -147,7 +148,7 @@ class TransportTicketSignerTest {
     @Test
     void resultTicketRoundTrip() {
         TransportTicketSigner signer = new TransportTicketSigner(SECRET, TTL);
-        DataTicket original = new DataTicket("q-abc", "coordinator", 3, DataTicket.TicketType.RESULT);
+        DataTicket original = new DataTicket("q-abc", "coordinator", 3, DataTicketType.RESULT);
 
         byte[] signed = signer.sign(original);
         DataTicket validated = signer.validate(signed);

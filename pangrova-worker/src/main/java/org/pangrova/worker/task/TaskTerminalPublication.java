@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.protocol.task.TerminalReportDeliveryPolicy;
+import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 
 /** Retains each real terminal envelope until ACK, advancing to release evidence only in order. */

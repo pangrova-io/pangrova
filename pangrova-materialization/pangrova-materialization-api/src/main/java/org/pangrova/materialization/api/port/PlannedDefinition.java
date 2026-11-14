@@ -6,7 +6,7 @@ import org.pangrova.materialization.api.domain.Dependency;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.api.domain.PolicySnapshot;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.connector.api.materialization.SourceRef;
 
@@ -50,7 +50,7 @@ public record PlannedDefinition(
         if (supportedRefreshKinds.isEmpty()) {
             throw new IllegalArgumentException("a materializable definition must support at least full refresh");
         }
-        if (!supportedRefreshKinds.contains(RefreshKind.Full.INSTANCE)) {
+        if (!supportedRefreshKinds.contains(RefreshKind.FULL)) {
             throw new IllegalArgumentException("every materializable definition must support full refresh");
         }
         if (!policySnapshot.fingerprints().keySet().equals(sourceVector.snapshots().keySet())) {

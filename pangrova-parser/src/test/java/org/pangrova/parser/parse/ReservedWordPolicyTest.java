@@ -1,5 +1,6 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.KeywordCategory;
 import org.pangrova.parser.api.enums.SqlDialect;
 import org.pangrova.parser.lexical.ReservedWordPolicy;
 
@@ -39,7 +40,7 @@ class ReservedWordPolicyTest {
                     .as("'%s' should be reserved", word)
                     .isTrue();
             assertThat(policy.classify(word))
-                    .isEqualTo(ReservedWordPolicy.Category.RESERVED);
+                    .isEqualTo(KeywordCategory.RESERVED);
         }
 
         @Test
@@ -85,7 +86,7 @@ class ReservedWordPolicyTest {
                     .as("'%s' should be non-reserved", word)
                     .isTrue();
             assertThat(policy.classify(word))
-                    .isEqualTo(ReservedWordPolicy.Category.NON_RESERVED);
+                    .isEqualTo(KeywordCategory.NON_RESERVED);
         }
 
         @Test
@@ -150,9 +151,9 @@ class ReservedWordPolicyTest {
 
         @Test
         void keywordMapEntriesMatchClassification() {
-            Map<String, ReservedWordPolicy.Category> map = policy.keywordMap();
+            Map<String, KeywordCategory> map = policy.keywordMap();
             for (var entry : map.entrySet()) {
-                ReservedWordPolicy.Category expected = policy.classify(entry.getKey());
+                KeywordCategory expected = policy.classify(entry.getKey());
                 assertThat(entry.getValue())
                         .as("Map entry for '%s'", entry.getKey())
                         .isEqualTo(expected);
@@ -168,7 +169,7 @@ class ReservedWordPolicyTest {
             Set<String> nonReserved = policy.nonReservedWords();
             // Each word in the map has exactly one category
             for (String word : policy.allKeywords()) {
-                ReservedWordPolicy.Category cat = policy.classify(word);
+                KeywordCategory cat = policy.classify(word);
                 assertThat(cat).isNotNull();
             }
         }

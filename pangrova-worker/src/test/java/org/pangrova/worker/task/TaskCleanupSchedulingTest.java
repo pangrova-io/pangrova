@@ -138,7 +138,7 @@ class TaskCleanupSchedulingTest {
                     return true;
                 } catch (org.pangrova.worker.exception.TaskAdmissionException rejected) {
                     assertThat(rejected.reason()).isEqualTo(
-                            org.pangrova.worker.exception.TaskAdmissionException.Reason.CAPACITY);
+                            org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY);
                     return false;
                 }
             };

@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.ConnectorFunctionKind;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
@@ -30,7 +31,7 @@ import java.util.Objects;
 @Experimental
 public record ConnectorFunctionDefinition(
         SchemaTableName name,
-        Kind kind,
+        ConnectorFunctionKind kind,
         List<Parameter> parameters,
         String returnType,
         String language,
@@ -39,22 +40,13 @@ public record ConnectorFunctionDefinition(
 
     public ConnectorFunctionDefinition {
         Objects.requireNonNull(name, "name must not be null");
-        kind = kind == null ? Kind.SCALAR : kind;
+        kind = kind == null ? ConnectorFunctionKind.SCALAR : kind;
         parameters = parameters == null ? List.of() : List.copyOf(parameters);
         returnType = returnType == null ? "" : returnType;
         language = language == null ? "" : language;
         body = body == null ? "" : body;
     }
 
-    /** Function kind discriminator. */
-    public enum Kind {
-        /** f(scalar...) -> scalar */
-        SCALAR,
-        /** f(scalar...) -> scalar folded over a multiset (SUM, AVG, ...). */
-        AGGREGATE,
-        /** f(...) -> relation (returns a row stream). */
-        TABLE
-    }
 
     /** Single formal parameter of a function. */
     public record Parameter(String name, String type) {

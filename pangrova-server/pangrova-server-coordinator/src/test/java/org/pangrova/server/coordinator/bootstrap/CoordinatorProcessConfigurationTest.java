@@ -106,6 +106,20 @@ class CoordinatorProcessConfigurationTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void deploymentRoleRejectsInvalidInputBeforeOpeningServices() {
+        for (String invalid : java.util.List.of("qurey", "  ", "leader")) {
+            assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(
+                    PangrovaConfiguration.fromYaml(Map.of("coordinator.role", invalid))))
+                    .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                    .hasMessageContaining("coordinator.role");
+        }
+        assertThat(PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
+                Map.of("coordinator.role", " maintenance "))).role().isQuery()).isFalse();
+        assertThat(PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(Map.of()))
+                .role().isMaintenance()).isTrue();
+    }
+
     private static CoordinatorBootstrapConfig configured(String secret) {
         return PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
                 Map.of("coordinator.internal-auth-secret", secret)));

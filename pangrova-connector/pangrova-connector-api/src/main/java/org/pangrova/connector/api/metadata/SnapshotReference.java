@@ -1,17 +1,14 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
 
 /** A named snapshot reference returned by connector catalog metadata. */
 @Experimental
-public record SnapshotReference(String name, Type type, long snapshotId) {
+public record SnapshotReference(String name, SnapshotReferenceType type, long snapshotId) {
 
-    public enum Type {
-        BRANCH,
-        TAG
-    }
 
     public SnapshotReference {
         if (name == null || name.isBlank()) {

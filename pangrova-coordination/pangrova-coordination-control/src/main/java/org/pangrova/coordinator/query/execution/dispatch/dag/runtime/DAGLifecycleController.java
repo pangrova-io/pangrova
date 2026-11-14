@@ -45,10 +45,10 @@ public final class DAGLifecycleController {
     private final ShuffleLifecycleManager shuffleLifecycleManager;
     private final LineageEventEmitter lineageEmitter;
     private final List<StageLifecycleHandler> handlers;
-    private final TaskTerminalRegistry terminalRegistry = new TaskTerminalRegistry();
+    private record RegisteredDAG(StageDAG dag, TaskTerminalRegistry terminals) {}
     private final ConcurrentHashMap<String, QueryExecutionScope> queryContexts =
             new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, StageDAG> queryDags =
+    private final ConcurrentHashMap<String, RegisteredDAG> queryDags =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<Boolean>> terminalSignals =
             new ConcurrentHashMap<>();
@@ -70,19 +70,24 @@ public final class DAGLifecycleController {
     }
 
     /** Registers the DAG and optional immutable context before dispatch. */
-    public void registerQuery(
+    public synchronized void registerQuery(
             String queryId, StageDAG dag, QueryExecutionScope context) {
-        terminalSignals.putIfAbsent(queryId, new CompletableFuture<>());
-        queryDags.put(queryId, dag);
+        registerDagIfAbsent(queryId, dag);
         if (context != null) {
             queryContexts.put(queryId, context);
         }
     }
 
     /** Registers the DAG only when it has not already been registered. */
-    public void registerDagIfAbsent(String queryId, StageDAG dag) {
-        terminalSignals.putIfAbsent(queryId, new CompletableFuture<>());
-        queryDags.putIfAbsent(queryId, dag);
+    public synchronized void registerDagIfAbsent(String queryId, StageDAG dag) {
+        queryDags.compute(queryId, (id, existing) -> {
+            if (existing == null) {
+                terminalSignals.put(id, new CompletableFuture<>());
+                return new RegisteredDAG(dag, new TaskTerminalRegistry(id));
+            }
+            if (existing.dag() != dag) throw new IllegalStateException("Query already owns a different DAG: " + id);
+            return existing;
+        });
     }
 
     /** Registers a terminal observer without polling the dispatch state. */
@@ -103,7 +108,7 @@ public final class DAGLifecycleController {
         state.completion().whenComplete((result, failure) ->
                 liveExecutions.remove(state.queryId(), state));
         // A terminal cleanup may race registration before the first task is scheduled.
-        if (queryDags.get(state.queryId()) != state.dag()) {
+        if (!owns(state.queryId(), state.dag())) {
             cancelExecution(state);
         }
     }
@@ -115,17 +120,17 @@ public final class DAGLifecycleController {
 
     /** Registers a task in the terminal-state correlator. */
     public void registerTask(String queryId, String taskId, Stage stage) {
-        terminalRegistry.register(queryId, taskId, stage);
+        RegisteredDAG registration = queryDags.get(queryId);
+        if (registration != null && registration.dag().findStage(stage.stageId()) == stage) {
+            registration.terminals().register(queryId, taskId, stage);
+        }
     }
 
     /**
      * Reserves one stage task slot for a retry dispatched after worker loss.
      *
-     * <p>Only stages whose downstream stages have not started are eligible: once a
-     * downstream stage is dispatched its exchange bindings point at the dead
-     * Worker, and rebinding them is not implemented here. This keeps the retry
-     * path strictly safer than failing the query while covering mid-DAG failures,
-     * because downstream stages become ready only after every upstream finishes.</p>
+     * <p>Only exchange-free tasks can be moved independently. An exchange producer
+     * needs a new published placement, and consumers need renewable input read authority.</p>
      *
      * @return true when the retry slot is registered and the replacement may be
      *         dispatched; false when the task is unknown, the budget is exhausted,
@@ -133,31 +138,37 @@ public final class DAGLifecycleController {
      */
     public boolean tryPrepareTaskRetry(String queryId, String failedTaskId,
             String retryTaskId, int maxRetries) {
-        StageDAG dag = queryDags.get(queryId);
+        var registration = queryDags.get(queryId);
+        StageDAG dag = registration == null ? null : registration.dag();
         if (dag == null) return false;
         Stage stage = stageOwning(dag, failedTaskId);
         if (stage == null) return false;
-        for (int downstreamId : dag.directDownstream(stage.stageId())) {
-            Stage downstream = dag.findStage(downstreamId);
-            if (downstream != null
-                    && downstream.stateMachine().getState() != StageState.PLANNED) {
-                return false;
-            }
-        }
+        // Replacement requests currently clone the old attempt. They cannot rebind input
+        // tickets/grants or replace the assignment from which downstream routes are built.
+        if (!dag.edges().getOrDefault(stage.stageId(), List.of()).isEmpty()
+                || !dag.directDownstream(stage.stageId()).isEmpty()) return false;
         if (!stage.tryPrepareTaskRetry(failedTaskId, retryTaskId, maxRetries)) {
             return false;
         }
-        registerTask(queryId, retryTaskId, stage);
-        return true;
+        try {
+            registration.terminals().register(queryId, retryTaskId, stage);
+            if (owns(queryId, dag)) return true;
+        } catch (RuntimeException | Error failure) {
+            stage.rollbackTaskRetry(failedTaskId, retryTaskId);
+            throw failure;
+        }
+        stage.rollbackTaskRetry(failedTaskId, retryTaskId);
+        return false;
     }
 
     /** Reverts an uncommitted retry reservation after its dispatch failed. */
     public void rollbackTaskRetry(String queryId, String failedTaskId, String retryTaskId) {
-        StageDAG dag = queryDags.get(queryId);
+        var registration = queryDags.get(queryId);
+        StageDAG dag = registration == null ? null : registration.dag();
         if (dag == null) return;
         Stage stage = stageOwning(dag, retryTaskId);
-        if (stage != null) {
-            stage.rollbackTaskRetry(failedTaskId, retryTaskId);
+        if (stage != null && stage.rollbackTaskRetry(failedTaskId, retryTaskId)) {
+            registration.terminals().replayRestoredTask(failedTaskId, stage);
         }
     }
 
@@ -171,12 +182,19 @@ public final class DAGLifecycleController {
     /** Routes a terminal task report to its owning stage. */
     public void onTaskTerminal(
             String queryId, String taskId, String state, QueryFailure error) {
-        terminalRegistry.onTerminal(queryId, taskId, state, error);
+        RegisteredDAG owner = queryDags.get(queryId);
+        if (owner != null) owner.terminals().onTerminal(queryId, taskId, state, error);
+    }
+
+    /** A retained terminal signal also owns late reports until query cleanup. */
+    public boolean ownsQueryCompletion(String queryId) {
+        return terminalSignals.containsKey(queryId);
     }
 
     /** Returns whether every tracked stage has finished. */
     public boolean isQueryComplete(String queryId) {
-        StageDAG dag = queryDags.get(queryId);
+        var registration = queryDags.get(queryId);
+        StageDAG dag = registration == null ? null : registration.dag();
         return dag == null || DAGCompletionEvaluator.allStagesFinished(dag);
     }
 
@@ -214,7 +232,7 @@ public final class DAGLifecycleController {
             List<StageDispatchRecord> dispatched) {
         DAGCompletionEvaluator.completeWithLastResult(
                 results, dag, completion, dispatched);
-        fireQueryCompleted(queryId);
+        finishQuery(queryId, dag, true);
     }
 
     /** Cancels downstream stages and completes the query exceptionally. */
@@ -226,7 +244,7 @@ public final class DAGLifecycleController {
             String queryId,
             Throwable dispatchFailure) {
         cancelDownstreamStages(failed, dag, dispatched);
-        fireQueryFailed(queryId);
+        finishQuery(queryId, dag, false);
         if (dispatchFailure != null) {
             completion.completeExceptionally(dispatchFailure);
             return;
@@ -240,17 +258,17 @@ public final class DAGLifecycleController {
 
     /** Cancels all dispatched tasks and clears the failed query. */
     public void failDispatch(
-            String queryId,
+            String queryId, StageDAG dag,
             AtomicBoolean cancelled,
             List<StageDispatchRecord> dispatched) {
         cancelled.set(true);
         canceller.cancelAllTasks(queryId, dispatched);
-        fireQueryFailed(queryId);
+        finishQuery(queryId, dag, false);
     }
 
     /** Clears a failed query and notifies lifecycle handlers. */
-    public void failQuery(String queryId) {
-        fireQueryFailed(queryId);
+    public void failQuery(String queryId, StageDAG dag) {
+        finishQuery(queryId, dag, false);
     }
 
     /** Emits a stage start or completion lineage event when governance is enabled. */
@@ -268,16 +286,30 @@ public final class DAGLifecycleController {
         }
     }
 
+    /** Stops scheduling and pending DAG finalizers while physical task drain may still be outstanding. */
+    public void cancelLiveDispatch(String queryId) {
+        DAGExecutionState state;
+        CompletableFuture<Boolean> signal;
+        synchronized (this) {
+            retireDag(queryId);
+            state = liveExecutions.remove(queryId);
+            signal = terminalSignals.get(queryId);
+        }
+        if (state != null) cancelExecution(state);
+        if (signal != null) signal.complete(false);
+    }
+
     /** Clears all state retained for a query. */
     public void clearQuery(String queryId) {
-        queryDags.remove(queryId);
-        DAGExecutionState state = liveExecutions.remove(queryId);
-        if (state != null) {
-            cancelExecution(state);
+        DAGExecutionState state;
+        CompletableFuture<Boolean> signal;
+        synchronized (this) {
+            retireDag(queryId);
+            state = liveExecutions.remove(queryId);
+            queryContexts.remove(queryId);
+            signal = terminalSignals.remove(queryId);
         }
-        queryContexts.remove(queryId);
-        terminalRegistry.clear(queryId);
-        CompletableFuture<Boolean> signal = terminalSignals.remove(queryId);
+        if (state != null) cancelExecution(state);
         if (signal != null) {
             signal.complete(false);
         }
@@ -350,47 +382,38 @@ public final class DAGLifecycleController {
                 || state == StageState.CANCELLED;
     }
 
-    private void fireQueryCompleted(String queryId) {
-        if (!claimTerminalNotification(queryId)) {
-            return;
+    private void finishQuery(String queryId, StageDAG dag, boolean success) {
+        CompletableFuture<Boolean> signal;
+        boolean notifyHandlers;
+        synchronized (this) {
+            if (!owns(queryId, dag)) return;
+            retireDag(queryId);
+            var context = queryContexts.remove(queryId);
+            // Fenced durable recovery retains producer bytes after a failed control pass.
+            notifyHandlers = success || context == null || context.execution() instanceof StageExecutionContext.Live;
+            signal = notifyHandlers ? terminalSignals.get(queryId) : terminalSignals.remove(queryId);
         }
-        handlers.forEach(handler -> invokeQueryHandler(handler, queryId, true));
-        completeTerminalSignal(queryId, true);
-    }
-
-    private void fireQueryFailed(String queryId) {
-        var context = queryContexts.get(queryId);
-        if (context != null && !(context.execution()
-                instanceof StageExecutionContext.Live)) {
-            // A failed durable control pass must not delete producer bytes needed by fenced recovery.
-            clearQuery(queryId);
-            return;
-        }
-        if (!claimTerminalNotification(queryId)) {
-            return;
-        }
-        handlers.forEach(handler -> invokeQueryHandler(handler, queryId, false));
-        completeTerminalSignal(queryId, false);
-    }
-
-    private void completeTerminalSignal(String queryId, boolean successful) {
-        CompletableFuture<Boolean> signal = terminalSignals.get(queryId);
-        if (signal != null) {
-            signal.complete(successful);
-        }
+        if (notifyHandlers) handlers.forEach(handler -> invokeQueryHandler(handler, queryId, success));
+        if (signal != null) signal.complete(success);
     }
 
     /** Completes a durable graph without manufacturing a client row/result endpoint. */
-    public void completeDurable(String queryId, CompletableFuture<DispatchResult> completion) {
-        fireQueryCompleted(queryId);
+    public void completeDurable(String queryId, StageDAG dag, CompletableFuture<DispatchResult> completion) {
+        finishQuery(queryId, dag, true);
         completion.complete(null);
     }
 
-    private boolean claimTerminalNotification(String queryId) {
-        boolean registered = queryDags.remove(queryId) != null;
-        queryContexts.remove(queryId);
-        terminalRegistry.clear(queryId);
-        return registered;
+    /** Checks whether a scheduling callback still belongs to the installed execution. */
+    public boolean owns(String queryId, StageDAG dag) {
+        var registration = queryDags.get(queryId);
+        return registration != null && registration.dag() == dag;
+    }
+
+    private boolean retireDag(String queryId) {
+        var registration = queryDags.remove(queryId);
+        if (registration == null) return false;
+        registration.terminals().close();
+        return true;
     }
 
     private static void invokeQueryHandler(

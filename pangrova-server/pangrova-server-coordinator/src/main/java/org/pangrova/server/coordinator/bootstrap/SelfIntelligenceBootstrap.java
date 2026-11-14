@@ -13,6 +13,7 @@
  */
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.coordinator.enums.VectorIndexHealthLevel;
 import org.pangrova.coordinator.indexing.ai.lifecycle.IndexRecommendationEngine;
 import org.pangrova.coordinator.indexing.ai.lifecycle.VectorIndexHealthAssessor;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -99,7 +100,7 @@ final class SelfIntelligenceBootstrap {
         String coordId = config.coordinatorId();
         IndexingBootstrap indexing = moduleWiring != null ? moduleWiring.getIndexingBootstrap() : null;
         java.util.function.BiFunction<org.pangrova.indexing.api.descriptor.IndexDescriptor,
-                org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
+                org.pangrova.coordinator.enums.IndexRebuildAction,
                 java.util.concurrent.CompletableFuture<Void>> rebuildFn = buildRebuildFunction(indexing);
         indexRebuildScheduler = new org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler(
                 schedulerExecutor, lease, coordId, vectorIndexHealthAssessor, rebuildFn);
@@ -107,7 +108,7 @@ final class SelfIntelligenceBootstrap {
     }
 
     static java.util.function.BiFunction<org.pangrova.indexing.api.descriptor.IndexDescriptor,
-            org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
+            org.pangrova.coordinator.enums.IndexRebuildAction,
             java.util.concurrent.CompletableFuture<Void>> buildRebuildFunction(IndexingBootstrap indexing) {
         if (indexing == null || indexing.getDdlExecutor() == null) {
             return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
@@ -217,7 +218,7 @@ final class SelfIntelligenceBootstrap {
             long totalFiles = Long.parseLong(descriptor.properties().getOrDefault("total_data_files", "100"));
             long indexedFiles = Long.parseLong(descriptor.properties().getOrDefault("indexed_data_files", "100"));
             var assessment = vectorIndexHealthAssessor.assess(descriptor, totalFiles, indexedFiles);
-            if (assessment.level() == VectorIndexHealthAssessor.HealthLevel.CRITICAL) {
+            if (assessment.level() == VectorIndexHealthLevel.CRITICAL) {
                 result.add(new org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler
                         .IndexWithAssessment(descriptor, assessment));
             }

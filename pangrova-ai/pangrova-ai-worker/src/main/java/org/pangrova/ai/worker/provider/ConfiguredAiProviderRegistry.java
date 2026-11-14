@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.worker.provider;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
@@ -109,8 +111,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         AiModelDescriptor model = requireModel(modelName);
         requireAnyCapability(
                 model,
-                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
-                AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                AiOperation.TEXT_GENERATION,
+                AiOperation.MULTIMODAL_GENERATION);
         return resolveProvider(
                 modelName, model, inferenceProviders, this::createInference);
     }
@@ -118,7 +120,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     /** Resolves an embedding provider by exact configured model name. */
     public EmbeddingProvider resolveEmbedding(String modelName) {
         AiModelDescriptor model = requireModel(modelName);
-        model.requireCapability(AiCapabilityDescriptor.Operation.EMBEDDING, model.version());
+        model.requireCapability(AiOperation.EMBEDDING, model.version());
         return resolveProvider(
                 modelName, model, embeddingProviders, this::createEmbedding);
     }
@@ -127,7 +129,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     public RerankingProvider resolveReranking(String modelName) {
         AiModelDescriptor model = requireModel(modelName);
         model.requireCapability(
-                AiCapabilityDescriptor.Operation.RERANKING, model.version());
+                AiOperation.RERANKING, model.version());
         return resolveProvider(
                 modelName, model, rerankingProviders, this::createReranking);
     }
@@ -216,8 +218,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         InferenceProvider delegate = factories.require(model.provider(), model.name())
                 .createInference(model, resolveSecret(model), blobLoaderFor(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
-                model, AiCapabilityDescriptor.Operation.TEXT_GENERATION,
-                AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                model, AiOperation.TEXT_GENERATION,
+                AiOperation.MULTIMODAL_GENERATION);
         return VersionedAiProviders.inference(
                 delegate,
                 model.name(),
@@ -230,7 +232,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         EmbeddingProvider delegate = factories.require(model.provider(), model.name())
                 .createEmbedding(model, resolveSecret(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
-                model, AiCapabilityDescriptor.Operation.EMBEDDING);
+                model, AiOperation.EMBEDDING);
         return VersionedAiProviders.embedding(
                 delegate,
                 model.name(),
@@ -248,7 +250,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 model.version(),
                 org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(model),
                 capabilitiesFor(
-                        model, AiCapabilityDescriptor.Operation.RERANKING));
+                        model, AiOperation.RERANKING));
     }
 
     private String resolveSecret(AiModelDescriptor model) {
@@ -261,7 +263,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
             secret = secretResolver.resolve(model.secretReference());
         } catch (RuntimeException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.AUTHENTICATION,
+                    AiFailureCategory.AUTHENTICATION,
                     false,
                     "Credential resolution failed for AI model '"
                             + model.name() + "'",
@@ -269,7 +271,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         }
         if (secret == null || secret.isBlank()) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.AUTHENTICATION,
+                    AiFailureCategory.AUTHENTICATION,
                     false,
                     "Credential resolution returned no value for AI model '"
                             + model.name() + "'");
@@ -281,7 +283,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
             AiModelDescriptor model) {
         boolean multimodal = model.capabilities().stream().anyMatch(capability ->
                 capability.operation()
-                        == AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                        == AiOperation.MULTIMODAL_GENERATION);
         if (!multimodal) {
             return Optional.empty();
         }
@@ -295,14 +297,14 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     private AiModelDescriptor requireModel(String modelName) {
         if (modelName == null || modelName.isBlank()) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.MODEL_NOT_FOUND,
+                    AiFailureCategory.MODEL_NOT_FOUND,
                     false,
                     "AI model name must not be blank");
         }
         AiModelDescriptor model = models.get(modelName);
         if (model == null) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.MODEL_NOT_FOUND,
+                    AiFailureCategory.MODEL_NOT_FOUND,
                     false,
                     "AI model '" + modelName + "' is not configured; available models="
                             + models.keySet());
@@ -311,8 +313,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     }
 
     private static void requireAnyCapability(
-            AiModelDescriptor model, AiCapabilityDescriptor.Operation... operations) {
-        for (AiCapabilityDescriptor.Operation operation : operations) {
+            AiModelDescriptor model, AiOperation... operations) {
+        for (AiOperation operation : operations) {
             boolean present = model.capabilities().stream()
                     .anyMatch(capability -> capability.operation() == operation);
             if (present) {
@@ -320,14 +322,14 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
             }
         }
         throw new AiInvocationException(
-                AiInvocationException.Category.CAPABILITY_MISMATCH,
+                AiFailureCategory.CAPABILITY_MISMATCH,
                 false,
                 "Model '" + model.name() + "' has no inference capability");
     }
 
     private static Set<AiCapabilityDescriptor> capabilitiesFor(
-            AiModelDescriptor model, AiCapabilityDescriptor.Operation... operations) {
-        Set<AiCapabilityDescriptor.Operation> selected = Set.of(operations);
+            AiModelDescriptor model, AiOperation... operations) {
+        Set<AiOperation> selected = Set.of(operations);
         return model.capabilities().stream()
                 .filter(capability -> selected.contains(capability.operation()))
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());

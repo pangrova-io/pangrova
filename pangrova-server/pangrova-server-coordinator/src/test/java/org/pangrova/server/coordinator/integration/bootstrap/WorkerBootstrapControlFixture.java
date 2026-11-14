@@ -27,7 +27,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;

@@ -1,5 +1,6 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.api.enums.AiInvocationOperation;
 import org.pangrova.planner.exception.SubstraitConversionException;
 
 import io.substrait.expression.Expression;
@@ -48,16 +49,16 @@ final class AiInvocationBinder {
         return List.copyOf(internalArguments);
     }
 
-    private static AiInvocationPlanHint.Operation operation(String opName, boolean mediaInput) {
+    private static AiInvocationOperation operation(String opName, boolean mediaInput) {
         if ("AI_EMBED".equals(opName)) {
-            return AiInvocationPlanHint.Operation.EMBEDDING;
+            return AiInvocationOperation.EMBEDDING;
         }
         boolean dedicatedMultimodal = switch (opName) {
             case "AI_DESCRIBE_IMAGE", "AI_PARSE_DOCUMENT", "AI_TRANSCRIBE", "AI_OCR" -> true;
             default -> false;
         };
         return mediaInput || dedicatedMultimodal
-                ? AiInvocationPlanHint.Operation.MULTIMODAL_GENERATION
-                : AiInvocationPlanHint.Operation.TEXT_GENERATION;
+                ? AiInvocationOperation.MULTIMODAL_GENERATION
+                : AiInvocationOperation.TEXT_GENERATION;
     }
 }

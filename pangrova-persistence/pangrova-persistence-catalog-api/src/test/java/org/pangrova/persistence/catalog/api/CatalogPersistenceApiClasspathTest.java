@@ -51,7 +51,7 @@ class CatalogPersistenceApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.connector.runtime.scan.FixedSplitSource",
-                    "org.pangrova.metadata.service.DefaultMetadataService",
+                    "org.pangrova.metadata.catalog.CatalogMetadata",
                     "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository",
                     "org.pangrova.metadata.codec.table.TableMetadataSerializer",
                     "org.pangrova.security.auth.oauth2.OAuth2Authenticator",

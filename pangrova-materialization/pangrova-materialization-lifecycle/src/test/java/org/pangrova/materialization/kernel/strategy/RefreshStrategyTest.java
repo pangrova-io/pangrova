@@ -22,7 +22,7 @@ import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.refresh.RefreshContext;
@@ -53,7 +53,7 @@ class RefreshStrategyTest {
         assertThat(full.validate(context).compatible()).isTrue();
         RefreshPlan plan = full.plan(context);
 
-        assertThat(plan.kind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(plan.kind()).isEqualTo(RefreshKind.FULL);
         assertThat(plan.canonicalSql()).isEqualTo(DEFINITION_SQL);
         assertThat(plan.changeSets()).isEmpty();
         assertThat(plan.planFingerprint()).hasSize(64);
@@ -94,7 +94,7 @@ class RefreshStrategyTest {
         assertThat(appendOnly.validate(context).compatible()).isTrue();
         RefreshPlan plan = appendOnly.plan(context);
 
-        assertThat(plan.kind()).isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+        assertThat(plan.kind()).isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
         assertThat(plan.canonicalSql()).isEqualTo("SELECT * FROM \"lake\"."
                 + '"' + BASE_TABLE.schema() + "\".\"" + BASE_TABLE.table() + "\" UNION ALL " + DEFINITION_SQL);
         assertThat(plan.changeSets()).containsOnlyKeys(ORDERS);
@@ -223,7 +223,7 @@ class RefreshStrategyTest {
 
     private static Generation publishedBase(SourceVector vector, long revision) {
         return Generation.candidate(GENERATION_ID, OBJECT, INCARNATION, revision, ATTEMPT_ID,
-                        Optional.empty(), BASE_TABLE, RefreshKind.Full.INSTANCE, vector, NOW)
+                        Optional.empty(), BASE_TABLE, RefreshKind.FULL, vector, NOW)
                 .commit(evidence("commit-1"), NOW)
                 .publish(NOW);
     }

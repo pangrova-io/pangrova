@@ -1,5 +1,6 @@
 package org.pangrova.streaming.writer.incremental;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.write.WriteContext;
@@ -90,7 +91,7 @@ public final class IncrementalWriter implements AutoCloseable {
         }
         int recordCount = buffer.size();
         List<WriteRecord> writeRecords = buffer.stream()
-            .map(data -> WriteRecord.fromClient(data, WriteRecord.WriteOperation.INSERT))
+            .map(data -> WriteRecord.fromClient(data, WriteOperation.INSERT))
             .toList();
         try {
             tableWriter.write(tableName, writeRecords, WriteMode.APPEND, WriteContext.selfManaged());

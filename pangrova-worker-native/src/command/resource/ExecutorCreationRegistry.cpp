@@ -55,7 +55,7 @@ int64_t HandleRegistry::reserveCreation(const proto::ExecutorCreationRecoveryReq
 
 void HandleRegistry::attachCreation(int64_t handle, std::shared_ptr<executor::TaskExecutor> executor) {
   if (!executor) throw std::invalid_argument("Cannot attach a null Native executor");
-  executor->bindHandle(handle);
+  executor->bindHandle(handle, *this);
   std::unique_lock<std::shared_mutex> lock(mutex_);
   auto entry = handles_.find(handle);
   if (entry == handles_.end() || !entry->second.constructing || entry->second.executor) {

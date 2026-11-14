@@ -1,5 +1,7 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -80,8 +82,8 @@ final class LanceFixtureSchema {
             if (field.getChildren().size() != 1) throw new IllegalArgumentException("Malformed vector schema");
             var element = PangrovaTypeMapping.toPangrovaType(type(field.getChildren().get(0)));
             return new VectorType(vector.getListSize(), switch (element) {
-                case FLOAT -> VectorType.ElementType.FLOAT;
-                case DOUBLE -> VectorType.ElementType.DOUBLE;
+                case FLOAT -> VectorElementType.FLOAT;
+                case DOUBLE -> VectorElementType.DOUBLE;
                 default -> throw new IllegalArgumentException("Fixed-size list is not a supported SQL vector");
             });
         }

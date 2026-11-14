@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;
@@ -72,7 +73,7 @@ class HighAvailabilityBootstrapShutdownCloseTest {
 
         assertThat(haService.getRole())
                 .as("Role should be STOPPED after close()")
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+                .isEqualTo(CoordinatorRole.STOPPED);
     }
 
     /**
@@ -88,7 +89,7 @@ class HighAvailabilityBootstrapShutdownCloseTest {
         haService.close();
 
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+                .isEqualTo(CoordinatorRole.STOPPED);
     }
 
     /**
@@ -106,7 +107,7 @@ class HighAvailabilityBootstrapShutdownCloseTest {
         haService.close(); // second close should be safe
 
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STOPPED);
+                .isEqualTo(CoordinatorRole.STOPPED);
         assertThat(lease.currentHolder(LEASE_KEY)).isEmpty();
     }
 }

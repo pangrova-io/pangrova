@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
+
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.shuffle.api.coordinator.ExternalShuffleDescriptorEncoder;
-import org.pangrova.planner.analysis.StagePlanAccess;
 
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.execution.binding.TaskRequestFactory;
@@ -170,7 +171,7 @@ final class LeafStageDispatcher {
         boolean outputStage = input.dag().findDownstreamEdge(
                 input.plan().stageId()) == null;
         if (outputStage && shuffleConfig == null && !input.distributedRetrieval()
-                && input.plan().stagePlan().mode() == StagePlanAccess.Mode.LIVE_QUERY) {
+                && input.plan().stagePlan().mode() == StagePlanMode.LIVE_QUERY) {
             taskCount = 1;
         }
         return taskCount;
@@ -192,7 +193,7 @@ final class LeafStageDispatcher {
     }
 
     private static boolean requiresExactPartitionCount(StageNode plan, StageDAG dag, boolean remoteShuffle) {
-        return plan.stagePlan().mode() == org.pangrova.planner.analysis.StagePlanAccess.Mode.DURABLE_REPLAY
+        return plan.stagePlan().mode() == org.pangrova.planner.enums.StagePlanMode.DURABLE_REPLAY
                 || !dag.edges().getOrDefault(plan.stageId(), List.of()).isEmpty()
                 || remoteShuffle && dag.findDownstreamEdge(plan.stageId()) != null;
     }
@@ -348,7 +349,6 @@ final class LeafStageDispatcher {
                 continue;
             }
             DispatchResult r = pd.future().join();
-            stage.addTaskId(r.taskId());
             taskStageRegistrar.register(execution.executionId(), r.taskId(), stage);
             if (stateJournal != null) {
                 canceller.journalScheduledTask(stateJournal, r.taskId());

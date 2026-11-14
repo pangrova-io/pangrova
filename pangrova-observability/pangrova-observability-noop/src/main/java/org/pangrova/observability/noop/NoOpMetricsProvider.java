@@ -1,15 +1,16 @@
 package org.pangrova.observability.noop;
 
 import org.pangrova.common.api.annotation.Internal;
-
-import java.util.List;
-import java.util.function.Supplier;
-
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
+
+import java.util.List;
+import java.util.OptionalDouble;
+import java.util.function.Supplier;
 
 /**
  * No-operation {@link MetricsProvider} implementation.
@@ -31,6 +32,12 @@ public class NoOpMetricsProvider implements MetricsProvider {
     @Override
     public ObservableDoubleGauge createGauge(String name, String description,
                                               String unit, Supplier<Double> supplier) {
+        return NoOpObservableDoubleGauge.INSTANCE;
+    }
+
+    @Override
+    public ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+            MetricAttributes attributes, Supplier<OptionalDouble> sample) {
         return NoOpObservableDoubleGauge.INSTANCE;
     }
 

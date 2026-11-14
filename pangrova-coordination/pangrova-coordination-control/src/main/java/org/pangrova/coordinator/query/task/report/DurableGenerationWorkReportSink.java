@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.task.report;
 
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
@@ -57,7 +56,7 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
         return store.completePage(new GenerationPageCompletion(
                 tenantId,
                 job.jobId(), report.getPageId(), report.getFencingToken(),
-                status.getAttempt().getControlEpoch(), bytes, sha256Hex(bytes),
+                status.getAttempt().getControlEpoch(), bytes, DigestUtils.sha256Hex(bytes),
                 report.getOutputsList().stream()
                         .map(DurableGenerationWorkReportSink::toOutput)
                         .toList(),
@@ -135,10 +134,5 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
             throw new IllegalArgumentException("artifact object checksum must be SHA-256");
         }
         return HexFormat.of().formatHex(checksum.getDigest().toByteArray());
-    }
-
-    private static String sha256Hex(byte[] bytes) {
-        return HexFormat.of().formatHex(
-                DigestUtils.sha256().digest(bytes));
     }
 }

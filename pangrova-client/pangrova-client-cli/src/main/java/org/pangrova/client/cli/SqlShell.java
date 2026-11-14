@@ -1,5 +1,6 @@
 package org.pangrova.client.cli;
 
+import org.pangrova.client.cli.exception.QueryTimeoutException;
 import org.pangrova.common.client.query.QueryClient;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.concurrent.ThreadUtils;

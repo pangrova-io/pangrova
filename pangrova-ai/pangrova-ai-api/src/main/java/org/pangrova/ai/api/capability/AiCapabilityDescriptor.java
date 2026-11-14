@@ -13,9 +13,10 @@
  */
 package org.pangrova.ai.api.capability;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
-
-import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Duration;
@@ -38,29 +39,15 @@ import static org.pangrova.common.util.Preconditions.requireText;
 public record AiCapabilityDescriptor(
         String capabilityId,
         String version,
-        Operation operation,
+        AiOperation operation,
         List<Signature> signatures,
-        Set<ExecutionMode> executionModes,
+        Set<AiExecutionMode> executionModes,
         Set<Modality> modalities,
         int maxBatchSize,
         ResourceLimits resourceLimits,
         boolean deterministic,
         RetryPolicy retryPolicy,
         Set<String> requiredPermissions) {
-
-    public enum Operation {
-        TEXT_GENERATION,
-        MULTIMODAL_GENERATION,
-        EMBEDDING,
-        RERANKING
-    }
-
-    public enum ExecutionMode {
-        SCALAR,
-        BATCH,
-        SYNC,
-        ASYNC
-    }
 
     public record Signature(String returnType, List<String> argumentTypes) {
         public Signature {
@@ -112,7 +99,7 @@ public record AiCapabilityDescriptor(
             int maxAttempts,
             Duration initialBackoff,
             Duration maxBackoff,
-            Set<AiInvocationException.Category> retryableCategories) {
+            Set<AiFailureCategory> retryableCategories) {
         public RetryPolicy {
             if (maxAttempts <= 0) {
                 throw new IllegalArgumentException("maxAttempts must be positive");

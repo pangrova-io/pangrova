@@ -1,5 +1,7 @@
 package org.pangrova.common.lifecycle;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -11,10 +13,10 @@ import java.util.Objects;
  */
 public final class HealthCheckEndpoint {
 
-    private final NodeType nodeType;
+    private final ClusterNodeType nodeType;
     private final HealthConditions conditions;
 
-    public HealthCheckEndpoint(NodeType nodeType, HealthConditions conditions) {
+    public HealthCheckEndpoint(ClusterNodeType nodeType, HealthConditions conditions) {
         this.nodeType = Objects.requireNonNull(nodeType, "nodeType");
         this.conditions = Objects.requireNonNull(conditions, "conditions");
     }
@@ -62,11 +64,6 @@ public final class HealthCheckEndpoint {
         checks.put("hasWorkers", conditions.activeWorkerCount() >= 1);
         checks.put("hasCatalogs", conditions.activeCatalogCount() >= 1);
         return checks;
-    }
-
-    public enum NodeType {
-        COORDINATOR,
-        WORKER
     }
 
     /**

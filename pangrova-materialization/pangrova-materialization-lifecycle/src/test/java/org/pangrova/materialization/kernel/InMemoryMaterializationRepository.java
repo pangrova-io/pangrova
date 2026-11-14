@@ -1,5 +1,7 @@
 package org.pangrova.materialization.kernel;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -11,19 +13,19 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.pangrova.materialization.api.domain.AttemptId;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.DefinitionRevision;
 import org.pangrova.materialization.api.domain.Dependency;
 import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.enums.PinState;
 import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
@@ -132,8 +134,8 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     @Override
     public List<MaterializationId> findLiveDependents(MaterializationId upstream) {
         return objects.values().stream()
-                .filter(object -> object.state() != ObjectState.Dropping.INSTANCE
-                        && object.state() != ObjectState.Dropped.INSTANCE)
+                .filter(object -> object.state() != ObjectState.DROPPING
+                        && object.state() != ObjectState.DROPPED)
                 .filter(object -> {
                     DefinitionRevision definition = definitions
                             .getOrDefault(object.id(), Map.of())
@@ -150,7 +152,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         for (MaterializationId dependent : findLiveDependents(upstream)) {
             MaterializationObject object = objects.get(dependent);
             Schedule schedule = schedules.get(dependent);
-            if (object == null || object.state() != ObjectState.Active.INSTANCE
+            if (object == null || object.state() != ObjectState.ACTIVE
                     || schedule == null) {
                 continue;
             }
@@ -274,7 +276,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         return attempts.values().stream()
                 .filter(attempt -> isActive(attempt.state()))
                 .filter(attempt -> !liveAnchors.contains(attempt.fence().executionAnchor())
-                        || (attempt.state() == AttemptState.Quarantined.INSTANCE
+                        || (attempt.state() == AttemptState.QUARANTINED
                                 && attempt.updatedAt().isBefore(observedBefore)))
                 .sorted(Comparator.comparing(RefreshAttempt::updatedAt)
                         .thenComparing(attempt -> attempt.id().value()))
@@ -282,10 +284,10 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     private static boolean isActive(AttemptState state) {
-        return state == AttemptState.Preparing.INSTANCE
-                || state == AttemptState.Building.INSTANCE
-                || state == AttemptState.Committed.INSTANCE
-                || state == AttemptState.Quarantined.INSTANCE;
+        return state == AttemptState.PREPARING
+                || state == AttemptState.BUILDING
+                || state == AttemptState.COMMITTED
+                || state == AttemptState.QUARANTINED;
     }
 
     @Override
@@ -295,8 +297,8 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             throw MaterializationException.requestRejected(
                     "attempt " + attempt.value() + " does not exist");
         }
-        if (current.state() != AttemptState.Preparing.INSTANCE
-                && current.state() != AttemptState.Building.INSTANCE) {
+        if (current.state() != AttemptState.PREPARING
+                && current.state() != AttemptState.BUILDING) {
             throw MaterializationException.concurrentPublication(
                     "attempt " + attempt.value() + " is no longer preparing");
         }
@@ -340,7 +342,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             MaterializationObject replacement, DefinitionRevision definition, Schedule schedule,
             CommandId commandId, MaterializationEvent event) {
         MaterializationObject current = objects.get(replacement.id());
-        if (current == null || current.state() != ObjectState.Dropped.INSTANCE
+        if (current == null || current.state() != ObjectState.DROPPED
                 || !current.incarnation().equals(expectedDropped.incarnation())) {
             return false;
         }
@@ -461,8 +463,8 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             throw MaterializationException.concurrentPublication(
                     "mutation must advance the head revision for " + object.id().canonicalName());
         }
-        if (current.state() != ObjectState.Active.INSTANCE
-                && current.state() != ObjectState.Suspended.INSTANCE) {
+        if (current.state() != ObjectState.ACTIVE
+                && current.state() != ObjectState.SUSPENDED) {
             throw MaterializationException.invalidStateTransition(
                     "cannot redefine an object in state " + current.state().stateName());
         }
@@ -578,11 +580,11 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     private static boolean isSettled(AttemptState state) {
-        return state == AttemptState.Published.INSTANCE
-                || state == AttemptState.Failed.INSTANCE
-                || state == AttemptState.Abandoned.INSTANCE
-                || state == AttemptState.Superseded.INSTANCE
-                || state == AttemptState.Quarantined.INSTANCE;
+        return state == AttemptState.PUBLISHED
+                || state == AttemptState.FAILED
+                || state == AttemptState.ABANDONED
+                || state == AttemptState.SUPERSEDED
+                || state == AttemptState.QUARANTINED;
     }
 
     private static Instant earliestExpiry(List<SourcePin> pins) {
@@ -616,10 +618,10 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             throw MaterializationException.requestRejected(
                     "attempt " + attemptId.value() + " does not exist");
         }
-        if (attempt.state() != AttemptState.Preparing.INSTANCE
-                && attempt.state() != AttemptState.Building.INSTANCE
-                && attempt.state() != AttemptState.Quarantined.INSTANCE
-                && attempt.state() != AttemptState.Committed.INSTANCE) {
+        if (attempt.state() != AttemptState.PREPARING
+                && attempt.state() != AttemptState.BUILDING
+                && attempt.state() != AttemptState.QUARANTINED
+                && attempt.state() != AttemptState.COMMITTED) {
             throw MaterializationException.evidenceMismatch(
                     "attempt " + attemptId.value() + " in state " + attempt.state()
                             + " cannot accept commit evidence");
@@ -631,7 +633,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             }
         } else {
             RefreshAttempt ready = attempt;
-            if (ready.state() == AttemptState.Preparing.INSTANCE) {
+            if (ready.state() == AttemptState.PREPARING) {
                 ready = ready.markBuilding(now);
             }
             putAttempt(ready.markCommitted(evidence, now));
@@ -639,7 +641,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         Generation generation = findGenerationByAttempt(attemptId)
                 .orElseThrow(() -> MaterializationException.requestRejected(
                         "generation of attempt " + attemptId.value() + " does not exist"));
-        Generation committed = generation.state() == GenerationState.Committed.INSTANCE
+        Generation committed = generation.state() == GenerationState.COMMITTED
                 ? generation
                 : generation.commit(evidence, now);
         putGeneration(committed);
@@ -668,7 +670,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         }
         command.fence().requireValidAt(now);
         RefreshAttempt attempt = attempts.get(command.attempt().id());
-        if (attempt == null || attempt.state() != AttemptState.Committed.INSTANCE) {
+        if (attempt == null || attempt.state() != AttemptState.COMMITTED) {
             throw MaterializationException.evidenceMismatch(
                     "attempt " + command.attempt().id().value() + " is not committed");
         }
@@ -678,7 +680,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                     "publication evidence does not match the recorded attempt evidence");
         }
         Generation generation = generations.get(command.generation().id());
-        if (generation == null || generation.state() != GenerationState.Committed.INSTANCE
+        if (generation == null || generation.state() != GenerationState.COMMITTED
                 || !generation.producingAttempt().equals(attempt.id())) {
             throw MaterializationException.evidenceMismatch(
                     "generation " + command.generation().id().value()
@@ -690,7 +692,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                 .filter(previous -> !previous.equals(generation.id()))
                 .map(generations::get)
                 .filter(previous -> previous != null
-                        && previous.state() == GenerationState.Published.INSTANCE)
+                        && previous.state() == GenerationState.PUBLISHED)
                 .ifPresent(previous -> generations.put(previous.id(), previous.retire()));
         Generation published = generation.publish(now);
         generations.put(published.id(), published);
@@ -745,14 +747,14 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                     "object header for " + dropped.id().canonicalName()
                             + " is no longer dropping at revision " + expectedRevision);
         }
-        if (current.state() != ObjectState.Dropping.INSTANCE) {
+        if (current.state() != ObjectState.DROPPING) {
             throw MaterializationException.invalidStateTransition(
                     "object " + dropped.id().canonicalName() + " is not dropping");
         }
         objects.put(dropped.id(), dropped);
         if (publishedGeneration.isPresent()) {
             generations.computeIfPresent(publishedGeneration.orElseThrow(),
-                    (id, generation) -> generation.state() == GenerationState.Published.INSTANCE
+                    (id, generation) -> generation.state() == GenerationState.PUBLISHED
                             ? generation.retire() : generation);
         }
         Instant now = dropped.updatedAt();
@@ -760,7 +762,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             if (!attempt.object().equals(dropped.id())) {
                 continue;
             }
-            if (attempt.state() == AttemptState.Committed.INSTANCE) {
+            if (attempt.state() == AttemptState.COMMITTED) {
                 attempts.put(attempt.id(), attempt.supersede("object dropped", now));
             } else if (isActive(attempt.state())) {
                 attempts.put(attempt.id(), attempt.abandon("object dropped", now));
@@ -786,7 +788,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         }
         physicalDrop.run();
         generations.put(generation.id(), generation.collect());
-        updateGcDecision(entry.entryId(), GcLedgerEntry.GcState.APPLIED, event.occurredAt());
+        updateGcDecision(entry.entryId(), GcState.APPLIED, event.occurredAt());
         events.add(event);
         return true;
     }
@@ -795,10 +797,10 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         return generations.values().stream()
                 .filter(other -> !other.id().equals(generation.id()))
                 .filter(other -> other.baseGeneration().filter(generation.id()::equals).isPresent())
-                .anyMatch(other -> other.state() == GenerationState.Candidate.INSTANCE
-                        || other.state() == GenerationState.Committed.INSTANCE
-                        || other.state() == GenerationState.Published.INSTANCE
-                        || other.state() == GenerationState.Quarantined.INSTANCE);
+                .anyMatch(other -> other.state() == GenerationState.CANDIDATE
+                        || other.state() == GenerationState.COMMITTED
+                        || other.state() == GenerationState.PUBLISHED
+                        || other.state() == GenerationState.QUARANTINED);
     }
 
     private boolean publishedGeneration(GenerationId generation) {
@@ -952,10 +954,10 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     @Override
-    public void updateGcDecision(UUID entryId, GcLedgerEntry.GcState state, Instant now) {
+    public void updateGcDecision(UUID entryId, GcState state, Instant now) {
         for (int index = 0; index < gcLedger.size(); index++) {
             GcLedgerEntry entry = gcLedger.get(index);
-            if (entry.entryId().equals(entryId) && entry.state() != GcLedgerEntry.GcState.APPLIED) {
+            if (entry.entryId().equals(entryId) && entry.state() != GcState.APPLIED) {
                 gcLedger.set(index, new GcLedgerEntry(entry.entryId(), entry.generation(),
                         entry.decision(), entry.evidence(), state, entry.createdAt(), now));
                 return;
@@ -967,17 +969,17 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         RefreshAttempt attempt = attempts.get(generation.producingAttempt());
         AttemptState attemptState = attempt == null ? null : attempt.state();
         boolean settled;
-        if (generation.state() == GenerationState.Retired.INSTANCE) {
+        if (generation.state() == GenerationState.RETIRED) {
             settled = generation.publishedAt()
                     .map(published -> !published.isAfter(eligibleBefore))
                     .orElse(false);
-        } else if (generation.state() == GenerationState.Candidate.INSTANCE) {
+        } else if (generation.state() == GenerationState.CANDIDATE) {
             settled = !generation.createdAt().isAfter(eligibleBefore)
-                    && (attemptState == AttemptState.Failed.INSTANCE
-                            || attemptState == AttemptState.Abandoned.INSTANCE);
-        } else if (generation.state() == GenerationState.Committed.INSTANCE) {
+                    && (attemptState == AttemptState.FAILED
+                            || attemptState == AttemptState.ABANDONED);
+        } else if (generation.state() == GenerationState.COMMITTED) {
             settled = !generation.createdAt().isAfter(eligibleBefore)
-                    && attemptState == AttemptState.Superseded.INSTANCE;
+                    && attemptState == AttemptState.SUPERSEDED;
         } else {
             return false;
         }
@@ -992,10 +994,10 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         boolean baseOfLiveGeneration = generations.values().stream()
                 .filter(other -> !other.id().equals(generation.id()))
                 .filter(other -> other.baseGeneration().filter(generation.id()::equals).isPresent())
-                .anyMatch(other -> other.state() == GenerationState.Candidate.INSTANCE
-                        || other.state() == GenerationState.Committed.INSTANCE
-                        || other.state() == GenerationState.Published.INSTANCE
-                        || other.state() == GenerationState.Quarantined.INSTANCE);
+                .anyMatch(other -> other.state() == GenerationState.CANDIDATE
+                        || other.state() == GenerationState.COMMITTED
+                        || other.state() == GenerationState.PUBLISHED
+                        || other.state() == GenerationState.QUARANTINED);
         if (baseOfLiveGeneration) {
             return false;
         }

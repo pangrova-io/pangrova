@@ -1,5 +1,7 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -14,7 +16,6 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Files;
@@ -201,7 +202,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         var candidate = unobserved.get(0).getPublication().getCandidate();
         byte[] immutable = Files.readAllBytes(Path.of(uri).resolve(candidate.getManifestRelativePath()));
         assertThatThrownBy(() -> fixture.reference(uri, 0)).hasMessageContaining("No accepted source");
-        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
         var replay = sdk.prepare(request);
         assertThat(withoutInvocation(replay)).isEqualTo(withoutInvocation(unobserved));
         assertThat(replay.get(0).getInvocationId()).isNotEqualTo(unobserved.get(0).getInvocationId());
@@ -226,7 +227,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         var receipt = fixture.abort(allocation.executionId());
         assertThat(receipt.executionId()).isEqualTo(allocation.executionId());
         assertThat(receipt.commitFingerprint()).isEqualTo(candidate.getMembershipId());
-        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.ABORTED);
+        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
         assertThatThrownBy(() -> sdk.accept(allocation, pages)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> fixture.reference(uri, 0)).hasMessageContaining("No accepted source");
         assertThat(Files.isRegularFile(Path.of(uri).resolve(candidate.getManifestRelativePath()))).isTrue();
@@ -268,11 +269,11 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         var loser = leftResult.reference() == null ? leftResult : rightResult;
         assertThat(loser.failure()).isInstanceOf(IllegalStateException.class);
         assertThat(fixture.reference(uri, 0)).isEqualTo(winner.reference());
-        assertThat(fixture.journal().getEntry(winner.execution()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
-        assertThat(fixture.journal().getEntry(loser.execution()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(fixture.journal().getEntry(winner.execution()).orElseThrow().state()).isEqualTo(WriteCommitState.COMMITTED);
+        assertThat(fixture.journal().getEntry(loser.execution()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
         var aborted = fixture.abort(loser.execution());
         assertThat(aborted.executionId()).isEqualTo(loser.execution());
-        assertThat(fixture.journal().getEntry(loser.execution()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.ABORTED);
+        assertThat(fixture.journal().getEntry(loser.execution()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
         try (var allocator = new RootAllocator()) {
             assertThat(sdk.read(base, allocator)).containsExactly(List.of(81L));
             assertThat(sdk.read(winner.reference(), allocator)).containsExactly(List.of(81L),
@@ -338,7 +339,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         assertThat(Files.readAllBytes(path)).containsExactly(different);
         assertThat(Files.exists(manifestPath)).isFalse();
         assertThatThrownBy(() -> fixture.reference(uri, 0)).hasMessageContaining("No accepted source");
-        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(fixture.journal().getEntry(allocation.executionId()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
         // Restore the actual canonical object only in this adversarial fixture; production never overwrites it.
         Files.write(path, original);
         Files.write(manifestPath, manifestBytes);

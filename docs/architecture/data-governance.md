@@ -46,7 +46,7 @@ replacement identities across restarts. An identity is not an authorization gran
 the execution adapter must recheck current privileges and policies.
 
 `QualityReadRequest` carries catalog, schema, table, stable table UUID, predicate and COUNTS/SAMPLES
-separately. Governance does not build executable SQL. Coordinator's `QualityReadSql`
+separately. The integration-test fixture `QualityReadSql`
 uses Pangrova's production grammar and constructs an SQL AST from the parsed
 expression and exact identifier components. It rejects added statements, outer
 query clauses and unbound parameters, preserves read subqueries, and treats keywords
@@ -664,6 +664,12 @@ mask to a replacement. Unbound historical authored masks are rejected until expl
 rebound; the upgrade does not guess ownership from a matching name. The `auto_pii_`
 namespace is reserved for classification and cannot be written or deleted through the
 authored-mask API.
+
+The name-keyed lineage catalog and downstream tag propagation example live in test
+sources. The example lacks tenant-scoped, stable target identity and cannot install
+durable downstream policy. Five in-memory governance repositories also serve tests.
+Coordinator and Server test fixtures borrow the quality-rule and audit-config stores
+from the Governance test-classifier artifact.
 
 The accepted PII values, VARCHAR requirement, NULL/short-string behavior and migration
 rules are specified in [column tag SQL](../sql-reference/ddl.md#alter-table).

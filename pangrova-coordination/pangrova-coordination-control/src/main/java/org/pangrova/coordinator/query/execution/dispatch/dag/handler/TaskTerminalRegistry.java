@@ -1,139 +1,97 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.query.api.error.QueryFailure;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** Atomically correlates task registration with asynchronously arriving terminal states. */
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+
+/** Correlates admitted reports and task registrations for one exact live DAG. */
 public final class TaskTerminalRegistry {
-    private static final Logger LOG =
-            LoggerFactory.getLogger(TaskTerminalRegistry.class);
+    private final String queryId;
+    private final Map<String, Slot> slots = new HashMap<>();
+    private boolean closed;
 
-    private final ConcurrentHashMap<String, TaskSlot> taskSlots =
-            new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Set<String>> queryTaskIndex =
-            new ConcurrentHashMap<>();
-
-    /** Registers a task and replays a terminal event that arrived first. */
-    public void register(String queryId, String taskId, Stage stage) {
-        queryTaskIndex.computeIfAbsent(
-                queryId, ignored -> ConcurrentHashMap.newKeySet()).add(taskId);
-        EarlyTerminalEvent[] replay = new EarlyTerminalEvent[1];
-        taskSlots.compute(taskId, (key, existing) ->
-                registerSlot(stage, existing, replay));
-        LOG.info("event=task_registered queryId={} taskId={} stageState={}",
-                queryId, taskId, stage.stateMachine().getState());
-        replayEarlyTerminal(queryId, taskId, stage, replay[0]);
+    public TaskTerminalRegistry(String queryId) {
+        this.queryId = Objects.requireNonNull(queryId);
     }
 
-    /** Routes or buffers a task terminal state. */
-    public void onTerminal(
-            String queryId,
-            String taskId,
-            String state,
-            QueryFailure error) {
-        Stage[] route = new Stage[1];
-        taskSlots.compute(taskId, (key, existing) ->
-                terminalSlot(queryId, state, error, existing, route));
-        if (route[0] != null) {
-            routeTerminal(route[0], taskId, queryId, state, error);
-            return;
+    /** Captures the owning generation and delivers at most one buffered terminal event. */
+    public void register(String query, String taskId, Stage stage) {
+        if (!queryId.equals(query) || !queryId.equals(stage.stateMachine().getQueryId())) {
+            throw new IllegalArgumentException("Task registration differs from its owning query");
         }
-        LOG.info("event=early_terminal_buffered queryId={} taskId={} state={}",
-                queryId, taskId, state);
+        int generation = stage.currentGeneration();
+        Event early;
+        synchronized (this) {
+            if (closed) return;
+            Slot slot = slots.computeIfAbsent(taskId, ignored -> new Slot());
+            if (slot.stage != null) {
+                if (slot.stage != stage || slot.generation != generation) {
+                    throw new IllegalStateException("Task identity already belongs to another stage attempt: " + taskId);
+                }
+                return;
+            }
+            slot.stage = stage;
+            slot.generation = generation;
+            early = slot.event;
+        }
+        if (early != null) early.deliver(stage, taskId, generation);
     }
 
-    /** Clears all terminal correlation state for a query. */
-    public void clear(String queryId) {
-        Set<String> taskIds = queryTaskIndex.remove(queryId);
-        if (taskIds != null) {
-            taskIds.forEach(taskSlots::remove);
+    /** First terminal fact wins. A stage callback may synchronously retry or retire this DAG. */
+    public void onTerminal(String query, String taskId, String state, QueryFailure error) {
+        if (!queryId.equals(query) || !("FINISHED".equals(state) || "FAILED".equals(state)
+                || "CANCELLED".equals(state))) return;
+        Event event = new Event(state, error);
+        Stage stage;
+        int generation;
+        synchronized (this) {
+            if (closed) return;
+            Slot slot = slots.computeIfAbsent(taskId, ignored -> new Slot());
+            if (slot.event != null) return;
+            slot.event = event;
+            stage = slot.stage;
+            generation = slot.generation;
         }
+        if (stage != null) event.deliver(stage, taskId, generation);
     }
 
-    private static TaskSlot registerSlot(
-            Stage stage,
-            TaskSlot existing,
-            EarlyTerminalEvent[] replay) {
-        if (existing != null && existing.stage() == null) {
-            replay[0] = existing.earlyEvent();
-            return new TaskSlot(stage, null, true);
+    /** A failed replacement restored the old task after its first terminal report may have been routed. */
+    public void replayRestoredTask(String taskId, Stage stage) {
+        Event event;
+        int generation;
+        synchronized (this) {
+            Slot slot = slots.get(taskId);
+            if (closed || slot == null || slot.stage != stage || slot.event == null) return;
+            event = slot.event;
+            generation = slot.generation;
         }
-        return new TaskSlot(stage, null, false);
+        event.deliver(stage, taskId, generation);
     }
 
-    private static TaskSlot terminalSlot(
-            String queryId,
-            String state,
-            QueryFailure error,
-            TaskSlot existing,
-            Stage[] route) {
-        if (existing == null || existing.stage() == null) {
-            return new TaskSlot(
-                    null, new EarlyTerminalEvent(queryId, state, error), false);
-        }
-        if (!existing.replayed()) {
-            route[0] = existing.stage();
-        }
-        return existing;
+    /** Closes admission even to registrations that acquired this registry before retirement. */
+    public synchronized void close() {
+        closed = true;
+        slots.clear();
     }
 
-    private void replayEarlyTerminal(
-            String queryId,
-            String taskId,
-            Stage stage,
-            EarlyTerminalEvent event) {
-        if (event == null) {
-            return;
-        }
-        LOG.info("event=early_terminal_replayed queryId={} taskId={} state={}",
-                queryId, taskId, event.state());
-        taskSlots.remove(taskId);
-        routeTerminal(stage, taskId, queryId, event.state(), event.error());
+    private static final class Slot {
+        private Stage stage;
+        private int generation;
+        private Event event;
     }
 
-    private void routeTerminal(
-            Stage stage,
-            String taskId,
-            String queryId,
-            String state,
-            QueryFailure error) {
-        switch (state) {
-            case "FINISHED" -> stage.onTaskFinished(taskId);
-            case "FAILED" -> routeFailure(stage, taskId, queryId, error);
-            case "CANCELLED" -> stage.onTaskFailed(
-                    taskId, cancellationError(error));
-            default -> {
+    private record Event(String state, QueryFailure error) {
+        private void deliver(Stage stage, String taskId, int generation) {
+            if ("FINISHED".equals(state)) {
+                stage.onTaskFinished(taskId, generation);
+            } else {
+                QueryFailure cause = "CANCELLED".equals(state) && error == null
+                        ? new QueryFailure("TASK_CANCELLED", "TaskCancelled", "Task was cancelled") : error;
+                stage.onTaskFailed(taskId, cause, generation);
             }
         }
-        LOG.debug("event=task_terminal_routed queryId={} taskId={} state={}"
-                        + " stageId={}",
-                queryId, taskId, state, stage.stageId());
     }
-
-    private void routeFailure(
-            Stage stage, String taskId, String queryId, QueryFailure error) {
-        if (error != null && "EXCHANGE-0004".equals(error.errorCode())) {
-            LOG.info("event=shuffle_fetch_failure_detected queryId={}"
-                            + " taskId={} stageId={}",
-                    queryId, taskId, stage.stageId());
-        }
-        stage.onTaskFailed(taskId, error);
-    }
-
-    private static QueryFailure cancellationError(QueryFailure error) {
-        return error != null ? error
-                : new QueryFailure(
-                        "TASK_CANCELLED", "TaskCancelled", "Task was cancelled");
-    }
-
-    private record EarlyTerminalEvent(
-            String queryId, String state, QueryFailure error) {}
-
-    private record TaskSlot(
-            Stage stage, EarlyTerminalEvent earlyEvent, boolean replayed) {}
 }

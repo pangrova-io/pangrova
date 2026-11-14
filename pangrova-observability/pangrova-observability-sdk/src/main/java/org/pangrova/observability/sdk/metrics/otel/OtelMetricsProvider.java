@@ -4,10 +4,12 @@ import io.opentelemetry.api.metrics.Meter;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.function.Supplier;
 
 /**
@@ -39,6 +41,15 @@ public final class OtelMetricsProvider implements MetricsProvider {
                         .setDescription(description)
                         .setUnit(unit)
                         .buildWithCallback(measurement -> measurement.record(supplier.get()));
+        return new OtelObservableDoubleGauge(gauge);
+    }
+
+    @Override
+    public ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+            MetricAttributes attributes, Supplier<OptionalDouble> sample) {
+        var dimensions = OtelAttributeConverter.toOtel(attributes);
+        var gauge = meter.gaugeBuilder(name).setDescription(description).setUnit(unit)
+                .buildWithCallback(measurement -> sample.get().ifPresent(value -> measurement.record(value, dimensions)));
         return new OtelObservableDoubleGauge(gauge);
     }
 

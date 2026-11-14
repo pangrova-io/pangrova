@@ -1,6 +1,6 @@
 package org.pangrova.worker.cache;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

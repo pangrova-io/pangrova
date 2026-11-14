@@ -11,9 +11,8 @@ import java.util.List;
 /**
  * Resolves a catalog name to the connector resources needed for write operations.
  *
- * <p>This abstraction decouples the write bridge adapter from the metadata
- * module's {@code CatalogRegistry}, allowing the worker module to remain
- * independent of metadata internals per the module dependency rules.</p>
+ * <p>Worker writes use this contract to resolve the resources, so the metadata
+ * module owns its {@code CatalogRegistry} independently.</p>
  *
  * <p>The production implementation is a Worker-local connector runtime. It
  * binds the exact catalog revision and Coordinator-allocated output handle

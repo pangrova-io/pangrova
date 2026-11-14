@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.PlannedDmlOperation;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,7 +25,7 @@ import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
  */
 public record DmlWriteTarget(
         List<String> qualifiedTableName,
-        DmlOperation operation,
+        PlannedDmlOperation operation,
         Optional<WriteDeclarationSnapshot> declaration
 ) {
     public DmlWriteTarget {
@@ -34,27 +36,4 @@ public record DmlWriteTarget(
         }
     }
 
-    /**
-     * DML operation type extracted from the compiled plan.
-     */
-    public enum DmlOperation {
-        INSERT,
-        DELETE,
-        UPDATE,
-        MERGE;
-
-        /**
-         * Parses the Calcite TableModify.Operation name into a DmlOperation.
-         */
-        public static DmlOperation fromCalciteName(String name) {
-            return switch (name) {
-                case "INSERT" -> INSERT;
-                case "DELETE" -> DELETE;
-                case "UPDATE" -> UPDATE;
-                case "MERGE" -> MERGE;
-                default -> throw new IllegalArgumentException(
-                        "Unknown DML operation: " + name);
-            };
-        }
-    }
 }

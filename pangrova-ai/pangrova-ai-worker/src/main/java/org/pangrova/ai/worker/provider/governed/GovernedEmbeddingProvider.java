@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.provider.governed;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -47,10 +49,10 @@ public final class GovernedEmbeddingProvider implements EmbeddingProvider {
 
     private AiInvocationResult invoke(List<AiInvocationRequest.Input> inputs, EmbeddingPurpose purpose) {
         AiCapabilityDescriptor capability = AiInvocationRequests.requireCapability(
-                capabilities(), AiCapabilityDescriptor.Operation.EMBEDDING);
+                capabilities(), AiOperation.EMBEDDING);
         var request = AiInvocationRequests.createEmbedding(
                 modelName(), modelVersion(), modelSignatureSha256(), capability,
-                AiCapabilityDescriptor.ExecutionMode.BATCH, inputs, purpose);
+                AiExecutionMode.BATCH, inputs, purpose);
         return service.invoke(request);
     }
 

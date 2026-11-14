@@ -4,15 +4,15 @@ import java.util.Objects;
 
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 
-import static org.pangrova.shuffle.api.capability.ShuffleCapability.CONSUMER_RETRY;
-import static org.pangrova.shuffle.api.capability.ShuffleCapability.SPECULATIVE_ATTEMPT_ISOLATION;
+import static org.pangrova.shuffle.api.enums.ShuffleCapability.CONSUMER_RETRY;
+import static org.pangrova.shuffle.api.enums.ShuffleCapability.SPECULATIVE_ATTEMPT_ISOLATION;
 
 /**
  * Checks an explicit consumer-retry requirement against effective exchange guarantees.
  *
  * <p>The caller must already intersect implementation, deployment and current exchange evidence.
- * Consumer retry admission is not yet assembled into production dispatch. The speculation check runs during assembly. Neither check validates receipts,
- * select attempts or infer guarantees from a storage tier or transport mode.
+ * Current dispatch rejects consumer replay because no deployed provider can renew read authority.
+ * Speculation is checked during assembly. Receipt validation and attempt selection belong to publication.
  */
 public final class ShuffleRetryPolicyValidator {
     private ShuffleRetryPolicyValidator() {}

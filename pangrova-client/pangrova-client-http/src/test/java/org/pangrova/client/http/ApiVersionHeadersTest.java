@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.session.ConnectionPoolConfig;
 import org.pangrova.common.client.session.RetryPolicy;
-import org.pangrova.common.client.version.ApiVersion;
+import org.pangrova.common.client.constants.ApiVersion;
 
 import java.net.InetSocketAddress;
 import java.net.URI;

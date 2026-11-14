@@ -13,12 +13,13 @@
  */
 package org.pangrova.ai.api.embedding;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
 /**
  * Immutable reference to a binary object in the governed FILE store.
@@ -37,7 +38,6 @@ import java.util.regex.Pattern;
 @Experimental
 public record BlobReference(String uri, String mimeType, long size, String checksum) {
 
-    private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
 
     public BlobReference {
         requireChecksum(checksum);
@@ -62,7 +62,7 @@ public record BlobReference(String uri, String mimeType, long size, String check
 
     private static void requireChecksum(String checksum) {
         requireText(checksum, "checksum");
-        if (!SHA256.matcher(checksum.toLowerCase(Locale.ROOT)).matches()) {
+        if (!DigestUtils.isSha256Hex(checksum.toLowerCase(Locale.ROOT))) {
             throw new IllegalArgumentException(
                     "checksum must be a 64-character SHA-256 hex digest");
         }
@@ -101,9 +101,9 @@ public record BlobReference(String uri, String mimeType, long size, String check
     private static void requireCanonicalPath(String[] segments) {
         boolean canonical = segments.length == 4
                 && segments[0].isEmpty()
-                && SHA256.matcher(segments[1]).matches()
-                && SHA256.matcher(segments[2]).matches()
-                && SHA256.matcher(segments[3]).matches();
+                && DigestUtils.isSha256Hex(segments[1])
+                && DigestUtils.isSha256Hex(segments[2])
+                && DigestUtils.isSha256Hex(segments[3]);
         if (!canonical) {
             throw invalidGovernedUri();
         }

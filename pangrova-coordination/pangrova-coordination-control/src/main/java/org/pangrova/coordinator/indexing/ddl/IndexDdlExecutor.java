@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -124,13 +125,13 @@ public final class IndexDdlExecutor implements AutoCloseable {
         checkAccess(tableRef, user, true);
         var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         var accessors = deps.accessorResolver().forSession(session);
-        IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
+        var tableMetadata = IndexDdlValidation.resolveTable(tableRef, deps.catalogRegistry(), session);
         IndexType indexType = parseIndexType(stmt.indexType());
-        List<String> columns = IndexValidationHelper.validateColumns(
-                tableRef, stmt.columnNames(), indexType, deps.catalogRegistry(), session);
+        List<String> columns = IndexDdlValidation.validateColumns(
+                tableRef, stmt.columnNames(), indexType, tableMetadata);
         checkRawBuildRead(tableRef, user, columns);
-        IndexValidationHelper.validateMultiColumnConstraints(indexType, columns);
-        IndexValidationHelper.checkNativeCapabilityOverlap(
+        IndexDdlValidation.validateMultiColumnConstraints(indexType, columns);
+        IndexDdlValidation.checkNativeCapabilityOverlap(
                 tableRef.catalog(), columns, indexType, stmt.force(), accessors);
 
         boolean nativeArtifact = requiresNativeArtifact(indexType);
@@ -274,9 +275,9 @@ public final class IndexDdlExecutor implements AutoCloseable {
         IndexDescriptor target = findRebuildableIndex(
                 tableRef, stmt.indexName(), tenantId);
         var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
-        IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
-        List<String> columns = IndexValidationHelper.validateColumns(
-                tableRef, target.columnNames(), target.indexType(), deps.catalogRegistry(), session);
+        var tableMetadata = IndexDdlValidation.resolveTable(tableRef, deps.catalogRegistry(), session);
+        List<String> columns = IndexDdlValidation.validateColumns(
+                tableRef, target.columnNames(), target.indexType(), tableMetadata);
         checkRawBuildRead(tableRef, user, columns);
 
         boolean nativeArtifact = requiresNativeArtifact(target.indexType());
@@ -580,7 +581,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     private static IndexType parseIndexType(String typeStr) {
         try {
-            return IndexType.valueOf(typeStr.toUpperCase());
+            return IndexType.valueOf(typeStr.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Unknown index type: " + typeStr);

@@ -1,8 +1,9 @@
 package org.pangrova.coordinator.query.statement;
+
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementCompletionListener;
-
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;
 import org.pangrova.query.statement.StatementTableTargets;
@@ -85,7 +86,7 @@ class DeleteTargetedPathTest {
                 Identifier.of("mem", "default", "orders"),
                 Optional.of(new BinaryExpression(
                         Identifier.of("id"),
-                        BinaryExpression.Operator.EQUAL,
+                        BinaryExpressionOperator.EQUAL,
                         Literal.ofInteger(targetId))));
     }
 

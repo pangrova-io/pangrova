@@ -1,5 +1,6 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.VolumeType;
 import org.pangrova.metadata.api.enums.AssetType;
 
 import java.time.Instant;
@@ -56,11 +57,4 @@ public record VolumeAsset(
         return AssetType.VOLUME;
     }
 
-    /** Volume storage management mode. */
-    public enum VolumeType {
-        /** Catalog manages the storage lifecycle (create, delete on DROP). */
-        MANAGED,
-        /** Catalog only tracks the external location; storage is externally managed. */
-        EXTERNAL
-    }
 }

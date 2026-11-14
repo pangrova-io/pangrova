@@ -1,5 +1,7 @@
 package org.pangrova.persistence.file.postgresql.profile;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,7 +68,7 @@ public final class JdbcStorageProfileRegistry implements StorageProfileRegistry 
                     return true;
                 }
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -88,7 +90,7 @@ public final class JdbcStorageProfileRegistry implements StorageProfileRegistry 
                     return removed;
                 }
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -205,14 +207,6 @@ public final class JdbcStorageProfileRegistry implements StorageProfileRegistry 
                 rows.getString("region"), Map.of(), options);
         return new StorageProfileRevision(profile,
                 rows.getObject("incarnation_id", UUID.class).toString(), rows.getLong("revision"));
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error rollbackFailure) {
-            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
-        }
     }
 
     @FunctionalInterface

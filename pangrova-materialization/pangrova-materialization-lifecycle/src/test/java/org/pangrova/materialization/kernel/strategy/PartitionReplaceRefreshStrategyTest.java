@@ -1,5 +1,7 @@
 package org.pangrova.materialization.kernel.strategy;
 
+import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.pangrova.materialization.kernel.MaterializationTestFixtures.ATTEMPT_ID;
@@ -22,7 +24,7 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.refresh.RefreshContext;
@@ -44,7 +46,7 @@ class PartitionReplaceRefreshStrategyTest {
     private static final PhysicalTableRef CANDIDATE = candidate(2);
     private static final String DEFINITION_SQL = "SELECT id, region, amount FROM lake.db.orders";
     private static final PartitionAlignment SCAN_ALIGNMENT = new PartitionAlignment(
-            PartitionAlignment.Shape.SCAN,
+            PartitionAlignmentShape.SCAN,
             List.of(new PartitionAlignment.Column("region", "region", false)));
 
     private final PartitionReplaceRefreshStrategy strategy = new PartitionReplaceRefreshStrategy();
@@ -57,7 +59,7 @@ class PartitionReplaceRefreshStrategyTest {
         assertThat(strategy.validate(context).compatible()).isTrue();
         RefreshPlan plan = strategy.plan(context);
 
-        assertThat(plan.kind()).isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        assertThat(plan.kind()).isEqualTo(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         assertThat(plan.canonicalSql()).isEqualTo(
                 "SELECT * FROM " + RefreshSql.qualified(BASE_TABLE)
                         + " WHERE ((\"region\" IS NULL OR \"region\" <> 'eu'))"
@@ -96,14 +98,14 @@ class PartitionReplaceRefreshStrategyTest {
     void requiresADirectlyProjectedPartitionColumn() {
         assertIncompatible(context(PartitionAlignment.NONE,
                 changes(new PartitionChange(List.of(new PartitionValue("region", "'eu'"))))));
-        assertIncompatible(context(new PartitionAlignment(PartitionAlignment.Shape.SCAN, List.of()),
+        assertIncompatible(context(new PartitionAlignment(PartitionAlignmentShape.SCAN, List.of()),
                 changes(new PartitionChange(List.of(new PartitionValue("region", "'eu'"))))));
     }
 
     @Test
     void requiresAPartitionColumnToBeAGroupingKeyInAggregateDefinitions() {
         PartitionAlignment notGrouped = new PartitionAlignment(
-                PartitionAlignment.Shape.AGGREGATE,
+                PartitionAlignmentShape.AGGREGATE,
                 List.of(new PartitionAlignment.Column("region", "region", false)));
 
         assertIncompatible(context(notGrouped,
@@ -177,7 +179,7 @@ class PartitionReplaceRefreshStrategyTest {
 
     private static Generation publishedBase() {
         return Generation.candidate(GENERATION_ID, OBJECT, INCARNATION, 1, ATTEMPT_ID,
-                        Optional.empty(), BASE_TABLE, RefreshKind.Full.INSTANCE,
+                        Optional.empty(), BASE_TABLE, RefreshKind.FULL,
                         new SourceVector(Map.of(ORDERS, snapshot("snap-1")), 1), NOW)
                 .commit(evidence("commit-1"), NOW)
                 .publish(NOW);

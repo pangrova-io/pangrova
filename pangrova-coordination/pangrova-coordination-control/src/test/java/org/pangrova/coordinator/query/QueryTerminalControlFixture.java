@@ -20,7 +20,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Actual control-plane owners only: no task is issued or simulated by this fixture. */

@@ -1,7 +1,7 @@
 package org.pangrova.security.codec.authorization;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -182,7 +182,7 @@ public final class DeferredAuthorizationScopeCodec {
                 new QualifiedTableName(text(node.required("catalog")), text(node.required("schema")),
                         text(node.required("table"))), columns,
                 Privilege.valueOf(text(node.required("privilege"))),
-                DeferredAuthorizationScope.ReadMode.valueOf(text(node.required("readMode"))),
+                AuthorizedReadMode.valueOf(text(node.required("readMode"))),
                 new DeferredAuthorizationScope.PolicySnapshot(optionalText(node.required("rowFilter")), masks));
     }
 

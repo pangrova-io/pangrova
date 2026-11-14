@@ -1,5 +1,6 @@
 package org.pangrova.ai.http.chat;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 
 import java.util.ArrayList;
@@ -65,7 +66,7 @@ public final class InferenceBatch {
             return 2;
         }
         return failure instanceof AiInvocationException typed
-                && typed.category() == AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN ? 1 : 0;
+                && typed.category() == AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN ? 1 : 0;
     }
 
     private static Throwable unwrap(Throwable failure) {

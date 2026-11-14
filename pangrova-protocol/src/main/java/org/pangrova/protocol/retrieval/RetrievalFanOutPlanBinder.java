@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import java.util.ArrayList;
@@ -278,7 +278,7 @@ public final class RetrievalFanOutPlanBinder {
             }
             var sort = fetch.getInput().getSort().toBuilder();
             Rel candidate = sort.getInput();
-            if (BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID.equals(
+            if (BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID.equals(
                     binding.capability().getCapabilityId())) {
                 candidate = replaceScoreWithBm25(candidate);
             } else {

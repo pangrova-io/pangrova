@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
@@ -22,7 +24,7 @@ class JournalPendingWritesTest {
         assertThatThrownBy(() -> foreign.admit(write, true))
                 .isInstanceOfSatisfying(JournalWriteException.class, failure ->
                         assertThat(failure.admissionOutcome())
-                                .isEqualTo(JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER))
+                                .isEqualTo(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER))
                 .hasMessageContaining("different pending owner");
         assertThat(owner.drained()).isTrue();
         assertThat(foreign.drained()).isTrue();
@@ -44,7 +46,7 @@ class JournalPendingWritesTest {
         assertThatThrownBy(() -> foreign.admit(new JournalPendingWrites.Write(owner, event), false))
                 .isInstanceOfSatisfying(JournalWriteException.class, failure ->
                         assertThat(failure.admissionOutcome())
-                                .isEqualTo(JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER));
+                                .isEqualTo(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER));
         var attempt = foreign.admit(new JournalPendingWrites.Write(foreign, event), false);
         assertThat(foreign.admit(new JournalPendingWrites.Write(foreign, event), true)).isSameAs(attempt);
         assertThat(attempt.isDone()).isFalse();

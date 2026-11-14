@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.resilience.lineage;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.coordinator.enums.StageRecoveryMode;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,8 +27,6 @@ public class StageLineageTracker {
     private static final Duration RECOMPUTE_THRESHOLD = Duration.ofSeconds(30);
     private static final long SHUFFLE_BYTES_THRESHOLD = 1L * 1024 * 1024 * 1024;
 
-    public enum RecoveryMode { RECOMPUTE, MEMORY_AND_REMOTE }
-
     private final ConcurrentHashMap<String, List<String>> lineageGraph = new ConcurrentHashMap<>();
     private final Set<String> lostOutputs = ConcurrentHashMap.newKeySet();
 
@@ -36,12 +35,12 @@ public class StageLineageTracker {
     }
 
     /** Chooses a recovery mode based on estimated recompute duration and shuffle size. */
-    public RecoveryMode selectRecoveryMode(Duration estimatedDuration, long estimatedShuffleBytes) {
+    public StageRecoveryMode selectRecoveryMode(Duration estimatedDuration, long estimatedShuffleBytes) {
         if (estimatedDuration.compareTo(RECOMPUTE_THRESHOLD) < 0) {
-            return RecoveryMode.RECOMPUTE;
+            return StageRecoveryMode.RECOMPUTE;
         }
         if (estimatedShuffleBytes > SHUFFLE_BYTES_THRESHOLD) {
-            return RecoveryMode.MEMORY_AND_REMOTE;
+            return StageRecoveryMode.MEMORY_AND_REMOTE;
         }
         return selectByCost(estimatedDuration, estimatedShuffleBytes);
     }
@@ -63,10 +62,10 @@ public class StageLineageTracker {
         return lostOutputs.contains(stageId);
     }
 
-    private RecoveryMode selectByCost(Duration estimatedDuration, long estimatedShuffleBytes) {
+    private StageRecoveryMode selectByCost(Duration estimatedDuration, long estimatedShuffleBytes) {
         long recomputeCost = estimatedDuration.toMillis();
         long shuffleCost = estimatedShuffleBytes / (1024 * 1024);
-        return recomputeCost < shuffleCost ? RecoveryMode.RECOMPUTE : RecoveryMode.MEMORY_AND_REMOTE;
+        return recomputeCost < shuffleCost ? StageRecoveryMode.RECOMPUTE : StageRecoveryMode.MEMORY_AND_REMOTE;
     }
 
     private void buildChain(String stageId, List<String> chain, Set<String> visited) {

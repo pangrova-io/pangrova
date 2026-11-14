@@ -9,6 +9,12 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
+import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
+import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
+import org.pangrova.streaming.api.commit.OffsetRange;
+import org.pangrova.streaming.api.commit.PrepareToken;
+import org.pangrova.streaming.api.commit.SourceId;
+import org.pangrova.streaming.api.enums.CdcCommitState;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -29,6 +35,33 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("stream_state");
         store = new JdbcStreamStateStore(dataSource);
+    }
+
+    @Test
+    void deletingStreamDropsCachedOffsetsAndKeepsItsExactCommittedCheckpoint() {
+        StreamState state = newState("orders", "tenant-a");
+        assertThat(store.createState(state)).isTrue();
+        var partition = new TopicPartitionOffset("orders", 0);
+        var offsets = new JdbcStreamOffsetStore(dataSource);
+        offsets.saveOffsets(state.streamName(), Map.of(partition, 11L));
+        assertThat(offsets.loadOffsets(state.streamName())).containsEntry(partition, 11L);
+        var journal = new JdbcCdcCommitStateStore(dataSource);
+        var source = new SourceId(state.checkpointId());
+        var checkpoint = new CdcBatchCheckpoint(List.of(new OffsetRange("orders", 0, 0L, 10L)));
+        var token = new PrepareToken(java.util.UUID.randomUUID(), source, checkpoint, Instant.now().plusSeconds(60));
+        assertThat(journal.insert(token, CdcCommitState.COMMITTED)).isTrue();
+
+        var current = store.loadState(state.streamName()).orElseThrow();
+        assertThat(current.sourceProvider()).isEqualTo("kafka");
+        assertThat(current.checkpointId()).isEqualTo(state.checkpointId()).isNotEqualTo(state.streamName());
+        assertThat(store.delete(current)).isTrue();
+        assertThat(offsets.loadOffsets(state.streamName())).isEmpty();
+        assertThat(journal.findStateById(token.id())).contains(CdcCommitState.COMMITTED);
+        assertThat(journal.findLastCommittedOffsets(source)).containsExactlyEntriesOf(Map.of(partition, 11L));
+
+        var replacement = newState(state.streamName(), state.tenantId());
+        assertThat(store.createState(replacement)).isTrue();
+        assertThat(journal.findLastCommittedOffsets(new SourceId(replacement.checkpointId()))).isEmpty();
     }
 
     @Test

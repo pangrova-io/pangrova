@@ -6,6 +6,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Isolated classloader for connector plugins with parent-first SPI delegation.
@@ -14,7 +15,7 @@ import java.util.Set;
  * <ul>
  *   <li>SPI packages: always delegate to the SPI classloader (mandatory)</li>
  *   <li>Shared packages: try the SPI classloader first, fall back to the plugin</li>
- *   <li>All others: plugin-first, fall back to the SPI classloader</li>
+ *   <li>All others: plugin-first, with only JDK platform classes as fallback</li>
  * </ul>
  *
  * <p>The shared-package set is supplied by the active {@link SharedPackagePolicy}
@@ -54,6 +55,18 @@ public class PluginClassLoader extends URLClassLoader {
         this.sharedPackages = Set.copyOf(Objects.requireNonNull(sharedPackages, "sharedPackages"));
     }
 
+    /** Scope SDK service discovery during factory startup and catalog construction. */
+    public <T> T withContext(Supplier<T> operation) {
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(this);
+        try {
+            return operation.get();
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         synchronized (getClassLoadingLock(name)) {
@@ -88,7 +101,7 @@ public class PluginClassLoader extends URLClassLoader {
             if (resolve) resolveClass(c);
             return c;
         } catch (ClassNotFoundException e) {
-            return spiClassLoader.loadClass(name);
+            return ClassLoader.getPlatformClassLoader().loadClass(name);
         }
     }
 

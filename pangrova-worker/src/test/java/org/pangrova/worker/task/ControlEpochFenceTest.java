@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.ControlEpochFenceReason;
 import org.pangrova.worker.exception.ControlEpochFenceException;
 
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ class ControlEpochFenceTest {
         ControlEpochFence fence = requiredFence();
 
         assertRejected(fence, null,
-                ControlEpochFenceException.Reason.CONTROL_PLANE_NOT_READY);
+                ControlEpochFenceReason.CONTROL_PLANE_NOT_READY);
     }
 
     @Test
@@ -34,10 +35,10 @@ class ControlEpochFenceTest {
         ControlEpochFence fence = requiredFence();
         fence.observe(12);
 
-        assertRejected(fence, null, ControlEpochFenceException.Reason.MISSING_EPOCH);
-        assertRejected(fence, 0L, ControlEpochFenceException.Reason.INVALID_EPOCH);
-        assertRejected(fence, 11L, ControlEpochFenceException.Reason.EPOCH_MISMATCH);
-        assertRejected(fence, 13L, ControlEpochFenceException.Reason.EPOCH_AHEAD);
+        assertRejected(fence, null, ControlEpochFenceReason.MISSING_EPOCH);
+        assertRejected(fence, 0L, ControlEpochFenceReason.INVALID_EPOCH);
+        assertRejected(fence, 11L, ControlEpochFenceReason.EPOCH_MISMATCH);
+        assertRejected(fence, 13L, ControlEpochFenceReason.EPOCH_AHEAD);
         fence.verify(12L);
     }
 
@@ -51,7 +52,7 @@ class ControlEpochFenceTest {
         fence.observe(9);
 
         assertThat(fence.currentEpoch()).hasValue(9L);
-        assertRejected(fence, 8L, ControlEpochFenceException.Reason.EPOCH_MISMATCH);
+        assertRejected(fence, 8L, ControlEpochFenceReason.EPOCH_MISMATCH);
         fence.verify(9L);
     }
 
@@ -103,7 +104,7 @@ class ControlEpochFenceTest {
 
     private static void assertRejected(
             ControlEpochFence fence, Long epoch,
-            ControlEpochFenceException.Reason expectedReason) {
+            ControlEpochFenceReason expectedReason) {
         assertThatThrownBy(() -> fence.verify(epoch))
                 .isInstanceOfSatisfying(ControlEpochFenceException.class,
                         error -> assertThat(error.reason()).isEqualTo(expectedReason));

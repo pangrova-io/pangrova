@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.query.lifecycle.QueryTerminalCleanup;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -74,7 +75,7 @@ final class QueryJournalLifecycle {
             append.run();
             state.retainJournalOwnership();
         } catch (JournalWriteException failure) {
-            if (failure.admissionOutcome() == JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+            if (failure.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
                 state.retainJournalOwnership();
             }
             throw failure;

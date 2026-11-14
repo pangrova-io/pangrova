@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.clustering;
 
+import org.pangrova.coordinator.enums.ReclusterJobState;
+
 import javax.annotation.concurrent.ThreadSafe;
 import java.util.List;
 import java.util.Optional;
@@ -30,7 +32,7 @@ public final class ReclusterJobTracker {
     /**
      * Atomically transitions a tracked job's state. No-op if the task is unknown.
      */
-    public void transition(String taskId, ReclusterJob.State newState) {
+    public void transition(String taskId, ReclusterJobState newState) {
         jobs.computeIfPresent(taskId, (id, existing) -> existing.withState(newState));
     }
 

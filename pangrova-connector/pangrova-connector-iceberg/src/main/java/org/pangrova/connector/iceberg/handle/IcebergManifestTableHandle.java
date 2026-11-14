@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,7 +26,6 @@ public record IcebergManifestTableHandle(
         Map<Integer, List<PartitionSummaryField>> partitionSummarySpecs,
         List<ConnectorTableMetadata.Column> typedColumns) implements ConnectorTableHandle {
 
-    private static final String SHA256_HEX_PATTERN = "[0-9a-f]{64}";
 
     /** Stable tuple identity and bound rendering; an empty name is outside the unified partition type. */
     public record PartitionSummaryField(String transform, String resultType, int fieldId, String name) {
@@ -88,7 +89,7 @@ public record IcebergManifestTableHandle(
         }
         if (sequenceNumber < 0 || listLocation == null || listLocation.isBlank()
                 || listLength <= 0 || listSha256 == null
-                || !listSha256.matches(SHA256_HEX_PATTERN)) {
+                || !DigestUtils.isSha256Hex(listSha256)) {
             throw new IllegalArgumentException("Selected manifests require a pinned list object");
         }
     }

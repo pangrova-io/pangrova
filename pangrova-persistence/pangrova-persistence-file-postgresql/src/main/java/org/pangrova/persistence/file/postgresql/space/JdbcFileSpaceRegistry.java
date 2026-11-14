@@ -1,5 +1,7 @@
 package org.pangrova.persistence.file.postgresql.space;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -69,7 +71,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                 connection.commit();
                 return created;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -112,7 +114,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                 connection.commit();
                 return updated;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -152,7 +154,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                             current.owner(), current.createdAt(), now);
                 }
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -244,7 +246,7 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                     return removed;
                 }
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -454,14 +456,6 @@ public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {
                 rows.getString("owner_name"),
                 JdbcSupport.getInstant(rows, "created_at"),
                 JdbcSupport.getInstant(rows, "updated_at"));
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error rollbackFailure) {
-            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
-        }
     }
 
     private record LockedFileSpace(UUID id, FileSpace space) {}

@@ -1,5 +1,10 @@
 package org.pangrova.coordinator.query.execution.retrieval;
 
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+import org.pangrova.execution.stage.enums.RetrievalSourceKind;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
@@ -48,7 +53,7 @@ public final class RetrievalIntentCollector {
                     && !node.indexSnapshot().isBlank()
                     && (node.serializedPreFilters().isEmpty()
                         || node.retrievalCapability().getCapabilityId().equals(
-                                BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))) {
+                                BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID))) {
                 int candidateLimit = vectorCandidateLimit(vectorSearch, rerankerPlan, node);
                 String sourceKey = "VECTOR:" + node.vectorColumn();
                 intents.put(sourceKey, new RetrievalGenerationIntent(
@@ -102,13 +107,13 @@ public final class RetrievalIntentCollector {
                     "Multi-vector retrieval requires per-source expression bindings; "
                             + "reusing one vector expression across sources is forbidden");
         }
-        RetrievalMergeIntent.Strategy strategy;
+        RetrievalMergeStrategy strategy;
         long rrfK = 0;
         double[] weights = new double[plan.sources().size()];
         java.util.Arrays.fill(weights, 1.0);
         RerankerPlanNode.RerankerStrategy fusion = fusionStrategy(plan);
         if (fusion instanceof RerankerPlanNode.RrfStrategy rrf) {
-            strategy = RetrievalMergeIntent.Strategy.RRF;
+            strategy = RetrievalMergeStrategy.RRF;
             rrfK = rrf.k();
         } else if (fusion
                 instanceof RerankerPlanNode.LinearCombinationStrategy linear) {
@@ -117,7 +122,7 @@ public final class RetrievalIntentCollector {
                         PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "Linear retrieval fusion requires exactly two sources");
             }
-            strategy = RetrievalMergeIntent.Strategy.LINEAR;
+            strategy = RetrievalMergeStrategy.LINEAR;
             weights[0] = linear.weight1();
             weights[1] = linear.weight2();
         } else {
@@ -131,13 +136,13 @@ public final class RetrievalIntentCollector {
             if (source instanceof RerankerPlanNode.VectorSource vector) {
                 sources.add(new RetrievalMergeIntent.Source(
                         "VECTOR:" + vector.column(),
-                        RetrievalMergeIntent.SourceKind.VECTOR,
+                        RetrievalSourceKind.VECTOR,
                         ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER,
                         weights[index], candidateLimit));
             } else if (source instanceof RerankerPlanNode.FullTextSource text) {
                 sources.add(new RetrievalMergeIntent.Source(
                         "FULL_TEXT:" + text.scoringNode().column(),
-                        RetrievalMergeIntent.SourceKind.FULL_TEXT,
+                        RetrievalSourceKind.FULL_TEXT,
                         ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                         weights[index], candidateLimit));
             }
@@ -390,12 +395,12 @@ public final class RetrievalIntentCollector {
                 .build();
         String capabilityId = retrievalCapability.getCapabilityId();
         final String parameterName;
-        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
             parameterName = "ef_search";
-        } else if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+        } else if (BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
             parameterName = "nprobes";
-        } else if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
-                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        } else if (BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             parameterName = "search_list_size";
         } else {
             throw new IllegalArgumentException(

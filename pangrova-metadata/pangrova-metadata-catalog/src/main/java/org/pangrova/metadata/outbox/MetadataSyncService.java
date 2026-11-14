@@ -1,5 +1,6 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.cache.MetadataCache;
@@ -208,7 +209,7 @@ public class MetadataSyncService {
                               List<MetadataChange> changes) {
         for (MetadataChange change : changes) {
             checkCancellation();
-            if (change.type() == MetadataChange.ChangeType.DELETE) {
+            if (change.type() == MetadataChangeType.DELETE) {
                 continue;
             }
             if (ThreadLocalRandom.current().nextDouble() >= DRIFT_SAMPLE_RATE) {
@@ -321,9 +322,9 @@ public class MetadataSyncService {
                 ? new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, observed.orElseThrow())
                 : new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), scope, ref);
         MetadataProjectionReceipt receipt = applyProjection(epoch, mutation);
-        MetadataChange.ChangeType effect = MetadataChange.ChangeType.DELETE;
+        MetadataChangeType effect = MetadataChangeType.DELETE;
         if (observed.isPresent()) {
-            effect = receipt.previousTable().isPresent() ? MetadataChange.ChangeType.UPDATE : MetadataChange.ChangeType.ADD;
+            effect = receipt.previousTable().isPresent() ? MetadataChangeType.UPDATE : MetadataChangeType.ADD;
         }
         MetadataChange change = new MetadataChange(effect, ref, observed.orElse(null));
         if (observed.isPresent() && hint.metadata() != null
@@ -332,7 +333,7 @@ public class MetadataSyncService {
         }
         cache.invalidateTable(ref.catalog(), ref.schema(), ref.table());
         eventDispatcher.dispatch(new MetadataEvent.MetadataSyncedEvent(scope.catalogName(), change));
-        if (change.type() == MetadataChange.ChangeType.UPDATE && receipt.previousTable().isPresent()) {
+        if (change.type() == MetadataChangeType.UPDATE && receipt.previousTable().isPresent()) {
             dispatchSchemaEvolutionIfChanged(scope.catalogName(), ref, receipt.previousTable().orElseThrow(),
                     change.metadata(), receipt.allowedTenants());
         }

@@ -1,5 +1,8 @@
 package org.pangrova.server.coordinator.sql.security;
 
+import org.pangrova.security.api.enums.PrivilegeObjectType;
+import org.pangrova.security.api.enums.RevokeBehavior;
+import org.pangrova.security.api.enums.PrivilegeOperation;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.query.dispatch.StatementExecutionContext;
@@ -62,17 +65,17 @@ public final class PrivilegeStatementTasks {
     }
 
     public StatementResult grant(GrantPrivilegeStatement statement, StatementExecutionContext context) {
-        return apply(context, PrivilegeMutation.Operation.GRANT, statement.privileges(), statement.objectType(),
+        return apply(context, PrivilegeOperation.GRANT, statement.privileges(), statement.objectType(),
                 statement.objectName(), statement.roleNames(), statement.withGrantOption(), false);
     }
 
     public StatementResult revoke(RevokePrivilegeStatement statement, StatementExecutionContext context) {
-        return apply(context, statement.grantOptionOnly() ? PrivilegeMutation.Operation.REVOKE_GRANT_OPTION
-                        : PrivilegeMutation.Operation.REVOKE, statement.privileges(), statement.objectType(),
+        return apply(context, statement.grantOptionOnly() ? PrivilegeOperation.REVOKE_GRANT_OPTION
+                        : PrivilegeOperation.REVOKE, statement.privileges(), statement.objectType(),
                 statement.objectName(), statement.roleNames(), false, statement.cascade());
     }
 
-    private StatementResult apply(StatementExecutionContext context, PrivilegeMutation.Operation operation,
+    private StatementResult apply(StatementExecutionContext context, PrivilegeOperation operation,
             List<String> names, String kind, Identifier target, List<String> recipients, boolean option,
             boolean cascade) {
         QuerySession session = context.session();
@@ -87,7 +90,7 @@ public final class PrivilegeStatementTasks {
                 .collect(Collectors.toUnmodifiableSet());
         var mutation = new PrivilegeMutation(UUID.fromString(context.queryId()), operation, privileges,
                 scope(kind, target, session), Set.copyOf(recipients), option,
-                cascade ? PrivilegeMutation.RevokeBehavior.CASCADE : PrivilegeMutation.RevokeBehavior.RESTRICT);
+                cascade ? RevokeBehavior.CASCADE : RevokeBehavior.RESTRICT);
         var receipt = repository.orElseThrow().apply(session.userIdentity(), mutation);
         var row = TypedRow.builder().putString("request_id", receipt.requestId().toString())
                 .putLong("authorization_revision", receipt.authorizationRevision())
@@ -97,13 +100,13 @@ public final class PrivilegeStatementTasks {
     }
 
     private static PrivilegeScope scope(String kind, Identifier target, QuerySession session) {
-        var type = PrivilegeScope.ObjectType.valueOf(kind.toUpperCase(Locale.ROOT));
+        var type = PrivilegeObjectType.valueOf(kind.toUpperCase(Locale.ROOT));
         var parts = target.parts();
-        if (type == PrivilegeScope.ObjectType.CATALOG || type == PrivilegeScope.ObjectType.STORAGE_PROFILE) {
+        if (type == PrivilegeObjectType.CATALOG || type == PrivilegeObjectType.STORAGE_PROFILE) {
             if (parts.size() != 1) throw new IllegalArgumentException(kind + " requires one exact name");
             return new PrivilegeScope(type, parts.get(0), null, null);
         }
-        if (type == PrivilegeScope.ObjectType.SCHEMA) {
+        if (type == PrivilegeObjectType.SCHEMA) {
             if (parts.size() == 1) {
                 return new PrivilegeScope(type, SessionTableNames.defaultCatalog(session), parts.get(0), null);
             }

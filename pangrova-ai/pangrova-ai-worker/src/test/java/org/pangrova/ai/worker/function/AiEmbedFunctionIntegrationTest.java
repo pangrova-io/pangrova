@@ -1,9 +1,10 @@
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiOperation;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
@@ -118,7 +119,7 @@ class AiEmbedFunctionIntegrationTest extends ContainerTestBase {
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var limits = new AiTransportTestAdmission.Limits(defaults.concurrency(), defaults.items(), 1,
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
-        try (var budget = new AiTransportTestAdmission(AiCapabilityDescriptor.Operation.EMBEDDING, 384,
+        try (var budget = new AiTransportTestAdmission(AiOperation.EMBEDDING, 384,
                 9, 2, limits, Instant.now().plusSeconds(30))) {
             assertThatThrownBy(() -> budget.call("reject-tail", () -> function.invokeBatch(rows)))
                     .isInstanceOf(AiInvocationException.class).hasMessageContaining("remaining exact resource grant");

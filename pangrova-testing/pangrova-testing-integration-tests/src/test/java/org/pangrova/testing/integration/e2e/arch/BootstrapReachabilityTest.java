@@ -89,7 +89,6 @@ class BootstrapReachabilityTest {
             "org.pangrova.governance.runtime.classification.CatalogTagService",
             "org.pangrova.governance.runtime.lineage.LineageQueryService",
             "org.pangrova.metadata.relation.ObjectDependencyService",
-            "org.pangrova.metadata.service.ModelCatalogService",
             "org.pangrova.observability.logging.MdcPropagatingExecutorService",
             "org.pangrova.planner.adaptive.StageReplanCoordinator",
             "org.pangrova.worker.resource.memory.HeartbeatCrossDomainMemoryCoordinator",

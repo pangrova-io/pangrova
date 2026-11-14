@@ -1,5 +1,8 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 
 import org.junit.jupiter.api.AfterAll;
@@ -8,7 +11,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -91,12 +93,12 @@ class GovernedProviderIntegrationTest extends ContainerTestBase {
         var governed = new GovernedInferenceProvider(models.inference(),
                 models.service((request, capability) -> authorized.add(request), observer(completed)));
         var parameters = new GenerationParameters(OptionalDouble.of(0), OptionalInt.of(16), null);
-        var result = models.invoke(AiCapabilityDescriptor.Operation.TEXT_GENERATION, taskId, 8,
+        var result = models.invoke(AiOperation.TEXT_GENERATION, taskId, 8,
                 () -> governed.complete("Say hello in one sentence.", parameters));
         assertThat(result.text()).isNotBlank();
         assertThat(completed).singleElement().satisfies(value ->
                 assertThat(value.outputs()).containsExactly(new AiInvocationResult.TextOutput(result.text())));
-        assertIdentity(authorized, AiCapabilityDescriptor.Operation.TEXT_GENERATION);
+        assertIdentity(authorized, AiOperation.TEXT_GENERATION);
     }
 
     @Test
@@ -111,23 +113,23 @@ class GovernedProviderIntegrationTest extends ContainerTestBase {
             authorized.clear();
             completed.clear();
             var request = EmbeddingBatchRequest.text(purpose, texts);
-            var actual = models.invoke(AiCapabilityDescriptor.Operation.EMBEDDING, taskId, 8,
+            var actual = models.invoke(AiOperation.EMBEDDING, taskId, 8,
                     () -> governed.embed(request));
             String prefix = purpose == EmbeddingPurpose.QUERY ? "query: "
                     : purpose == EmbeddingPurpose.DOCUMENT ? "doc: " : "";
             var oracle = new GovernedEmbeddingProvider(raw,
                     models.service((value, capability) -> {}, AiInvocationObserver.noop()));
-            var expected = models.invoke(AiCapabilityDescriptor.Operation.EMBEDDING, taskId + "-oracle", 8,
+            var expected = models.invoke(AiOperation.EMBEDDING, taskId + "-oracle", 8,
                     () -> oracle.embed(EmbeddingBatchRequest.text(EmbeddingPurpose.RAW,
                             texts.stream().map(text -> prefix + text).toList()))).vectors();
             assertThat(actual.vectors()).hasSize(2);
             for (int row = 0; row < texts.size(); row++) {
                 assertVector(actual.vectors().get(row), expected.get(row));
             }
-            assertIdentity(authorized, AiCapabilityDescriptor.Operation.EMBEDDING);
+            assertIdentity(authorized, AiOperation.EMBEDDING);
             assertThat(authorized).singleElement().satisfies(value -> {
                 assertThat(value.embeddingPurpose()).contains(purpose);
-                assertThat(value.executionMode()).isEqualTo(AiCapabilityDescriptor.ExecutionMode.BATCH);
+                assertThat(value.executionMode()).isEqualTo(AiExecutionMode.BATCH);
                 assertThat(value.inputs()).containsExactlyElementsOf(texts.stream()
                         .map(AiInvocationRequest.TextInput::new).toList());
             });
@@ -143,18 +145,18 @@ class GovernedProviderIntegrationTest extends ContainerTestBase {
         var governed = new GovernedEmbeddingProvider(models.embedding(),
                 models.service((request, capability) -> {}, AiInvocationObserver.noop()));
         var request = EmbeddingBatchRequest.text(EmbeddingPurpose.RAW, List.of("first"));
-        var first = models.invoke(AiCapabilityDescriptor.Operation.EMBEDDING, taskId, 1,
+        var first = models.invoke(AiOperation.EMBEDDING, taskId, 1,
                 () -> governed.embed(request));
         assertThat(first.vectors()).singleElement().satisfies(vector -> assertThat(vector).hasSize(384));
-        assertThatThrownBy(() -> models.invoke(AiCapabilityDescriptor.Operation.EMBEDDING, taskId, 1,
+        assertThatThrownBy(() -> models.invoke(AiOperation.EMBEDDING, taskId, 1,
                 () -> governed.embed(request)))
                 .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
-                    assertThat(failure.category()).isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+                    assertThat(failure.category()).isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
                     assertThat(failure.retryable()).isFalse();
                 }).hasMessageContaining("remaining exact resource grant");
     }
 
-    private void assertIdentity(List<AiInvocationRequest> requests, AiCapabilityDescriptor.Operation operation) {
+    private void assertIdentity(List<AiInvocationRequest> requests, AiOperation operation) {
         var binding = models.binding(operation, taskId, 8);
         assertThat(requests).singleElement().satisfies(request -> {
             assertThat(request.tenantId()).isEqualTo("tenant-a");

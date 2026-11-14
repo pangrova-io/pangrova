@@ -26,6 +26,9 @@ import org.pangrova.protocol.v2.TaskRequest;
  * implementation so that the Worker core remains usable without any AI module
  * on the classpath; the disabled implementation owns no admission state and
  * reports no provider usage.</p>
+ *
+ * <p>A Worker installs at most one implementation of this contract. Discovery constructors
+ * are resource-free. The Worker may invoke the installed service concurrently.</p>
  */
 @Experimental
 public interface AiTaskLifecycle {

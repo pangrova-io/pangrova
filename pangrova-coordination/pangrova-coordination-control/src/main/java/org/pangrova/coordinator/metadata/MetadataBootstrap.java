@@ -2,8 +2,6 @@ package org.pangrova.coordinator.metadata;
 
 import org.pangrova.persistence.table.api.provider.TableStores;
 
-import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
-import org.pangrova.planner.metadata.catalog.PlanningReadBindings;
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.ConnectorHandleFactory;
@@ -12,10 +10,9 @@ import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.governance.runtime.classification.ColumnTagService;
 import org.pangrova.metadata.api.resolution.MetadataService;
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.metadata.outbox.MetadataSyncService;
-import org.apache.calcite.jdbc.CalciteSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -26,14 +23,14 @@ import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncReposito
 
 /**
  * Encapsulates the metadata subsystem initialization sequence for Coordinator startup.
- * Creates CatalogRegistry, MetadataService, TieredMetadataCache, and Calcite schema bridge.
+ * Creates CatalogRegistry, MetadataService, TieredMetadataCache, and metadata synchronization.
  */
 public final class MetadataBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(MetadataBootstrap.class);
 
     private final CatalogRegistry catalogRegistry;
-    private final DefaultMetadataService metadataService;
+    private final CatalogMetadata metadataService;
     private final TieredMetadataCache metadataCache;
     private final MetadataEventDispatcher eventDispatcher;
     private final MetadataSyncService syncService;
@@ -43,7 +40,7 @@ public final class MetadataBootstrap {
 
     private MetadataBootstrap(
             CatalogRegistry catalogRegistry,
-            DefaultMetadataService metadataService,
+            CatalogMetadata metadataService,
             TieredMetadataCache metadataCache,
             MetadataEventDispatcher eventDispatcher,
             MetadataSyncService syncService,
@@ -107,25 +104,55 @@ public final class MetadataBootstrap {
             ConnectorHandleFactory connectorHandleFactory,
             FederationHandleFactory federationHandleFactory,
             MaterializationRepository materializationRepository, MaterializationCatalog materializationCatalog) {
+        return initialize(stores, deployments, tables, projections, synchronization, connectorHandleFactory,
+                federationHandleFactory, materializationRepository, materializationCatalog, new TieredMetadataCache());
+    }
+
+    public static MetadataBootstrap initialize(
+            TableStores stores, CatalogDeploymentRepository deployments,
+            TableProjectionRepository tables,
+            MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization,
+            ConnectorHandleFactory connectorHandleFactory,
+            FederationHandleFactory federationHandleFactory,
+            MaterializationRepository materializationRepository, MaterializationCatalog materializationCatalog, TieredMetadataCache cache) {
         if ((materializationRepository == null) != (materializationCatalog == null)) {
             throw new IllegalArgumentException("Materialization requires both the repository and the published catalog");
         }
         MetadataEventDispatcher dispatcher = new MetadataEventDispatcher();
-        CatalogRegistry registry = new CatalogRegistry(
-                stores, deployments, connectorHandleFactory, federationHandleFactory, dispatcher);
-        return initialize(registry, dispatcher, tables, projections, synchronization,
-                materializationRepository, materializationCatalog);
+        CatalogRegistry registry;
+        try {
+            registry = new CatalogRegistry(stores, deployments, connectorHandleFactory, federationHandleFactory, dispatcher);
+        } catch (RuntimeException | Error failure) {
+            try { dispatcher.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+        try {
+            return initialize(registry, dispatcher, tables, projections, synchronization,
+                    materializationRepository, materializationCatalog, cache);
+        } catch (RuntimeException | Error failure) {
+            try (var events = dispatcher) { registry.shutdown(); }
+            catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 
     static MetadataBootstrap initialize(CatalogRegistry registry, MetadataEventDispatcher dispatcher,
             TableProjectionRepository tables, MetadataProjectionTransactions projections,
             MetadataSyncRepository synchronization, MaterializationRepository materializationRepository,
             MaterializationCatalog materializationCatalog) {
-        TieredMetadataCache cache = new TieredMetadataCache();
+        return initialize(registry, dispatcher, tables, projections, synchronization, materializationRepository,
+                materializationCatalog, new TieredMetadataCache());
+    }
+
+    private static MetadataBootstrap initialize(CatalogRegistry registry, MetadataEventDispatcher dispatcher,
+            TableProjectionRepository tables, MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization, MaterializationRepository materializationRepository,
+            MaterializationCatalog materializationCatalog, TieredMetadataCache cache) {
         dispatcher.addListener(cache);
         SchemaEvolutionValidator validator = new SchemaEvolutionValidator();
 
-        DefaultMetadataService service = new DefaultMetadataService(
+        CatalogMetadata service = new CatalogMetadata(
                 registry, cache, dispatcher, validator);
 
         MetadataSyncService syncService = new MetadataSyncService(
@@ -140,20 +167,6 @@ public final class MetadataBootstrap {
                 versionObserver, materializationRepository, materializationCatalog);
     }
 
-    /**
-     * Builds a CalciteSchema bridging MetadataService to Calcite's table resolution.
-     * Passes CatalogRegistry so LazyMetadataSchema can resolve tables from connectors.
-     */
-    public CalciteSchema buildCalciteSchema(org.pangrova.connector.api.session.ConnectorSession session) {
-        return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session);
-    }
-
-    /** Shares the selected source owner with the session planner's statistics provider. */
-    public CalciteSchema buildCalciteSchema(org.pangrova.connector.api.session.ConnectorSession session,
-            PlanningReadBindings readBindings) {
-        return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session, readBindings);
-    }
-
     /** Subscribes to metadata lifecycle events such as observed external commits. */
     public void addMetadataListener(org.pangrova.metadata.api.event.MetadataEventListener listener) {
         eventDispatcher.addListener(listener);
@@ -164,11 +177,11 @@ public final class MetadataBootstrap {
     }
 
     public ColumnTagService columnTagEvents() {
-        return metadataService.columnTagEvents();
+        return metadataService.columnTags().columnTagEvents();
     }
 
     public int replayColumnTags() {
-        return metadataService.replayColumnTags();
+        return metadataService.columnTags().replayColumnTags();
     }
 
     public MetadataService metadataService() {
@@ -202,8 +215,9 @@ public final class MetadataBootstrap {
      * Shuts down the metadata subsystem: registry health monitor and event dispatcher.
      */
     public void shutdown() {
-        catalogRegistry.shutdown();
-        eventDispatcher.shutdown();
+        try (var cache = metadataCache; var dispatcher = eventDispatcher) {
+            catalogRegistry.shutdown();
+        }
         LOG.info("event=metadata_subsystem_shutdown");
     }
 }

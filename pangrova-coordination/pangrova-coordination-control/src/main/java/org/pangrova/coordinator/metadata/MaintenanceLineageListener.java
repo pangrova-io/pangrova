@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.governance.api.lineage.DatasetRef;
-import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.api.dependency.MetadataMaintenanceHook;
 import org.pangrova.metadata.api.relation.ObjectRef;
@@ -71,7 +71,7 @@ public final class MaintenanceLineageListener implements MetadataMaintenanceHook
     private void emitCompletedOperation(String eventId, String operation,
             List<DatasetRef> inputs, List<DatasetRef> outputs) {
         emitter.emitStartEvent(eventId, operation, inputs, outputs);
-        emitter.emitTerminalEvent(LineageEvent.EventType.COMPLETE, eventId, operation, inputs, outputs, Map.of());
+        emitter.emitTerminalEvent(LineageEventType.COMPLETE, eventId, operation, inputs, outputs, Map.of());
     }
 
     private static DatasetRef toDatasetRef(ObjectRef ref) {

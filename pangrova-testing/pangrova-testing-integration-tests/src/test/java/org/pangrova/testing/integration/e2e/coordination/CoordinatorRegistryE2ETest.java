@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
@@ -105,7 +106,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
                 ha.start("coordinator-a");
 
                 // start() already attempts leader election; verify role is LEADER
-                assertThat(ha.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(ha.getRole()).isEqualTo(CoordinatorRole.LEADER);
 
                 Optional<CoordinatorSnapshot> leader = registry.getLeader();
                 assertThat(leader).isPresent();
@@ -192,7 +193,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
             try {
                 haB.start("coordinator-b");
 
-                assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(haB.getRole()).isEqualTo(CoordinatorRole.LEADER);
                 assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                 Optional<CoordinatorSnapshot> leader = registry.getLeader();
@@ -222,7 +223,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
             haA.setCoordinatorRegistry(registry, "host-a", 8080);
             try {
                 haA.start("coordinator-a");
-                assertThat(haA.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(haA.getRole()).isEqualTo(CoordinatorRole.LEADER);
                 long previousEpoch = haA.getCurrentEpoch();
 
                 // Step down — releases lease and updates role to STANDBY
@@ -245,7 +246,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
                 haB.setCoordinatorRegistry(registry, "host-b", 8081);
                 try {
                     haB.start("coordinator-b");
-                    assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                    assertThat(haB.getRole()).isEqualTo(CoordinatorRole.LEADER);
                     assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                     Optional<CoordinatorSnapshot> newLeader = registry.getLeader();

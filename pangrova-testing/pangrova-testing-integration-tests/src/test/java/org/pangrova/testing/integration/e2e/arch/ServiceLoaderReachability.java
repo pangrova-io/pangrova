@@ -55,40 +55,40 @@ final class ServiceLoaderReachability {
 
     static Set<String> contractsOf(String current, JavaClasses importedClasses) {
         Set<String> contracts = new LinkedHashSet<>();
-        importedClasses.stream().filter(type -> type.getName().equals(current)).findFirst().ifPresent(type -> {
-            for (JavaMethodCall call : type.getMethodCallsFromSelf()) {
-                if (!call.getTarget().getOwner().getName().equals(ServiceLoader.class.getName())
-                        || !call.getTarget().getName().equals("load")) {
-                    continue;
-                }
-                Path source = sourceOf(type);
-                var sites = SOURCE_SITES.computeIfAbsent(source, ServiceLoaderReachability::parseSites).stream()
-                        .filter(site -> site.firstLine() <= call.getLineNumber()
-                                && call.getLineNumber() <= site.lastLine()).toList();
-                if (sites.isEmpty()) {
-                    throw new AssertionError("Cannot identify ServiceLoader contract at "
-                            + call.getSourceCodeLocation());
-                }
-                for (LoadSite site : sites) {
-                    if (site.contract() == null) {
-                        throw new AssertionError("Cannot identify ServiceLoader contract from dynamic arguments at "
-                                + source + ":" + site.firstLine());
-                    }
-                    // ArchUnit resolves literal types, including imports and binary nested names;
-                    // the AST identifies which literal is actually the load argument.
-                    var candidates = type.getReferencedClassObjects().stream()
-                            .map(reference -> reference.getValue().getName())
-                            .filter(name -> name.replace('$', '.').equals(site.contract())
-                                    || name.replace('$', '.').endsWith("." + site.contract()))
-                            .distinct().toList();
-                    if (candidates.size() != 1) {
-                        throw new AssertionError("Cannot resolve ServiceLoader contract " + site.contract()
-                                + " at " + call.getSourceCodeLocation() + ": " + candidates);
-                    }
-                    contracts.add(candidates.get(0));
-                }
+        if (!importedClasses.contain(current)) return Set.of();
+        var type = importedClasses.get(current);
+        for (JavaMethodCall call : type.getMethodCallsFromSelf()) {
+            if (!call.getTarget().getOwner().getName().equals(ServiceLoader.class.getName())
+                    || !call.getTarget().getName().equals("load")) {
+                continue;
             }
-        });
+            Path source = sourceOf(type);
+            var sites = SOURCE_SITES.computeIfAbsent(source, ServiceLoaderReachability::parseSites).stream()
+                    .filter(site -> site.firstLine() <= call.getLineNumber()
+                            && call.getLineNumber() <= site.lastLine()).toList();
+            if (sites.isEmpty()) {
+                throw new AssertionError("Cannot identify ServiceLoader contract at "
+                        + call.getSourceCodeLocation());
+            }
+            for (LoadSite site : sites) {
+                if (site.contract() == null) {
+                    throw new AssertionError("Cannot identify ServiceLoader contract from dynamic arguments at "
+                            + source + ":" + site.firstLine());
+                }
+                // ArchUnit resolves literal types, including imports and binary nested names;
+                // the AST identifies which literal is actually the load argument.
+                var candidates = type.getReferencedClassObjects().stream()
+                        .map(reference -> reference.getValue().getName())
+                        .filter(name -> name.replace('$', '.').equals(site.contract())
+                                || name.replace('$', '.').endsWith("." + site.contract()))
+                        .distinct().toList();
+                if (candidates.size() != 1) {
+                    throw new AssertionError("Cannot resolve ServiceLoader contract " + site.contract()
+                            + " at " + call.getSourceCodeLocation() + ": " + candidates);
+                }
+                contracts.add(candidates.get(0));
+            }
+        }
         return Set.copyOf(contracts);
     }
 

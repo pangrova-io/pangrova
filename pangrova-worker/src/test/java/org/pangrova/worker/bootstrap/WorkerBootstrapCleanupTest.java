@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,7 +25,7 @@ class WorkerBootstrapCleanupTest {
         var refs = new WorkerComponentRefs();
         var config = WorkerBootstrapConfig.withDefaults("partial-status-reporter");
         var attempts = new AtomicInteger();
-        var reporter = new RemoteTaskStatusReporter("http://localhost:1", TestObservability.TRACING, null) {
+        var reporter = new RemoteTaskStatusReporter("http://localhost:1", TestObservability.TRACING, TestObservability.METRICS, null) {
             @Override public void close() {
                 if (attempts.incrementAndGet() == 1) throw new IllegalStateException("reporter still draining");
                 super.close();

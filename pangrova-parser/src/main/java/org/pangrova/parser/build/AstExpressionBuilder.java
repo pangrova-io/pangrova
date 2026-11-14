@@ -1,9 +1,13 @@
 package org.pangrova.parser.build;
 
+import org.pangrova.parser.api.enums.NullOrdering;
+import org.pangrova.parser.api.enums.SortDirection;
+import org.pangrova.parser.api.enums.TruthValue;
+import org.pangrova.parser.api.enums.WindowFrameBoundType;
+import org.pangrova.parser.api.enums.WindowFrameType;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-
 import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.ArrayConstructor;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
@@ -29,8 +33,9 @@ import org.pangrova.parser.api.ast.expression.InSubqueryExpression;
 import org.pangrova.parser.api.ast.expression.SubqueryExpression;
 import org.pangrova.parser.api.ast.expression.UnaryMinusExpression;
 import org.pangrova.parser.api.ast.expression.WindowedFunctionCall;
-import org.pangrova.parser.api.ast.expression.BinaryExpression.Operator;
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
 
@@ -73,7 +78,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Expression visitConcatExpr(PangrovaSqlParser.ConcatExprContext ctx) {
-        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), BinaryExpression.Operator.CONCAT);
+        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), BinaryExpressionOperator.CONCAT);
     }
 
     @Override
@@ -83,12 +88,12 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Expression visitAndExpr(PangrovaSqlParser.AndExprContext ctx) {
-        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), Operator.AND);
+        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), BinaryExpressionOperator.AND);
     }
 
     @Override
     public Expression visitOrExpr(PangrovaSqlParser.OrExprContext ctx) {
-        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), Operator.OR);
+        return buildBinaryExpr(ctx.expression(0), ctx.expression(1), BinaryExpressionOperator.OR);
     }
 
     @Override
@@ -143,7 +148,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Expression visitTruthTestExpr(PangrovaSqlParser.TruthTestExprContext ctx) {
-        var value = TruthTestExpression.TruthValue.valueOf(ctx.truth.getText().toUpperCase(java.util.Locale.ROOT));
+        var value = TruthValue.valueOf(ctx.truth.getText().toUpperCase(java.util.Locale.ROOT));
         return new TruthTestExpression((Expression) visit(ctx.left), value, ctx.NOT() != null);
     }
 
@@ -187,7 +192,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
             Expression between = new BetweenExpression(value, realLow, realHigh);
             Expression rewrittenLow = substituteAndLeftSpine(
                     (BinaryExpression) low, deepest, between);
-            return new BinaryExpression(rewrittenLow, Operator.AND, high);
+            return new BinaryExpression(rewrittenLow, BinaryExpressionOperator.AND, high);
         }
         // Case 2: `high` greedily consumed an AND chain (e.g. q21 inner BETWEEN)
         if (isAnd(high)) {
@@ -198,7 +203,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
             Expression realHigh = deepest.left();
             Expression between = new BetweenExpression(value, low, realHigh);
             // Replace `deepest` (which is And(realHigh, X)) with And(between, X).
-            Expression replacement = new BinaryExpression(between, Operator.AND, deepest.right());
+            Expression replacement = new BinaryExpression(between, BinaryExpressionOperator.AND, deepest.right());
             return substituteAndLeftSpine((BinaryExpression) high, deepest, replacement);
         }
         // Case 3: `value` (BETWEEN's left) was greedily consumed as part of an AND
@@ -208,13 +213,13 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
             BinaryExpression valueAnd = (BinaryExpression) value;
             Expression realValue = valueAnd.right();
             Expression between = new BetweenExpression(realValue, low, high);
-            return new BinaryExpression(valueAnd.left(), Operator.AND, between);
+            return new BinaryExpression(valueAnd.left(), BinaryExpressionOperator.AND, between);
         }
         return new BetweenExpression(value, low, high);
     }
 
     private static boolean isAnd(Expression e) {
-        return e instanceof BinaryExpression b && b.operator() == Operator.AND;
+        return e instanceof BinaryExpression b && b.operator() == BinaryExpressionOperator.AND;
     }
 
     private static Expression substituteAndLeftSpine(
@@ -226,7 +231,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
         Expression newLeft = (node.left() instanceof BinaryExpression bl && isAnd(bl))
                 ? substituteAndLeftSpine(bl, target, replacement)
                 : node.left();
-        return new BinaryExpression(newLeft, Operator.AND, node.right());
+        return new BinaryExpression(newLeft, BinaryExpressionOperator.AND, node.right());
     }
 
     @Override
@@ -274,7 +279,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override
     public Expression visitCastExpr(PangrovaSqlParser.CastExprContext ctx) {
         Expression operand = (Expression) visit(ctx.expression());
-        String targetType = ctx.castType().getText().toUpperCase();
+        String targetType = ctx.castType().getText().toUpperCase(Locale.ROOT);
         return new CastExpression(operand, targetType);
     }
 
@@ -395,43 +400,43 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     WindowSpec.WindowFrame visitWindowFrameNode(PangrovaSqlParser.WindowFrameContext ctx) {
         if (ctx instanceof PangrovaSqlParser.RowsBetweenFrameContext rb) {
-            return new WindowSpec.WindowFrame(WindowSpec.FrameType.ROWS,
+            return new WindowSpec.WindowFrame(WindowFrameType.ROWS,
                     visitFrameBoundNode(rb.frameBound(0)),
                     visitFrameBoundNode(rb.frameBound(1)));
         }
         if (ctx instanceof PangrovaSqlParser.RowsFrameContext rf) {
-            return new WindowSpec.WindowFrame(WindowSpec.FrameType.ROWS,
+            return new WindowSpec.WindowFrame(WindowFrameType.ROWS,
                     visitFrameBoundNode(rf.frameBound()),
-                    new WindowSpec.FrameBound(WindowSpec.FrameBoundType.CURRENT_ROW));
+                    new WindowSpec.FrameBound(WindowFrameBoundType.CURRENT_ROW));
         }
         if (ctx instanceof PangrovaSqlParser.RangeBetweenFrameContext rangeBetween) {
-            return new WindowSpec.WindowFrame(WindowSpec.FrameType.RANGE,
+            return new WindowSpec.WindowFrame(WindowFrameType.RANGE,
                     visitFrameBoundNode(rangeBetween.frameBound(0)),
                     visitFrameBoundNode(rangeBetween.frameBound(1)));
         }
         PangrovaSqlParser.RangeFrameContext rangeFrame = (PangrovaSqlParser.RangeFrameContext) ctx;
-        return new WindowSpec.WindowFrame(WindowSpec.FrameType.RANGE,
+        return new WindowSpec.WindowFrame(WindowFrameType.RANGE,
                 visitFrameBoundNode(rangeFrame.frameBound()),
-                new WindowSpec.FrameBound(WindowSpec.FrameBoundType.CURRENT_ROW));
+                new WindowSpec.FrameBound(WindowFrameBoundType.CURRENT_ROW));
     }
 
     private WindowSpec.FrameBound visitFrameBoundNode(PangrovaSqlParser.FrameBoundContext ctx) {
         if (ctx instanceof PangrovaSqlParser.UnboundedPrecedingContext) {
-            return new WindowSpec.FrameBound(WindowSpec.FrameBoundType.UNBOUNDED_PRECEDING);
+            return new WindowSpec.FrameBound(WindowFrameBoundType.UNBOUNDED_PRECEDING);
         }
         if (ctx instanceof PangrovaSqlParser.UnboundedFollowingContext) {
-            return new WindowSpec.FrameBound(WindowSpec.FrameBoundType.UNBOUNDED_FOLLOWING);
+            return new WindowSpec.FrameBound(WindowFrameBoundType.UNBOUNDED_FOLLOWING);
         }
         if (ctx instanceof PangrovaSqlParser.CurrentRowContext) {
-            return new WindowSpec.FrameBound(WindowSpec.FrameBoundType.CURRENT_ROW);
+            return new WindowSpec.FrameBound(WindowFrameBoundType.CURRENT_ROW);
         }
         if (ctx instanceof PangrovaSqlParser.ExprPrecedingContext ep) {
             Expression offset = (Expression) visit(ep.expression());
-            return new WindowSpec.FrameBound(WindowSpec.FrameBoundType.EXPR_PRECEDING, Optional.of(offset));
+            return new WindowSpec.FrameBound(WindowFrameBoundType.EXPR_PRECEDING, Optional.of(offset));
         }
         PangrovaSqlParser.ExprFollowingContext ef = (PangrovaSqlParser.ExprFollowingContext) ctx;
         Expression offset = (Expression) visit(ef.expression());
-        return new WindowSpec.FrameBound(WindowSpec.FrameBoundType.EXPR_FOLLOWING, Optional.of(offset));
+        return new WindowSpec.FrameBound(WindowFrameBoundType.EXPR_FOLLOWING, Optional.of(offset));
     }
 
     // ── Literals ──
@@ -535,8 +540,8 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
         String raw = ctx.STRING_LITERAL().getText();
         String expression = raw.substring(1, raw.length() - 1).trim();
         var timeUnits = ctx.timeUnit();
-        String fromUnit = timeUnits.get(0).getText().toUpperCase();
-        String toUnit = timeUnits.size() > 1 ? timeUnits.get(1).getText().toUpperCase() : null;
+        String fromUnit = timeUnits.get(0).getText().toUpperCase(Locale.ROOT);
+        String toUnit = timeUnits.size() > 1 ? timeUnits.get(1).getText().toUpperCase(Locale.ROOT) : null;
         if (toUnit != null) {
             return Literal.ofInterval(expression, fromUnit, toUnit);
         }
@@ -566,7 +571,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Expression visitExtractExpr(PangrovaSqlParser.ExtractExprContext ctx) {
-        String field = ctx.extractField().getText().toUpperCase();
+        String field = ctx.extractField().getText().toUpperCase(Locale.ROOT);
         Expression source = (Expression) visit(ctx.expression());
         return new ExtractExpression(field, source);
     }
@@ -585,18 +590,18 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override
     public SortItem visitSortItem(PangrovaSqlParser.SortItemContext ctx) {
         Expression expr = (Expression) visit(ctx.expression());
-        Optional<SortItem.SortDirection> dir = Optional.empty();
+        Optional<SortDirection> dir = Optional.empty();
         if (ctx.ASC() != null) {
-            dir = Optional.of(SortItem.SortDirection.ASC);
+            dir = Optional.of(SortDirection.ASC);
         } else if (ctx.DESC() != null) {
-            dir = Optional.of(SortItem.SortDirection.DESC);
+            dir = Optional.of(SortDirection.DESC);
         }
-        Optional<SortItem.NullOrdering> nullOrdering = Optional.empty();
+        Optional<NullOrdering> nullOrdering = Optional.empty();
         if (ctx.NULLS() != null) {
             if (ctx.FIRST_KW() != null) {
-                nullOrdering = Optional.of(SortItem.NullOrdering.FIRST);
+                nullOrdering = Optional.of(NullOrdering.FIRST);
             } else if (ctx.LAST_KW() != null) {
-                nullOrdering = Optional.of(SortItem.NullOrdering.LAST);
+                nullOrdering = Optional.of(NullOrdering.LAST);
             }
         }
         return new SortItem(expr, dir, nullOrdering);
@@ -633,29 +638,29 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
     private Expression buildBinaryExpr(
             PangrovaSqlParser.ExpressionContext left,
             PangrovaSqlParser.ExpressionContext right,
-            Operator op) {
+            BinaryExpressionOperator op) {
         return new BinaryExpression((Expression) visit(left), op, (Expression) visit(right));
     }
 
-    private Operator tokenToOperator(int tokenType) {
+    private BinaryExpressionOperator tokenToOperator(int tokenType) {
         return switch (tokenType) {
-            case PangrovaSqlParser.PLUS -> Operator.ADD;
-            case PangrovaSqlParser.MINUS -> Operator.SUBTRACT;
-            case PangrovaSqlParser.STAR -> Operator.MULTIPLY;
-            case PangrovaSqlParser.SLASH -> Operator.DIVIDE;
-            case PangrovaSqlParser.PERCENT -> Operator.MODULO;
+            case PangrovaSqlParser.PLUS -> BinaryExpressionOperator.ADD;
+            case PangrovaSqlParser.MINUS -> BinaryExpressionOperator.SUBTRACT;
+            case PangrovaSqlParser.STAR -> BinaryExpressionOperator.MULTIPLY;
+            case PangrovaSqlParser.SLASH -> BinaryExpressionOperator.DIVIDE;
+            case PangrovaSqlParser.PERCENT -> BinaryExpressionOperator.MODULO;
             default -> throw new IllegalArgumentException("Unknown operator token: " + tokenType);
         };
     }
 
-    private Operator comparisonOperator(PangrovaSqlParser.ComparisonOperatorContext ctx) {
+    private BinaryExpressionOperator comparisonOperator(PangrovaSqlParser.ComparisonOperatorContext ctx) {
         return switch (ctx.getStart().getType()) {
-            case PangrovaSqlParser.EQ -> Operator.EQUAL;
-            case PangrovaSqlParser.NEQ -> Operator.NOT_EQUAL;
-            case PangrovaSqlParser.LT -> Operator.LESS_THAN;
-            case PangrovaSqlParser.GT -> Operator.GREATER_THAN;
-            case PangrovaSqlParser.LTE -> Operator.LESS_THAN_OR_EQUAL;
-            case PangrovaSqlParser.GTE -> Operator.GREATER_THAN_OR_EQUAL;
+            case PangrovaSqlParser.EQ -> BinaryExpressionOperator.EQUAL;
+            case PangrovaSqlParser.NEQ -> BinaryExpressionOperator.NOT_EQUAL;
+            case PangrovaSqlParser.LT -> BinaryExpressionOperator.LESS_THAN;
+            case PangrovaSqlParser.GT -> BinaryExpressionOperator.GREATER_THAN;
+            case PangrovaSqlParser.LTE -> BinaryExpressionOperator.LESS_THAN_OR_EQUAL;
+            case PangrovaSqlParser.GTE -> BinaryExpressionOperator.GREATER_THAN_OR_EQUAL;
             default -> throw new IllegalArgumentException("Unknown comparison operator: " + ctx.getText());
         };
     }

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.ai.embedding;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.api.enums.Privilege;
@@ -37,7 +38,7 @@ final class GeneratedWriteReadPermissions {
             masks.put(column, expression);
         });
         return new DeferredAuthorizationScope.TablePermission(first.table(), masks.keySet(), Privilege.SELECT,
-                DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                AuthorizedReadMode.SECURITY_TRANSFORMED,
                 new DeferredAuthorizationScope.PolicySnapshot(before.rowFilter(), masks));
     }
 }

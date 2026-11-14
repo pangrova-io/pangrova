@@ -1,6 +1,6 @@
 package org.pangrova.common.resilience.policy;
 
-import org.pangrova.common.resilience.policy.ErrorClassifier.ErrorCategory;
+import org.pangrova.common.enums.ErrorCategory;
 
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;

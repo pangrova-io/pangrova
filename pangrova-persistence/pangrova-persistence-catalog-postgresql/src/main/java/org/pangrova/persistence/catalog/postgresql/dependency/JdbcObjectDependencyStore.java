@@ -1,5 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.dependency;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyKey;
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyOrder;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
@@ -92,7 +94,7 @@ public final class JdbcObjectDependencyStore implements ObjectDependencyStore {
                 conn.commit();
                 return storedParents;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {
@@ -121,7 +123,7 @@ public final class JdbcObjectDependencyStore implements ObjectDependencyStore {
                 conn.commit();
                 return storedParents;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {
@@ -205,14 +207,6 @@ public final class JdbcObjectDependencyStore implements ObjectDependencyStore {
             statement.setString(2, child.schema());
             statement.setString(3, child.name());
             statement.execute();
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 

@@ -355,7 +355,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                 artifactReport(request, target, 10L))).isFalse();
         assertThat(commitAttempts).hasValue(1);
         assertThat(tracker.getTaskState("job-1", "page-1"))
-                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED);
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.SCHEDULED);
         tracker.updateTaskState("job-1", "page-1", "RUNNING");
         durable.set(true);
         ExecutorService reports = Executors.newFixedThreadPool(2);
@@ -375,7 +375,7 @@ class CoordinatorWorkerProtocolPropertyTest {
             assertThat(receiver.onTaskStatus(terminal)).isTrue();
             assertThat(commitAttempts).hasValue(2);
             assertThat(tracker.getTaskState("job-1", "page-1"))
-                    .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
+                    .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
         } finally {
             releaseRetryCommit.countDown();
             reports.shutdownNow();

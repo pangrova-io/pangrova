@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.memory.state;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
@@ -109,6 +111,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     }
     private static JournalWriteException failure(String message) {
         return new JournalWriteException(message, new IllegalStateException(message),
-                JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+                JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
     }
 }

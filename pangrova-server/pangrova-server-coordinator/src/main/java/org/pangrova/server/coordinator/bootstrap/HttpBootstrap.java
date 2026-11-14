@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.common.enums.ClusterNodeType;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
@@ -95,7 +96,7 @@ final class HttpBootstrap {
 
     private HealthCheckEndpoint buildHealthEndpoint() {
         return new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR,
+                ClusterNodeType.COORDINATOR,
                 new CoordinatorHealthConditions(coordinatorBootstrap));
     }
 

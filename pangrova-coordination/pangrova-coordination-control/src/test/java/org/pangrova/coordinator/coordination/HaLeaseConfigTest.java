@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -51,7 +53,7 @@ class HaLeaseConfigTest {
             service.start("custom-config-node");
             assertThat(service.isLeader("custom-config-node")).isTrue();
             assertThat(service.getRole())
-                    .isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                    .isEqualTo(CoordinatorRole.LEADER);
         }
     }
 
@@ -119,10 +121,10 @@ class HaLeaseConfigTest {
 
         try {
             node1.start("fast-node-1");
-            assertThat(node1.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+            assertThat(node1.getRole()).isEqualTo(CoordinatorRole.LEADER);
 
             node2.start("fast-node-2");
-            assertThat(node2.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.STANDBY);
 
             // Kill node-1 -- lease expires after 200ms, detected within 50ms
             node1.close();
@@ -130,7 +132,7 @@ class HaLeaseConfigTest {
             // Wait for failover (lease expiry + detection cycle + margin)
             Thread.sleep(500);
 
-            assertThat(node2.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
             assertThat(node2.isLeader("fast-node-2")).isTrue();
         } finally {
             node1.close();

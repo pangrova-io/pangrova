@@ -1,5 +1,7 @@
 package org.pangrova.persistence.table.postgresql.control;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.identity.TableRef;
 import org.pangrova.table.api.exception.TableControlException;
@@ -155,7 +157,7 @@ public final class JdbcTableControlStore implements TableControlStore {
                 writeRevision(conn, UPSERT, record, observation);
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {
@@ -184,7 +186,7 @@ public final class JdbcTableControlStore implements TableControlStore {
                 writeRevision(connection, INSERT, replacement, Optional.empty());
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -289,14 +291,6 @@ public final class JdbcTableControlStore implements TableControlStore {
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);
             return ps.executeUpdate();
-        }
-    }
-
-    private static void rollback(Connection conn, Throwable failure) {
-        try {
-            conn.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 

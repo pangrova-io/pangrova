@@ -1,6 +1,6 @@
 // Deserializes the canonical v2 TaskRequest into Native executor configuration.
 #include "command/task/TaskRequestParser.h"
-#include "command/task/WorkerLocalStorage.h"
+#include "engine/resource/WorkerStorageBinding.h"
 #include "command/task/PhysicalWriteAdmission.h"
 #include "command/task/WorkerLocalCopyInput.h"
 
@@ -1922,7 +1922,7 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
       if (!manifest_partitions.emplace(partition_key).second) {
         throw std::runtime_error("TaskRequest repeats an immutable read unit");
       }
-      parsed.storage_binding = workerLocalStorage(request.worker_local_storage_bindings(),
+      parsed.storage_binding = pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(),
           split.catalog(), request.security().tenant_id(), split.opaque_location());
     }
     if (parsed.paimon.has_value()) {
@@ -1931,10 +1931,10 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
           proto::FileSplitDetail read;
           if (!read.ParseFromString(file.file_scan_detail)) throw std::invalid_argument("Malformed Paimon file read unit");
           if (file.file_format == split::FileFormatType::LANCE || read.physical_file_scan().has_deletion_vector()) {
-            parsed.storage_binding = workerLocalStorage(request.worker_local_storage_bindings(),
+            parsed.storage_binding = pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(),
                 split.catalog(), request.security().tenant_id(), file.file_path);
             if (read.physical_file_scan().has_deletion_vector()) {
-              workerLocalStorage(request.worker_local_storage_bindings(), split.catalog(),
+              pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(), split.catalog(),
                   request.security().tenant_id(), read.physical_file_scan().deletion_vector().opaque_location());
             }
           }
@@ -1956,12 +1956,12 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
       config.write_config = parseWriteOptions(options.write(), attempt);
       if (config.write_config.physical_output) {
         auto& output = *config.write_config.physical_output;
-        output.storage_binding = workerLocalStorage(request.worker_local_storage_bindings(),
+        output.storage_binding = pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(),
             output.binding.catalog(), request.security().tenant_id(), output.binding.files(0).opaque_location());
       }
       if (config.write_config.lance_output) {
         const auto& binding = options.write().output_binding().lance();
-        config.write_config.lance_output->storage_binding = workerLocalStorage(
+        config.write_config.lance_output->storage_binding = pangrova::resource::workerLocalStorage(
             request.worker_local_storage_bindings(), binding.catalog(), request.security().tenant_id(),
             binding.dataset_uri());
       }

@@ -1,12 +1,12 @@
 package org.pangrova.generation.publication.read;
 
-
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver.GenerationResolutionIntent;
-import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver.SourceCoverage;
+import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
@@ -170,12 +170,12 @@ class PublishedGenerationBindingResolverTest {
 
     private static GenerationResolutionIntent intent() {
         return new GenerationResolutionIntent(TENANT, "index-1", "VECTOR_INDEX", "7",
-                "catalog.schema.table", "snapshot-1", SourceCoverage.COMPLETE_GENERATION);
+                "catalog.schema.table", "snapshot-1", GenerationSourceCoverage.COMPLETE_GENERATION);
     }
 
     private static GenerationResolutionIntent bm25Intent() {
         return new GenerationResolutionIntent(TENANT, "index-1", "TEXT_INDEX", "7",
-                "catalog.schema.table", "snapshot-1", SourceCoverage.COMPLETE_GENERATION);
+                "catalog.schema.table", "snapshot-1", GenerationSourceCoverage.COMPLETE_GENERATION);
     }
 
     private static String split(String objectId, String snapshot) {
@@ -259,16 +259,16 @@ class PublishedGenerationBindingResolverTest {
                     org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                             "catalog.schema.table", "snapshot-1"),
                     org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.FORBID,
-                    bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_ID
-                            : BuiltInCapabilityCatalog.DISKANN_ARTIFACT_FORMAT_ID,
-                    bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_MAJOR
-                            : BuiltInCapabilityCatalog.DISKANN_ARTIFACT_FORMAT_MAJOR,
+                    bm25 ? BuiltInCapabilityIdentifiers.BM25_ARTIFACT_FORMAT_ID
+                            : BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_FORMAT_ID,
+                    bm25 ? BuiltInCapabilityIdentifiers.BM25_ARTIFACT_FORMAT_MAJOR
+                            : BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_FORMAT_MAJOR,
                     0,
                     java.util.HexFormat.of().formatHex(
                             (bm25 ? BuiltInCapabilityCatalog.bm25ArtifactFormat()
                                     : BuiltInCapabilityCatalog.diskAnnArtifactFormat())
                                     .getSchemaSha256().toByteArray()),
-                    BuiltInCapabilityCatalog.NATIVE_BUILD_ID,
+                    BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID,
                     "metadata://artifact-generation/" + SHA, SHA,
                     3, 10, 300, PUBLISHED_AT));
         }

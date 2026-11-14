@@ -112,7 +112,7 @@ class IndependentClientCancellationE2ETest extends ContainerTestBase {
             }
             assertThat(receipts).as("terminal acknowledgements for %s", id).contains(
                     "EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED/CONTINUE",
-                    "EXECUTION_DRAIN_STATE_UNSPECIFIED/" + org.pangrova.protocol.task
+                    "EXECUTION_DRAIN_STATE_UNSPECIFIED/" + org.pangrova.protocol.constants
                             .TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE);
         });
     }

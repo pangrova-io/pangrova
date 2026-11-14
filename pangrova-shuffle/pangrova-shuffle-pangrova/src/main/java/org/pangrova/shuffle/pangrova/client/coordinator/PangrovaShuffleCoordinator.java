@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client.coordinator;
 
+import org.pangrova.shuffle.api.enums.ShuffleDataOperation;
+
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -33,7 +35,6 @@ import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 import org.pangrova.shuffle.api.coordinator.RecoverableShuffleControl;
 import org.pangrova.shuffle.api.coordinator.ShuffleLifecycleEvidence;
-import org.pangrova.shuffle.api.coordinator.ShuffleTaskAccess;
 import org.pangrova.shuffle.api.coordinator.ShuffleCoordinatorSession;
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool.PemTlsConfig;
@@ -425,7 +426,7 @@ public final class PangrovaShuffleCoordinator
 
     @Override
     public ShuffleAccess grant(ShuffleServiceAddress destination, String allocationId, ExchangeTaskAttempt attempt,
-            ShuffleTaskAccess.Operation operation) {
+            ShuffleDataOperation operation) {
         java.util.Objects.requireNonNull(operation, "operation");
         if (allocationId == null || allocationId.isBlank()) {
             throw new IllegalArgumentException("shuffle task grant requires an allocation");

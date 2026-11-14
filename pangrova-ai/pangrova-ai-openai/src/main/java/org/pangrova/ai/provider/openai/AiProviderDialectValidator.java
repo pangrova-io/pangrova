@@ -1,6 +1,6 @@
 package org.pangrova.ai.provider.openai;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 
 import java.net.URI;
@@ -18,7 +18,7 @@ final class AiProviderDialectValidator {
     static void validate(
             String provider,
             URI endpoint,
-            Set<Operation> operations,
+            Set<AiOperation> operations,
             Set<Modality> modalities,
             int maxBatchSize,
             String modelName) {
@@ -37,16 +37,16 @@ final class AiProviderDialectValidator {
 
     private static void compatible(
             URI endpoint,
-            Set<Operation> capabilities,
+            Set<AiOperation> capabilities,
             Set<Modality> modalities,
             String modelName) {
-        if (capabilities.contains(Operation.EMBEDDING)
+        if (capabilities.contains(AiOperation.EMBEDDING)
                 && !modalities.equals(Set.of(Modality.TEXT))) {
             throw failure(
                     "OpenAI-compatible embeddings for model '" + modelName
                             + "' support only TEXT inputs");
         }
-        if (capabilities.contains(Operation.MULTIMODAL_GENERATION) && hasOutside(
+        if (capabilities.contains(AiOperation.MULTIMODAL_GENERATION) && hasOutside(
                 modalities, Set.of(Modality.TEXT, Modality.IMAGE))) {
             throw failure(
                     "OpenAI chat-completions for model '" + modelName
@@ -57,15 +57,15 @@ final class AiProviderDialectValidator {
     }
 
     private static String compatibleEndpointPath(
-            Set<Operation> capabilities, String modelName) {
-        if (capabilities.equals(Set.of(Operation.EMBEDDING))) {
+            Set<AiOperation> capabilities, String modelName) {
+        if (capabilities.equals(Set.of(AiOperation.EMBEDDING))) {
             return "/v1/embeddings";
         }
-        if (capabilities.equals(Set.of(Operation.RERANKING))) {
+        if (capabilities.equals(Set.of(AiOperation.RERANKING))) {
             return "/v1/rerank";
         }
         if (!capabilities.isEmpty()
-                && Set.of(Operation.TEXT_GENERATION, Operation.MULTIMODAL_GENERATION).containsAll(capabilities)) {
+                && Set.of(AiOperation.TEXT_GENERATION, AiOperation.MULTIMODAL_GENERATION).containsAll(capabilities)) {
             return "/v1/chat/completions";
         }
         throw failure(
@@ -75,10 +75,10 @@ final class AiProviderDialectValidator {
 
     private static void responses(
             URI endpoint,
-            Set<Operation> capabilities,
+            Set<AiOperation> capabilities,
             Set<Modality> modalities,
             String modelName) {
-        if (hasOutside(capabilities, Set.of(Operation.TEXT_GENERATION, Operation.MULTIMODAL_GENERATION))) {
+        if (hasOutside(capabilities, Set.of(AiOperation.TEXT_GENERATION, AiOperation.MULTIMODAL_GENERATION))) {
             throw failure(
                     "OpenAI Responses model '" + modelName
                             + "' supports only inference and multimodal capabilities");
@@ -90,7 +90,7 @@ final class AiProviderDialectValidator {
                     "OpenAI Responses model '" + modelName
                             + "' supports only TEXT, IMAGE and DOCUMENT inputs");
         }
-        if (!capabilities.contains(Operation.MULTIMODAL_GENERATION)
+        if (!capabilities.contains(AiOperation.MULTIMODAL_GENERATION)
                 && !modalities.equals(Set.of(Modality.TEXT))) {
             throw failure(
                     "OpenAI Responses model '" + modelName
@@ -101,11 +101,11 @@ final class AiProviderDialectValidator {
 
     private static void transcription(
             URI endpoint,
-            Set<Operation> capabilities,
+            Set<AiOperation> capabilities,
             Set<Modality> modalities,
             int maxBatchSize,
             String modelName) {
-        if (!capabilities.equals(Set.of(Operation.MULTIMODAL_GENERATION))) {
+        if (!capabilities.equals(Set.of(AiOperation.MULTIMODAL_GENERATION))) {
             throw failure(
                     "OpenAI transcription model '" + modelName
                             + "' must declare only the multimodal capability");

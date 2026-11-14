@@ -2,7 +2,7 @@ package org.pangrova.worker.memory;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.query.execution.dispatch.task;
 
+import org.pangrova.parser.api.enums.SortDirection;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.metadata.resolution.ConnectorTableLookup;
@@ -147,7 +148,7 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
                 continue;
             }
             boolean desc = item.direction()
-                    .map(d -> d == SortItem.SortDirection.DESC).orElse(false);
+                    .map(d -> d == SortDirection.DESC).orElse(false);
             Comparator<TypedRow> c = (a, b) -> {
                 Object va = a.getRaw(col);
                 Object vb = b.getRaw(col);

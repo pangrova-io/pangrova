@@ -14,6 +14,7 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
@@ -64,7 +65,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(replacement.fields().get(0).fieldId().orElseThrow()).isNotEqualTo(originalId);
             assertThat(replacement.tableIdentity().formatTableUuid()).isEqualTo(original.tableIdentity().formatTableUuid());
             assertThat(replacement.stability()).isEqualTo(
-                    org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                    org.pangrova.connector.api.enums.FieldIdStability
                             .NON_REUSABLE_NAMESPACE);
         }
     }
@@ -152,7 +153,7 @@ class IcebergReadBindingIntegrationTest {
             Table table = create(catalog, "empty");
             var metadata = new IcebergMetadata(catalog, "bound");
             var empty = bind(metadata, "empty");
-            assertThat(empty.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+            assertThat(empty.state()).isEqualTo(ReadSnapshotState.EMPTY);
             assertThat(empty.snapshotId()).isEmpty();
             assertThat(empty.statistics().rowCount()).isZero();
             assertThat(empty.statistics().sourceWorkUnits()).isZero();
@@ -192,7 +193,7 @@ class IcebergReadBindingIntegrationTest {
             table.manageSnapshots().createTag("release", snapshot).commit();
             var metadata = new IcebergMetadata(catalog, "bound");
             var selected = bind(metadata, "reference_rows$refs");
-            assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.METADATA);
+            assertThat(selected.state()).isEqualTo(ReadSnapshotState.METADATA);
             assertThat(selected.declaration().requireExactDeclaration().columns()).containsExactly(
                     "name", "type", "snapshot_id", "max_reference_age_in_ms",
                     "min_snapshots_to_keep", "max_snapshot_age_in_ms");

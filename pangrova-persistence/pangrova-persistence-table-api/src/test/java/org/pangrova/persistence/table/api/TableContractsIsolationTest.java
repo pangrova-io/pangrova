@@ -63,7 +63,7 @@ class TableContractsIsolationTest {
             link(loader, List.of(
                 "org.pangrova.table.api.exception.TableControlException",
                 "org.pangrova.table.api.ownership.TableControlStore",
-                "org.pangrova.table.api.policy.TableControlGovernanceBindingStore",
+                "org.pangrova.table.api.policy.TablePolicyRepository",
                 "org.pangrova.table.api.maintenance.TableControlMaintenanceStore",
                 "org.pangrova.table.api.statistics.TableControlStatisticsStore"));
             var contract = loader.loadClass(TableControlStore.class.getName());

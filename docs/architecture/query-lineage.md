@@ -5,8 +5,9 @@ description: "Logical query START and terminal publication with ownership bounda
 
 # Query lineage publication
 
-Governance API defines `ColumnDerivationKind`. Query audit records and OpenLineage publishers
-use the same DIRECT, TRANSFORM and AGGREGATE values. Connector plugins share the host's
+Governance API defines `ColumnDerivationKind`. The Calcite planner classifies output columns
+as DIRECT, TRANSFORM or AGGREGATE. Query audit records carry that same classification to
+OpenLineage publishers. Connector plugins share the host's
 lineage contract when they load a query lineage fact.
 
 A logical query emits START from `QueryManager.submitQuery`, after its local state and

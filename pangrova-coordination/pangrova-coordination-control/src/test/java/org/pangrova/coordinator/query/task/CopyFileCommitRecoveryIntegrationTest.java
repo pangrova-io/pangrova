@@ -1,5 +1,10 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
+import org.pangrova.persistence.file.api.enums.CopyFileClaimResult;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 import org.apache.hadoop.conf.Configuration;
@@ -22,7 +27,6 @@ import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -39,7 +43,6 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
-import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
@@ -106,7 +109,7 @@ class CopyFileCommitRecoveryIntegrationTest {
                     "s3://bucket/data/file.parquet", "version-1", "a".repeat(64), 4L,
                     "profile", "00000000-0000-0000-0000-000000000001", 1L, 0L, EXECUTION);
             assertThat(new JdbcCopyFileClaimStore(source).claim(claim))
-                    .isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+                    .isEqualTo(CopyFileClaimResult.ACQUIRED);
             DataFile added = dataFile(table, "copy.parquet", 2L);
             byte[] fragment = ("[" + ContentFileParser.toJson(added, table.spec()) + "]")
                     .getBytes(StandardCharsets.UTF_8);
@@ -117,7 +120,7 @@ class CopyFileCommitRecoveryIntegrationTest {
                     EXECUTION, "tenant-a", "lake", "db.items", "INSERT", baseSnapshot,
                     binding, "alice", receipt, claim.commitBinding()), fragments);
             WriteCommitEntry intent = new WriteCommitEntry(EXECUTION, "lake", "db.items",
-                    WriteCommitEntry.State.PENDING, 1_000L, fragments, "INSERT", fingerprint,
+                    WriteCommitState.PENDING, 1_000L, fragments, "INSERT", fingerprint,
                     "tenant-a", "alice", receipt, baseSnapshot, binding, fingerprint,
                     null, null, 0L, null, claim.commitBinding());
             journal.recordIntent(intent);
@@ -129,12 +132,12 @@ class CopyFileCommitRecoveryIntegrationTest {
             long publishedSnapshot = table.currentSnapshot().snapshotId();
             assertThat(journal.findCopyFilePublication(intent)).isEmpty();
             assertThat(journal.getEntry(EXECUTION).orElseThrow().state())
-                    .isEqualTo(WriteCommitEntry.State.PENDING);
+                    .isEqualTo(WriteCommitState.PENDING);
 
             var reconciler = new DefaultWriteCommitReconciler(journal,
                     name -> (ConnectorCatalogHandle) registry.getCatalog(name));
             assertThat(reconciler.reconcile(intent))
-                    .isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
+                    .isEqualTo(WriteRecoveryOutcome.COMMITTED);
             assertThat(journal.findCopyFilePublication(intent).orElseThrow().snapshotId())
                     .isEqualTo(publishedSnapshot);
             table.refresh();
@@ -143,7 +146,7 @@ class CopyFileCommitRecoveryIntegrationTest {
 
             table.manageSnapshots().rollbackTo(baseSnapshot).commit();
             assertThat(reconciler.reconcile(journal.getEntry(EXECUTION).orElseThrow()))
-                    .isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+                    .isEqualTo(WriteRecoveryOutcome.QUARANTINED);
             table.refresh();
             assertThat(table.currentSnapshot().snapshotId()).isEqualTo(baseSnapshot);
         }
@@ -165,7 +168,7 @@ class CopyFileCommitRecoveryIntegrationTest {
         var target = new QualifiedTableName("lake", "db", "items");
         var declaration = WriteDeclarationSnapshot.capture(target, metadata, new byte[0], false);
         var permission = new DeferredAuthorizationScope.TablePermission(target, Set.of(), Privilege.INSERT,
-                DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
+                AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
         return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(
                 List.of(permission), Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(
                         declaration, List.of()))));

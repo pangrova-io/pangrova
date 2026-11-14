@@ -1,5 +1,7 @@
 package org.pangrova.client.jdbc;
 
+import org.pangrova.client.http.enums.AuthenticationScheme;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.authentication.ClientAuthentication;
@@ -22,7 +24,7 @@ class JdbcBasicAuthenticationConfigTest {
         props.setProperty("password", "密碼:a&b");
         try (var connection = (PangrovaConnection) new PangrovaDriver().connect("jdbc:pangrova://localhost:8080", props)) {
             var auth = connection.restClient().config().authentication();
-            assertThat(auth.scheme()).isEqualTo(ClientAuthentication.Scheme.BASIC);
+            assertThat(auth.scheme()).isEqualTo(AuthenticationScheme.BASIC);
             assertThat(auth.authorizationHeader()).isEqualTo(ClientAuthentication.basic("读者", "密碼:a&b").authorizationHeader());
             assertThat(connection.restClient().config().toString()).doesNotContain("读者", "密碼", "a&b");
         }

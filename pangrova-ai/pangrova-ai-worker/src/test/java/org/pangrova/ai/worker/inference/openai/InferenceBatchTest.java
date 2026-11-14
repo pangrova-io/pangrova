@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.http.chat.InferenceBatch;
 
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,7 @@ class InferenceBatchTest {
         var rejected = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var submissions = new AtomicInteger();
-        var unknown = new AiInvocationException(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+        var unknown = new AiInvocationException(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                 false, "POST outcome unknown");
         Executor partial = command -> {
             if (submissions.getAndIncrement() == 0) {

@@ -1,5 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.types.enums.PangrovaType;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,7 @@ class RuntimeFilterGeneratorTest {
 
         assertThat(result).isPresent();
         RuntimeFilter filter = result.get();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat(filter.column()).isEqualTo("id");
         assertThat((Comparable) filter.min().orElse(null)).isEqualTo(1);
         assertThat((Comparable) filter.max().orElse(null)).isEqualTo(8);
@@ -46,7 +47,7 @@ class RuntimeFilterGeneratorTest {
 
         assertThat(result).isPresent();
         RuntimeFilter filter = result.get();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat((Comparable) filter.min().orElse(null)).isEqualTo(42);
         assertThat((Comparable) filter.max().orElse(null)).isEqualTo(42);
     }
@@ -60,7 +61,7 @@ class RuntimeFilterGeneratorTest {
 
         assertThat(result).isPresent();
         RuntimeFilter filter = result.get();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.BLOOM);
         assertThat(filter.column()).isEqualTo("key");
         assertThat(filter.bloomFilter()).isNotNull();
     }
@@ -73,7 +74,7 @@ class RuntimeFilterGeneratorTest {
         Optional<RuntimeFilter> result = generator.generate("col", values, PangrovaType.INTEGER);
 
         assertThat(result).isPresent();
-        assertThat(result.get().type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(result.get().filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
     }
 
     @Test
@@ -84,7 +85,7 @@ class RuntimeFilterGeneratorTest {
         Optional<RuntimeFilter> result = generator.generate("col", values, PangrovaType.INTEGER);
 
         assertThat(result).isPresent();
-        assertThat(result.get().type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(result.get().filterType()).isEqualTo(DynamicFilterType.BLOOM);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -111,7 +112,7 @@ class RuntimeFilterGeneratorTest {
         Optional<RuntimeFilter> result = generator.generate("col", values, PangrovaType.INTEGER);
 
         assertThat(result).isPresent();
-        assertThat(result.get().type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(result.get().filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
     }
 
     @Test

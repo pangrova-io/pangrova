@@ -24,7 +24,7 @@ import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.materialization.api.domain.SourcePin;
 import org.pangrova.materialization.api.domain.SourceVector;
@@ -264,10 +264,10 @@ final class MaterializationAttemptExecutor {
     }
 
     private static ChangeSetMode changeSetMode(RefreshKind kind) {
-        if (kind == RefreshKind.IncrementalAppendOnly.INSTANCE) {
+        if (kind == RefreshKind.INCREMENTAL_APPEND_ONLY) {
             return ChangeSetMode.APPEND_ONLY;
         }
-        if (kind == RefreshKind.IncrementalPartitionReplace.INSTANCE) {
+        if (kind == RefreshKind.INCREMENTAL_PARTITION_REPLACE) {
             return ChangeSetMode.PARTITION_REPLACE;
         }
         throw MaterializationException.incrementalUnsupported(

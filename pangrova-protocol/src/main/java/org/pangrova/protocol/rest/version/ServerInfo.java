@@ -2,7 +2,7 @@ package org.pangrova.protocol.rest.version;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.pangrova.common.client.version.ApiVersion;
+import org.pangrova.common.client.constants.ApiVersion;
 
 /**
  * Response payload for the {@code /v1/server/info} endpoint.

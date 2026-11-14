@@ -47,7 +47,7 @@ Roadmap material lives in the [public roadmap](../getting-started/roadmap.md).
 | Follow a query end to end | [Query Execution](./query-execution.md) → [Query Optimization](./query-optimization.md) → [Native Execution Layer](./native-execution.md) |
 | Work on storage / connectors | [Connector Design](./connectors.md) → [Metadata Management](./metadata.md) → [Distributed Write](./distributed-writes.md) |
 | Operate a cluster | [Resource Management](./resource-management.md) → [Resilience](./resilience.md) → [Observability](./observability.md) → [Day-2 Operations](../operations/day-2.md) |
-| Contribute code | [Developer Guide](../contributing/developer-guide.md) → [Testing Framework](../contributing/testing.md) → [JNI Bridge](./jni-runtime.md) |
+| Contribute code | [Developer Guide](../contributing/developer-guide.md) → [Testing Framework](../contributing/testing.md) → [JNI Runtime](./jni-runtime.md) |
 
 ## Document map
 
@@ -91,7 +91,7 @@ Roadmap material lives in the [public roadmap](../getting-started/roadmap.md).
 ### Internals & Reference
 | Document | Scope |
 |---|---|
-| [JNI Bridge](./jni-runtime.md) | Protocol boundary contract, memory ownership, known issues |
+| [JNI Runtime](./jni-runtime.md) | Protocol boundary contract, memory ownership, known issues |
 | [Dynamic Filter Lifecycle](./dynamic-filtering.md) | Dynamic filter state machine and lifecycle |
 | [Domain Modularization ADR](./domain-modularization-adr.md) | Accepted domain contract, implementation, and assembly decisions |
 | [Configuration Reference](../configuration/reference.md) | Full configuration-key reference |

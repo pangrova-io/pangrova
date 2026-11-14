@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
@@ -78,7 +80,7 @@ class PlannerWiringSessionIntegrationTest {
         try (var scheduling = new QuerySchedulingWiring(null, "load-balanced");
              var dispatcher = new RemoteTaskDispatcher(
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                org.pangrova.testing.testkit.TestObservability.TRACING)) {
+                org.pangrova.testing.testkit.constants.TestObservability.TRACING)) {
             var deps = QueryDispatcherContext.withDefaults(template, null, null, null, dispatcher,
                     scheduling.scheduler(), workers,
                     new CoordinatorTaskTracker(), metadata.catalogRegistry(), null, null, 0L);
@@ -90,8 +92,12 @@ class PlannerWiringSessionIntegrationTest {
         ConnectorSession alpha = session("alpha", "alice");
         ConnectorSession beta = session("beta", "bob");
         var handle = metadata.catalogRegistry().getCatalog("scoped_lance");
-        var alphaRoot = metadata.buildCalciteSchema(alpha);
-        var betaRoot = metadata.buildCalciteSchema(beta);
+        var alphaRoot = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(alpha);
+        var betaRoot = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(beta);
         var alphaCatalog = alphaRoot.getSubSchema("scoped_lance", false);
         var betaCatalog = betaRoot.getSubSchema("scoped_lance", false);
         assertThat(alphaCatalog.getSubSchemaMap()).isEmpty();
@@ -125,7 +131,9 @@ class PlannerWiringSessionIntegrationTest {
     private static void assertRealBackendErrorsPropagate(
             javax.sql.DataSource dataSource, MetadataBootstrap metadata) throws Exception {
         var session = session("alpha", "alice");
-        var root = metadata.buildCalciteSchema(session);
+        var root = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(session);
         var catalog = root.getSubSchema("scoped_lance", false);
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("ALTER TABLE managed_source_schemas RENAME TO temporarily_unavailable_schemas");

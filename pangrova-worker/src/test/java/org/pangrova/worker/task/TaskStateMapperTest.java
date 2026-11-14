@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.enums.ReportedTaskState;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.protocol.execution.TaskStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -16,8 +16,8 @@ class TaskStateMapperTest {
 
     @ParameterizedTest
     @EnumSource(org.pangrova.worker.enums.TaskState.class)
-    void toSpiState_returnsNonNullForEveryWorkerState(org.pangrova.worker.enums.TaskState state) {
-        TaskStatus.TaskState result = TaskStateMapper.toSpiState(state);
+    void toReportedState_returnsNonNullForEveryWorkerState(org.pangrova.worker.enums.TaskState state) {
+        ReportedTaskState result = TaskStateMapper.toReportedState(state);
         assertThat(result).isNotNull();
     }
 
@@ -30,51 +30,51 @@ class TaskStateMapperTest {
     }
 
     @Test
-    void toSpiState_receivedMapsToPending() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.RECEIVED))
-                .isEqualTo(TaskStatus.TaskState.PENDING);
+    void toReportedState_receivedMapsToPending() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.RECEIVED))
+                .isEqualTo(ReportedTaskState.PENDING);
     }
 
     @Test
-    void toSpiState_initializingMapsToPending() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.INITIALIZING))
-                .isEqualTo(TaskStatus.TaskState.PENDING);
+    void toReportedState_initializingMapsToPending() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.INITIALIZING))
+                .isEqualTo(ReportedTaskState.PENDING);
     }
 
     @Test
-    void toSpiState_runningMapsToRunning() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.RUNNING))
-                .isEqualTo(TaskStatus.TaskState.RUNNING);
+    void toReportedState_runningMapsToRunning() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.RUNNING))
+                .isEqualTo(ReportedTaskState.RUNNING);
     }
 
     @Test
-    void toSpiState_finishingMapsToFlushing() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.FINISHING))
-                .isEqualTo(TaskStatus.TaskState.FLUSHING);
+    void toReportedState_finishingMapsToFlushing() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.FINISHING))
+                .isEqualTo(ReportedTaskState.FLUSHING);
     }
 
     @Test
-    void toSpiState_cancellingRemainsNonTerminal() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.CANCELLING))
-                .isEqualTo(TaskStatus.TaskState.RUNNING);
+    void toReportedState_cancellingRemainsNonTerminal() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.CANCELLING))
+                .isEqualTo(ReportedTaskState.RUNNING);
     }
 
     @Test
-    void toSpiState_finishedMapsToFinished() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.FINISHED))
-                .isEqualTo(TaskStatus.TaskState.FINISHED);
+    void toReportedState_finishedMapsToFinished() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.FINISHED))
+                .isEqualTo(ReportedTaskState.FINISHED);
     }
 
     @Test
-    void toSpiState_failedMapsToFailed() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.FAILED))
-                .isEqualTo(TaskStatus.TaskState.FAILED);
+    void toReportedState_failedMapsToFailed() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.FAILED))
+                .isEqualTo(ReportedTaskState.FAILED);
     }
 
     @Test
-    void toSpiState_cancelledMapsToCancelled() {
-        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.enums.TaskState.CANCELLED))
-                .isEqualTo(TaskStatus.TaskState.CANCELLED);
+    void toReportedState_cancelledMapsToCancelled() {
+        assertThat(TaskStateMapper.toReportedState(org.pangrova.worker.enums.TaskState.CANCELLED))
+                .isEqualTo(ReportedTaskState.CANCELLED);
     }
 
     @Test
@@ -128,7 +128,7 @@ class TaskStateMapperTest {
     @Test
     void everyWorkerState_mapsToExactlyOneSpiState() {
         for (org.pangrova.worker.enums.TaskState state : org.pangrova.worker.enums.TaskState.values()) {
-            TaskStatus.TaskState spiState = TaskStateMapper.toSpiState(state);
+            ReportedTaskState spiState = TaskStateMapper.toReportedState(state);
             assertThat(spiState)
                     .as("Worker state %s must map to exactly one SPI state", state)
                     .isNotNull();

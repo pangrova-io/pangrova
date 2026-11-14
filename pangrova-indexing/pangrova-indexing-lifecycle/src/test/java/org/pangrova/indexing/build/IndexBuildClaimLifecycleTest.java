@@ -1,5 +1,7 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildOutcome;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -68,7 +70,7 @@ class IndexBuildClaimLifecycleTest {
         claims.acceptClaim = false;
         try (var builder = builder(claims)) {
             assertThat(builder.submitBuildTask(descriptor(), List.of(), null, null)
-                    .get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildResult.Outcome.CLAIM_FAILED);
+                    .get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildOutcome.CLAIM_FAILED);
         }
         assertThat(claims.released).isEmpty();
     }

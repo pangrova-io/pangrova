@@ -37,7 +37,7 @@ class FileContractsIsolationTest {
                     "org.pangrova.file.api.directory.DirectoryRefresh$RefreshToken",
                     "org.pangrova.persistence.file.api.claim.CopyFileClaim",
                     "org.pangrova.persistence.file.api.claim.CopyFileClaimStore",
-                    "org.pangrova.persistence.file.api.claim.CopyFileClaimStore$ClaimResult")) {
+                    "org.pangrova.persistence.file.api.enums.CopyFileClaimResult")) {
                 var type = Class.forName(name, true, loader);
                 assertThat(type.getClassLoader()).isSameAs(loader);
                 for (var method : type.getMethods()) {

@@ -310,13 +310,20 @@ public final class CoordinatorBootstrap {
             nativeDatasetControl = new NativeDatasetControlBootstrap(config.internalAuthSecret(),
                     () -> query, () -> ha == null ? null : ha.haService(), metadataDataSource, modelAuthority);
             connectorHandleFactory = new PluginConnectorHandleFactory(
-                    cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog);
-            var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
-            metadataBootstrap = MetadataBootstrap.initialize(
-                    loadTableStores(cl, metadataDataSource), deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
-                    connectorHandleFactory, federationFactory,
-                    new JdbcMaterializationRepository(metadataDataSource),
-                    new JdbcMaterializationCatalog(metadataDataSource));
+                    cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog,
+                    config.core().pluginDirectory());
+            var cache = jdbc.cache().open(cl);
+            try {
+                var federationFactory = new PluginFederationHandleFactory(cl, secretResolver, cache);
+                metadataBootstrap = MetadataBootstrap.initialize(
+                        loadTableStores(cl, metadataDataSource), deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
+                        connectorHandleFactory, federationFactory,
+                        new JdbcMaterializationRepository(metadataDataSource),
+                        new JdbcMaterializationCatalog(metadataDataSource), cache);
+            } catch (RuntimeException | Error failure) {
+                try { cache.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+                throw failure;
+            }
             LOG.info("event=phase_started phase=metadata");
         } catch (Exception e) {
             throw new BootstrapFailedException("Metadata", e);
@@ -456,7 +463,7 @@ public final class CoordinatorBootstrap {
                     metadataDataSource,
                     streamingContext.watermarkTracker(),
                     streamingContext.scheduler(),
-                    metadataBootstrap.catalogRegistry(), config.coordinatorId());
+                    metadataBootstrap.catalogRegistry(), config.coordinatorId(), observability.metricsProvider());
             LOG.info("event=phase_started phase=streaming_bootstrap");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=streaming_bootstrap error={}", e.getMessage(), e);
@@ -541,6 +548,9 @@ public final class CoordinatorBootstrap {
         var factories = new java.util.HashMap<String, TableStoreFactory>();
         for (var factory : java.util.ServiceLoader.load(TableStoreFactory.class, loader)) {
             String id = factory.identifier();
+            if (factory.apiVersion() != TableStoreFactory.API_VERSION) {
+                throw new IllegalStateException("Incompatible table storage provider: " + id);
+            }
             if (id == null || id.isBlank() || factories.putIfAbsent(id, factory) != null) {
                 throw new IllegalStateException("Blank or duplicate table storage provider: " + id);
             }

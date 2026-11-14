@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.enums.IcebergCommitOutcome;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DeleteFiles;
 import org.apache.iceberg.ExpireSnapshots;
@@ -55,7 +57,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("An unattributable new snapshot must fail closed as UNKNOWN")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("advanced");
     }
 
@@ -73,7 +75,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("Lineage without a commit marker must fail closed as UNKNOWN")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("advanced");
     }
 
@@ -87,7 +89,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("No snapshot cannot prove the remote commit has stopped")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 
@@ -102,7 +104,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("An unchanged snapshot cannot prove the remote commit has stopped")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 
@@ -121,7 +123,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("Should return UNKNOWN when verification itself fails")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("Verification failed");
     }
 
@@ -137,7 +139,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("Unprovable advancement must fail closed as UNKNOWN")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("advanced");
     }
 
@@ -153,7 +155,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("The durable commit marker is positive proof of success")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.SUCCEEDED);
+                .isEqualTo(IcebergCommitOutcome.SUCCEEDED);
         assertThat(result.detail()).contains("marker");
     }
 
@@ -168,7 +170,7 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("A snapshot that advanced without our marker cannot prove our commit")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
     }
 
     private static Map<String, String> markerSummary(String fingerprint, long baseSnapshotId) {

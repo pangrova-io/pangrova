@@ -9,8 +9,7 @@ import java.net.URL;
  *
  * <p>Implementations control the class-visibility boundary between the engine
  * and connector code. The default implementation honours
- * {@link SharedPackagePolicy} and the
- * {@code connector.classloader.shared-packages} configuration property.
+ * {@link SharedPackagePolicy} and its explicit set of shared packages.
  *
  * <p>Custom implementations can add advanced isolation strategies such as
  * per-connector bytecode transformation or OSGi-style module wiring.
@@ -30,5 +29,5 @@ public interface ConnectorClassLoaderFactory {
      * @return a new classloader whose delegation strategy is governed by the
      *         factory's configured {@link SharedPackagePolicy}
      */
-    ClassLoader createClassLoader(String pluginName, URL[] pluginUrls, ClassLoader spiClassLoader);
+    PluginClassLoader createClassLoader(String pluginName, URL[] pluginUrls, ClassLoader spiClassLoader);
 }

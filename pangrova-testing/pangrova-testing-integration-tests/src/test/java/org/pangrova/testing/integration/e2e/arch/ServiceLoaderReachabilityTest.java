@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.arch;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.security.api.secret.SecretProvider;
+import org.pangrova.security.api.secret.SecretProviderFactory;
 import org.pangrova.metadata.api.catalog.FederatedCatalogFactory;
 import org.pangrova.function.api.registry.FunctionFactory;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
@@ -44,7 +44,7 @@ class ServiceLoaderReachabilityTest {
         var classes = new ClassFileImporter().importClasses(
                 SecretResolverRegistry.class, PluginFederationHandleFactory.class);
         assertThat(ServiceLoaderReachability.contractsOf(SecretResolverRegistry.class.getName(), classes))
-                .containsExactly(SecretProvider.class.getName());
+                .containsExactly(SecretProviderFactory.class.getName());
         assertThat(ServiceLoaderReachability.contractsOf(PluginFederationHandleFactory.class.getName(), classes))
                 .containsExactly(FederatedCatalogFactory.class.getName());
     }

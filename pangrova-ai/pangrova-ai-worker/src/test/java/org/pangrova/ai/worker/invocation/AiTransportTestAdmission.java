@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.invocation.PhysicalAttempt;
 
 import com.google.protobuf.ByteString;
@@ -44,7 +46,7 @@ public final class AiTransportTestAdmission implements AutoCloseable {
     private final BoundAiInvocation binding;
     private final AiPhysicalInvocationAdmission admission;
 
-    public AiTransportTestAdmission(AiCapabilityDescriptor.Operation operation, int dimension,
+    public AiTransportTestAdmission(AiOperation operation, int dimension,
             int items, int providerRequests, Limits limits, Instant deadline) {
         String taskId = UUID.randomUUID().toString();
         var operator = operator(operation, dimension, limits);
@@ -70,12 +72,12 @@ public final class AiTransportTestAdmission implements AutoCloseable {
     }
 
     public static AiTransportTestAdmission embedding(int dimension, int items, int requests) {
-        return new AiTransportTestAdmission(AiCapabilityDescriptor.Operation.EMBEDDING, dimension,
+        return new AiTransportTestAdmission(AiOperation.EMBEDDING, dimension,
                 items, requests, Limits.defaults(), Instant.now().plusSeconds(30));
     }
 
     public static <T> T inference(Supplier<T> callback) {
-        try (var budget = new AiTransportTestAdmission(AiCapabilityDescriptor.Operation.TEXT_GENERATION, 0,
+        try (var budget = new AiTransportTestAdmission(AiOperation.TEXT_GENERATION, 0,
                 1, 1, Limits.defaults(), Instant.now().plusSeconds(30))) {
             return budget.call("transport-inference", callback);
         }
@@ -97,29 +99,29 @@ public final class AiTransportTestAdmission implements AutoCloseable {
         finally { manager.releaseTask(context.tenantId(), context.taskAttempt()); }
     }
 
-    private AiInvocationRequest request(AiCapabilityDescriptor.Operation operation, int items, Instant deadline) {
+    private AiInvocationRequest request(AiOperation operation, int items, Instant deadline) {
         return new AiInvocationRequest("request", context.tenantId(), context.principal(), context.queryId(),
                 context.traceId(), binding.modelId(), binding.modelVersion(), binding.modelSignatureSha256(), "v1",
-                operation, items == 1 ? AiCapabilityDescriptor.ExecutionMode.SCALAR
-                        : AiCapabilityDescriptor.ExecutionMode.BATCH,
-                operation == AiCapabilityDescriptor.Operation.EMBEDDING ? Optional.of(EmbeddingPurpose.RAW) : Optional.empty(),
+                operation, items == 1 ? AiExecutionMode.SCALAR
+                        : AiExecutionMode.BATCH,
+                operation == AiOperation.EMBEDDING ? Optional.of(EmbeddingPurpose.RAW) : Optional.empty(),
                 inputs(operation, items), GenerationParameters.DEFAULTS, deadline,
                 binding.idempotencyBase() + ":" + "0".repeat(64), Map.of("task_id", context.taskId(),
                         "task_attempt_base64", Base64.getEncoder().encodeToString(context.taskAttempt().toByteArray())));
     }
 
-    private static AiCapabilityDescriptor capability(AiCapabilityDescriptor.Operation operation, Limits limits) {
+    private static AiCapabilityDescriptor capability(AiOperation operation, Limits limits) {
         return new AiCapabilityDescriptor("transport", "v1", operation,
                 List.of(new AiCapabilityDescriptor.Signature(
                         resultType(operation), List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR, AiCapabilityDescriptor.ExecutionMode.BATCH),
+                Set.of(AiExecutionMode.SCALAR, AiExecutionMode.BATCH),
                 Set.of(Modality.TEXT), 128,
                 new AiCapabilityDescriptor.ResourceLimits(limits.constraints(), limits.mediaBytes(), limits.concurrency(),
                         limits.items(), limits.attempts()), false,
                 new AiCapabilityDescriptor.RetryPolicy(4, Duration.ZERO, Duration.ZERO, Set.of()), Set.of());
     }
 
-    private static OperatorBinding operator(AiCapabilityDescriptor.Operation operation, int dimension, Limits limits) {
+    private static OperatorBinding operator(AiOperation operation, int dimension, Limits limits) {
         var capability = switch (operation) {
             case EMBEDDING -> BuiltInCapabilityCatalog.aiEmbeddingPlanRef();
             case TEXT_GENERATION -> BuiltInCapabilityCatalog.aiTextGenerationPlanRef();
@@ -141,9 +143,9 @@ public final class AiTransportTestAdmission implements AutoCloseable {
                         .setMediaBytes(limits.mediaBytes())).build();
     }
 
-    private static LogicalType outputType(AiCapabilityDescriptor.Operation operation, int dimension) {
-        if (operation == AiCapabilityDescriptor.Operation.EMBEDDING) return VectorLogicalType.create(dimension);
-        if (operation == AiCapabilityDescriptor.Operation.RERANKING) {
+    private static LogicalType outputType(AiOperation operation, int dimension) {
+        if (operation == AiOperation.EMBEDDING) return VectorLogicalType.create(dimension);
+        if (operation == AiOperation.RERANKING) {
             return LogicalType.newBuilder().setCanonicalSql("DOUBLE").setSubstraitType(Type.newBuilder()
                     .setFp64(Type.FP64.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE))).build();
         }
@@ -151,16 +153,16 @@ public final class AiTransportTestAdmission implements AutoCloseable {
                 Type.String.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE))).build();
     }
 
-    private static List<AiInvocationRequest.Input> inputs(AiCapabilityDescriptor.Operation operation, int items) {
+    private static List<AiInvocationRequest.Input> inputs(AiOperation operation, int items) {
         return java.util.stream.IntStream.range(0, items).<AiInvocationRequest.Input>mapToObj(index ->
-                operation == AiCapabilityDescriptor.Operation.RERANKING
+                operation == AiOperation.RERANKING
                         ? new AiInvocationRequest.RerankInput("query", "document-" + index)
                         : new AiInvocationRequest.TextInput("transport-" + index)).toList();
     }
 
-    private static String resultType(AiCapabilityDescriptor.Operation operation) {
-        if (operation == AiCapabilityDescriptor.Operation.EMBEDDING) return "VECTOR";
-        return operation == AiCapabilityDescriptor.Operation.RERANKING ? "DOUBLE" : "VARCHAR";
+    private static String resultType(AiOperation operation) {
+        if (operation == AiOperation.EMBEDDING) return "VECTOR";
+        return operation == AiOperation.RERANKING ? "DOUBLE" : "VARCHAR";
     }
 
     boolean hasQueuedAttempts() { return manager.taskBudget(context).concurrency.hasQueuedThreads(); }

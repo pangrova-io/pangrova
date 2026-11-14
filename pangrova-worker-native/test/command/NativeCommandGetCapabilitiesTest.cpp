@@ -151,11 +151,11 @@ class NativeCommandGetCapabilitiesTest : public ::testing::Test {
     config.io_thread_count = 2;
     config.num_drivers = 1;
     config.cache_enabled = false;
-    NativeEngineLifecycle::instance().initialize(config);
+    initializeVeloxRuntime(config);
   }
 
   void TearDown() override {
-    NativeEngineLifecycle::instance().shutdown();
+    shutdownVeloxRuntime();
     // Preserve the default test runtime for other suites in one-process runs.
     pangrova::test::detail::ensureRuntimeInitialized();
   }

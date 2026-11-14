@@ -1,10 +1,5 @@
 package org.pangrova.streaming.source.kafka;
 
-import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.exception.SourceUnavailableException;
-import org.pangrova.streaming.api.source.SourceRecord;
-import org.pangrova.streaming.api.source.CdcSourceReader;
-import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -14,6 +9,11 @@ import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.SourceUnavailableException;
+import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
+import org.pangrova.streaming.api.source.CdcSourceReader;
+import org.pangrova.streaming.api.source.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Properties;
 
 /**
@@ -89,6 +90,20 @@ final class KafkaCdcSourceReader implements CdcSourceReader {
                     PangrovaErrorCode.STREAM_SOURCE_UNAVAILABLE,
                     "Failed to create Kafka consumer for topic=" + topic, failure);
         }
+    }
+
+    @Override
+    public OptionalLong currentLag() {
+        var assigned = consumer.assignment();
+        if (assigned.isEmpty()) return OptionalLong.empty();
+        long total = 0;
+        for (TopicPartition partition : assigned) {
+            OptionalLong lag = consumer.currentLag(partition);
+            if (lag.isEmpty() || lag.getAsLong() < 0) return OptionalLong.empty();
+            if (Long.MAX_VALUE - total < lag.getAsLong()) return OptionalLong.empty();
+            total += lag.getAsLong();
+        }
+        return OptionalLong.of(total);
     }
 
     @Override

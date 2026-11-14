@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.exception.MaterializationException;
 
@@ -112,11 +114,11 @@ public record RefreshAttempt(
 
     private static void requireStateEvidence(AttemptState state,
             Optional<CommitEvidence> attemptEvidence, Optional<String> attemptErrorCode) {
-        if ((state == AttemptState.Committed.INSTANCE || state == AttemptState.Published.INSTANCE)
+        if ((state == AttemptState.COMMITTED || state == AttemptState.PUBLISHED)
                 && attemptEvidence.isEmpty()) {
             throw new IllegalArgumentException("committed or published attempt requires commit evidence");
         }
-        if (state == AttemptState.Failed.INSTANCE && attemptErrorCode.isEmpty()) {
+        if (state == AttemptState.FAILED && attemptErrorCode.isEmpty()) {
             throw new IllegalArgumentException("failed attempt requires an error code");
         }
     }
@@ -151,7 +153,7 @@ public record RefreshAttempt(
         return new RefreshAttempt(id, header.id(), header.incarnation(), definition.revision(),
                 header.revision(), scope.baseGeneration(), scope.refreshKind(),
                 scope.sourceVector(), scope.trigger(), requesting, definition.definer(),
-                scope.fence(), scope.candidateTable(), AttemptState.Preparing.INSTANCE,
+                scope.fence(), scope.candidateTable(), AttemptState.PREPARING,
                 Optional.empty(), Optional.empty(), now, now);
     }
 
@@ -181,8 +183,8 @@ public record RefreshAttempt(
      * @return building attempt
      */
     public RefreshAttempt markBuilding(Instant now) {
-        requireTransition(AttemptState.Building.INSTANCE);
-        return withState(AttemptState.Building.INSTANCE, evidence, errorCode, now);
+        requireTransition(AttemptState.BUILDING);
+        return withState(AttemptState.BUILDING, evidence, errorCode, now);
     }
 
     /**
@@ -193,11 +195,11 @@ public record RefreshAttempt(
      * @return committed attempt
      */
     public RefreshAttempt markCommitted(CommitEvidence commitEvidence, Instant now) {
-        requireTransition(AttemptState.Committed.INSTANCE);
+        requireTransition(AttemptState.COMMITTED);
         if (evidence.isPresent()) {
             throw MaterializationException.evidenceMismatch("attempt already has commit evidence");
         }
-        return withState(AttemptState.Committed.INSTANCE, Optional.of(commitEvidence), errorCode, now);
+        return withState(AttemptState.COMMITTED, Optional.of(commitEvidence), errorCode, now);
     }
 
     /**
@@ -207,12 +209,12 @@ public record RefreshAttempt(
      * @return published attempt
      */
     public RefreshAttempt markPublished(Instant now) {
-        requireTransition(AttemptState.Published.INSTANCE);
+        requireTransition(AttemptState.PUBLISHED);
         if (evidence.isEmpty()) {
             throw MaterializationException.evidenceMismatch(
                     "cannot publish attempt " + id + " without commit evidence");
         }
-        return withState(AttemptState.Published.INSTANCE, evidence, errorCode, now);
+        return withState(AttemptState.PUBLISHED, evidence, errorCode, now);
     }
 
     /**
@@ -223,8 +225,8 @@ public record RefreshAttempt(
      * @return failed attempt
      */
     public RefreshAttempt fail(String reason, Instant now) {
-        requireTransition(AttemptState.Failed.INSTANCE);
-        return withState(AttemptState.Failed.INSTANCE, evidence, Optional.of(requireText(reason, "reason")), now);
+        requireTransition(AttemptState.FAILED);
+        return withState(AttemptState.FAILED, evidence, Optional.of(requireText(reason, "reason")), now);
     }
 
     /**
@@ -235,8 +237,8 @@ public record RefreshAttempt(
      * @return abandoned attempt
      */
     public RefreshAttempt abandon(String reason, Instant now) {
-        requireTransition(AttemptState.Abandoned.INSTANCE);
-        return withState(AttemptState.Abandoned.INSTANCE, evidence, Optional.of(requireText(reason, "reason")), now);
+        requireTransition(AttemptState.ABANDONED);
+        return withState(AttemptState.ABANDONED, evidence, Optional.of(requireText(reason, "reason")), now);
     }
 
     /**
@@ -247,8 +249,8 @@ public record RefreshAttempt(
      * @return quarantined attempt
      */
     public RefreshAttempt quarantine(String reason, Instant now) {
-        requireTransition(AttemptState.Quarantined.INSTANCE);
-        return withState(AttemptState.Quarantined.INSTANCE, evidence, Optional.of(requireText(reason, "reason")), now);
+        requireTransition(AttemptState.QUARANTINED);
+        return withState(AttemptState.QUARANTINED, evidence, Optional.of(requireText(reason, "reason")), now);
     }
 
     /**
@@ -259,8 +261,8 @@ public record RefreshAttempt(
      * @return superseded attempt
      */
     public RefreshAttempt supersede(String reason, Instant now) {
-        requireTransition(AttemptState.Superseded.INSTANCE);
-        return withState(AttemptState.Superseded.INSTANCE, evidence, Optional.of(requireText(reason, "reason")), now);
+        requireTransition(AttemptState.SUPERSEDED);
+        return withState(AttemptState.SUPERSEDED, evidence, Optional.of(requireText(reason, "reason")), now);
     }
 
     private RefreshAttempt withState(

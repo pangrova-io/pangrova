@@ -20,6 +20,7 @@
 
     <dependencies>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-governance-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-exchange</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>

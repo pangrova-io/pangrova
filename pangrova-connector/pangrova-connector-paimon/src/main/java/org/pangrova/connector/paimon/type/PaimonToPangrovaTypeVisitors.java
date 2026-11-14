@@ -267,8 +267,8 @@ final class PaimonToPangrovaTypeVisitors {
                     || vectorType.getElementType() instanceof DoubleType) {
                 return new org.pangrova.types.VectorType(vectorType.getLength(),
                         vectorType.getElementType() instanceof DoubleType
-                                ? org.pangrova.types.VectorType.ElementType.DOUBLE
-                                : org.pangrova.types.VectorType.ElementType.FLOAT);
+                                ? org.pangrova.types.enums.VectorElementType.DOUBLE
+                                : org.pangrova.types.enums.VectorElementType.FLOAT);
             }
             return new org.pangrova.types.ArrayType(
                     vectorType.getElementType().accept(this));

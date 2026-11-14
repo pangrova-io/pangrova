@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.indexing;
 
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import java.util.function.Supplier;
+import java.util.Optional;
 import org.pangrova.query.api.task.QuerySplit;
 
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
@@ -9,7 +13,6 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.indexing.evaluation.IndexEvaluationFailures;
 import org.pangrova.planner.analysis.PlanFragment;
-import org.pangrova.planner.analysis.PlanSplitSourceExtractor;
 import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.indexing.api.pruning.IndexHint;
@@ -18,7 +21,7 @@ import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
-import org.apache.calcite.rel.RelNode;
+import org.pangrova.planner.analysis.ScanPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,20 +102,9 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
      */
     public List<QuerySplit> fetchAndFilterSplits(
             PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.query.api.session.QuerySession session) {
-        LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={}",
-                queryId, isIndexFilteringEnabled());
-        if (!isIndexFilteringEnabled()) {
-            return SplitFetcher.fetchSplitsWithFilePaths(plannedQuery, catalogRegistry, snapshotOverrides, session);
-        }
-        List<ConnectorSplit> rawSplits =
-                SplitFetcher.fetchRawConnectorSplits(plannedQuery, catalogRegistry, snapshotOverrides, session);
-        if (rawSplits.isEmpty()) {
-            return List.of();
-        }
-        List<ConnectorSplit> filtered = applyIndexFiltering(
-                plannedQuery.plan(), rawSplits, snapshotOverrides, queryId, session);
-        return SplitFetcher.toSplitWithPaths(filtered);
+            String queryId, QuerySession session) {
+        return fetchAndFilterSplits(plannedQuery.splitSources(), plannedQuery.queryOutputColumns(),
+                plannedQuery::singleScanPredicates, snapshotOverrides, queryId, session);
     }
 
     /**
@@ -126,18 +118,17 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
      */
     public List<QuerySplit> fetchAndFilterSplits(
             PlanFragment fragment, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.query.api.session.QuerySession session) {
-        return fetchAndFilterSplitsInternal(
-                fragment.relNode(), snapshotOverrides, queryId, session);
+            String queryId, QuerySession session) {
+        return fetchAndFilterSplits(fragment.splitSources(), fragment.queryOutputColumns(),
+                fragment::singleScanPredicates, snapshotOverrides, queryId, session);
     }
 
-    private List<QuerySplit> fetchAndFilterSplitsInternal(
-            RelNode relNode, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.query.api.session.QuerySession session) {
-        LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={} relNodeType={}",
-                queryId, isIndexFilteringEnabled(), relNode.getClass().getSimpleName());
-        List<SplitSourceDescriptor> sources = PlanSplitSourceExtractor.extract(relNode);
-        List<String> outputColumns = PlanSplitSourceExtractor.queryOutputColumns(relNode);
+    private List<QuerySplit> fetchAndFilterSplits(
+            List<SplitSourceDescriptor> sources, List<String> outputColumns,
+            Supplier<Optional<ScanPredicates>> selection,
+            Map<String, Long> snapshotOverrides, String queryId,
+            QuerySession session) {
+        LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={}", queryId, isIndexFilteringEnabled());
         if (!isIndexFilteringEnabled()) {
             return SplitFetcher.fetchSplitsWithFilePaths(
                     sources, catalogRegistry, snapshotOverrides, outputColumns, session);
@@ -149,21 +140,28 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
             return List.of();
         }
         List<ConnectorSplit> filtered = applyIndexFiltering(
-                relNode, rawSplits, snapshotOverrides, queryId, session);
+                selection, rawSplits, snapshotOverrides, queryId, session);
         return SplitFetcher.toSplitWithPaths(filtered);
     }
 
     private List<ConnectorSplit> applyIndexFiltering(
-            RelNode relNode, List<ConnectorSplit> splits,
+            Supplier<Optional<ScanPredicates>> selection, List<ConnectorSplit> splits,
             Map<String, Long> snapshotOverrides, String queryId,
-            org.pangrova.query.api.session.QuerySession session) {
+            QuerySession session) {
         try {
-            Map<String, List<IndexHint>> tableHints =
-                    IndexHintGenerator.generate(relNode, metadataStore, predicateAnalyzer,
-                            session.tenantId(), 0);
-            if (tableHints.isEmpty()) {
-                return splits;
-            }
+            var scope = selection.get();
+            if (scope.isEmpty()) return splits;
+            var scan = scope.orElseThrow();
+            var table = scan.table();
+            var predicates = scan.predicates();
+            var columns = predicates.stream().map(IndexPredicate::column)
+                    .distinct().toList();
+            var indexes = metadataStore.findReadyIndexesForColumns(
+                    session.tenantId(), table.catalog(), table.schema(), table.table(), columns, false);
+            if (indexes.isEmpty()) return splits;
+            var hints = predicateAnalyzer.analyze(predicates, indexes);
+            if (hints.isEmpty()) return splits;
+            Map<String, List<IndexHint>> tableHints = Map.of(table.toString(), hints);
             return filterSplitsByTable(
                     splits, tableHints, snapshotOverrides, queryId, session);
         } catch (org.pangrova.security.api.exception.AccessDeniedException | SecurityException authorityFailure) {
@@ -181,7 +179,7 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
             Map<String, List<IndexHint>> tableHints,
             Map<String, Long> snapshotOverrides,
             String queryId,
-            org.pangrova.query.api.session.QuerySession session) {
+            QuerySession session) {
         int before = splits.size();
         List<ConnectorSplit> result = new java.util.ArrayList<>(splits);
         for (var entry : tableHints.entrySet()) {
@@ -198,7 +196,7 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
     private List<ConnectorSplit> filterSplitsForTable(
             List<ConnectorSplit> splits, String tableKey,
             List<IndexHint> hints, Map<String, Long> snapshotOverrides,
-            org.pangrova.query.api.session.QuerySession session) {
+            QuerySession session) {
         String catalogName = extractCatalogFromKey(tableKey);
         String schemaName = extractSchemaFromKey(tableKey);
         String tableName = extractTableFromKey(tableKey);

@@ -137,7 +137,8 @@ final class TaskStatusCollector {
     private TaskStatusReport releasedReport(TaskInfo info) {
         var actual = executionDrainReceipt(info).orElseThrow(() ->
                 new IllegalStateException("Terminal publication lacks actual released execution evidence"));
-        String state = info.getState().name();
+        var workerState = info.getState();
+        String state = workerState.name();
         if ("FINISHED".equals(state)) {
             if (actual.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
                 throw new IllegalStateException("Successful Worker state conflicts with actual release state");
@@ -152,7 +153,7 @@ final class TaskStatusCollector {
                             actual.getError().getMessage())
                     : new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
             byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
-                    info.request().taskRequest(), org.pangrova.protocol.v2.TaskState.valueOf("TASK_STATE_" + state),
+                    info.request().taskRequest(), TaskStateMapper.toProtoState(workerState),
                     error, info.executorReleaseReport());
             return buildReport(info, state, error, withActualDrain(info, canonical));
         } else {

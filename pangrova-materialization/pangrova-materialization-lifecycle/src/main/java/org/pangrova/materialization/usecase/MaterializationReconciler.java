@@ -1,17 +1,19 @@
 package org.pangrova.materialization.usecase;
 
+import org.pangrova.materialization.enums.ReconciliationOutcome;
+
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.materialization.api.port.CommitRecovery;
@@ -101,7 +103,7 @@ public final class MaterializationReconciler {
                 continue;
             }
             try {
-                OutcomeKind kind = reconcile(attempt, generation.orElseThrow(), now);
+                ReconciliationOutcome kind = reconcile(attempt, generation.orElseThrow(), now);
                 switch (kind) {
                     case ADOPTED -> adopted++;
                     case SUPERSEDED -> superseded++;
@@ -117,18 +119,18 @@ public final class MaterializationReconciler {
         return new ReconcileReport(examined, adopted, superseded, abandoned, quarantined, failed);
     }
 
-    private OutcomeKind reconcile(RefreshAttempt attempt, Generation generation, Instant now) {
-        if (attempt.state() == AttemptState.Committed.INSTANCE) {
-            return publish(attempt, generation, now) ? OutcomeKind.ADOPTED : OutcomeKind.SUPERSEDED;
+    private ReconciliationOutcome reconcile(RefreshAttempt attempt, Generation generation, Instant now) {
+        if (attempt.state() == AttemptState.COMMITTED) {
+            return publish(attempt, generation, now) ? ReconciliationOutcome.ADOPTED : ReconciliationOutcome.SUPERSEDED;
         }
-        if (attempt.state() == AttemptState.Quarantined.INSTANCE) {
+        if (attempt.state() == AttemptState.QUARANTINED) {
             return reconcileQuarantined(attempt, generation, now);
         }
         CommitRecovery.Outcome outcome;
         try {
             outcome = recovery.recover(attempt);
         } catch (RuntimeException failure) {
-            return OutcomeKind.DEFERRED;
+            return ReconciliationOutcome.DEFERRED;
         }
         if (outcome instanceof CommitRecovery.Committed committed) {
             repository.recordCommitEvidence(attempt.id(), committed.evidence(), now);
@@ -139,24 +141,24 @@ public final class MaterializationReconciler {
                     .orElseThrow(() -> MaterializationException.repositoryFailure(
                             "recovered generation disappeared: " + attempt.id().value(), null));
             return publish(recorded, committedGeneration, now)
-                    ? OutcomeKind.ADOPTED : OutcomeKind.SUPERSEDED;
+                    ? ReconciliationOutcome.ADOPTED : ReconciliationOutcome.SUPERSEDED;
         }
         if (outcome instanceof CommitRecovery.Uncommitted uncommitted) {
             abandon(attempt, generation, uncommitted.reason(), now);
-            return OutcomeKind.ABANDONED;
+            return ReconciliationOutcome.ABANDONED;
         }
         CommitRecovery.Unknown unknown = (CommitRecovery.Unknown) outcome;
         quarantine(attempt, generation, "reconcile: " + unknown.reason(), now);
-        return OutcomeKind.QUARANTINED;
+        return ReconciliationOutcome.QUARANTINED;
     }
 
-    private OutcomeKind reconcileQuarantined(RefreshAttempt attempt, Generation generation,
+    private ReconciliationOutcome reconcileQuarantined(RefreshAttempt attempt, Generation generation,
             Instant now) {
         CommitRecovery.Outcome outcome;
         try {
             outcome = recovery.recover(attempt);
         } catch (RuntimeException failure) {
-            return OutcomeKind.DEFERRED;
+            return ReconciliationOutcome.DEFERRED;
         }
         if (outcome instanceof CommitRecovery.Committed committed) {
             repository.recordCommitEvidence(attempt.id(), committed.evidence(), now);
@@ -167,13 +169,13 @@ public final class MaterializationReconciler {
                     .orElseThrow(() -> MaterializationException.repositoryFailure(
                             "recovered generation disappeared: " + attempt.id().value(), null));
             return publish(recorded, committedGeneration, now)
-                    ? OutcomeKind.ADOPTED : OutcomeKind.SUPERSEDED;
+                    ? ReconciliationOutcome.ADOPTED : ReconciliationOutcome.SUPERSEDED;
         }
         if (outcome instanceof CommitRecovery.Uncommitted uncommitted) {
             abandon(attempt, generation, uncommitted.reason(), now);
-            return OutcomeKind.ABANDONED;
+            return ReconciliationOutcome.ABANDONED;
         }
-        return OutcomeKind.QUARANTINED;
+        return ReconciliationOutcome.QUARANTINED;
     }
 
     private boolean publish(RefreshAttempt attempt, Generation generation, Instant now) {
@@ -184,8 +186,8 @@ public final class MaterializationReconciler {
                 .isPresent();
         boolean incompatible = header.definitionRevision() != generation.definitionRevision()
                 || !header.incarnation().equals(generation.incarnation())
-                || header.state() == ObjectState.Dropping.INSTANCE
-                || header.state() == ObjectState.Dropped.INSTANCE;
+                || header.state() == ObjectState.DROPPING
+                || header.state() == ObjectState.DROPPED;
         if (headAdvanced || incompatible) {
             supersede(attempt, generation, now);
             return false;
@@ -234,11 +236,4 @@ public final class MaterializationReconciler {
                 attempt.requesting(), attempt.definer(), detail, now);
     }
 
-    private enum OutcomeKind {
-        ADOPTED,
-        SUPERSEDED,
-        ABANDONED,
-        QUARANTINED,
-        DEFERRED
-    }
 }

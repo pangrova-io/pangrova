@@ -1,5 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.types.enums.PangrovaType;
@@ -19,14 +20,14 @@ import java.util.Optional;
  */
 public final class RuntimeFilter implements DynamicFilter {
 
-    private final FilterType type;
+    private final DynamicFilterType type;
     private final String column;
     private final Comparable<?> min;
     private final Comparable<?> max;
     private final SplitBlockBloomFilter bloomFilter;
     private final PangrovaType valueType;
 
-    private RuntimeFilter(FilterType type, String column,
+    private RuntimeFilter(DynamicFilterType type, String column,
                           Comparable<?> min, Comparable<?> max,
                           SplitBlockBloomFilter bloomFilter,
                           PangrovaType valueType) {
@@ -44,7 +45,7 @@ public final class RuntimeFilter implements DynamicFilter {
 
     public static RuntimeFilter minMax(String column, Comparable<?> min, Comparable<?> max,
                                        PangrovaType valueType) {
-        return new RuntimeFilter(FilterType.MIN_MAX, column, min, max, null, valueType);
+        return new RuntimeFilter(DynamicFilterType.MIN_MAX, column, min, max, null, valueType);
     }
 
     public static RuntimeFilter bloom(String column, SplitBlockBloomFilter filter) {
@@ -53,16 +54,12 @@ public final class RuntimeFilter implements DynamicFilter {
 
     public static RuntimeFilter bloom(String column, SplitBlockBloomFilter filter,
                                       PangrovaType valueType) {
-        return new RuntimeFilter(FilterType.BLOOM, column, null, null, filter, valueType);
+        return new RuntimeFilter(DynamicFilterType.BLOOM, column, null, null, filter, valueType);
     }
 
-    public enum FilterType { MIN_MAX, BLOOM }
-
-    public FilterType type() { return type; }
-
     @Override
-    public DynamicFilter.Type filterType() {
-        return type == FilterType.BLOOM ? DynamicFilter.Type.BLOOM : DynamicFilter.Type.MIN_MAX;
+    public DynamicFilterType filterType() {
+        return type;
     }
 
     @Override
@@ -80,10 +77,10 @@ public final class RuntimeFilter implements DynamicFilter {
         if (value == null) {
             return true;
         }
-        if (type == FilterType.BLOOM && bloomFilter != null) {
+        if (type == DynamicFilterType.BLOOM && bloomFilter != null) {
             return bloomFilter.mightContainBytes(encodeBloomValue(value, valueType));
         }
-        if (type == FilterType.MIN_MAX && min != null && max != null) {
+        if (type == DynamicFilterType.MIN_MAX && min != null && max != null) {
             Comparable<Object> cMin = (Comparable<Object>) min;
             Comparable<Object> cMax = (Comparable<Object>) max;
             Comparable<Object> cVal = (Comparable<Object>) value;

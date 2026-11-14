@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.ai.api.enums.AiOperation;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
@@ -10,7 +12,6 @@ import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.model.AiModelDescriptor;
 import org.pangrova.ai.api.model.AiModelIdentity;
 import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
@@ -60,7 +61,7 @@ public final class NativeCapabilityAdvertisement {
             CapabilityInventory nativeInventory,
             NativeFunctionConfig functionConfig) {
         return addConfiguredModels(nativeInventory, functionConfig,
-                ServiceLoader.load(AiModelCatalog.class));
+                ServiceLoader.load(AiModelCatalog.class, NativeCapabilityAdvertisement.class.getClassLoader()));
     }
 
     static CapabilityInventory addConfiguredModels(
@@ -116,7 +117,7 @@ public final class NativeCapabilityAdvertisement {
                                     model.name(), required, nativeCapabilities))
                             .setOutputType(outputType(model, capability.operation()));
                     if (capability.operation()
-                            == AiCapabilityDescriptor.Operation.EMBEDDING) {
+                            == AiOperation.EMBEDDING) {
                         contract.setBindingContractSha256(ByteString.copyFrom(
                                 EmbeddingModelBindingIdentity.sha256(model)));
                     } else {
@@ -155,7 +156,7 @@ public final class NativeCapabilityAdvertisement {
     }
 
     private static LogicalType outputType(
-            AiModelDescriptor model, AiCapabilityDescriptor.Operation operation) {
+            AiModelDescriptor model, AiOperation operation) {
         return switch (operation) {
             case EMBEDDING -> VectorLogicalType.create(
                     integerProperty(model, "embedding-dimension"));

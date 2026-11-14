@@ -1,5 +1,6 @@
 package org.pangrova.planner.lineage;
 
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
 import org.pangrova.planner.api.lineage.ColumnDerivation;
 
 import org.pangrova.planner.analysis.PangrovaPlanner;
@@ -61,7 +62,7 @@ class CalciteColumnLineageIntegrationTest {
         var columns = plan("SELECT total + 1 AS adjusted FROM "
                 + "(SELECT SUM(amount) AS total FROM lake.src) s ORDER BY adjusted");
         assertThat(columns).hasSize(1);
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.AGGREGATE);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.AGGREGATE);
         assertThat(columns.get(0).sourceColumns()).containsExactly(source("src", "amount"));
     }
 
@@ -69,7 +70,7 @@ class CalciteColumnLineageIntegrationTest {
     void transformedGroupingKeyRetainsItsExpressionClassification() {
         var columns = plan("SELECT amount + 1 AS key_value FROM lake.src GROUP BY amount + 1");
         assertThat(columns).hasSize(1);
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
         assertThat(columns.get(0).sourceColumns()).containsExactly(source("src", "amount"));
     }
 
@@ -85,8 +86,8 @@ class CalciteColumnLineageIntegrationTest {
     void outerJoinNullGenerationMarksTheRealRightValueDerived() {
         var columns = plan("SELECT s.id, d.amount FROM lake.src s LEFT JOIN lake.dst d ON s.id = d.id");
         assertThat(columns).hasSize(2);
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.DIRECT);
-        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.DIRECT);
+        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
         assertThat(columns.get(1).sourceColumns()).containsExactly(source("dst", "amount"));
     }
 
@@ -95,7 +96,7 @@ class CalciteColumnLineageIntegrationTest {
         var columns = plan("SELECT SUM(amount) OVER (PARTITION BY category ORDER BY id "
                 + "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS running FROM lake.src");
         assertThat(columns).hasSize(1);
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.AGGREGATE);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.AGGREGATE);
         assertThat(columns.get(0).sourceColumns())
                 .containsExactly(source("src", "amount"), source("src", "category"), source("src", "id"));
     }
@@ -105,7 +106,7 @@ class CalciteColumnLineageIntegrationTest {
         var columns = plan("SELECT 7 AS constant_value");
         assertThat(columns).hasSize(1);
         assertThat(columns.get(0).sourceColumns()).isEmpty();
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
     }
 
     @Test
@@ -115,7 +116,7 @@ class CalciteColumnLineageIntegrationTest {
         assertThat(columns.stream().map(ColumnDerivation::outputColumn)).containsExactly("id", "amount", "category");
         assertThat(columns.get(0).sourceColumns()).containsExactly(source("src", "id"));
         assertThat(columns.get(1).sourceColumns()).containsExactly(source("src", "amount"));
-        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
         assertThat(columns.get(2).sourceColumns()).containsExactly(source("src", "category"));
     }
 
@@ -125,7 +126,7 @@ class CalciteColumnLineageIntegrationTest {
         assertThat(columns.stream().map(ColumnDerivation::outputColumn)).containsExactly("id", "amount", "category");
         assertThat(columns.get(0).sourceColumns()).containsExactly(source("dst", "id"));
         assertThat(columns.get(1).sourceColumns()).containsExactly(source("dst", "amount"));
-        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
         assertThat(columns.get(2).sourceColumns()).containsExactly(source("dst", "category"));
     }
 
@@ -157,7 +158,7 @@ class CalciteColumnLineageIntegrationTest {
         assertThat(columns).hasSize(1);
         assertThat(columns.get(0).sourceColumns())
                 .containsExactly(source("src", "amount"), source("src", "id"));
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
     }
 
     @Test
@@ -174,7 +175,7 @@ class CalciteColumnLineageIntegrationTest {
         var columns = plan("SELECT u.value FROM UNNEST(ARRAY[1, 2, 3]) AS u(value)");
         assertThat(columns).hasSize(1);
         assertThat(columns.get(0).sourceColumns()).isEmpty();
-        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivation.DerivationType.TRANSFORM);
+        assertThat(columns.get(0).expression()).isEqualTo(ColumnDerivationKind.TRANSFORM);
     }
 
     @Test
@@ -195,7 +196,7 @@ class CalciteColumnLineageIntegrationTest {
         assertThat(columns).hasSize(2);
         assertThat(columns.get(0).sourceColumns()).containsExactly(source("src", "id"));
         assertThat(columns.get(1).sourceColumns()).containsExactly(source("dst", "amount"));
-        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivation.DerivationType.AGGREGATE);
+        assertThat(columns.get(1).expression()).isEqualTo(ColumnDerivationKind.AGGREGATE);
     }
 
 }

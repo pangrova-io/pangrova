@@ -33,25 +33,15 @@ final class TaskQueryCompletion {
     }
 
     void evaluateQueryTransitions(String queryId, TaskStatusReport report) {
-        boolean allFinished = taskTracker.allTasksFinished(queryId);
-        boolean hasFailed = taskTracker.hasFailedTask(queryId);
-
-        if (allFinished) {
-            // When DAG dispatch is active, taskTracker may report allTasksFinished
-            // before downstream stage tasks are registered (async dispatch race).
-            // Consult the DAG engine to confirm all stages have truly completed.
-            if (stageCompletionCallback != null
-                    && !stageCompletionCallback.isQueryComplete(queryId)) {
-                LOG.debug("event=query_finalization_deferred queryId={}"
-                        + " reason=dag_stages_pending", queryId);
-                // The final task report can precede an asynchronous stage
-                // transition. Observe the DAG's terminal event so completion
-                // cannot be lost between the two owners.
-                observeDeferredCompletion(queryId);
-                return;
-            }
+        if (stageCompletionCallback != null && stageCompletionCallback.ownsQueryCompletion(queryId)) {
+            // Physical attempts remain in the tracker for drain, including failed, replaced attempts.
+            // Only the DAG can settle a logical query after retry or speculative winner selection.
+            if (TaskStatusReceiver.isTerminalTaskState(report.state())) observeDeferredCompletion(queryId);
+            return;
+        }
+        if (taskTracker.allTasksFinished(queryId)) {
             finalizeCompletedQuery(queryId);
-        } else if (hasFailed) {
+        } else if (taskTracker.hasFailedTask(queryId)) {
             writes.cleanupWriteStateOnFailure(queryId);
             clearQuerySequences(queryId);
             queryManager.onTaskFailed(queryId, TaskReportCompletion.failure(report));
@@ -73,7 +63,10 @@ final class TaskQueryCompletion {
         try {
             stageCompletionCallback.onQueryTerminal(queryId, successful -> {
                 try {
-                    if (successful && mayFinalize(queryId) && taskTracker.allTasksFinished(queryId)) {
+                    if (!successful) {
+                        writes.cleanupWriteStateOnFailure(queryId);
+                        clearQuerySequences(queryId);
+                    } else if (mayFinalize(queryId)) {
                         LOG.info("event=query_finalization_dag_complete queryId={}", queryId);
                         finalizeCompletedQuery(queryId);
                     }
@@ -90,9 +83,6 @@ final class TaskQueryCompletion {
     }
 
     private boolean mayFinalize(String queryId) {
-        if (taskTracker.hasFailedTask(queryId)) {
-            return false;
-        }
         return queryManager.getQueryState(queryId).filter(state -> switch (state) {
             case FINISHED, FAILED, CANCELLED -> false;
             default -> true;

@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
 
 import java.util.Collection;
@@ -32,10 +33,10 @@ final class WorkerTaskRegistry {
 
     void requireCapacity() {
         if (admissionsClosed) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.CLOSED, "Worker is draining");
+            throw new TaskAdmissionException(TaskAdmissionReason.CLOSED, "Worker is draining");
         }
         if (owners.size() >= capacity) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.CAPACITY,
+            throw new TaskAdmissionException(TaskAdmissionReason.CAPACITY,
                     "Task resource tracking limit reached: " + capacity);
         }
     }

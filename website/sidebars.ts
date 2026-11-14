@@ -278,7 +278,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Internals & Reference',
           items: [
-            {type: 'doc', id: 'architecture/jni-runtime', label: 'JNI Bridge'},
+            {type: 'doc', id: 'architecture/jni-runtime', label: 'JNI Runtime'},
             {type: 'doc', id: 'architecture/dynamic-filtering', label: 'Dynamic Filter Lifecycle'},
             {type: 'doc', id: 'architecture/domain-modularization-adr', label: 'Domain Modularization ADR'},
           ],

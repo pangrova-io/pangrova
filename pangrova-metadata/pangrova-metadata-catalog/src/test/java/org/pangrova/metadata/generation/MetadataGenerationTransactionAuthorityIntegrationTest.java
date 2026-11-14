@@ -1,12 +1,11 @@
 package org.pangrova.metadata.generation;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
-
 import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.generation.postgresql.publication.JdbcTabularExportPublicationStore;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
@@ -180,10 +179,10 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
     void newPolicyBlocksRawBuildAndChangedPolicyBlocksTransformedBuild() throws Exception {
         var transformed = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(SOURCE, Set.of("value"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new DeferredAuthorizationScope.PolicySnapshot(Optional.empty(), Map.of("value", Optional.empty()))),
                 new DeferredAuthorizationScope.TablePermission(TARGET, Set.of(), Privilege.ALTER,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         var raw = createClaim("raw-policy", RAW);
         var secure = createClaim("transformed-policy", transformed);
         new JdbcRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
@@ -200,11 +199,11 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1, sourceTableId));
         var scope = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(SOURCE, Set.of("value"), Privilege.SELECT,
-                        DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        AuthorizedReadMode.SECURITY_TRANSFORMED,
                         new DeferredAuthorizationScope.PolicySnapshot(Optional.of("(value > 10)"),
                                 Map.of("value", Optional.empty()))),
                 new DeferredAuthorizationScope.TablePermission(TARGET, Set.of(), Privilege.ALTER,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         var claim = createClaim("observed-policy", scope);
         publisher.publishClaimed(claim, "publisher", 1, NOW.plusSeconds(2));
         sql("DELETE FROM pangrova_user_roles WHERE user_id='alice'");
@@ -344,7 +343,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
         var definitionModel = new ModelSnapshot("write-model", "write-incarnation", 2, "deployment-2", "b".repeat(64));
         var scope = new DeferredAuthorizationScope(List.of(RAW.permissions().get(0),
                 new DeferredAuthorizationScope.TablePermission(TARGET, Set.of(), Privilege.INSERT,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, List.of(definitionModel))));
         new JdbcGrantStore(dataSource).addGrant(PrivilegeGrant.of("artifact_builder", Privilege.INSERT,
                 "TABLE", TARGET.catalog(), TARGET.schema(), TARGET.table(), null));
@@ -354,7 +353,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of(), true);
         return GenerationDispatchSpecFactory.create("model-forwarding",
-                new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                         List.of(stage), List.of(), List.of(graphModel)), TENANT, PRINCIPAL, scope,
                 new GenerationDispatchSpec.ResourceGrant(1024, 1, 1024, 10_000));
     }
@@ -389,7 +388,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 1, 0, GenerationJobState.QUEUED, 0, NOW, NOW, NOW);
         var spec = GenerationDispatchSpecFactory.create(jobId,
                 new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                        GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                        GenerationGraphPurpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
                                 org.pangrova.generation.api.enums.GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[] {1}, GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),

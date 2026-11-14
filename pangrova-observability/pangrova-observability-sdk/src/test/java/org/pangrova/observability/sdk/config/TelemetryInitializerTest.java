@@ -2,64 +2,80 @@ package org.pangrova.observability.sdk.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.opentelemetry.api.common.AttributeKey;
-import io.opentelemetry.sdk.resources.Resource;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.stub.StreamObserver;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
+import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceResponse;
+import io.opentelemetry.proto.collector.trace.v1.TraceServiceGrpc;
+import io.opentelemetry.proto.common.v1.KeyValue;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
 import org.pangrova.config.PangrovaConfiguration;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-/**
- * Verifies that {@link TelemetryInitializer} populates the OTel Resource
- * with all required SemConv fields (service.version, service.instance.id,
- * host.name, deployment.environment, process.pid, service.namespace).
- *
- * <p>Uses a standalone Resource build to verify attribute population since
- * OTel SDK 1.32.0 does not expose getResource() on SdkTracerProvider publicly.
- * The test validates the same logic path used by TelemetryInitializer.buildSdk().
- */
+/** Verifies deployment configuration and spans received by an OTLP/gRPC collector. */
 class TelemetryInitializerTest {
-
     @Test
-    void resourceBuilder_populatesAllSemConvAttributes() {
-        Resource resource = Resource.getDefault().merge(
-                Resource.builder()
-                        .put("service.name", "pangrova-coordinator")
-                        .put("service.version", "0.1.0")
-                        .put("service.namespace", "lakehouse")
-                        .put("service.instance.id", "coord-abc-123")
-                        .put("host.name", "test-host")
-                        .put("deployment.environment", "staging")
-                        .put("process.pid", 12345L)
-                        .build());
-
-        assertThat(resource.getAttribute(AttributeKey.stringKey("service.name")))
-                .isEqualTo("pangrova-coordinator");
-        assertThat(resource.getAttribute(AttributeKey.stringKey("service.version")))
-                .isEqualTo("0.1.0");
-        assertThat(resource.getAttribute(AttributeKey.stringKey("service.namespace")))
-                .isEqualTo("lakehouse");
-        assertThat(resource.getAttribute(AttributeKey.stringKey("service.instance.id")))
-                .isEqualTo("coord-abc-123");
-        assertThat(resource.getAttribute(AttributeKey.stringKey("host.name")))
-                .isEqualTo("test-host");
-        assertThat(resource.getAttribute(AttributeKey.stringKey("deployment.environment")))
-                .isEqualTo("staging");
-        assertThat(resource.getAttribute(AttributeKey.longKey("process.pid")))
-                .isEqualTo(12345L);
+    void deployedExporterSendsSpanAndResourceToCollector() throws Exception {
+        var received = new CompletableFuture<ExportTraceServiceRequest>();
+        var collector = NettyServerBuilder.forAddress(new InetSocketAddress("127.0.0.1", 0))
+                .addService(new TraceServiceGrpc.TraceServiceImplBase() {
+                    @Override
+                    public void export(ExportTraceServiceRequest request,
+                            StreamObserver<ExportTraceServiceResponse> response) {
+                        received.complete(request);
+                        response.onNext(ExportTraceServiceResponse.getDefaultInstance());
+                        response.onCompleted();
+                    }
+                }).build().start();
+        try {
+            var deployment = PangrovaConfiguration.fromYaml(Map.of(
+                    "observability.service-name", "pangrova-coordinator",
+                    "observability.service-version", "test-version",
+                    "observability.service-namespace", "lakehouse",
+                    "observability.service-instance-id", "coordinator-test",
+                    "observability.deployment-environment", "staging",
+                    "observability.sampling.probability", "1",
+                    "observability.otlp-compression", "gzip",
+                    "observability.otlp-endpoint", "http://127.0.0.1:" + collector.getPort()));
+            try (var initializer = new TelemetryInitializer(ObservabilityConfig.fromDeployment(deployment).orElseThrow())) {
+                initializer.getTracer().spanBuilder("catalog.refresh").startSpan().end();
+                var sdk = (OpenTelemetrySdk) initializer.getOpenTelemetry();
+                assertThat(sdk.getSdkTracerProvider().forceFlush().join(10, TimeUnit.SECONDS).isSuccess()).isTrue();
+                var resourceSpans = received.get(10, TimeUnit.SECONDS).getResourceSpans(0);
+                assertThat(resourceSpans.getScopeSpans(0).getSpans(0).getName()).isEqualTo("catalog.refresh");
+                var attributes = resourceSpans.getResource().getAttributesList().stream()
+                        .collect(Collectors.toMap(KeyValue::getKey, KeyValue::getValue));
+                assertThat(attributes.get("service.name").getStringValue()).isEqualTo("pangrova-coordinator");
+                assertThat(attributes.get("service.version").getStringValue()).isEqualTo("test-version");
+                assertThat(attributes.get("service.namespace").getStringValue()).isEqualTo("lakehouse");
+                assertThat(attributes.get("service.instance.id").getStringValue()).isEqualTo("coordinator-test");
+                assertThat(attributes.get("deployment.environment").getStringValue()).isEqualTo("staging");
+                assertThat(attributes.get("process.pid").getIntValue()).isEqualTo(ProcessHandle.current().pid());
+                assertThat(attributes.get("host.name").getStringValue()).isNotBlank();
+            }
+        } finally {
+            collector.shutdownNow();
+            assertThat(collector.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
     void telemetryInitializer_createsValidSdkWithAllFields() {
         PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", "pangrova-coordinator",
-                "pangrova.observability.service-version", "0.1.0",
-                "pangrova.observability.service-namespace", "lakehouse",
-                "pangrova.observability.service-instance-id", "coord-abc-123",
-                "pangrova.observability.deployment-environment", "staging",
-                "pangrova.observability.otlp-endpoint", "http://localhost:4317"));
+                "observability.service-name", "pangrova-coordinator",
+                "observability.service-version", "0.1.0",
+                "observability.service-namespace", "lakehouse",
+                "observability.service-instance-id", "coord-abc-123",
+                "observability.deployment-environment", "staging",
+                "observability.otlp-endpoint", "http://localhost:4317"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -73,8 +89,8 @@ class TelemetryInitializerTest {
     @Test
     void observabilityConfig_generatesDefaultsWhenOptionalFieldsAbsent() {
         PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", "pangrova-worker",
-                "pangrova.observability.otlp-endpoint", "http://localhost:4317"));
+                "observability.service-name", "pangrova-worker",
+                "observability.otlp-endpoint", "http://localhost:4317"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -87,12 +103,12 @@ class TelemetryInitializerTest {
     @Test
     void observabilityConfig_readsAllSemConvFields() {
         PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", "pangrova-coordinator",
-                "pangrova.observability.service-version", "0.1.0",
-                "pangrova.observability.service-namespace", "lakehouse",
-                "pangrova.observability.service-instance-id", "coord-abc-123",
-                "pangrova.observability.deployment-environment", "staging",
-                "pangrova.observability.otlp-endpoint", "http://localhost:4317"));
+                "observability.service-name", "pangrova-coordinator",
+                "observability.service-version", "0.1.0",
+                "observability.service-namespace", "lakehouse",
+                "observability.service-instance-id", "coord-abc-123",
+                "observability.deployment-environment", "staging",
+                "observability.otlp-endpoint", "http://localhost:4317"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 
@@ -106,8 +122,8 @@ class TelemetryInitializerTest {
     @Test
     void telemetryInitializer_autoGeneratesInstanceId() {
         PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", "pangrova-worker",
-                "pangrova.observability.otlp-endpoint", "http://localhost:4317"));
+                "observability.service-name", "pangrova-worker",
+                "observability.otlp-endpoint", "http://localhost:4317"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
         assertThat(config.getServiceInstanceId()).isNull();
@@ -123,8 +139,8 @@ class TelemetryInitializerTest {
         assertThat(expectedHostName).isNotEmpty();
 
         PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", "pangrova-test",
-                "pangrova.observability.otlp-endpoint", "http://localhost:4317"));
+                "observability.service-name", "pangrova-test",
+                "observability.otlp-endpoint", "http://localhost:4317"));
 
         ObservabilityConfig config = new ObservabilityConfig(pangrovaConfig);
 

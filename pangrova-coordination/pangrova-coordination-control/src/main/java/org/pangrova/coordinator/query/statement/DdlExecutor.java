@@ -28,19 +28,18 @@ import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.planner.metadata.DdlTypeMapper;
+import org.pangrova.planner.metadata.TableDeclarationCompiler;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Executes DDL statements: CREATE/DROP/ALTER TABLE, CREATE/DROP SCHEMA, CREATE/DROP CATALOG.
- * Operates on catalog metadata directly, bypassing Calcite planner.
+ * Executes table mutations, schema creation and catalog lifecycle SQL against their metadata authorities.
  */
 @SuppressWarnings("unused") // TypedRow used via List.of() return
 public final class DdlExecutor {
@@ -50,7 +49,7 @@ public final class DdlExecutor {
     private final CatalogRegistry catalogRegistry;
     private final TableControlDdlOperations tableControlOperations;
     private volatile org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler schemaEvolutionHandler;
-    private volatile Runnable schemaInvalidator;
+    private final Runnable schemaInvalidator;
 
     /** Creates the executor with optional index invalidation hooks. */
     public DdlExecutor(CatalogRegistry catalogRegistry,
@@ -74,14 +73,6 @@ public final class DdlExecutor {
     public void setSchemaEvolutionHandler(
             org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler handler) {
         this.schemaEvolutionHandler = handler;
-    }
-
-    /**
-     * Replaces the schema cache invalidator called after DDL operations.
-     * Thread-safe: field is volatile.
-     */
-    public void setSchemaInvalidator(Runnable invalidator) {
-        this.schemaInvalidator = invalidator;
     }
 
     /** Enables {@code ADOPT WITH (...)} maintenance policy properties. */
@@ -111,9 +102,8 @@ public final class DdlExecutor {
     }
 
     private void invalidateSchemaCache() {
-        Runnable inv = schemaInvalidator;
-        if (inv != null) {
-            inv.run();
+        if (schemaInvalidator != null) {
+            schemaInvalidator.run();
             LOG.info("event=schema_cache_invalidated");
         }
     }
@@ -131,7 +121,7 @@ public final class DdlExecutor {
             return List.of();
         }
         var descriptor = catalogHandle.getDescriptor();
-        metadata.createTable(session, declaredTableMetadata(new SchemaTableName(ref.schema(), ref.table()), stmt));
+        metadata.createTable(session, TableDeclarationCompiler.compile(new SchemaTableName(ref.schema(), ref.table()), stmt));
         registerCreatedTable(descriptor, metadata, session, ref, context);
         invalidateSchemaCache();
         LOG.info("event=table_created table={}", ref);
@@ -154,48 +144,9 @@ public final class DdlExecutor {
         }
     }
 
-    /** Compiles the exact CREATE declaration before any catalog mutation or downstream planning. */
-    public static ConnectorTableMetadata declaredTableMetadata(
-            SchemaTableName tableName, CreateTableStatement stmt) {
-        List<ConnectorTableMetadata.Column> typedColumns = stmt.columns().stream()
-                .map(col -> new ConnectorTableMetadata.Column(
-                        col.name(), DdlTypeMapper.map(col.type()),
-                        java.util.OptionalInt.empty(),
-                        DdlTypeMapper.parameterizedType(col.type())))
-                .toList();
-        List<String> columnNames = stmt.columns().stream()
-                .map(CreateTableStatement.ColumnDefinition::name).toList();
-        Map<String, String> props = mergeStructuralProperties(stmt);
-        DdlTypeMapper.injectStructuralProperties(stmt.columns(), props);
-        GeneratedColumnDefinitionCompiler.compile(stmt.columns(), props);
-        return new ConnectorTableMetadata(
-                tableName,
-                columnNames, typedColumns, props);
-    }
-
     private static PangrovaException invalidGeneratedColumn(String message) {
         return new PangrovaException(
                 PangrovaErrorCode.PLANNER_VALIDATION_FAILURE, message);
-    }
-
-    private static Map<String, String> mergeStructuralProperties(CreateTableStatement stmt) {
-        Map<String, String> props = new LinkedHashMap<>(stmt.properties());
-        if (!stmt.primaryKeyColumns().isEmpty()) {
-            props.putIfAbsent("primary-key", String.join(",", stmt.primaryKeyColumns()));
-        }
-        if (!stmt.partitionColumns().isEmpty()) {
-            props.putIfAbsent("partition-by", String.join(",", stmt.partitionColumns()));
-        }
-        if (!stmt.sortColumns().isEmpty()) {
-            List<String> sortEntries = stmt.sortColumns().stream()
-                    .map(sc -> sc.columnName() + (sc.ascending() ? ":asc" : ":desc"))
-                    .toList();
-            props.putIfAbsent("sorted-by", String.join(",", sortEntries));
-            if (stmt.useZOrder()) {
-                props.putIfAbsent("sort-method", "zorder");
-            }
-        }
-        return props;
     }
 
     /** Drops a table using the resolved catalog and session. */

@@ -1,5 +1,7 @@
 package org.pangrova.persistence.materialization.postgresql;
 
+import org.pangrova.materialization.api.enums.GcState;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -163,8 +165,8 @@ final class JdbcMaterializationReaderPins {
         }
     }
 
-    public void updateGcDecision(UUID entryId, GcLedgerEntry.GcState state, Instant now) {
-        if (state == GcLedgerEntry.GcState.PENDING) {
+    public void updateGcDecision(UUID entryId, GcState state, Instant now) {
+        if (state == GcState.PENDING) {
             throw new IllegalArgumentException("a GC decision cannot return to pending");
         }
         try (Connection connection = dataSource.getConnection();

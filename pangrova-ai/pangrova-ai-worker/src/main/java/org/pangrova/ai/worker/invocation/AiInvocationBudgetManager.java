@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
@@ -43,7 +44,7 @@ final class AiInvocationBudgetManager {
                         .orElseThrow(
                                 () ->
                                         new AiInvocationException(
-                                                AiInvocationException.Category.AUTHORIZATION,
+                                                AiFailureCategory.AUTHORIZATION,
                                                 false,
                                                 "AI invocation has no exact Native OperatorBinding"));
         AiInvocationBudgetValidator.validate(context, request, binding);
@@ -112,7 +113,7 @@ final class AiInvocationBudgetManager {
         AiTaskBudget task = taskBudgets.get(new TaskKey(context.tenantId(), context.taskAttempt()));
         if (task == null) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.AUTHORIZATION,
+                    AiFailureCategory.AUTHORIZATION,
                     false,
                     "AI callback has no live registered Worker task authority");
         }
@@ -123,7 +124,7 @@ final class AiInvocationBudgetManager {
 
     private static AiInvocationException duplicateAuthority() {
         return new AiInvocationException(
-                AiInvocationException.Category.AUTHORIZATION,
+                AiFailureCategory.AUTHORIZATION,
                 false,
                 "Worker already owns this exact canonical task attempt");
     }
@@ -162,7 +163,7 @@ final class AiInvocationBudgetManager {
 
     static AiInvocationException budgetExceeded(String message) {
         return new AiInvocationException(
-                AiInvocationException.Category.BUDGET_EXCEEDED, false, message);
+                AiFailureCategory.BUDGET_EXCEEDED, false, message);
     }
 
     private record TaskKey(String tenantId, TaskAttemptId attempt) {}

@@ -1,5 +1,7 @@
 package org.pangrova.indexing.planner.vector;
 
+import java.util.Locale;
+
 import org.pangrova.indexing.api.vector.RecallEstimationHint;
 
 /** Existing empirical recall policy, owned by planning rather than the contract. */
@@ -28,7 +30,7 @@ final class EmpiricalRecallEstimator {
             if (algorithm == null) {
                 return DEFAULT_RECALL;
             }
-            return switch (algorithm.toUpperCase()) {
+            return switch (algorithm.toUpperCase(Locale.ROOT)) {
                 case "HNSW" -> Math.min(
                         HNSW_MAX_RECALL, HNSW_BASE_RECALL + HNSW_TOP_K_FACTOR * Math.log10(topK));
                 case "IVF_PQ" -> Math.max(

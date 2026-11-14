@@ -1,10 +1,9 @@
 package org.pangrova.planner.rule;
 
 import org.pangrova.planner.exception.RecursiveCteIterationLimitException;
-
 import org.pangrova.parser.api.ast.CteQuery.CycleClause;
 import org.pangrova.parser.api.ast.CteQuery.SearchClause;
-import org.pangrova.parser.api.ast.CteQuery.SearchOrder;
+import org.pangrova.parser.api.enums.CteSearchOrder;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -72,7 +71,7 @@ public final class RecursiveCteExecutionPlan {
         Set<R> visited = cycleClause.isPresent() ? new HashSet<>(seedRows) : Set.of();
 
         if (searchClause.isPresent()
-                && searchClause.get().order() == SearchOrder.DEPTH_FIRST) {
+                && searchClause.get().order() == CteSearchOrder.DEPTH_FIRST) {
             return executeDepthFirst(seedRows, recursiveStep, result, visited);
         }
         return executeBreadthFirst(seedRows, recursiveStep, result, visited);

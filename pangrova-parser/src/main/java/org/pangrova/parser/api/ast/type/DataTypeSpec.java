@@ -1,9 +1,9 @@
 package org.pangrova.parser.api.ast.type;
 
+import org.pangrova.parser.api.enums.FileStorageMode;
 import org.pangrova.parser.api.enums.BaseType;
 import org.pangrova.parser.api.enums.DistanceMetric;
-
-import org.pangrova.types.VectorType.ElementType;
+import org.pangrova.types.enums.VectorElementType;
 
 import java.util.List;
 import java.util.Objects;
@@ -127,11 +127,11 @@ public sealed interface DataTypeSpec permits
      * A fixed-dimension storage declaration with coordinate precision and legacy similarity metadata.
      * Executable LogicalType canonicalization belongs to the protocol contract, not this neutral DTO.
      */
-    record VectorType(int dimension, DistanceMetric metric, ElementType elementType) implements DataTypeSpec {
+    record VectorType(int dimension, DistanceMetric metric, VectorElementType elementType) implements DataTypeSpec {
 
         /** Preserves existing metric declarations with their declared default FLOAT32 storage. */
         public VectorType(int dimension, DistanceMetric metric) {
-            this(dimension, metric, ElementType.FLOAT);
+            this(dimension, metric, VectorElementType.FLOAT);
         }
 
         public VectorType {
@@ -144,11 +144,11 @@ public sealed interface DataTypeSpec permits
         @Override
         public String toCanonicalString() {
             if (metric == DistanceMetric.COSINE) {
-                return "VECTOR(" + dimension + (elementType == ElementType.DOUBLE ? ",DOUBLE" : "") + ")";
+                return "VECTOR(" + dimension + (elementType == VectorElementType.DOUBLE ? ",DOUBLE" : "") + ")";
             }
             // Retain non-default legacy metric metadata; it is not executable LogicalType authority.
             return "VECTOR(" + dimension + ", "
-                    + (elementType == ElementType.DOUBLE ? "DOUBLE, " : "") + metric.name() + ")";
+                    + (elementType == VectorElementType.DOUBLE ? "DOUBLE, " : "") + metric.name() + ")";
         }
     }
 
@@ -162,27 +162,21 @@ public sealed interface DataTypeSpec permits
      * ({@code FILE EXTERNAL}, the default for plain {@code FILE}). Both keep the same five
      * physical fields; version identity stays on the referenced object.</p>
      */
-    record FileType(FileStorage storage) implements DataTypeSpec {
-
-        /** How file bytes relate to the row that references them. */
-        public enum FileStorage {
-            EXTERNAL,
-            MANAGED
-        }
+    record FileType(FileStorageMode storage) implements DataTypeSpec {
 
         public FileType {
             Objects.requireNonNull(storage, "storage must not be null");
         }
 
         /** Plain {@code FILE}: a reference to an existing object. */
-        public static final FileType INSTANCE = new FileType(FileStorage.EXTERNAL);
+        public static final FileType INSTANCE = new FileType(FileStorageMode.EXTERNAL);
 
         /** {@code FILE MANAGED}: bytes are copied into managed storage on write. */
-        public static final FileType MANAGED = new FileType(FileStorage.MANAGED);
+        public static final FileType MANAGED = new FileType(FileStorageMode.MANAGED);
 
         @Override
         public String toCanonicalString() {
-            return storage == FileStorage.MANAGED ? "FILE MANAGED" : "FILE";
+            return storage == FileStorageMode.MANAGED ? "FILE MANAGED" : "FILE";
         }
     }
 }

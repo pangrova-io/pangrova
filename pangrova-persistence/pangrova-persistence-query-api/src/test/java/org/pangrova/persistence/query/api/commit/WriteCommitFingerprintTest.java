@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.api.commit;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 
 import org.junit.jupiter.api.Test;
 
@@ -99,7 +101,7 @@ class WriteCommitFingerprintTest {
                 "q1",
                 "iceberg",
                 "sales.orders",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 1L,
                 List.of(new byte[]{1}),
                 "OVERWRITE",
@@ -138,7 +140,7 @@ class WriteCommitFingerprintTest {
                 "q1",
                 "iceberg",
                 "sales.orders",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 1L,
                 fragments,
                 "OVERWRITE",
@@ -190,7 +192,7 @@ class WriteCommitFingerprintTest {
                 "q1",
                 "iceberg",
                 "sales.orders",
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 1L,
                 fragments,
                 "OVERWRITE",
@@ -206,7 +208,7 @@ class WriteCommitFingerprintTest {
                 0L,
                 null, null);
         var publication = new org.pangrova.connector.api.commit.NativeWriteFinalization(
-                org.pangrova.connector.api.commit.NativeWriteFinalization.Outcome.COMMITTED, 11, new byte[32]);
+                org.pangrova.connector.api.enums.NativeWriteCommitOutcome.COMMITTED, 11, new byte[32]);
         var published = intent.withPublication(publication);
         assertThat(published.commitFingerprint()).isEqualTo(intent.commitFingerprint());
         assertThat(published.withPublication(publication).publication()).isEqualTo(publication);
@@ -216,18 +218,18 @@ class WriteCommitFingerprintTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> intent.withPublication(
                 new org.pangrova.connector.api.commit.NativeWriteFinalization(
-                        org.pangrova.connector.api.commit.NativeWriteFinalization.Outcome.UNKNOWN, 0, new byte[0])))
+                        org.pangrova.connector.api.enums.NativeWriteCommitOutcome.UNKNOWN, 0, new byte[0])))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> published.withState(WriteCommitEntry.State.ABORTED, 2L))
+        assertThatThrownBy(() -> published.withState(WriteCommitState.ABORTED, 2L))
                 .isInstanceOf(IllegalArgumentException.class);
-        var aborted = intent.withState(WriteCommitEntry.State.ABORTED, 2L);
+        var aborted = intent.withState(WriteCommitState.ABORTED, 2L);
         assertThat(aborted.commitFingerprint()).isEqualTo(intent.commitFingerprint());
         assertThat(aborted.fragments()).singleElement().isEqualTo(new byte[]{1});
-        assertThat(aborted.withState(WriteCommitEntry.State.ABORTED, 3L).state())
-                .isEqualTo(WriteCommitEntry.State.ABORTED);
-        assertThatThrownBy(() -> aborted.withState(WriteCommitEntry.State.PENDING, 3L))
+        assertThat(aborted.withState(WriteCommitState.ABORTED, 3L).state())
+                .isEqualTo(WriteCommitState.ABORTED);
+        assertThatThrownBy(() -> aborted.withState(WriteCommitState.PENDING, 3L))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> aborted.withState(WriteCommitEntry.State.COMMITTED, 3L))
+        assertThatThrownBy(() -> aborted.withState(WriteCommitState.COMMITTED, 3L))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> aborted.withPublication(publication))
                 .isInstanceOf(IllegalArgumentException.class);

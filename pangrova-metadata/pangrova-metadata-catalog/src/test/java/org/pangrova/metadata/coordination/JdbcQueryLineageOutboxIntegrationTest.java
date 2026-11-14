@@ -1,4 +1,6 @@
 package org.pangrova.metadata.coordination;
+
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
@@ -34,7 +36,7 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void exactReplaySurvivesNewStoreAndAcknowledgement() {
-        QueryLineageFact start = fact("q-replay", QueryLineageFact.Phase.START, 1000);
+        QueryLineageFact start = fact("q-replay", LineageEventType.START, 1000);
         outbox.append(start);
         new JdbcQueryLineageOutbox(dataSource).append(start);
         assertThat(outbox.pendingCount()).isEqualTo(1);
@@ -49,12 +51,12 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void conflictingLogicalIdentityNeverOverwritesTheFrozenFact() {
-        QueryLineageFact original = fact("q-conflict", QueryLineageFact.Phase.COMPLETE, 2000);
+        QueryLineageFact original = fact("q-conflict", LineageEventType.COMPLETE, 2000);
         outbox.append(original);
-        assertThatThrownBy(() -> outbox.append(fact("q-conflict", QueryLineageFact.Phase.FAIL, 2000)))
+        assertThatThrownBy(() -> outbox.append(fact("q-conflict", LineageEventType.FAIL, 2000)))
                 .isInstanceOf(IllegalStateException.class).hasRootCauseInstanceOf(java.sql.SQLException.class);
         assertThat(outbox.pendingCount()).isEqualTo(1);
-        outbox.append(fact("q-conflict", QueryLineageFact.Phase.START, 1000));
+        outbox.append(fact("q-conflict", LineageEventType.START, 1000));
         var start = outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow();
         outbox.acknowledge(start);
         assertThat(outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow().fact()).isEqualTo(original);
@@ -62,11 +64,11 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void terminalCannotOvertakeAnUnacknowledgedStart() {
-        outbox.append(fact("q-order", QueryLineageFact.Phase.COMPLETE, 2000));
+        outbox.append(fact("q-order", LineageEventType.COMPLETE, 2000));
         assertThat(outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5))).isEmpty();
-        outbox.append(fact("q-order", QueryLineageFact.Phase.START, 1000));
+        outbox.append(fact("q-order", LineageEventType.START, 1000));
         var start = outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow();
-        assertThat(start.fact().phase()).isEqualTo(QueryLineageFact.Phase.START);
+        assertThat(start.fact().phase()).isEqualTo(LineageEventType.START);
         assertThat(outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5))).isEmpty();
         outbox.release(start);
         var retry = outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow();
@@ -74,12 +76,12 @@ class JdbcQueryLineageOutboxIntegrationTest {
         assertThat(retry.token()).isGreaterThan(start.token());
         outbox.acknowledge(retry);
         assertThat(outbox.claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow().fact().phase())
-                .isEqualTo(QueryLineageFact.Phase.COMPLETE);
+                .isEqualTo(LineageEventType.COMPLETE);
     }
 
     @Test
     void actualExpiredLeaseCannotAcknowledgeSuccessorDelivery() throws Exception {
-        outbox.append(fact("q-handoff", QueryLineageFact.Phase.START, 1000));
+        outbox.append(fact("q-handoff", LineageEventType.START, 1000));
         var former = outbox.claim("pangrova-real-postgres", Duration.ofMillis(100)).orElseThrow();
         sql("SELECT pg_sleep(0.15)");
         var successor = new JdbcQueryLineageOutbox(dataSource).claim("pangrova-real-postgres", Duration.ofSeconds(5)).orElseThrow();
@@ -92,7 +94,7 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void clockIsReadAfterActualRowLockWaitBeforeAcknowledgement() throws Exception {
-        outbox.append(fact("q-lock-clock", QueryLineageFact.Phase.START, 1000));
+        outbox.append(fact("q-lock-clock", LineageEventType.START, 1000));
         var delivery = outbox.claim("pangrova-real-postgres", Duration.ofMillis(500)).orElseThrow();
         var executor = Executors.newSingleThreadExecutor();
         try (var connection = dataSource.getConnection()) {
@@ -117,7 +119,7 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void queryJournalCommitAndOutboxAreAtomicAndPurgeKeepsDeliveryFacts() throws Exception {
-        QueryLineageFact start = fact("q-atomic", QueryLineageFact.Phase.START, 1000);
+        QueryLineageFact start = fact("q-atomic", LineageEventType.START, 1000);
         var event = new QueryStateEvent(JournalEventContext.create(1000, "owner"),
                 start.queryId(), start.sql(), "{}", "QUEUED", start);
         try (var journal = new JdbcQueryStateJournal(dataSource,
@@ -142,7 +144,7 @@ class JdbcQueryLineageOutboxIntegrationTest {
                 """);
         sql("CREATE TRIGGER deny_lineage BEFORE INSERT ON query_lineage_outbox "
                 + "FOR EACH ROW EXECUTE FUNCTION deny_lineage_insert()");
-        QueryLineageFact start = fact("q-permission", QueryLineageFact.Phase.START, 1000);
+        QueryLineageFact start = fact("q-permission", LineageEventType.START, 1000);
         var event = new QueryStateEvent(JournalEventContext.create(1000, "owner"),
                 start.queryId(), start.sql(), "{}", "QUEUED", start);
         try (var journal = new JdbcQueryStateJournal(dataSource,
@@ -166,7 +168,7 @@ class JdbcQueryLineageOutboxIntegrationTest {
 
     @Test
     void anotherDeploymentCannotClaimOrRelabelFrozenNamespace() {
-        QueryLineageFact own = fact("q-namespace", QueryLineageFact.Phase.START, 1000);
+        QueryLineageFact own = fact("q-namespace", LineageEventType.START, 1000);
         var other = new QueryLineageFact("another-deployment", "q-other", own.phase(), 999,
                 own.sql(), own.failureMessage(), own.lineage());
         outbox.append(other);
@@ -182,15 +184,15 @@ class JdbcQueryLineageOutboxIntegrationTest {
     @Test
     void actualStoreRetainsMoreThanTheFormerResidentQueueCapacity() {
         for (int index = 0; index < 1005; index++) {
-            outbox.append(fact("q-capacity-" + index, QueryLineageFact.Phase.START, 1000 + index));
+            outbox.append(fact("q-capacity-" + index, LineageEventType.START, 1000 + index));
         }
         assertThat(new JdbcQueryLineageOutbox(dataSource).pendingCount()).isEqualTo(1005);
     }
 
-    private static QueryLineageFact fact(String queryId, QueryLineageFact.Phase phase, long time) {
+    private static QueryLineageFact fact(String queryId, LineageEventType phase, long time) {
         return new QueryLineageFact("pangrova-real-postgres", queryId, phase, time,
-                phase == QueryLineageFact.Phase.START ? "SELECT amount FROM catalog.schema.source" : null,
-                phase == QueryLineageFact.Phase.FAIL ? "actual terminal failure" : null,
+                phase == LineageEventType.START ? "SELECT amount FROM catalog.schema.source" : null,
+                phase == LineageEventType.FAIL ? "actual terminal failure" : null,
                 new QueryLineageMetadata(List.of(new QueryLineageMetadata.Dataset("pangrova",
                         "catalog.schema.source", List.of())), List.of()));
     }

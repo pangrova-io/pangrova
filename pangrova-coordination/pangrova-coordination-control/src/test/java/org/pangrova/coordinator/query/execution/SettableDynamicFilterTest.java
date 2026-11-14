@@ -1,7 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.coordinator.enums.DynamicFilterState;
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter;
-import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ class SettableDynamicFilterTest {
     @DisplayName("New filter starts in PENDING state")
     void create_startsPending() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.PENDING);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.PENDING);
     }
 
     @Test
@@ -61,8 +62,8 @@ class SettableDynamicFilterTest {
     @DisplayName("PENDING -> COLLECTING is valid")
     void transition_pendingToCollecting() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
-        filter.transitionTo(SettableDynamicFilter.State.COLLECTING);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.COLLECTING);
+        filter.transitionTo(DynamicFilterState.COLLECTING);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.COLLECTING);
         assertThat(filter.isComplete()).isFalse();
     }
 
@@ -70,12 +71,12 @@ class SettableDynamicFilterTest {
     @DisplayName("COLLECTING -> READY via setMinMax")
     void transition_collectingToReady_viaSetMinMax() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
-        filter.transitionTo(SettableDynamicFilter.State.COLLECTING);
+        filter.transitionTo(DynamicFilterState.COLLECTING);
         filter.setMinMax(10, 100);
 
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.READY);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.READY);
         assertThat(filter.isComplete()).isTrue();
-        assertThat(filter.filterType()).isEqualTo(DynamicFilter.Type.MIN_MAX);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat(filter.min()).hasValue(10);
         assertThat(filter.max()).hasValue(100);
     }
@@ -86,7 +87,7 @@ class SettableDynamicFilterTest {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.setMinMax(5, 50);
 
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.READY);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.READY);
         assertThat(filter.isComplete()).isTrue();
     }
 
@@ -95,9 +96,9 @@ class SettableDynamicFilterTest {
     void transition_readyToApplied() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.setMinMax(1, 10);
-        filter.transitionTo(SettableDynamicFilter.State.APPLIED);
+        filter.transitionTo(DynamicFilterState.APPLIED);
 
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.APPLIED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.APPLIED);
         assertThat(filter.isComplete()).isTrue();
     }
 
@@ -106,10 +107,10 @@ class SettableDynamicFilterTest {
     void transition_appliedToCompleted() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.setMinMax(1, 10);
-        filter.transitionTo(SettableDynamicFilter.State.APPLIED);
-        filter.transitionTo(SettableDynamicFilter.State.COMPLETED);
+        filter.transitionTo(DynamicFilterState.APPLIED);
+        filter.transitionTo(DynamicFilterState.COMPLETED);
 
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.COMPLETED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.COMPLETED);
     }
 
     @Test
@@ -117,7 +118,7 @@ class SettableDynamicFilterTest {
     void transition_invalidThrows() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         // PENDING -> APPLIED is invalid (must go through COLLECTING/READY first)
-        assertThatThrownBy(() -> filter.transitionTo(SettableDynamicFilter.State.APPLIED))
+        assertThatThrownBy(() -> filter.transitionTo(DynamicFilterState.APPLIED))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("PENDING")
                 .hasMessageContaining("APPLIED");
@@ -129,8 +130,8 @@ class SettableDynamicFilterTest {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.cancel();
         // Should not throw — silently ignored
-        filter.transitionTo(SettableDynamicFilter.State.COLLECTING);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.CANCELLED);
+        filter.transitionTo(DynamicFilterState.COLLECTING);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.CANCELLED);
     }
 
     // ---- Cancellation ----
@@ -140,16 +141,16 @@ class SettableDynamicFilterTest {
     void cancel_fromPending() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.cancel();
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.CANCELLED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.CANCELLED);
     }
 
     @Test
     @DisplayName("Cancel from COLLECTING")
     void cancel_fromCollecting() {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
-        filter.transitionTo(SettableDynamicFilter.State.COLLECTING);
+        filter.transitionTo(DynamicFilterState.COLLECTING);
         filter.cancel();
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.CANCELLED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.CANCELLED);
     }
 
     @Test
@@ -206,7 +207,7 @@ class SettableDynamicFilterTest {
             blocked.get(2, TimeUnit.SECONDS);
             assertThat(blocked.isDone()).isTrue();
             // State should still be PENDING — timeout just unblocks, doesn't change state
-            assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.PENDING);
+            assertThat(filter.state()).isEqualTo(DynamicFilterState.PENDING);
         } finally {
             scheduler.shutdown();
         }
@@ -233,8 +234,8 @@ class SettableDynamicFilterTest {
         SettableDynamicFilter filter = SettableDynamicFilter.create("col", false);
         filter.setBloom(value -> "match".equals(value));
 
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.READY);
-        assertThat(filter.filterType()).isEqualTo(DynamicFilter.Type.BLOOM);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.READY);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.BLOOM);
         assertThat(filter.mightContain("match")).isTrue();
         assertThat(filter.mightContain("other")).isFalse();
     }
@@ -322,19 +323,19 @@ class SettableDynamicFilterTest {
         filter.onReady(() -> readyFired.set(true));
 
         // PENDING
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.PENDING);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.PENDING);
         assertThat(filter.isComplete()).isFalse();
         assertThat(filter.isBlocked().isDone()).isFalse();
 
         // COLLECTING
-        filter.transitionTo(SettableDynamicFilter.State.COLLECTING);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.COLLECTING);
+        filter.transitionTo(DynamicFilterState.COLLECTING);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.COLLECTING);
         assertThat(filter.isComplete()).isFalse();
         assertThat(filter.mightContain(42)).isTrue(); // accepts all during collection
 
         // READY (via setMinMax)
         filter.setMinMax(100, 500);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.READY);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.READY);
         assertThat(filter.isComplete()).isTrue();
         assertThat(filter.isBlocked().isDone()).isTrue();
         assertThat(readyFired).isTrue();
@@ -342,14 +343,14 @@ class SettableDynamicFilterTest {
         assertThat(filter.mightContain(50)).isFalse();
 
         // APPLIED
-        filter.transitionTo(SettableDynamicFilter.State.APPLIED);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.APPLIED);
+        filter.transitionTo(DynamicFilterState.APPLIED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.APPLIED);
         assertThat(filter.isComplete()).isTrue();
         assertThat(filter.mightContain(200)).isTrue();
         assertThat(filter.mightContain(50)).isFalse();
 
         // COMPLETED
-        filter.transitionTo(SettableDynamicFilter.State.COMPLETED);
-        assertThat(filter.state()).isEqualTo(SettableDynamicFilter.State.COMPLETED);
+        filter.transitionTo(DynamicFilterState.COMPLETED);
+        assertThat(filter.state()).isEqualTo(DynamicFilterState.COMPLETED);
     }
 }

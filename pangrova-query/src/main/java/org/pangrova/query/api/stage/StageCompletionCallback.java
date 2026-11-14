@@ -14,6 +14,9 @@ public interface StageCompletionCallback {
      */
     void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error);
 
+    /** Includes a retired DAG whose terminal outcome is still retained for late task reports. */
+    boolean ownsQueryCompletion(String queryId);
+
     /** Returns true when every stage required for successful query completion has finished. */
     boolean isQueryComplete(String queryId);
 

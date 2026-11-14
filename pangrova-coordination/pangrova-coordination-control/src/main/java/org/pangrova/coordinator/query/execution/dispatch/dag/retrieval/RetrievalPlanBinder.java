@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+import org.pangrova.execution.stage.enums.RetrievalSourceKind;
 import org.pangrova.execution.stage.binding.RerankIntent;
 import org.pangrova.execution.stage.binding.RetrievalMergeIntent;
 import java.util.ArrayList;
@@ -13,7 +16,6 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RerankBinding;
 import org.pangrova.protocol.retrieval.RerankPlanBinder;
 import org.pangrova.protocol.retrieval.RetrievalFanOutBinding;
@@ -77,7 +79,7 @@ public final class RetrievalPlanBinder {
             return true;
         }
         return fragment.retrievalTopKHints().stream().anyMatch(
-                hint -> hint.kind() != RetrievalTopKPlanHint.Kind.EXACT);
+                hint -> hint.kind() != RetrievalKind.EXACT);
     }
 
     private static BoundExecutionPlan bindMerge(
@@ -140,9 +142,7 @@ public final class RetrievalPlanBinder {
                 RetrievalFanOutPlanBinder.candidateSchema(representative);
         int sourceIdField = candidateSchema.getStruct().getTypesCount() - 1;
         return new RetrievalMergeBinding(
-                merge.strategy() == RetrievalMergeIntent.Strategy.RRF
-                        ? RetrievalMergeBinding.Strategy.RRF
-                        : RetrievalMergeBinding.Strategy.LINEAR,
+                merge.strategy(),
                 hint.scoreFieldIndex(), sourceIdField,
                 hint.stableKeyFieldIndexes(), merge.outputLimit(),
                 merge.sources().size(), merge.rrfK(),
@@ -160,7 +160,7 @@ public final class RetrievalPlanBinder {
                 ? request.fragment().retrievalTopKHints()
                 : request.fragment().retrievalTopKHints().stream()
                         .filter(hint -> hint.kind()
-                                != RetrievalTopKPlanHint.Kind.EXACT)
+                                != RetrievalKind.EXACT)
                         .toList();
         if (hints.size() != 1) {
             throw validationFailure(
@@ -211,7 +211,7 @@ public final class RetrievalPlanBinder {
             RetrievalMergeIntent.Source source,
             ResolvedRetrievalGeneration artifact) {
         if (artifact == null
-                && source.kind() == RetrievalMergeIntent.SourceKind.FULL_TEXT) {
+                && source.kind() == RetrievalSourceKind.FULL_TEXT) {
             throw new PangrovaException(
                     PangrovaErrorCode.RUNTIME_TASK_FAILED,
                     "BM25 retrieval has no immutable artifact binding: "
@@ -228,7 +228,7 @@ public final class RetrievalPlanBinder {
         String capabilityId = artifact.intent().capability().getCapabilityId();
         boolean matches = switch (source.kind()) {
             case VECTOR -> isVectorRetrievalCapability(capabilityId);
-            case FULL_TEXT -> BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID.equals(
+            case FULL_TEXT -> BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID.equals(
                     capabilityId);
         };
         if (!matches) {
@@ -254,7 +254,7 @@ public final class RetrievalPlanBinder {
         }
         ResolvedRetrievalGeneration artifact = retrievalArtifact.orElseThrow();
         boolean filtered = artifact.intent().capability().getCapabilityId().equals(
-                BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID);
+                BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID);
         if (filtered) {
             // One task-wide expansion/rescore ceiling, not K multiplied once per file.
             long perSource = artifact.intent().invocationOptions().stream()
@@ -323,26 +323,26 @@ public final class RetrievalPlanBinder {
 
     private static RetrievalProfile retrievalProfile(
             String capabilityId, int candidateLimit) {
-        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile(
                     "diskann-l2-exact-rescore", candidateLimit,
                     GRAPH_RECALL, candidateLimit);
         }
-        if (BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile("diskann-filtered-l2-exact-rescore", candidateLimit,
                     GRAPH_RECALL, candidateLimit);
         }
-        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile(
                     "hnsw-metric-exact-rescore", candidateLimit,
                     GRAPH_RECALL, candidateLimit);
         }
-        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile(
                     "ivfpq-metric-exact-rescore", candidateLimit,
                     QUANTIZED_RECALL, candidateLimit);
         }
-        if (BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile(
                     "bm25-shard-exact", candidateLimit, 1.0, candidateLimit);
         }
@@ -352,10 +352,10 @@ public final class RetrievalPlanBinder {
     }
 
     private static boolean isVectorRetrievalCapability(String capabilityId) {
-        return BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
-                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)
-                || BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)
-                || BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId);
+        return BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID.equals(capabilityId);
     }
 
     private static String stagePrefix(String queryId, int stageId) {

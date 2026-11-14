@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

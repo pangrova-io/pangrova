@@ -21,6 +21,7 @@
         <module>pangrova-batch</module>
         <module>pangrova-persistence</module>
         <module>pangrova-config</module>
+        <module>pangrova-cache</module>
 
         <module>pangrova-materialization</module>
         <module>pangrova-shuffle</module>
@@ -82,6 +83,7 @@
         <httpclient5.version>5.6.4</httpclient5.version>
 
         <!-- Observability dependencies -->
+        <opentelemetry.proto.version>1.0.0-alpha</opentelemetry.proto.version>
         <opentelemetry.version>1.32.0</opentelemetry.version>
         <micrometer.version>1.12.0</micrometer.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -186,7 +188,10 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-materialization-api</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId><version>${project.version}</version></dependency>
-            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId><version>${project.version}</version></dependency>
+
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-memory</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-redis</artifactId><version>${project.version}</version></dependency>            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId><version>${project.version}</version></dependency>
             <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-codec</artifactId><version>${project.version}</version></dependency>
             <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId><version>${project.version}</version></dependency>
             <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-api</artifactId><version>${project.version}</version></dependency>

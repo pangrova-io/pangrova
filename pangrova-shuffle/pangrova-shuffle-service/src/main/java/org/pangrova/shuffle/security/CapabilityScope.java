@@ -2,6 +2,7 @@ package org.pangrova.shuffle.security;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 /** Exact operation, resource, and execution owner authorized by a capability. */
 public record CapabilityScope(

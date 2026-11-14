@@ -1,9 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.connector.runtime.classloader.ConnectorClassLoaderFactory;
-import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory;
-import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
+import org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
@@ -19,29 +16,24 @@ import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URL;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Bridges PluginClassLoader-based connector discovery to CatalogRegistry.
- * Each connector type gets an isolated ClassLoader to prevent dependency conflicts.
+ * Creates Coordinator catalog handles from the role-owned connector inventory.
  */
 public final class PluginConnectorHandleFactory implements ConnectorHandleFactory {
 
     private static final Logger LOG = LoggerFactory.getLogger(PluginConnectorHandleFactory.class);
 
-    private final ClassLoader spiClassLoader;
-    private final ConnectorClassLoaderFactory classLoaderFactory;
-    private final ConnectorFactoryRegistry factories;
+    private final ConnectorPluginInventory plugins;
     private final SecretResolver secretResolver;
     private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl;
     private final Function<CatalogDescriptor, Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog>>
             sourceCatalog;
-    private final Map<String, ClassLoader> classLoaders = new ConcurrentHashMap<>();
 
     /** Creates a factory for catalogs with no managed source publication capability. */
     public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
@@ -55,22 +47,19 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
             Function<CatalogDescriptor, Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog>>
                     sourceCatalog) {
         this(spiClassLoader, secretResolver, nativeControl, sourceCatalog,
-                new DefaultConnectorClassLoaderFactory());
+                Optional.empty());
     }
 
-    /** Creates a factory with an explicit classloader isolation policy. */
+    /** Creates a factory with an optional external plugin root. */
     public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
             Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl,
             Function<CatalogDescriptor, Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog>>
                     sourceCatalog,
-            ConnectorClassLoaderFactory classLoaderFactory) {
-        this.spiClassLoader = spiClassLoader;
-        this.classLoaderFactory = java.util.Objects.requireNonNull(
-                classLoaderFactory, "classLoaderFactory");
+            Optional<Path> pluginDirectory) {
         this.secretResolver = secretResolver;
         this.nativeControl = java.util.Objects.requireNonNull(nativeControl, "nativeControl");
         this.sourceCatalog = java.util.Objects.requireNonNull(sourceCatalog);
-        this.factories = ConnectorFactoryRegistry.discover(spiClassLoader, ConnectorRole.COORDINATOR);
+        this.plugins = ConnectorPluginInventory.open(spiClassLoader, ConnectorRole.COORDINATOR, pluginDirectory);
     }
 
     @Override
@@ -86,21 +75,15 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
      * Shuts down all isolated classloaders. Call on registry shutdown.
      */
     public void shutdown() {
-        classLoaders.values().forEach(loader -> {
-            if (loader instanceof AutoCloseable closeable) {
-                ResourceCloser.closeQuietly(closeable);
-            }
-        });
-        classLoaders.clear();
+        plugins.close();
     }
 
     private ConnectorFactory resolveFactory(String provider) {
-        return factories.find(provider).orElseThrow(() -> new CatalogProviderNotFoundException(
+        return plugins.registry().find(provider).orElseThrow(() -> new CatalogProviderNotFoundException(
                 "No ConnectorFactory found for provider '" + provider + "'"));
     }
 
     private Connector createConnector(ConnectorFactory factory, CatalogDescriptor descriptor) {
-        ensureIsolatedClassLoader(descriptor.provider());
         Map<String, String> resolvedProps = resolveProperties(descriptor.properties());
         Optional<NativeDatasetControlPlane> port = java.util.Objects.requireNonNull(nativeControl.apply(descriptor));
         var source = java.util.Objects.requireNonNull(sourceCatalog.apply(descriptor));
@@ -118,15 +101,4 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
                 key, SecretTemplates.resolve(secretResolver, value, null)));
         return resolved;
     }
-
-    private void ensureIsolatedClassLoader(String provider) {
-        classLoaders.computeIfAbsent(provider, this::createIsolatedClassLoader);
-    }
-
-    private ClassLoader createIsolatedClassLoader(String provider) {
-        // In classpath deployment, connector JARs are already available via spiClassLoader.
-        // The plugin classloader provides an isolation boundary per connector type.
-        return classLoaderFactory.createClassLoader(provider, new URL[0], spiClassLoader);
-    }
-
 }

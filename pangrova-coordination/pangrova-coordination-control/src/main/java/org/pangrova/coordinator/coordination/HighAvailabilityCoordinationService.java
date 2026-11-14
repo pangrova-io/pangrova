@@ -35,9 +35,6 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(HighAvailabilityCoordinationService.class);
 
-    /** Node role in the HA cluster. */
-    public enum Role { LEADER, STANDBY, STOPPED }
-
     /** Immutable HA configuration. */
     public record CoordinationConfig(long leaseTimeoutMs, long heartbeatIntervalMs,
                                      int maxQueryOwnershipEntries) {
@@ -73,7 +70,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     private final CoordinationConfig config;
     private final LeaseBackedLeaderElection leaseElection;
-    private final AtomicReference<Role> role = new AtomicReference<>(Role.STOPPED);
+    private final AtomicReference<CoordinatorRole> role = new AtomicReference<>(CoordinatorRole.STOPPED);
     private final AtomicLong epoch = new AtomicLong(0);
     private final AtomicReference<LeaseEntry> localLease = new AtomicReference<>();
     private final QueryOwnershipRegistry ownership;
@@ -85,7 +82,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     private final AtomicReference<String> localIncarnation = new AtomicReference<>();
     private final AtomicReference<String> knownLeaderId = new AtomicReference<>();
     private volatile ElectionScheduler electionScheduler;
-    private final CoordinatorRegistryClient registryBridge = new CoordinatorRegistryClient();
+    private final CoordinatorRegistryClient registryClient = new CoordinatorRegistryClient();
     private volatile CoordinatorRegistry coordinatorRegistryRef;
     private volatile CoordinatorExecutionAuthority processAuthority;
 
@@ -121,7 +118,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     /** Configures registry self-registration, heartbeats, role updates and shutdown. */
     public void setCoordinatorRegistry(CoordinatorRegistry registry, String host, int httpPort) {
         this.coordinatorRegistryRef = Objects.requireNonNull(registry, "registry must not be null");
-        registryBridge.configure(
+        registryClient.configure(
                 registry,
                 Objects.requireNonNull(host, "host must not be null"),
                 httpPort);
@@ -160,7 +157,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         localLease.set(acquired);
         epoch.set(acquired.epoch());
         String previousLeader = knownLeaderId.getAndSet(coordinatorId);
-        role.set(Role.LEADER);
+        role.set(CoordinatorRole.LEADER);
         localNodeId.set(coordinatorId);
         updateRegistryRole(coordinatorId, CoordinatorRole.LEADER);
         // G-HA-05 fix: fire failover on ANY new leader acquisition
@@ -189,7 +186,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         LeaseEntry held = localLease.get();
         if (held == null || !coordinatorId.equals(held.holderId())) return false;
         localLease.compareAndSet(held, null);
-        role.set(Role.STANDBY);
+        role.set(CoordinatorRole.STANDBY);
         knownLeaderId.set(null);
         Throwable failure = cleanup(null, this::notifyDemotion);
         boolean released = false;
@@ -247,7 +244,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return leaseElection.currentLeader().orElse(null);
     }
 
-    public Role getRole() {
+    public CoordinatorRole getRole() {
         return role.get();
     }
 
@@ -365,11 +362,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
             syncEpochFromLease();
             registerWithRegistry(coordinatorId);
             if (tryBecomeLeader(coordinatorId)) {
-                role.set(Role.LEADER);
+                role.set(CoordinatorRole.LEADER);
                 electionScheduler.scheduleLeaseRenewal(coordinatorId);
                 LOG.info("event=ha_started coordinatorId={} role=LEADER", coordinatorId);
             } else {
-                role.set(Role.STANDBY);
+                role.set(CoordinatorRole.STANDBY);
                 electionScheduler.scheduleFailureDetection(coordinatorId);
                 LOG.info("event=ha_started coordinatorId={} role=STANDBY", coordinatorId);
             }
@@ -413,7 +410,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         @Override
         public void onLeaseRenewalFailed(String coordinatorId) {
             localLease.set(null);
-            role.set(Role.STANDBY);
+            role.set(CoordinatorRole.STANDBY);
             knownLeaderId.set(null);
             Throwable failure = cleanup(null, HighAvailabilityCoordinationService.this::notifyDemotion);
             failure = cleanup(failure, () -> updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY));
@@ -437,7 +434,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
-        role.set(Role.STOPPED);
+        role.set(CoordinatorRole.STOPPED);
         knownLeaderId.set(null);
         Throwable failure = null;
         ElectionScheduler sched = electionScheduler;
@@ -493,7 +490,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
      * Refreshes the coordinator registry heartbeat timestamp.
      */
     private void refreshRegistryHeartbeat(String coordinatorId) {
-        registryBridge.heartbeat(coordinatorId);
+        registryClient.heartbeat(coordinatorId);
     }
 
     private void renewExecutionAnchors(String coordinatorId) {
@@ -517,15 +514,15 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     private void registerWithRegistry(String coordinatorId) {
-        registryBridge.register(coordinatorId, epoch.get());
+        registryClient.register(coordinatorId, epoch.get());
     }
 
     private void updateRegistryRole(String coordinatorId, CoordinatorRole newRole) {
-        registryBridge.updateRole(coordinatorId, newRole);
+        registryClient.updateRole(coordinatorId, newRole);
     }
 
     private void unregisterFromRegistry(String coordinatorId) {
-        registryBridge.unregister(coordinatorId);
+        registryClient.unregister(coordinatorId);
     }
 
     /**

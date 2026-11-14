@@ -1,6 +1,7 @@
 package org.pangrova.shuffle.api;
 
 import org.pangrova.shuffle.api.ShuffleDrainHandler.DrainResult;
+import org.pangrova.shuffle.api.enums.ShuffleRetentionPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

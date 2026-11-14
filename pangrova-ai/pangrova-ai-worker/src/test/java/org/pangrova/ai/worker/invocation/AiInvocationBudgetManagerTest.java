@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,7 +34,7 @@ class AiInvocationBudgetManagerTest {
                         return taskId;
                     } catch (AiInvocationException failure) {
                         assertThat(failure.category())
-                                .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+                                .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
                         return null;
                     }
                 }));
@@ -52,7 +54,7 @@ class AiInvocationBudgetManagerTest {
             assertThatThrownBy(() -> manager.registerTask(context("overflow"), List.of()))
                     .isInstanceOf(AiInvocationException.class)
                     .extracting("category")
-                    .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+                    .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
 
             manager.releaseTask("tenant", existing.taskAttempt());
             assertThat(manager.registerTask(context("replacement"), List.of())).isNotNull();
@@ -92,7 +94,7 @@ class AiInvocationBudgetManagerTest {
         assertThat(actualBudget.isTerminated()).isFalse();
         assertThatThrownBy(() -> manager.registerTask(context("replacement"), List.of()))
                 .isInstanceOf(AiInvocationException.class).extracting("category")
-                .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED);
+                .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED);
         assertThat(manager.releaseTask(context.tenantId(), context.taskAttempt()))
                 .isEqualTo(actualBudget.usage());
         assertThat(actualBudget.isTerminated()).isTrue();
@@ -124,6 +126,6 @@ class AiInvocationBudgetManagerTest {
 
     private static void assertAuthorization(Runnable action) {
         assertThatThrownBy(action::run).isInstanceOf(AiInvocationException.class).extracting("category")
-                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+                .isEqualTo(AiFailureCategory.AUTHORIZATION);
     }
 }

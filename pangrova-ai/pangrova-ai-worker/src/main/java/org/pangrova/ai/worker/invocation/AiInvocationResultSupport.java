@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFinishReason;
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -35,7 +37,7 @@ final class AiInvocationResultSupport {
                 request.modelVersion(),
                 outputs,
                 results.size() == 1 ? results.get(0).providerRequestId() : "",
-                AiInvocationResult.FinishReason.COMPLETE,
+                AiFinishReason.COMPLETE,
                 attributes);
     }
 
@@ -49,7 +51,7 @@ final class AiInvocationResultSupport {
                 || results.size() != expectedCount
                 || results.stream().anyMatch(Objects::isNull)) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                    AiFailureCategory.PROVIDER_RESPONSE_INVALID,
                     false,
                     "Provider returned invalid result cardinality for request "
                             + request.requestId()

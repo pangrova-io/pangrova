@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.governance;
 
+import org.pangrova.governance.api.enums.QualityQueryType;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.exception.GovernanceQueryException;
 import org.pangrova.governance.api.quality.GovernanceQueryRunner;
@@ -95,7 +96,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
     @Test
     void buildCountSql_constructsCorrectQuery() throws SQLException {
         executeSql("INSERT INTO schema.test_table(amount) VALUES (101),(100),(NULL)");
-        var request = request("amount > 100", GovernanceQueryRunner.QueryType.COUNTS);
+        var request = request("amount > 100", QualityQueryType.COUNTS);
         String sql = QualityReadSql.render(request);
         assertThat(sql).contains("COUNT(*)");
         assertThat(sql).contains("IS NOT TRUE", "failed_rows");
@@ -109,7 +110,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
     @Test
     void buildSampleSql_constructsCorrectQuery() throws SQLException {
         executeSql("INSERT INTO schema.test_table(status) VALUES ('active'),('inactive'),(NULL)");
-        var request = request("status = 'active'", GovernanceQueryRunner.QueryType.SAMPLES);
+        var request = request("status = 'active'", QualityQueryType.SAMPLES);
         String sql = QualityReadSql.render(request);
         assertThat(sql).contains("SELECT *", "FROM \"catalog\".\"schema\".\"test_table\"");
         assertThat(sql).contains("IS NOT TRUE", "'active'");
@@ -199,7 +200,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
         assertThat(result.failedRows()).isEqualTo(2);
     }
 
-    private static QualityReadRequest request(String expression, GovernanceQueryRunner.QueryType type) {
+    private static QualityReadRequest request(String expression, QualityQueryType type) {
         return new QualityReadRequest("catalog", "schema", "test_table", TABLE_ID, expression, type);
     }
 
@@ -228,7 +229,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
             String sql = QualityReadSql.render(request);
             assertThat(new org.pangrova.parser.parse.AntlrSqlParser().parse(sql))
                     .as("generated SQL must use the actual production grammar").isNotNull();
-            QueryType type = request.type();
+            QualityQueryType type = request.type();
             assertThat(identity).isEqualTo(new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
             queries.add(sql);
             try (var connection = DriverManager.getConnection(
@@ -237,7 +238,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
                  var rows = statement.executeQuery(sql)) {
                 var metadata = rows.getMetaData();
                 QualityQueryResult result;
-                if (type == QueryType.COUNTS) {
+                if (type == QualityQueryType.COUNTS) {
                     if (!rows.next()) {
                         throw new IllegalStateException("Actual aggregate returned no result");
                     }

@@ -1,14 +1,18 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.connector.api.plugin.Connector;
-import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.api.plugin.ConnectorFactory;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.options.Options;
+import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.connector.api.constants.ConnectorFactoryContract;
+import org.pangrova.connector.api.enums.ConnectorRole;
+import org.pangrova.connector.api.plugin.Connector;
+import org.pangrova.connector.api.plugin.ConnectorContext;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Factory for creating Paimon connector instances with real Catalog.
@@ -23,16 +27,45 @@ public class PaimonConnectorFactory implements ConnectorFactory {
     private static final String REST_CONTENT_TYPE_KEY = "header.Content-Type";
 
     @Override
+    public int apiVersion() {
+        return ConnectorFactoryContract.CURRENT_API_VERSION;
+    }
+
+    @Override
+    public Set<ConnectorRole> roles() {
+        return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER);
+    }
+
+    @Override
+    public void validateConfiguration(Map<String, String> config) {
+        if (METASTORE_REST.equalsIgnoreCase(config.get(METASTORE_KEY))
+                && config.getOrDefault(REST_URI_KEY, "").isBlank()) {
+            throw new IllegalArgumentException("REST catalog requires a nonblank 'uri' property");
+        }
+        for (String key : java.util.List.of("metastore", "warehouse", "temp-dir")) {
+            if (config.containsKey(key) && config.get(key).isBlank()) {
+                throw new IllegalArgumentException("Paimon " + key + " must not be blank");
+            }
+        }
+    }
+
+    @Override
     public String getName() {
         return "paimon";
     }
 
     @Override
     public Connector create(String catalogName, Map<String, String> config, ConnectorContext context) {
-        Catalog catalog = buildCatalog(config);
+        validateConfiguration(config);
         String tempDir = config.getOrDefault("temp-dir",
                 System.getProperty("java.io.tmpdir") + "/paimon-io");
-        return new PaimonConnector(catalogName, catalog, tempDir);
+        Catalog catalog = buildCatalog(config);
+        try {
+            return new PaimonConnector(catalogName, catalog, tempDir);
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeOnFailure(failure, catalog);
+            throw failure;
+        }
     }
 
     private Catalog buildCatalog(Map<String, String> config) {
@@ -44,10 +77,6 @@ public class PaimonConnectorFactory implements ConnectorFactory {
     }
 
     private Catalog buildRestCatalog(Map<String, String> config) {
-        if (!config.containsKey(REST_URI_KEY)) {
-            throw new IllegalArgumentException(
-                    "REST catalog requires 'uri' property specifying the catalog server endpoint");
-        }
         Options options = new Options();
         config.forEach(options::setString);
         options.setString("metastore", "rest");

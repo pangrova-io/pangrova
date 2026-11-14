@@ -1,5 +1,8 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.connector.api.enums.NativeWriteOperation;
+import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.exception.ConnectorException;
@@ -94,7 +97,7 @@ public final class LanceMetadata implements ConnectorMetadata {
     }
     @Override public ConnectorTableReadMetadata getTableReadMetadata(ConnectorSession session, ConnectorTableHandle table) {
         return new ConnectorTableReadMetadata(getTableMetadata(session, table),
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                TableDeclarationEvidence.EXACT);
     }
     @Override public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
         Map<String, ColumnHandle> columns = new LinkedHashMap<>();
@@ -113,8 +116,8 @@ public final class LanceMetadata implements ConnectorMetadata {
                 getTableReadMetadata(session, selected),
                 new TableStatistics(selected.rowCount(), -1, -1, java.util.Map.of()),
                 selected.version() == 0
-                        ? org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
-                        : org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                        ? org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY
+                        : org.pangrova.connector.api.enums.ReadSnapshotState.SNAPSHOT,
                 selected.version() == 0 ? java.util.OptionalLong.empty()
                         : java.util.OptionalLong.of(selected.version()),
                 selected.tableId() + ":" + selected.version(), java.util.Optional.empty());
@@ -131,7 +134,7 @@ public final class LanceMetadata implements ConnectorMetadata {
                 || !current.datasetUri().equals(selected.datasetUri())) {
             throw new IllegalStateException("Selected dataset was dropped or replaced");
         }
-        if (binding.state() != org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+        if (binding.state() != org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY) {
             snapshots.resolve(session, selected);
         }
     }
@@ -149,17 +152,17 @@ public final class LanceMetadata implements ConnectorMetadata {
         var table = new LanceTableHandle(catalog, tenant, metadata.table(), tableId,
                 warehouse + "/" + tableId + ".lance", columns, metadata.properties(), fence, 0, 1, 0);
         store.get().create(table);
-        return allocate(table, NativeWriteAllocation.Operation.CREATE, "INSERT");
+        return allocate(table, NativeWriteOperation.CREATE, "INSERT");
     }
     @Override public ConnectorOutputTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle table) {
         var pinned = requireTable(session, table);
         return allocate(pinned, pinned.version() == 0
-                ? NativeWriteAllocation.Operation.CREATE : NativeWriteAllocation.Operation.APPEND, "INSERT");
+                ? NativeWriteOperation.CREATE : NativeWriteOperation.APPEND, "INSERT");
     }
     @Override public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         var pinned = requireTable(session, table);
         return allocate(pinned, pinned.version() == 0
-                ? NativeWriteAllocation.Operation.CREATE : NativeWriteAllocation.Operation.OVERWRITE, "OVERWRITE");
+                ? NativeWriteOperation.CREATE : NativeWriteOperation.OVERWRITE, "OVERWRITE");
     }
     @Override public void dropTable(ConnectorSession session, ConnectorTableHandle table) {
         store.get().drop(requireTable(session, table));
@@ -180,7 +183,7 @@ public final class LanceMetadata implements ConnectorMetadata {
         if (accepted.isEmpty()) {
             var reservation = store.get().reserve(lance, fragments, context);
             var preparation = nativeControl().prepareWrite(session, output, fragments, context, reservation);
-            if (preparation.outcome() != org.pangrova.connector.api.metadata.NativeWritePreparation.Outcome.PREPARED) {
+            if (preparation.outcome() != org.pangrova.connector.api.enums.NativeWritePreparationOutcome.PREPARED) {
                 throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                         "Native dataset preparation is UNKNOWN; reserved objects remain held for replay");
             }
@@ -188,7 +191,7 @@ public final class LanceMetadata implements ConnectorMetadata {
                     lance, reservation, preparation.publication().orElseThrow(), rows));
         }
         var reference = accepted.orElseThrow().reference();
-        NativeWriteFinalization publication = new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED,
+        NativeWriteFinalization publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED,
                 reference.version(), reference.manifestSha256());
         cleanupAfterBarrier(session, lance, context);
         notifyCommitted(lance, context, publication);
@@ -235,7 +238,7 @@ public final class LanceMetadata implements ConnectorMetadata {
         if (listener == null) {
             return;
         }
-        var type = output.allocation().operation() == NativeWriteAllocation.Operation.OVERWRITE
+        var type = output.allocation().operation() == NativeWriteOperation.OVERWRITE
                 ? org.pangrova.connector.api.enums.CommitEventType.OVERWRITE
                 : org.pangrova.connector.api.enums.CommitEventType.APPEND;
         // Dataset partitions are not file paths. Preserve their exact version without inventing FileSplits.
@@ -258,7 +261,7 @@ public final class LanceMetadata implements ConnectorMetadata {
         return lance;
     }
     private LanceOutputHandle allocate(LanceTableHandle table,
-            NativeWriteAllocation.Operation operation, String mode) {
+            NativeWriteOperation operation, String mode) {
         String writeId = UUID.randomUUID().toString();
         return new LanceOutputHandle(table, new NativeWriteAllocation(table.datasetUri(), operation, table.version(),
                 table.schemaFence(), writeId, "_pangrova/write-staging/" + writeId, UUID.randomUUID().toString(),

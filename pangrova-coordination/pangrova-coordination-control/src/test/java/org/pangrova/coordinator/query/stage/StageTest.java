@@ -76,32 +76,18 @@ class StageTest {
     }
 
     @Test
-    void shouldRetryReturnsTrueWhenRetriesRemain() {
-        Stage stage = Stage.create(dummyNode(0), "q1");
-        assertThat(stage.shouldRetry()).isTrue();
-        assertThat(stage.retryCount()).isEqualTo(0);
-    }
-
-    @Test
-    void tryPrepareRetryClearsTaskTracking() {
-        Stage stage = Stage.create(dummyNode(0), "q1");
-        stage.addTaskId("t1");
-        boolean prepared = stage.tryPrepareRetry();
-
-        assertThat(prepared).isTrue();
-        assertThat(stage.taskIds()).isEmpty();
-        assertThat(stage.retryCount()).isEqualTo(1);
-    }
-
-    @Test
-    void retryExhaustedAfterMaxRetries() {
-        Stage stage = new Stage(dummyNode(0),
-                new StageStateMachine("0", "q1"), new StageRetryPolicy(1));
-        assertThat(stage.shouldRetry()).isTrue();
-
-        assertThat(stage.tryPrepareRetry()).isTrue();
-        assertThat(stage.shouldRetry()).isFalse();
-        assertThat(stage.tryPrepareRetry()).isFalse();
+    void onlyAFailedGenerationCanSpendItsRetryBudget() {
+        var stage = new Stage(dummyNode(0), new StageStateMachine("0", "q1"), new StageRetryPolicy(1));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            stage.stateMachine().transitionTo(StageState.SCHEDULING);
+            stage.stateMachine().transitionTo(StageState.RUNNING);
+            stage.addTaskId("t" + attempt);
+            assertThat(stage.tryRestartFailedGeneration(attempt, 3, "WORKER_LOST")).isFalse();
+            stage.onTaskFailed("t" + attempt, new QueryFailure("WORKER_LOST", "worker", "unavailable"));
+            assertThat(stage.tryRestartFailedGeneration(attempt, 3, "WORKER_LOST")).isEqualTo(attempt == 0);
+            if (attempt == 0) assertThat(stage.taskIds()).isEmpty();
+        }
+        assertThat(stage.retryCount()).isOne();
     }
 
     @Test

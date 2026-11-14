@@ -1,5 +1,6 @@
 package org.pangrova.indexing.api.statistics;
 
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Map;
@@ -54,7 +55,7 @@ public record RowGroupStatistics(
          * Mirrors {@link FileColumnStatistics#noRowsSatisfy} at the row-group level.
          */
         @SuppressWarnings("unchecked")
-        public boolean noRowsSatisfy(FileColumnStatistics.ComparisonOp op, Comparable<?> value) {
+        public boolean noRowsSatisfy(ColumnComparisonOperator op, Comparable<?> value) {
             if (minValue == null || maxValue == null) {
                 return false;
             }

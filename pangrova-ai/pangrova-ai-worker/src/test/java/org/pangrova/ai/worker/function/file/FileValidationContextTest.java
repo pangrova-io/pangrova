@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.function.file;
 
+import org.pangrova.ai.worker.exception.MimeTypeNotAllowedException;
+
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -18,7 +20,7 @@ class FileValidationContextTest {
         var context = new FileValidationContext(properties, "catalog.schema.files", validator);
         properties.put(MimeTypeValidator.ALLOWED_TYPES_PROPERTY, "*/*");
         assertThatThrownBy(() -> context.encode(reference("application/pdf"), LocalDateTime.now()))
-                .isInstanceOf(MimeTypeValidator.MimeTypeNotAllowedException.class);
+                .isInstanceOf(MimeTypeNotAllowedException.class);
         assertThat(FileStruct.decodeReference(context.encode(reference("image/png"), LocalDateTime.now())))
                 .isEqualTo(reference("image/png"));
         assertThat(context.validator()).isSameAs(validator);

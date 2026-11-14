@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.api.embedding;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.net.URI;
@@ -139,7 +141,7 @@ public record EmbeddingModelDescriptor(
                 throw new IllegalArgumentException(
                         "deployment version and signature must be present together");
             }
-            if (hasSignature && !signatureSha256.matches("[0-9a-f]{64}")) {
+            if (hasSignature && !DigestUtils.isSha256Hex(signatureSha256)) {
                 throw new IllegalArgumentException(
                         "deploymentSignatureSha256 must be 64 lowercase hexadecimal characters");
             }

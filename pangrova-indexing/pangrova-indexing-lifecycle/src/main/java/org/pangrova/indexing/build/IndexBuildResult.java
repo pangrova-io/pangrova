@@ -1,17 +1,19 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.indexing.enums.IndexBuildOutcome;
+
 import java.util.Objects;
 
 public final class IndexBuildResult {
     private final int successCount;
     private final int failureCount;
-    private final Outcome outcome;
+    private final IndexBuildOutcome outcome;
 
     public IndexBuildResult(int successCount, int failureCount) {
-        this(successCount, failureCount, Outcome.COMPLETED);
+        this(successCount, failureCount, IndexBuildOutcome.COMPLETED);
     }
 
-    private IndexBuildResult(int successCount, int failureCount, Outcome outcome) {
+    private IndexBuildResult(int successCount, int failureCount, IndexBuildOutcome outcome) {
         if (successCount < 0) {
             throw new IllegalArgumentException("successCount must not be negative, got " + successCount);
         }
@@ -24,24 +26,24 @@ public final class IndexBuildResult {
     }
 
     public static IndexBuildResult success(int successCount) {
-        return new IndexBuildResult(successCount, 0, Outcome.COMPLETED);
+        return new IndexBuildResult(successCount, 0, IndexBuildOutcome.COMPLETED);
     }
 
     public static IndexBuildResult claimFailed() {
-        return new IndexBuildResult(0, 0, Outcome.CLAIM_FAILED);
+        return new IndexBuildResult(0, 0, IndexBuildOutcome.CLAIM_FAILED);
     }
 
     public static IndexBuildResult staleGeneration() {
-        return new IndexBuildResult(0, 0, Outcome.STALE_GENERATION);
+        return new IndexBuildResult(0, 0, IndexBuildOutcome.STALE_GENERATION);
     }
 
     /** A cancelled attempt must never authorize generation publication. */
     public static IndexBuildResult cancelled() {
-        return new IndexBuildResult(0, 0, Outcome.CANCELLED);
+        return new IndexBuildResult(0, 0, IndexBuildOutcome.CANCELLED);
     }
 
     public static IndexBuildResult rejected() {
-        return new IndexBuildResult(0, 0, Outcome.REJECTED);
+        return new IndexBuildResult(0, 0, IndexBuildOutcome.REJECTED);
     }
 
     public int successCount() {
@@ -52,12 +54,12 @@ public final class IndexBuildResult {
         return failureCount;
     }
 
-    public Outcome outcome() {
+    public IndexBuildOutcome outcome() {
         return outcome;
     }
 
     public boolean isFullySuccessful() {
-        return outcome == Outcome.COMPLETED && failureCount == 0;
+        return outcome == IndexBuildOutcome.COMPLETED && failureCount == 0;
     }
 
     @Override
@@ -84,11 +86,4 @@ public final class IndexBuildResult {
                 + ", failureCount=" + failureCount + "}";
     }
 
-    public enum Outcome {
-        COMPLETED,
-        CLAIM_FAILED,
-        STALE_GENERATION,
-        REJECTED,
-        CANCELLED
-    }
 }

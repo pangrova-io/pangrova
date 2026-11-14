@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.query.stage;
 
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.analysis.StagePlanAccess;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 
@@ -44,7 +45,7 @@ public record StageNode(
             throw new IllegalArgumentException("parallelism must be >= 1, got " + parallelism);
         }
         var frozen = stagePlan.frozenCoordinates();
-        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY && frozen.isEmpty()) {
+        if (stagePlan.mode() == StagePlanMode.DURABLE_REPLAY && frozen.isEmpty()) {
             throw new IllegalArgumentException("Durable stage plan has no frozen execution coordinates");
         }
         frozen.ifPresent(coordinates -> coordinates.requireMatch(stageId, parallelism, taskType));
@@ -63,7 +64,7 @@ public record StageNode(
      * Returns a copy with adjusted parallelism for adaptive dynamic parallelism.
      */
     public StageNode withParallelism(int newParallelism) {
-        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY && newParallelism != parallelism) {
+        if (stagePlan.mode() == StagePlanMode.DURABLE_REPLAY && newParallelism != parallelism) {
             throw new IllegalStateException("Durable stage parallelism is part of its persisted graph identity");
         }
         return new StageNode(stageId, stagePlan, newParallelism, taskType,
@@ -74,7 +75,7 @@ public record StageNode(
      * Returns a copy with a reoptimized plan fragment for sub-plan re-optimization.
      */
     public StageNode withStagePlan(StagePlanAccess newStagePlan) {
-        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY) {
+        if (stagePlan.mode() == StagePlanMode.DURABLE_REPLAY) {
             throw new IllegalStateException("Durable stage plan cannot be adaptively replaced");
         }
         return new StageNode(stageId, newStagePlan, parallelism, taskType,

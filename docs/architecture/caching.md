@@ -5,11 +5,7 @@ sidebar_label: "Caching (Target)"
 
 # Pangrova — Caching Target Architecture
 
-> **Status:** Target architecture. The implemented cache surface currently consists
-> of Velox native caching, native cache options, the Java L2 query-result cache
-> (`org.pangrova.cache.api.L2CacheStore`), and worker cache-eviction/locality wiring. The
-> RAM/SSD manager and prefetch controller described below are design intent, not
-> current class names; there is no Java cache SPI.
+> **Status.** The implementation includes Velox Native caching, Worker eviction and locality, and a separate Coordinator cache for federation metadata. The RAM/SSD manager and prefetch controller below describe the proposed Native design.
 
 > **Summary.** Target design for multi-tier caching and smart prefetch.
 
@@ -240,16 +236,7 @@ public:
 
 ### 2.1 Java cache contracts
 
-There is no Java-side cache SPI. The former `org.pangrova.spi.cache` distributed
-cache-store contracts had no implementation and no consumer and were removed
-during the module restructuring; the native cache is reached through the engine
-layer, not through a Java ServiceLoader.
-
-Java owns only its L2 query-result cache: `org.pangrova.cache.api.L2CacheStore` with the
-`org.pangrova.cache.memory.InMemoryL2CacheStore`, `metadata.core.cache.*` and
-`org.pangrova.cache.redis.RedisL2CacheStore` implementations. The C++ `Cache`
-contract below is the cross-language data-plane design and is not exposed to
-Java callers.
+`pangrova-cache-api` publishes `CacheKey`, `CacheLookup`, `CacheStore` and `CacheStoreFactory` with a JDK-only runtime. Memory and Redis factories register in their respective provider JARs. A backend implements atomic group and entry invalidation, generation-checked fills and bounded-lifetime values. Metadata owns the serialization and catalog deployment identity. Server Coordinator discovers factories, applies configuration and opens one backend for its metadata subsystem. The Native engine retains ownership of its data-plane caches. [Metadata cache](./metadata.md#35-metadata-cache)
 
 ## 3. RAM Cache Implementation
 

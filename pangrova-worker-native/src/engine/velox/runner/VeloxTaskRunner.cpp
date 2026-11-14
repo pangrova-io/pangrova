@@ -15,8 +15,7 @@
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
 
-#include "command/StatusSerializer.h"
-#include "command/resource/HandleRegistry.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 #include "engine/result/FlightResultServer.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 
@@ -167,6 +166,9 @@ VeloxTaskRunner::VeloxTaskRunner(
       shuffle_queue_(shuffle_queue) {
   if (!config_.function_registry) {
     throw std::invalid_argument("VeloxTaskRunner requires an admitted owned function registry");
+  }
+  if (config_.is_result_task && config_.executor_handle > 0 && !config_.failure_reporter) {
+    throw std::invalid_argument("A bound result task requires its failure reporter");
   }
   if (!plan_) {
     throw std::invalid_argument("VeloxTaskRunner: plan must not be null");
@@ -763,8 +765,8 @@ void VeloxTaskRunner::start() {
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
-        info.report_stream_failure = [handle = config_.executor_handle](const std::string& failure) {
-          pangrova::jni::HandleRegistry::instance().acquire(handle)->recordResultStreamFailure(failure);
+        info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter](const std::string& failure) {
+          reporter->reportResultStreamFailure(handle, failure);
         };
       }
       if (!info.authority.ParseFromString(config_.callback_context)) {
@@ -1105,7 +1107,7 @@ bool VeloxTaskRunner::handleTaskCompletion() {
       error.set_message(failure.empty() ? "Native result producer failed" : failure);
       error.set_retryable(false);
       error.set_failed_component("native-executor");
-      pangrova::jni::HandleRegistry::instance().acquire(config_.executor_handle)->recordExecutionError(error);
+      config_.failure_reporter->reportExecutionError(config_.executor_handle, error);
     }
 #if __has_include(<glog/logging.h>)
     LOG(ERROR) << "velox_task_failed"
@@ -1176,8 +1178,8 @@ std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
     return {};
   }
   // Delegate to shared serialization utility to avoid duplicate logic
-  // with StatusSerializer::serializeNativeTaskStats().
-  return pangrova::jni::serializeNativeTaskStats(
+  // with the wire-format per-operator counters.
+  return serializeNativeTaskStats(
       velox_task_->taskStats(),
       index_splits_evaluated_.load(std::memory_order_acquire),
       index_splits_skipped_.load(std::memory_order_acquire));

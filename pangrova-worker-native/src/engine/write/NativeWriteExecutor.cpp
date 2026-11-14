@@ -104,7 +104,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
       columnSchemaClass_(nullptr),
       columnSchemaCtor_(nullptr),
       writeModeClass_(nullptr),
-      writeModeValues_(nullptr),
+      dmlOperationFromCode_(nullptr),
       commitResultRowsWritten_(nullptr),
       commitResultBytesWritten_(nullptr),
       commitResultFilePaths_(nullptr),
@@ -188,7 +188,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     descriptorCtor_ = env->GetMethodID(
         descriptorClass_, "<init>",
-        "(Lorg/pangrova/worker/write/WriteDescriptor$DmlOperation;"
+        "(Lorg/pangrova/worker/enums/DmlOperation;"
         "Ljava/util/List;Ljava/util/Map;)V");
     if (!descriptorCtor_) {
       throw std::runtime_error(
@@ -213,22 +213,22 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
           "NativeWriteExecutor: GetMethodID failed for ColumnSchema ctor");
     }
 
-    // Cache DmlOperation enum class and values() method (inner enum of WriteDescriptor).
+    // Resolve the versioned native-write operation codes independently of Java enum order.
     jclass modeLocal = env->FindClass(
-        "org/pangrova/worker/write/WriteDescriptor$DmlOperation");
+        "org/pangrova/worker/enums/DmlOperation");
     if (!modeLocal) {
       throw std::runtime_error(
-          "NativeWriteExecutor: FindClass failed for WriteDescriptor$DmlOperation");
+          "NativeWriteExecutor: FindClass failed for DmlOperation");
     }
     writeModeClass_ = static_cast<jclass>(env->NewGlobalRef(modeLocal));
     env->DeleteLocalRef(modeLocal);
 
-    writeModeValues_ = env->GetStaticMethodID(
-        writeModeClass_, "values",
-        "()[Lorg/pangrova/worker/write/WriteDescriptor$DmlOperation;");
-    if (!writeModeValues_) {
+    dmlOperationFromCode_ = env->GetStaticMethodID(
+        writeModeClass_, "fromNativeCode",
+        "(I)Lorg/pangrova/worker/enums/DmlOperation;");
+    if (!dmlOperationFromCode_) {
       throw std::runtime_error(
-          "NativeWriteExecutor: GetStaticMethodID failed for DmlOperation.values()");
+          "NativeWriteExecutor: GetStaticMethodID failed for DmlOperation.fromNativeCode(int)");
     }
 
     // Cache WriteCommitResult accessor method IDs.
@@ -410,13 +410,9 @@ int64_t NativeWriteExecutor::beginWrite(const WriteDescriptor& descriptor) {
         "NativeWriteExecutor::beginWrite: PushLocalFrame failed");
   }
 
-  // Build Java DmlOperation enum value from ordinal.
-  auto modeArray = static_cast<jobjectArray>(
-      env->CallStaticObjectMethod(writeModeClass_, writeModeValues_));
-  checkJniException(env, "DmlOperation.values()");
-  jobject writeMode = env->GetObjectArrayElement(
-      modeArray, descriptor.writeMode);
-  env->DeleteLocalRef(modeArray);
+  jobject writeMode = env->CallStaticObjectMethod(
+      writeModeClass_, dmlOperationFromCode_, static_cast<jint>(descriptor.writeMode));
+  checkJniException(env, "DmlOperation.fromNativeCode(int)");
 
   // Build Java List<ColumnSchema>.
   jobject columnList = env->NewObject(

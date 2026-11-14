@@ -9,9 +9,9 @@ import java.util.Set;
 
 import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver;
-import org.pangrova.shuffle.api.capability.ShuffleCapability;
 import org.pangrova.shuffle.api.coordinator.ShuffleCoordinatorFactory;
 import org.pangrova.shuffle.api.coordinator.ShuffleCoordinatorSession;
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
 
 /** Discovers the configured external control provider before opening any backend resources. */
 final class CoordinatorShuffleProviders {

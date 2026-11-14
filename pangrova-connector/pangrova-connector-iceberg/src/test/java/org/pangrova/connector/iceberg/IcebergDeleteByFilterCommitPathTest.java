@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.iceberg.exception.CommitTimeoutException;
 
 import org.apache.hadoop.conf.Configuration;
@@ -22,7 +23,6 @@ import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Types;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
-import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -213,7 +213,7 @@ class IcebergDeleteByFilterCommitPathTest {
         var pinned = IcebergTableHandleFactory.fromTableWithSnapshot(
                 NAMESPACE, "historical_declaration", current, snapshot.snapshotId());
         var historical = metadata.getTableReadMetadata(SESSION, pinned);
-        assertThat(historical.declarationEvidence()).isEqualTo(ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+        assertThat(historical.declarationEvidence()).isEqualTo(TableDeclarationEvidence.EXACT);
         assertThat(GeneratedColumnMetadataCodec.decode(historical.requireExactDeclaration().properties())
                 .getDefinitionsCount()).isZero();
     }

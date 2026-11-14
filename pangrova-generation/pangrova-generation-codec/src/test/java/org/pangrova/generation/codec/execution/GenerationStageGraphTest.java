@@ -1,8 +1,9 @@
 package org.pangrova.generation.codec.execution;
 
+import org.pangrova.generation.api.enums.GenerationExchangeDistribution;
+
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
-
-
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 
@@ -21,7 +22,7 @@ class GenerationStageGraphTest {
     void graphRejectsMalformedDigestsAndCorrectlyHashedNoncanonicalEncoding() {
         var terminal = stage(0, 1, GenerationPageKind.RELATIONAL_PARTITION, true);
         var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                GenerationStageGraph.Purpose.RELATIONAL_EXPORT, List.of(terminal), List.of(), List.of());
+                GenerationGraphPurpose.RELATIONAL_EXPORT, List.of(terminal), List.of(), List.of());
         for (String invalid : new String[]{null, "", "0".repeat(64), GenerationStageGraphCodec.sha256(graph).substring(1),
                 GenerationStageGraphCodec.sha256(graph).toUpperCase(java.util.Locale.ROOT), GenerationStageGraphCodec.sha256(graph) + "\n"}) {
             assertThatThrownBy(() -> GenerationStageGraphCodec.decode(GenerationStageGraphCodec.encode(graph), invalid))
@@ -53,7 +54,7 @@ class GenerationStageGraphTest {
     @Test void rejectsRemovedOrUnknownPersistedBatchFormats() {
         for (String format : List.of("BATCH_SERDE_NATIVE_ROW", "BATCH_SERDE_UNSPECIFIED", "BATCH_SERDE_UNKNOWN")) {
             assertThatThrownBy(() -> new GenerationStageGraph.Exchange("exchange", 1, 0,
-                    GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, format, true))
+                    GenerationExchangeDistribution.SINGLETON, List.of(), 1, format, true))
                     .as("persisted format %s", format).isInstanceOf(IllegalArgumentException.class);
         }
     }
@@ -61,9 +62,9 @@ class GenerationStageGraphTest {
         var source = stage(5, 2, GenerationPageKind.RELATIONAL_COMPUTE, false);
         var terminal = stage(0, 3, GenerationPageKind.RELATIONAL_PARTITION, true);
         var exchange = new GenerationStageGraph.Exchange("exchange", 5, 0,
-                GenerationStageGraph.Exchange.Distribution.HASH, List.of(0), 3,
+                GenerationExchangeDistribution.HASH, List.of(0), 3,
                 "BATCH_SERDE_ARROW_BATCH", true);
-        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(source, terminal), List.of(exchange), List.of());
         assertThat(GenerationStageGraphCodec.decode(GenerationStageGraphCodec.encode(graph), GenerationStageGraphCodec.sha256(graph))).isEqualTo(graph);
         assertThat(graph.stages()).extracting(GenerationStageGraph.StagePlan::stageId).containsExactly(0, 5);
@@ -76,13 +77,13 @@ class GenerationStageGraphTest {
 
     @Test void rejectsPartialBarriersPurposeMismatchAndDetachedCompute() {
         assertThatThrownBy(() -> new GenerationStageGraph.Exchange("exchange", 1, 0,
-                GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1,
+                GenerationExchangeDistribution.SINGLETON, List.of(), 1,
                 "BATCH_SERDE_ARROW_BATCH", false)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(stage(1, 1, GenerationPageKind.RELATIONAL_COMPUTE, false),
                         stage(0, 1, GenerationPageKind.RELATIONAL_PARTITION, true)), List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("detached");
-        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.ARTIFACT_GENERATION,
+        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.ARTIFACT_GENERATION,
                 List.of(stage(0, 1, GenerationPageKind.RELATIONAL_PARTITION, true)), List.of(), List.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("purpose");
     }

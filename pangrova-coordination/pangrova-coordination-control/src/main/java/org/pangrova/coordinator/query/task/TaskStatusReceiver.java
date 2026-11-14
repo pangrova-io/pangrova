@@ -199,8 +199,8 @@ public final class TaskStatusReceiver {
     private boolean isScheduledDurableTask(TaskStatusReport report) {
         try {
             var state = taskTracker.getTaskState(report.queryId(), report.taskId());
-            return state == org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED
-                    || state == org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING;
+            return state == org.pangrova.coordinator.enums.ScheduledTaskState.SCHEDULED
+                    || state == org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING;
         } catch (IllegalArgumentException notRegistered) {
             return false;
         }
@@ -335,11 +335,11 @@ public final class TaskStatusReceiver {
     }
 
     private static boolean settledOrUnsubmittedTerminal(
-            org.pangrova.coordinator.task.TaskStateMachine.State current, String reported) {
-        return current == org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED
-                || current == org.pangrova.coordinator.task.TaskStateMachine.State.FAILED
-                || current == org.pangrova.coordinator.task.TaskStateMachine.State.ABANDONED
-                || current == org.pangrova.coordinator.task.TaskStateMachine.State.PENDING
+            org.pangrova.coordinator.enums.ScheduledTaskState current, String reported) {
+        return current == org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED
+                || current == org.pangrova.coordinator.enums.ScheduledTaskState.FAILED
+                || current == org.pangrova.coordinator.enums.ScheduledTaskState.ABANDONED
+                || current == org.pangrova.coordinator.enums.ScheduledTaskState.PENDING
                         && isTerminalTaskState(reported);
     }
 
@@ -401,7 +401,7 @@ public final class TaskStatusReceiver {
         return "FAILED".equals(state) || "CANCELLED".equals(state);
     }
 
-    private static boolean isTerminalTaskState(String state) {
+    static boolean isTerminalTaskState(String state) {
         return "FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state);
     }
 

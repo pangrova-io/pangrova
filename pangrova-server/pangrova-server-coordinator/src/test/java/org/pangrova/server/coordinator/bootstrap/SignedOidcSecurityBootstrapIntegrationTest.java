@@ -74,7 +74,7 @@ class SignedOidcSecurityBootstrapIntegrationTest extends ContainerTestBase {
 
     private static CoordinatorBootstrapConfig configWith(CoordinatorBootstrapConfig.SecurityConfig security) {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("signed-oidc", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("signed-oidc", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(), CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, security, null);

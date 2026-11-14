@@ -1,13 +1,11 @@
 package org.pangrova.testing.benchmark;
 
+import org.pangrova.testing.benchmark.enums.PerformanceRegressionStatus;
+
 /**
  * Detects performance regressions by comparing baseline vs current metrics.
  */
 public final class PerformanceRegressionDetector {
-
-    public enum Status {
-        OK, INFO, WARN, FAIL
-    }
 
     private static final double FAIL_THRESHOLD = 0.15;
     private static final double WARN_THRESHOLD = 0.10;
@@ -15,24 +13,24 @@ public final class PerformanceRegressionDetector {
 
     private PerformanceRegressionDetector() {}
 
-    public static Status detect(double baseline, double current) {
+    public static PerformanceRegressionStatus detect(double baseline, double current) {
         if (baseline <= 0) {
-            return Status.OK;
+            return PerformanceRegressionStatus.OK;
         }
         double degradation = (current - baseline) / baseline;
         return classify(degradation);
     }
 
-    private static Status classify(double degradation) {
+    private static PerformanceRegressionStatus classify(double degradation) {
         if (degradation > FAIL_THRESHOLD) {
-            return Status.FAIL;
+            return PerformanceRegressionStatus.FAIL;
         }
         if (degradation > WARN_THRESHOLD) {
-            return Status.WARN;
+            return PerformanceRegressionStatus.WARN;
         }
         if (degradation > INFO_THRESHOLD) {
-            return Status.INFO;
+            return PerformanceRegressionStatus.INFO;
         }
-        return Status.OK;
+        return PerformanceRegressionStatus.OK;
     }
 }

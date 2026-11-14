@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.api.capability;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.common.api.annotation.Experimental;
 
@@ -51,7 +52,7 @@ public record AiRequestConstraints(
             throw new IllegalArgumentException("encoded body bytes must not be negative");
         }
         if (bytes > limit) {
-            throw new AiInvocationException(AiInvocationException.Category.BUDGET_EXCEEDED,
+            throw new AiInvocationException(AiFailureCategory.BUDGET_EXCEEDED,
                     false, "AI provider " + direction + " body exceeds its exact per-request byte limit");
         }
     }

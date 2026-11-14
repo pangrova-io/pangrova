@@ -16,7 +16,7 @@ import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.materialization.api.port.MaterializationEvent;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -164,10 +164,10 @@ final class JdbcMaterializationPublications {
                             + " but found " + current.revision() + " for "
                             + command.object().canonicalName());
         }
-        boolean matchingState = current.state() == ObjectState.Active.INSTANCE
-                || current.state() == ObjectState.Creating.INSTANCE
-                || current.state() == ObjectState.Suspended.INSTANCE
-                || current.state() == ObjectState.Failed.INSTANCE;
+        boolean matchingState = current.state() == ObjectState.ACTIVE
+                || current.state() == ObjectState.CREATING
+                || current.state() == ObjectState.SUSPENDED
+                || current.state() == ObjectState.FAILED;
         if (!current.incarnation().equals(command.generation().incarnation())
                 || current.definitionRevision() != command.generation().definitionRevision()
                 || !matchingState) {

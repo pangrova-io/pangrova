@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
@@ -100,7 +101,7 @@ final class NativeTaskWriteCompletion {
                             return catalog instanceof ConnectorCatalogHandle connector ? connector : null;
                         });
                 if (reconciler.reconcile(committed)
-                        != org.pangrova.coordinator.query.task.write.WriteCommitReconciler.RecoveryOutcome.COMMITTED) {
+                        != org.pangrova.coordinator.enums.WriteRecoveryOutcome.COMMITTED) {
                     throw new IllegalStateException("COMMITTED COPY lost its current Iceberg snapshot proof");
                 }
             }
@@ -249,7 +250,7 @@ final class NativeTaskWriteCompletion {
                 queryId,
                 writeState.catalogName(),
                 tableName,
-                WriteCommitEntry.State.PENDING,
+                WriteCommitState.PENDING,
                 System.currentTimeMillis(),
                 fragments,
                 outputHandle.writeMode(),

@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.governance.api.enums.LineageDeliveryMode;
 import org.pangrova.governance.api.lineage.LineageBackendFactory;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.persistence.query.api.lineage.QueryLineageOutbox;
@@ -35,11 +36,11 @@ final class LineageBackendConfiguration {
             throw new IllegalArgumentException("Unknown lineage backend: " + providerId);
         }
         var mode = Objects.requireNonNull(factory.delivery(), "lineage delivery mode");
-        if (mode == LineageBackendFactory.Delivery.DURABLE_OUTBOX && outbox == null) {
+        if (mode == LineageDeliveryMode.DURABLE_OUTBOX && outbox == null) {
             throw new IllegalStateException(providerId + " lineage requires the metadata outbox");
         }
         // LOG deployments historically use the engine namespace, independently of HTTP namespace configuration.
-        String effectiveNamespace = mode == LineageBackendFactory.Delivery.TRANSIENT ? "pangrova" : namespace;
+        String effectiveNamespace = mode == LineageDeliveryMode.TRANSIENT ? "pangrova" : namespace;
         if (effectiveNamespace == null || effectiveNamespace.isBlank() || effectiveNamespace.indexOf(0) >= 0) {
             throw new IllegalArgumentException("Lineage requires an unambiguous deployment namespace");
         }

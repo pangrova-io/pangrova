@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.resilience.breaker;
 
+import org.pangrova.coordinator.enums.CircuitBreakerPhase;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.common.resilience.policy.CircuitBreakerConfig;
 import org.pangrova.observability.api.metrics.LongCounter;
@@ -42,28 +43,26 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
 
     private static final Logger LOG = LoggerFactory.getLogger(CircuitBreaker.class);
 
-    public enum State { CLOSED, OPEN, HALF_OPEN }
-
     /**
      * Immutable snapshot of circuit breaker state.
      * Encapsulates state + openedAt + halfOpenProbes + halfOpenSuccesses for atomic updates.
      */
     record CircuitBreakerState(
-            State state,
+            CircuitBreakerPhase state,
             Instant openedAt,
             int halfOpenProbes,
             int halfOpenSuccesses
     ) {
         static CircuitBreakerState closed() {
-            return new CircuitBreakerState(State.CLOSED, Instant.MIN, 0, 0);
+            return new CircuitBreakerState(CircuitBreakerPhase.CLOSED, Instant.MIN, 0, 0);
         }
 
         static CircuitBreakerState open(Instant openedAt) {
-            return new CircuitBreakerState(State.OPEN, openedAt, 0, 0);
+            return new CircuitBreakerState(CircuitBreakerPhase.OPEN, openedAt, 0, 0);
         }
 
         CircuitBreakerState toHalfOpen() {
-            return new CircuitBreakerState(State.HALF_OPEN, openedAt, 0, 0);
+            return new CircuitBreakerState(CircuitBreakerPhase.HALF_OPEN, openedAt, 0, 0);
         }
 
         CircuitBreakerState withIncrementedProbes() {
@@ -196,7 +195,7 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
         onFailure();
     }
 
-    public State getState() {
+    public CircuitBreakerPhase getState() {
         return stateRef.get().state();
     }
 
@@ -217,10 +216,10 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
     private boolean tryTransitionToHalfOpen() {
         while (true) {
             CircuitBreakerState current = stateRef.get();
-            if (current.state() != State.OPEN) {
+            if (current.state() != CircuitBreakerPhase.OPEN) {
                 // State changed by another thread, re-evaluate
-                return current.state() == State.CLOSED
-                        || (current.state() == State.HALF_OPEN && current.halfOpenProbes() < halfOpenMaxCalls);
+                return current.state() == CircuitBreakerPhase.CLOSED
+                        || (current.state() == CircuitBreakerPhase.HALF_OPEN && current.halfOpenProbes() < halfOpenMaxCalls);
             }
 
             long elapsed = clock.instant().toEpochMilli() - current.openedAt().toEpochMilli();
@@ -247,9 +246,9 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
     private boolean tryIncrementHalfOpenProbes() {
         while (true) {
             CircuitBreakerState current = stateRef.get();
-            if (current.state() != State.HALF_OPEN) {
+            if (current.state() != CircuitBreakerPhase.HALF_OPEN) {
                 // State changed, re-evaluate
-                return current.state() == State.CLOSED;
+                return current.state() == CircuitBreakerPhase.CLOSED;
             }
 
             if (current.halfOpenProbes() >= halfOpenMaxCalls) {
@@ -271,7 +270,7 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
     private void handleHalfOpenSuccess() {
         while (true) {
             CircuitBreakerState current = stateRef.get();
-            if (current.state() != State.HALF_OPEN) {
+            if (current.state() != CircuitBreakerPhase.HALF_OPEN) {
                 return;
             }
             if (tryTransitionFromHalfOpen(current)) {
@@ -318,11 +317,11 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
     private void transitionToOpen() {
         while (true) {
             CircuitBreakerState current = stateRef.get();
-            if (current.state() == State.OPEN) {
+            if (current.state() == CircuitBreakerPhase.OPEN) {
                 return;
             }
 
-            State previous = current.state();
+            CircuitBreakerPhase previous = current.state();
             CircuitBreakerState open = CircuitBreakerState.open(clock.instant());
             if (stateRef.compareAndSet(current, open)) {
                 LOG.info("circuit_breaker_transition state=OPEN previous={}", previous);

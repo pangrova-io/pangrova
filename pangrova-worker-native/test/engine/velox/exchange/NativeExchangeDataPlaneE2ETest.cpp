@@ -245,7 +245,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, EmptyPartitionTraversesFlightAndVelox) {
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -296,7 +295,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
 
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -445,7 +443,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
 
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -491,7 +488,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, WaitBudgetDoesNotCancelSparseStream) {
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -552,7 +548,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, TimedOutPollCanObserveLaterEndOfStream) {
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -590,7 +585,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, ConcurrentFlightLongPollsDoNotStarveTimer
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -648,7 +642,6 @@ TEST_F(
 
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -759,7 +752,6 @@ TEST_F(
 
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -837,7 +829,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, CloseCancelsBlockedRead) {
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   shuffle::FlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
@@ -884,7 +875,6 @@ TEST_F(NativeExchangeDataPlaneE2ETest, MutualTlsTraversesNativeConsumer) {
   ASSERT_TRUE(producerQueue.commit());
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.reuse_port = true;
   serverConfig.tls_cert_chain_path =
       tlsResource("localhost-cert.pem").string();
   serverConfig.tls_private_key_path =

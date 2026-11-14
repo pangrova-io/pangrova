@@ -1,5 +1,7 @@
 package org.pangrova.streaming.writer.lake;
 
+import org.pangrova.connector.api.enums.WriteTransactionMode;
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
 import org.pangrova.connector.api.enums.WriteMode;
@@ -95,7 +97,7 @@ public class LakeTableWriter implements TableWriter {
             return;
         }
         WriteRecord single = group.get(0);
-        if (single.operation() == WriteRecord.WriteOperation.INSERT) {
+        if (single.operation() == WriteOperation.INSERT) {
             inserts.add(single);
         } else {
             eqDeletes.add(single);
@@ -121,7 +123,7 @@ public class LakeTableWriter implements TableWriter {
     }
 
     private void commitIfSelfManaged(String tableName, WriteContext context) {
-        if (context.transactionMode() == WriteContext.TransactionMode.SELF_MANAGED) {
+        if (context.transactionMode() == WriteTransactionMode.SELF_MANAGED) {
             LOG.debug("Committed transaction for table {}", tableName);
         }
     }

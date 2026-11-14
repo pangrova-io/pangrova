@@ -1,6 +1,6 @@
 package org.pangrova.materialization.strategy;
 
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
 import org.pangrova.materialization.api.refresh.RefreshStrategyFactory;
 
@@ -13,7 +13,7 @@ public final class PartitionReplaceRefreshStrategyFactory implements RefreshStra
 
     @Override
     public RefreshKind kind() {
-        return RefreshKind.IncrementalPartitionReplace.INSTANCE;
+        return RefreshKind.INCREMENTAL_PARTITION_REPLACE;
     }
 
     @Override

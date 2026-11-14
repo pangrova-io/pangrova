@@ -29,7 +29,7 @@ class PackageStructurePropertyTest {
     private static final Path PROJECT_ROOT = TestProjectPaths.findProjectRoot();
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile("(?m)^\\s*package\\s+([\\w.]+)\\s*;");
 
-    /** Retired resource/resilience owners; SPI is the current shared-contract owner. */
+    /** Retired owners. Published contracts belong to their domain APIs. */
     private static final Pattern LEGACY_PACKAGE_REFERENCE = Pattern.compile(
             "(?m)^\\s*(?:package|import(?:\\s+static)?)\\s+"
                     + "(org\\.pangrova\\.(?:resource|resilience)(?:\\.[\\w.]+)?)\\s*;");
@@ -38,18 +38,10 @@ class PackageStructurePropertyTest {
             "dto", "service", "dao", "repository", "controller"
     );
 
-    /** Existing naming debt; additions require review, not a blanket module exemption. */
-    private static final Set<String> TECH_LAYER_EXEMPT_PACKAGES = Set.of(
-            "org.pangrova.metadata.service"
-    );
-
     private static final List<String> PACKAGE_NAMES = scanPackageNames();
 
     @Property(generation = GenerationMode.EXHAUSTIVE)
     void noHorizontalTechLayerPackages(@ForAll("packageNames") String packageName) {
-        if (TECH_LAYER_EXEMPT_PACKAGES.contains(packageName)) {
-            return;
-        }
         String lastSegment = packageName.substring(packageName.lastIndexOf('.') + 1);
         assertThat(FORBIDDEN_TECH_LAYER_NAMES)
                 .as("Package %s uses horizontal tech-layer name '%s'. Use business-capability naming.",

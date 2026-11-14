@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.http.endpoint;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
@@ -10,7 +12,7 @@ class CoordinatorHealthResourceTest {
     @Test
     void liveHttpDoesNotRequireWorkerOrCatalogReadiness() {
         var resource = new CoordinatorHealthResource(new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR, conditions(true)));
+                ClusterNodeType.COORDINATOR, conditions(true)));
 
         assertThat(resource.live().getStatus()).isEqualTo(200);
         assertThat(resource.health().getStatus()).isEqualTo(503);
@@ -19,7 +21,7 @@ class CoordinatorHealthResourceTest {
     @Test
     void unavailableHttpFailsLiveness() {
         var resource = new CoordinatorHealthResource(new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.COORDINATOR, conditions(false)));
+                ClusterNodeType.COORDINATOR, conditions(false)));
 
         assertThat(resource.live().getStatus()).isEqualTo(503);
     }

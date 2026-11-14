@@ -1,5 +1,7 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.planner.constants.ArtifactBuildReport;
+
 import com.google.protobuf.Any;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -20,13 +22,11 @@ import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
 
-import static org.pangrova.protocol.capability.BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN;
+import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 /** Produces the one canonical Substrait artifact sink for every Native ANN algorithm. */
 @Internal
 public final class VectorGenerationPlanBuilder {
-
-    public static final int REPORT_SCHEMA_VERSION = 2;
 
     private VectorGenerationPlanBuilder() {}
 
@@ -58,7 +58,7 @@ public final class VectorGenerationPlanBuilder {
                 .build();
         ArtifactBuildDetail detail = ArtifactBuildDetail.newBuilder()
                 .setPlanNodeId(planNodeId)
-                .setReportSchemaVersion(REPORT_SCHEMA_VERSION)
+                .setReportSchemaVersion(ArtifactBuildReport.SCHEMA_VERSION)
                 .addInputFields(PHYSICAL_ROW_POSITION_COLUMN)
                 .addInputFields(vectorColumn)
                 .setInvocation(CapabilityInvocation.newBuilder()

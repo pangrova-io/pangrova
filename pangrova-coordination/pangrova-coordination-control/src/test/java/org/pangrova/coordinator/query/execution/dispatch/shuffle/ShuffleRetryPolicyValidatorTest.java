@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import org.pangrova.shuffle.api.capability.ShuffleCapability;
 import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.pangrova.shuffle.api.capability.ShuffleCapability.*;
+import static org.pangrova.shuffle.api.enums.ShuffleCapability.*;
 
 class ShuffleRetryPolicyValidatorTest {
     @Test

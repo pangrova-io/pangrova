@@ -53,7 +53,7 @@ public final class WorkerBootstrap {
                     org.pangrova.worker.catalog.WorkerCatalogRuntime.discover(
                             config.coordinatorUrl(),
                             config.internalAuthSecret(),
-                            Thread.currentThread().getContextClassLoader()));
+                            Thread.currentThread().getContextClassLoader(), config.pluginDirectory()));
         } finally {
             lifecycle.configured();
         }

@@ -5,6 +5,7 @@ import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.connector.api.plugin.ConnectorFactory;
+import org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
@@ -23,7 +24,7 @@ final class WorkerCatalogRegistry implements AutoCloseable {
     private static final int MAX_CACHED_CATALOG_REVISIONS = 1024;
 
     private final CatalogDeploymentClient deployments;
-    private final Map<String, ConnectorFactory> factories;
+    private final ConnectorPluginInventory plugins;
     private final SecretResolver secrets;
     private final Object catalogLock = new Object();
 
@@ -40,12 +41,12 @@ final class WorkerCatalogRegistry implements AutoCloseable {
     /** Creates a runtime from trusted deployment and plugin inventories. */
     WorkerCatalogRegistry(
             CatalogDeploymentClient deployments,
-            List<ConnectorFactory> factories,
+            ConnectorPluginInventory plugins,
             SecretResolver secrets) {
         this.deployments = java.util.Objects.requireNonNull(deployments, "deployments");
-        this.factories = uniqueFactories(factories);
+        this.plugins = plugins;
         this.secrets = java.util.Objects.requireNonNull(secrets, "secrets");
-        if (this.factories.isEmpty()) {
+        if (plugins.registry().names().isEmpty()) {
             throw new IllegalStateException("No Worker connector plugins are installed");
         }
     }
@@ -213,7 +214,7 @@ final class WorkerCatalogRegistry implements AutoCloseable {
                         binding.getCatalogRevision());
         requireDeploymentIdentity(binding, deployment);
         validateTenant(deployment, tenantId);
-        ConnectorFactory factory = factories.get(deployment.connectorProvider());
+        ConnectorFactory factory = plugins.registry().find(deployment.connectorProvider()).orElse(null);
         if (factory == null) {
             throw new IllegalStateException(
                     "Connector plugin is not installed: " + deployment.connectorProvider());
@@ -254,19 +255,6 @@ final class WorkerCatalogRegistry implements AutoCloseable {
                 && !deployment.allowedTenants().contains(tenantId)) {
             throw new SecurityException("Tenant is not authorized for catalog deployment");
         }
-    }
-
-    private static Map<String, ConnectorFactory> uniqueFactories(List<ConnectorFactory> values) {
-        Map<String, ConnectorFactory> result = new LinkedHashMap<>();
-        for (ConnectorFactory value : values) {
-            if (value == null
-                    || value.getName() == null
-                    || value.getName().isBlank()
-                    || result.putIfAbsent(value.getName(), value) != null) {
-                throw new IllegalStateException("Invalid or duplicate Worker connector factory");
-            }
-        }
-        return Map.copyOf(result);
     }
 
     record CatalogRuntime(

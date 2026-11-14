@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.embedding.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
 
@@ -127,13 +129,13 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var limits = new AiTransportTestAdmission.Limits(defaults.concurrency(), defaults.items(), 1,
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
-        try (var budget = new AiTransportTestAdmission(org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
+        try (var budget = new AiTransportTestAdmission(AiOperation.EMBEDDING,
                 384, 1, 1, limits, Instant.now().plusSeconds(20))) {
             assertThatThrownBy(() -> budget.call("deny-retry", () -> provider(true).embed(
                     request(EmbeddingPurpose.RAW, List.of("denied")))))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                         assertThat(failure.category())
-                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                .isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                         assertThat(failure.retryable()).isFalse();
                     });
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
@@ -149,7 +151,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                     () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("exhausted")))))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                         assertThat(failure.category())
-                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                .isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                         assertThat(failure.retryable()).isFalse();
                     });
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
@@ -159,13 +161,13 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
     @Test
     void absoluteTaskDeadlineDoesNotReplayAnUnknownPost() throws IOException {
         proxy.toxics().timeout("blocked-response", ToxicDirection.DOWNSTREAM, 0);
-        try (var budget = new AiTransportTestAdmission(org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
+        try (var budget = new AiTransportTestAdmission(AiOperation.EMBEDDING,
                 384, 1, 1, AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(2))) {
             assertThatThrownBy(() -> budget.call("deadline",
                     () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("deadline")))))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                         assertThat(failure.category())
-                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                .isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                         assertThat(failure.retryable()).isFalse();
                         assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
                     });
@@ -224,7 +226,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
         try (var budget = new AiTransportTestAdmission(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 384, 1, 1,
+                AiOperation.EMBEDDING, 384, 1, 1,
                 singleSlot, java.time.Instant.now().plusSeconds(30))) {
             var outcome = caller.submit(() -> {
                 try {
@@ -241,7 +243,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                 assertThat(System.nanoTime() - started).isLessThan(java.util.concurrent.TimeUnit.SECONDS.toNanos(5));
             }
             var failure = outcome.get(8, java.util.concurrent.TimeUnit.SECONDS);
-            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+            assertThat(failure.category()).isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
             assertThat(failure.retryable()).isFalse();
             if (!cancelTask) {
                 assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
@@ -279,7 +281,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                         () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("recovered")))))
                         .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
                             assertThat(failure.category())
-                                    .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                                    .isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
                             assertThat(failure.retryable()).isFalse();
                         });
                 assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);

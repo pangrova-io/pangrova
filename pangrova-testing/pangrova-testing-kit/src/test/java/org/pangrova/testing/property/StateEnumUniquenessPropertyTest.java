@@ -1,298 +1,112 @@
 package org.pangrova.testing.property;
 
-
+import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.TestProjectPaths;
+import org.pangrova.testing.testkit.architecture.JavaSourceReferences;
 
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.Tag;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import org.yaml.snakeyaml.Yaml;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
+import java.util.TreeSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Property 32: State Enum Authoritative Uniqueness.
- *
- * <p>Verifies that SPI-level state enums (QueryState, TaskStatus.TaskState, TransportStatus,
- * HealthStatus) each have exactly one authoritative definition in the stable upstream
- * contract modules (the {@code -api}/{@code -spi} artifacts declared in
- * {@code .pangrova/modules.yaml}, plus {@code pangrova-protocol}).</p>
- *
- * <p>Internal task state machines (worker.task.state.TaskState,
- * TaskStateMachine.State) are allowed as module-internal
- * representations, provided they do not duplicate the SPI enum name in a different
- * stable upstream module.</p>
- *
- * <p><b>Validates: Requirements 5.2, 8.1</b></p>
- */
+/** Checks every declared state enum against its production module and semantic owner. */
 class StateEnumUniquenessPropertyTest {
-
-    private static final Path PROJECT_ROOT = TestProjectPaths.findProjectRoot();
-
-    /**
-     * SPI-level state enum simple names that must have exactly one definition
-     * in stable upstream contract modules.
-     */
-    private static final Set<String> SPI_AUTHORITATIVE_ENUMS = Set.of(
+    private static final Set<String> CONTRACT_ENUMS = Set.of(
             "TableControlState", "MaintenanceRunState", "IndexState",
             "QueryState",
+            "ReportedTaskState",
             "StatementCategory", // Shared Query API observation; not a second query lifecycle.
             "StageState",
-            "SnapshotState",
+            "ReadSnapshotState",
             "TransportStatus",
             "GenerationJobState",
+            "ObjectState", "GenerationState", "AttemptState", "CdcStreamState",
             "WorkerHeartbeatStatus"
     );
 
-    /**
-     * Stable upstream contract modules where SPI state enums must be defined.
-     * Mirrors the {@code -api}/{@code -spi} artifacts in {@code .pangrova/modules.yaml}.
-     */
-    private static final Set<String> STABLE_UPSTREAM_MODULES = stableUpstreamModules();
-
-    /**
-     * Known internal state enums that are intentionally module-scoped.
-     * These are allowed because they serve a different lifecycle granularity
-     * than the SPI enums and have proper mapping layers.
-     */
-    private static final Set<String> KNOWN_INTERNAL_STATE_ENUMS = Set.of(
-            "pangrova-streaming-pipeline:ConnectorPageSinkCdcWriter.PublicationState",
-            "pangrova-coordination-control:TaskStateMachine.State",
+    private static final Set<String> DOMAIN_ENUMS = Set.of(
+            "pangrova-streaming-pipeline:CdcBatchPublicationState",
+            "pangrova-coordination-control:ScheduledTaskState",
             "pangrova-scheduler-api:HealthState",
             "pangrova-worker:TaskState",
             // One-shot local assembly admission/cleanup phases, not distributed Worker health or task state.
-            "pangrova-worker:WorkerBootstrapLifecycle.State",
-            "pangrova-worker:ExchangeClient.State",
-            "pangrova-shuffle-pangrova:RemoteShuffleProducerStream.State",
-            "pangrova-operations:DdlJob.DdlJobState",
+            "pangrova-worker:WorkerBootstrapState",
+            "pangrova-shuffle-pangrova:ProducerStreamState",
+            "pangrova-shuffle-pangrova:TaskEgressState",
+            "pangrova-operations:DdlJobState",
             "pangrova-metadata-api:CatalogState",
-            "pangrova-streaming-pipeline:CdcStreamState",
             "pangrova-streaming-pipeline:WatermarkState",
             "pangrova-security-api:TenantStatus",
-            "pangrova-coordination-control:CircuitBreaker.State",
-            "pangrova-coordination-control:SplitRetryManager.SplitState",
-            "pangrova-connector-api:HealthCheckResult.HealthStatus",
-            "pangrova-protocol:TaskStatus.TaskState",
+            "pangrova-coordination-control:SplitRetryState",
+            "pangrova-connector-api:ConnectorHealthStatus",
             "pangrova-observability-api:StatusCode",  // trace outcome, not query/task lifecycle
             "pangrova-planner:ValidationStatus",
-            "pangrova-coordination-control:SchedulerCancelResult.Status",
+            "pangrova-coordination-control:SchedulerCancellationStatus",
             "pangrova-security-api:AuthenticatorHealthStatus",
-            "pangrova-worker:TaskCancelResult.Status",
-            "pangrova-shuffle-exchange:SpoolBackedExchangeManager.Status",
+            "pangrova-worker:TaskCancellationStatus",
+            "pangrova-shuffle-exchange:SpoolSinkState",
             "pangrova-streaming-api:StreamLifecycleState",
             "pangrova-semantic:SemanticViewValidationState",
             "pangrova-ai-control:EvaluationRunState",
             "pangrova-connector-api:ClusteringState",
-            "pangrova-common:StateStoreType",  // moved from pangrova-config in cbe99e06 module merge
-            "pangrova-config:StateStoreType",  // legacy copy retained for StateStoreFactory/CoordinatorOptions
-            "pangrova-streaming-api:CdcRegistration.CdcStreamState",
-            "pangrova-coordination-control:ReclusterJob.State",  // data recluster lifecycle
-            "pangrova-parser:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
+            "pangrova-coordination-control:ReclusterJobState",  // data recluster lifecycle
             "pangrova-streaming-api:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
-            "pangrova-coordination-control:SettableDynamicFilter.State",  // adaptive dynamic filter state
-            "pangrova-indexing-lifecycle:IndexFileReadResult.Status",  // index file read result status
-            "pangrova-persistence-query-api:WriteCommitEntry.State",  // distributed write commit lifecycle
-            "pangrova-metadata-catalog:SemanticViewValidationState",
-            "pangrova-metadata-catalog:EvaluationRunState",
+            "pangrova-indexing-lifecycle:IndexFileReadStatus",  // index file read result status
+            "pangrova-persistence-query-api:WriteCommitState",  // distributed write commit lifecycle
             // Unified materialization kernel lifecycle enums.
-            "pangrova-materialization-api:GcLedgerEntry.GcState",
+            "pangrova-materialization-api:GcState",
             "pangrova-materialization-api:PinState",
             "pangrova-materialization-api:ScheduleState",
-            "pangrova-shuffle-service:ShuffleServiceModel.AllocationState",
-            "pangrova-testing-benchmark:PerformanceRegressionDetector.Status"
+            "pangrova-shuffle-service:ShuffleAllocationState",
+            "pangrova-testing-benchmark:PerformanceRegressionStatus"
     );
 
-    private static final Pattern ENUM_STATE_PATTERN =
-            Pattern.compile("\\benum\\s+(\\w*(?:State|Status)\\w*)\\s*\\{");
+    private static final java.util.regex.Pattern STATE_TERM =
+            java.util.regex.Pattern.compile("(?:State|Status)(?:[A-Z]|$)");
 
-    private static final List<StateEnumEntry> ALL_STATE_ENUMS = scanStateEnums();
+    private static final Set<String> FLAT_CONTRACT_MODULES = Set.of(
+            "pangrova-protocol", "pangrova-parser", "pangrova-batch", "pangrova-file", "pangrova-planner",
+            "pangrova-query", "pangrova-table", "pangrova-semantic");
 
-    // -----------------------------------------------------------------------
-    // Property 32: SPI state enums have exactly one authoritative definition
-    // -----------------------------------------------------------------------
-
-    /**
-     * Property 32: Each SPI-level state enum name must appear in exactly one
-     * stable upstream module.
-     */
-    @Property(tries = 10)
-    @Tag("Feature: fragmentation-audit, Property 32: State enum authoritative uniqueness")
-    void spiStateEnumHasExactlyOneAuthoritativeDefinition(
-            @ForAll("spiEnumNames") String enumName) {
-        long count = ALL_STATE_ENUMS.stream()
-                .filter(e -> e.enumName.equals(enumName))
-                .filter(e -> STABLE_UPSTREAM_MODULES.contains(e.module))
-                .count();
-        assertThat(count)
-                .as("SPI state enum '%s' must have exactly 1 definition in stable upstream modules %s, found %d",
-                        enumName, STABLE_UPSTREAM_MODULES, count)
-                .isEqualTo(1);
-    }
-
-    /**
-     * Property 32: No unknown state enum definitions outside the known inventory.
-     * Any new state enum must be registered in the known inventory to prevent
-     * untracked fragmentation.
-     */
-    @Property(tries = 200)
-    @Tag("Feature: fragmentation-audit, Property 32: State enum authoritative uniqueness")
-    void allStateEnumsAreInKnownInventory(@ForAll("stateEnumEntries") StateEnumEntry entry) {
-        String key = entry.module + ":" + entry.qualifiedEnumName;
-        boolean isSpiAuthoritative = SPI_AUTHORITATIVE_ENUMS.contains(entry.enumName)
-                && STABLE_UPSTREAM_MODULES.contains(entry.module);
-        boolean isKnownInternal = KNOWN_INTERNAL_STATE_ENUMS.contains(key);
-
-        assertThat(isSpiAuthoritative || isKnownInternal)
-                .as("State enum '%s' in module '%s' (key='%s') is not in the known inventory. "
-                                + "Register it in KNOWN_INTERNAL_STATE_ENUMS or SPI_AUTHORITATIVE_ENUMS "
-                                + "to prevent untracked fragmentation.",
-                        entry.qualifiedEnumName, entry.module, key)
-                .isTrue();
-    }
-
-    /**
-     * Property 32: No two stable upstream modules define the same state enum name.
-     */
-    @Property(tries = 10)
-    @Tag("Feature: fragmentation-audit, Property 32: State enum authoritative uniqueness")
-    void noSpiEnumDuplicatedAcrossStableModules(
-            @ForAll("spiEnumNames") String enumName) {
-        Map<String, List<StateEnumEntry>> byModule = new HashMap<>();
-        for (StateEnumEntry entry : ALL_STATE_ENUMS) {
-            if (entry.enumName.equals(enumName) && STABLE_UPSTREAM_MODULES.contains(entry.module)) {
-                byModule.computeIfAbsent(entry.module, k -> new ArrayList<>()).add(entry);
-            }
-        }
-        assertThat(byModule.size())
-                .as("SPI enum '%s' found in multiple stable modules: %s", enumName, byModule.keySet())
-                .isLessThanOrEqualTo(1);
-    }
-
-    // -----------------------------------------------------------------------
-    // Providers
-    // -----------------------------------------------------------------------
-
-    @Provide
-    Arbitrary<String> spiEnumNames() {
-        if (SPI_AUTHORITATIVE_ENUMS.isEmpty()) {
-            return Arbitraries.just("QueryState");
-        }
-        return Arbitraries.of(new ArrayList<>(SPI_AUTHORITATIVE_ENUMS));
-    }
-
-    @Provide
-    Arbitrary<StateEnumEntry> stateEnumEntries() {
-        if (ALL_STATE_ENUMS.isEmpty()) {
-            return Arbitraries.just(new StateEnumEntry("(none)", "(none)", "(none)", "(none)"));
-        }
-        return Arbitraries.of(ALL_STATE_ENUMS);
-    }
-
-    // -----------------------------------------------------------------------
-    // Scanning
-    // -----------------------------------------------------------------------
-
-    private static Set<String> stableUpstreamModules() {
-        try (var input = Files.newInputStream(PROJECT_ROOT.resolve(".pangrova/modules.yaml"))) {
-            Map<?, ?> manifest = new Yaml().load(input);
-            Map<?, ?> artifacts = (Map<?, ?>) manifest.get("artifacts");
-            var modules = new java.util.HashSet<String>();
-            modules.addAll(Set.of("pangrova-protocol", "pangrova-parser", "pangrova-batch", "pangrova-file",
-                    "pangrova-planner", "pangrova-query", "pangrova-table", "pangrova-semantic"));
-            for (Object key : artifacts.keySet()) {
-                String name = (String) key;
-                if (name.endsWith("-api")) {
-                    modules.add(name);
+    @Test
+    void everyStateEnumHasAnOwner() throws Exception {
+        Path root = TestProjectPaths.findProjectRoot();
+        var roots = PackageDependencyGraph.sourceRoots(root);
+        var facts = JavaSourceReferences.scan(roots);
+        var internal = new TreeSet<String>();
+        var authoritative = new java.util.TreeMap<String, List<String>>();
+        for (Path source : roots) {
+            String module = source.getParent().getParent().getParent().getFileName().toString();
+            assertThat(facts.get(source).misplacedDeclarations())
+                    .as("Place named production enums, exceptions and pure constants in their owning package in %s", module)
+                    .isEmpty();
+            for (String qualified : facts.get(source).enumDeclarations()) {
+                String simple = qualified.substring(qualified.lastIndexOf('.') + 1);
+                if (CONTRACT_ENUMS.contains(simple)) {
+                    assertThat(module.endsWith("-api") || FLAT_CONTRACT_MODULES.contains(module))
+                            .as("%s is a shared contract declared in %s", qualified, module).isTrue();
+                    authoritative.computeIfAbsent(simple, ignored -> new ArrayList<>()).add(module + ":" + qualified);
+                } else if (STATE_TERM.matcher(simple).find()) {
+                    String type = qualified.substring(packageName(qualified, facts.get(source).packages()).length() + 1);
+                    internal.add(module + ":" + type);
                 }
             }
-            return Set.copyOf(modules);
-        } catch (IOException failure) {
-            throw new UncheckedIOException("Cannot read contract owners", failure);
         }
+        assertThat(authoritative.keySet()).containsExactlyInAnyOrderElementsOf(CONTRACT_ENUMS);
+        authoritative.forEach((name, owners) -> assertThat(owners).as("Definitions of %s", name).hasSize(1));
+        assertThat(internal).as("Add new state owners and remove retired ones from the inventory")
+                .containsExactlyInAnyOrderElementsOf(DOMAIN_ENUMS);
     }
 
-    private static List<StateEnumEntry> scanStateEnums() {
-        List<StateEnumEntry> entries = new ArrayList<>();
-        List<String> modules = findJavaModules();
-        for (String modulePath : modules) {
-            Path srcDir = PROJECT_ROOT.resolve(modulePath).resolve("src/main/java");
-            if (!Files.isDirectory(srcDir)) {
-                continue;
-            }
-            String moduleName = Path.of(modulePath).getFileName().toString();
-            try (Stream<Path> files = Files.walk(srcDir)) {
-                files.filter(p -> p.getFileName().toString().endsWith(".java"))
-                        .forEach(p -> scanFile(p, moduleName, entries));
-            } catch (IOException ignored) {
-                // skip inaccessible modules
-            }
+    private static String packageName(String type, Set<String> packages) {
+        String candidate = type;
+        while (!packages.contains(candidate)) {
+            candidate = candidate.substring(0, candidate.lastIndexOf('.'));
         }
-        return List.copyOf(entries);
-    }
-
-    private static void scanFile(Path file, String module, List<StateEnumEntry> entries) {
-        try {
-            String content = Files.readString(file);
-            Matcher matcher = ENUM_STATE_PATTERN.matcher(content);
-            String fileName = file.getFileName().toString().replace(".java", "");
-            while (matcher.find()) {
-                String enumName = matcher.group(1);
-                String qualifiedName = isNestedEnum(content, enumName, fileName)
-                        ? fileName + "." + enumName
-                        : enumName;
-                entries.add(new StateEnumEntry(module, enumName, qualifiedName, file.toString()));
-            }
-        } catch (IOException ignored) {
-            // skip unreadable files
-        }
-    }
-
-    private static boolean isNestedEnum(String content, String enumName, String fileName) {
-        return !enumName.equals(fileName);
-    }
-
-    private static List<String> findJavaModules() {
-        List<String> modules = new ArrayList<>();
-        // Modules live either at the repository root or one aggregator level below it.
-        try (Stream<Path> dirs = Files.walk(PROJECT_ROOT, 2)) {
-            dirs.filter(Files::isDirectory)
-                    .filter(d -> !d.equals(PROJECT_ROOT))
-                    .filter(d -> !d.toString().contains("target"))
-                    .filter(d -> d.getFileName().toString().startsWith("pangrova-"))
-                    .filter(d -> Files.isRegularFile(d.resolve("pom.xml")))
-                    .filter(d -> Files.isDirectory(d.resolve("src/main/java")))
-                    .forEach(d -> modules.add(PROJECT_ROOT.relativize(d).toString()));
-        } catch (IOException ignored) {
-            // skip
-        }
-        return List.copyOf(modules);
-    }
-
-    // -----------------------------------------------------------------------
-    // Data classes
-    // -----------------------------------------------------------------------
-
-    record StateEnumEntry(String module, String enumName, String qualifiedEnumName, String filePath) {
-        @Override
-        public String toString() {
-            return module + ":" + qualifiedEnumName;
-        }
+        return candidate;
     }
 }

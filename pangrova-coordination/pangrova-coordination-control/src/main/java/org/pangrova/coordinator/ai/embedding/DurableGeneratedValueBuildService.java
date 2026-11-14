@@ -1,13 +1,11 @@
 package org.pangrova.coordinator.ai.embedding;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
 import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
-
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
@@ -133,7 +131,7 @@ public final class DurableGeneratedValueBuildService {
         Objects.requireNonNull(table, "table must not be null");
         Objects.requireNonNull(connectorSession, "connectorSession must not be null");
         requireText(sourceSnapshot, "sourceSnapshot");
-        if (write.state() != WriteCommitEntry.State.COMMITTED || definitions.getDefinitionsCount() == 0
+        if (write.state() != WriteCommitState.COMMITTED || definitions.getDefinitionsCount() == 0
                 || !write.authorizationReceipt().declaration().table().equals(table)
                 || !write.principal().equals(connectorSession.getUser())
                 || !write.tenantId().equals(connectorSession.getProperties().get("tenant_id"))
@@ -171,7 +169,7 @@ public final class DurableGeneratedValueBuildService {
                     new org.pangrova.planner.api.invocation.AiInvocationPlanHint(
                             GeneratedValueGenerationPlanBuilder.MODEL_INVOCATION_ID, "AI_EMBED",
                             definition.getLogicalModelName(),
-                            org.pangrova.planner.api.invocation.AiInvocationPlanHint.Operation.EMBEDDING, false),
+                            org.pangrova.planner.api.enums.AiInvocationOperation.EMBEDDING, false),
                     workerSelector, user);
             requireModelDimension(definition, model);
             OperatorBinding sink = OperatorBinding.newBuilder()
@@ -214,7 +212,7 @@ public final class DurableGeneratedValueBuildService {
         String generation = generation(
                 definition, sourceSnapshot, model.getModel().getModel().toByteArray(),
                 principal(user), authorizationScope);
-        String tenantScope = sha256(tenantId.getBytes(StandardCharsets.UTF_8)).substring(0, 32);
+        String tenantScope = DigestUtils.sha256Hex(tenantId).substring(0, 32);
         String jobId = "generated-values-build:tenant-" + tenantScope + ":" + artifactId
                 + ":generation:" + generation;
         String stagingUri = baseArtifactUri + "/v2/tenants/" + tenantScope + "/artifacts/"
@@ -241,7 +239,7 @@ public final class DurableGeneratedValueBuildService {
         var descriptor = new GeneratedValueBuildDescriptor(
                 tenantId, artifactId, sourceId, table.catalog(), table.schema(), table.table(),
                 definition.getTargetColumn(),
-                sha256(definition.toByteArray()), generation, sourceSnapshot, now);
+                DigestUtils.sha256Hex(definition.toByteArray()), generation, sourceSnapshot, now);
         return new GeneratedValueBuildSubmission(job, dispatch, pages, descriptor);
     }
 
@@ -329,7 +327,7 @@ public final class DurableGeneratedValueBuildService {
         properties.add(intProperty("vector_dimension", dimension));
         properties.add(stringProperty(
                 "source_encoding",
-                GeneratedValueGenerationPlanBuilder.SOURCE_ENCODING));
+                GeneratedColumnSourceEncoding.NAME));
         properties.add(stringProperty(
                 "execution_mode", definition.getExecutionMode().name()));
         for (int index = 0; index < definition.getSourceColumnsCount(); index++) {
@@ -393,7 +391,7 @@ public final class DurableGeneratedValueBuildService {
 
     private static String artifactId(String sourceId, String targetColumn) {
         requireText(targetColumn, "targetColumn");
-        return "generated-values-" + sha256(
+        return "generated-values-" + DigestUtils.sha256Hex(
                 (sourceId + "\u0000" + targetColumn.toLowerCase(Locale.ROOT))
                         .getBytes(StandardCharsets.UTF_8));
     }
@@ -466,9 +464,5 @@ public final class DurableGeneratedValueBuildService {
                     "baseArtifactUri must not be a filesystem root");
         }
         return result;
-    }
-
-    private static String sha256(byte[] value) {
-        return HexFormat.of().formatHex(DigestUtils.sha256().digest(value));
     }
 }

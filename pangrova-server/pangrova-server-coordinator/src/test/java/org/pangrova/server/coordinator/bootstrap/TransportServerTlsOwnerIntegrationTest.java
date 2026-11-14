@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
@@ -91,7 +93,7 @@ class TransportServerTlsOwnerIntegrationTest {
                     check(trusted.getInfo(descriptor).getDescriptor().equals(descriptor),
                             "bootstrap path reaches the real authenticated Flight server");
                     var ticket = new Ticket(new DataTicket("tls-ack", "", 0,
-                            DataTicket.TicketType.RESULT).serialize());
+                            DataTicketType.RESULT).serialize());
                     for (int request = 0; request < 2; request++) {
                         try (var stream = trusted.getStream(ticket)) {
                             check(stream.next() && stream.getRoot().getRowCount() == 1,

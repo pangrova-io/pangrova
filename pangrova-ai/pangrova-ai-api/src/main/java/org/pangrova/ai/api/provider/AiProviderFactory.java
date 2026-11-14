@@ -6,7 +6,7 @@ import java.net.URI;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.model.AiModelDescriptor;
@@ -28,7 +28,7 @@ public interface AiProviderFactory {
 
     Set<String> dialects();
 
-    void validate(String dialect, URI endpoint, Set<Operation> capabilities, Set<Modality> modalities,
+    void validate(String dialect, URI endpoint, Set<AiOperation> capabilities, Set<Modality> modalities,
                   int maxBatchSize, String modelName);
 
     default InferenceProvider createInference(AiModelDescriptor model, String credential,

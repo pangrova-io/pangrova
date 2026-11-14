@@ -8,9 +8,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import org.pangrova.shuffle.api.enums.ShuffleCapability;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.pangrova.shuffle.api.capability.ShuffleCapability.*;
+import static org.pangrova.shuffle.api.enums.ShuffleCapability.*;
 
 class ShuffleCapabilityDescriptorTest {
     @ParameterizedTest

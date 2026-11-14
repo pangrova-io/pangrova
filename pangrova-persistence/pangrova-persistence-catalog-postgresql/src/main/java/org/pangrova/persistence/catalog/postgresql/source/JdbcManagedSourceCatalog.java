@@ -1,5 +1,9 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.connector.api.metadata.SourceTableState;
 
 import org.pangrova.connector.api.metadata.SourceTableKey;
@@ -182,7 +186,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, context.executionId());
             requireIntent(intent, base, context, fragments);
-            if (intent.state() == WriteCommitEntry.State.ABORTED) {
+            if (intent.state() == WriteCommitState.ABORTED) {
                 throw new IllegalStateException("Source has an abort barrier");
             }
             requireProvenanceOwner(intent, expected);
@@ -295,7 +299,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 return accepted;
             }
             requireBase(current, reservation.base());
-            if (intent.state() != WriteCommitEntry.State.PENDING || intent.publication() != null) {
+            if (intent.state() != WriteCommitState.PENDING || intent.publication() != null) {
                 throw new IllegalStateException("Unaccepted source requires its exact pending intent");
             }
             JdbcSourceObjectRegistration.requireHeader(connection, reservation, publication, true);
@@ -328,13 +332,13 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 var reference = accepted.orElseThrow().reference();
                 // Read reauthorization can use a later revision; original write replay cannot.
                 if (reference.acceptedOriginRevision() != deployment.revision()
-                    || intent.state() != WriteCommitEntry.State.COMMITTED || intent.publication() == null
+                    || intent.state() != WriteCommitState.COMMITTED || intent.publication() == null
                     || intent.publication().publishedVersion() != reference.version()
                     || !Arrays.equals(intent.publication().manifestSha256(), reference.manifestSha256())) {
                     throw new SecurityException("Accepted write replay differs from its original epoch or "
                         + "exact committed intent");
                 }
-            } else if (intent.state() != WriteCommitEntry.State.PENDING || intent.publication() != null) {
+            } else if (intent.state() != WriteCommitState.PENDING || intent.publication() != null) {
                 throw new IllegalStateException("Source intent state has no matching accepted publication");
             }
             requireExecutionOwner(connection, expected);
@@ -380,7 +384,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             head(connection, reservation.base().key(), true);
             // A barrier can precede the first RPC. Candidate insertion and journal ABORTED
             // share this transaction, so no later reserve/page/accept may cross it.
-            if (intent.publication() != null || intent.state() == WriteCommitEntry.State.COMMITTED) {
+            if (intent.publication() != null || intent.state() == WriteCommitState.COMMITTED) {
                 throw new IllegalStateException("Published source intent cannot be aborted");
             }
             if (reservation.base().version() > 0) {
@@ -731,7 +735,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     }
 
     private static NativeWriteFinalization finalization(SourceSnapshot snapshot) {
-        return new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED, snapshot.reference().version(),
+        return new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, snapshot.reference().version(),
             snapshot.reference().manifestSha256());
     }
 
@@ -768,11 +772,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 connection.commit();
                 return result;
             } catch (RuntimeException | SQLException failure) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollback) {
-                    failure.addSuppressed(rollback);
-                }
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {

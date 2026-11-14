@@ -17,6 +17,11 @@
  */
 package org.pangrova.persistence.ai.postgresql.feature;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.ai.control.enums.FeatureSplitKind;
+import org.pangrova.ai.control.enums.CatalogExportKind;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -132,7 +137,7 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
                                 canonicalInstant(publishedAt)))
                         : Optional.empty();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -186,7 +191,7 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
 
     @Override
     public Optional<CatalogExportRequest> findExport(
-            String tenantId, CatalogExportRequest.ObjectKind kind, String catalogName,
+            String tenantId, CatalogExportKind kind, String catalogName,
             String schemaName, String objectName, long version, String generation) {
         requireText(tenantId, "tenantId");
         Objects.requireNonNull(kind, "kind must not be null");
@@ -243,7 +248,7 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
                 textMap(json, "source_snapshots"), longMap(json, "feature_versions"),
                 text(json, "label"), result.getBytes("normalized_plan"),
                 result.getString("normalized_plan_sha256"),
-                SplitKind.valueOf(result.getString("split_kind")), result.getLong("split_seed"),
+                FeatureSplitKind.valueOf(result.getString("split_kind")), result.getLong("split_seed"),
                 json.get("split").toString(), json.get("schema").toString(),
                 json.get("lineage").toString(), definition,
                 result.getString("definition_sha256"), getInstant(result, "created_at"));
@@ -357,20 +362,12 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
     private static CatalogExportRequest mapExport(ResultSet result) throws SQLException {
         return new CatalogExportRequest(
                 result.getString("tenant_id"),
-                CatalogExportRequest.ObjectKind.valueOf(result.getString("object_kind")),
+                CatalogExportKind.valueOf(result.getString("object_kind")),
                 result.getString("catalog_name"), result.getString("schema_name"),
                 result.getString("object_name"), result.getLong("object_version"),
                 result.getString("generation"), result.getString("artifact_id"),
                 result.getString("job_id"), result.getString("dependency_sha256"),
                 result.getString("requested_by"), getInstant(result, "requested_at"));
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
     }
 
     private static void requireVersion(long version) {

@@ -81,6 +81,9 @@ Pangrova uses a Connector SPI for pluggable data source integration. Each connec
 | Method | Purpose |
 |--------|---------|
 | `getName()` | Returns the connector type name (e.g., `iceberg`, `paimon`) |
+| `apiVersion()` | Returns the API version compiled into the provider |
+| `roles()` | Declares the process roles supported by the connector |
+| `validateConfiguration(properties)` | Checks connector-owned settings before opening backend resources |
 | `create(catalogName, properties, context)` | Creates a connector instance with the given properties |
 
 The `properties` map in `etc/catalog/*.yml` is passed directly to `ConnectorFactory.create()`. This means any property supported by the underlying Iceberg or Paimon library can be set in the YAML file.

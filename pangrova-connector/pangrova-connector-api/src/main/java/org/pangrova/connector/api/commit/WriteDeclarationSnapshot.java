@@ -64,7 +64,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
     }
 
     private static void requireDigest(String digest) {
-        if (digest == null || !digest.matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(digest)) {
             throw new IllegalArgumentException("Write declaration requires a canonical SHA-256 digest");
         }
     }

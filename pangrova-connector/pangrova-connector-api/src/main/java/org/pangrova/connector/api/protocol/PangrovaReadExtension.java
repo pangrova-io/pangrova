@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.protocol;
 
+import org.pangrova.connector.api.enums.ConnectorReadMode;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Map;
@@ -20,15 +21,9 @@ public record PangrovaReadExtension(
         long toVersionId,
         int schemaVersion,
         byte[] arrowSchema,
-        ReadMode readMode,
+        ConnectorReadMode readMode,
         Map<String, String> properties) {
 
-    public enum ReadMode {
-        SNAPSHOT,
-        TIME_TRAVEL,
-        INCREMENTAL,
-        CHANGELOG
-    }
 
     public PangrovaReadExtension {
         properties = properties == null ? Map.of() : Map.copyOf(properties);

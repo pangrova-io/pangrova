@@ -1,5 +1,6 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
+import org.pangrova.connector.api.enums.SourceObjectPurpose;
 import org.pangrova.common.util.DigestUtils;
 
 import org.pangrova.connector.api.metadata.SourceCatalogDeployment;
@@ -176,10 +177,10 @@ final class JdbcSourceObjectRegistration {
             try (var result = statement.executeQuery()) {
                 while (result.next()) {
                     var object = new SourceObjectPage.ObjectReference(result.getString(1), result.getLong(2),
-                        SourceObjectPage.Purpose.valueOf(result.getString(3)));
+                        SourceObjectPurpose.valueOf(result.getString(3)));
                     digest.update(SourceObjectPage.proof(object));
                     count = Math.addExact(count, 1);
-                    manifest |= object.purpose() == SourceObjectPage.Purpose.SOURCE && object.relativePath()
+                    manifest |= object.purpose() == SourceObjectPurpose.SOURCE && object.relativePath()
                         .equals(reservation.manifestRelativePath())
                         && object.sizeBytes() == header.candidate().manifestSize();
                 }

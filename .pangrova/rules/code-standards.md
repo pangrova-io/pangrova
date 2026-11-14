@@ -1,6 +1,6 @@
 # Code Standards
 
-> 2026-11-01：目标架构由 [领域模块化 ADR](../../docs/architecture/domain-modularization-adr.md) 替代。统一领域 API/SPI 制品，保留 Core，Provider/Persistence/Server 分离。下文旧模块名记录实施现状或历史约束；与 ADR 冲突的合并 owner、中央 SPI 目标不再适用。
+> 领域的调用接口和插件工厂统一使用 `.api`。按业务职责命名实现模块。平铺条件、契约独立发布条件和循环依赖审查见[领域模块化 ADR](../../docs/architecture/domain-modularization-adr.md)。
 
 ## Naming constraints
 
@@ -31,11 +31,10 @@ Use the established protocol or SDK spelling at a required interoperability boun
 - **C3 abbreviation ban**: `Rss`, `Dpp`, `Aqe`, `MV`/`Mv` (prefix), `Dt` (prefix/pkg), `HA`/`ha` (prefix/pkg), `Sop`, `Repl`, `rls` (pkg), `Ipc` (class/method/field — use `Batch`/`Page`/`Stream`). Allowed: `DAG`, `CTE`, `RBAC`, `CDC`, `SQL`, `HTTP`, `gRPC`, `IPC` (comments only), `JNI`, `UDF`, `TLS`, `JDBC`, `LDAP`, `OAuth2`, `DTO`, `SPI`, `API`, `REST`, `ACL`.
 - **C4**: No `Impl` suffix — use descriptive names.
 - **C5**: Implementation class must not reuse the SPI interface's simple name.
-- **C11**: Established pattern suffixes (`Bridge`, `Proxy`, `Decorator`,
-  `Facade`, `Mediator`, `Visitor`, `Observer`, `Strategy`) are allowed when they
-  accurately describe the class's responsibility. Prefer a domain-specific name
-  when a pattern label adds no information. Remove pure forwarding adapters by giving
-  the contract to its semantic owner and injecting the implementation at the composition root.
+- **C11**: Name a production class for the contract it implements or the resource it owns.
+  Use capability package names for bindings to SDKs, protocols and JNI. Pangrova-owned
+  Java types avoid the `Adapter` and `Bridge` suffixes. Keep the SDK's original spelling
+  on imported types. Inject concrete implementations at the process composition root.
 - **C12**: Functional interface names must not contain multiple verbs joined by `And`/`Or`/`Then`.
 - **C13**: Names must not expose internal delegation targets to callers (`PageSink*` in a class whose callers don't know about PageSink).
 - **C14**: `*Lookup` = key→single-value; `*Fetcher` = remote I/O; `*Resolver` = key→complex-result; `*Provider` = lazy/factory. Use the suffix matching actual behavior.

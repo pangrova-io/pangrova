@@ -1,5 +1,6 @@
 package org.pangrova.worker.resource.spill;
 
+import org.pangrova.worker.constants.SpillMetricAttributes;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
@@ -47,7 +48,7 @@ class SpillMetricsTest {
         var capturing = new CapturingMetricsProvider();
         var metrics = new SpillMetrics(capturing);
 
-        metrics.recordSpill(SpillMetrics.DOMAIN_JAVA, SpillMetrics.REASON_PRESSURE,
+        metrics.recordSpill(SpillMetricAttributes.DOMAIN_JAVA, SpillMetricAttributes.REASON_PRESSURE,
                 "stage-2", "tenant-a", 4096, 3, 0.250);
 
         assertThat(capturing.counterValue("pangrova.resource.spill.bytes")).isEqualTo(4096L);
@@ -61,7 +62,7 @@ class SpillMetricsTest {
         var capturing = new CapturingMetricsProvider();
         var metrics = new SpillMetrics(capturing);
 
-        metrics.recordSpill(SpillMetrics.DOMAIN_NATIVE, SpillMetrics.REASON_NATIVE_RECLAIM,
+        metrics.recordSpill(SpillMetricAttributes.DOMAIN_NATIVE, SpillMetricAttributes.REASON_NATIVE_RECLAIM,
                 "stage-7", "tenant-b", 1024, 1, 0.05);
 
         Map<String, String> attrs = capturing.lastAttrsFor("pangrova.resource.spill.bytes");
@@ -92,7 +93,7 @@ class SpillMetricsTest {
         var capturing = new CapturingMetricsProvider();
         var metrics = new SpillMetrics(capturing);
 
-        metrics.recordSpill(SpillMetrics.DOMAIN_NATIVE, SpillMetrics.REASON_OOM,
+        metrics.recordSpill(SpillMetricAttributes.DOMAIN_NATIVE, SpillMetricAttributes.REASON_OOM,
                 "stage-1", "tenant-c", 0, 0, 0);
 
         assertThat(capturing.counterValue("pangrova.resource.spill.files")).isEqualTo(0L);
@@ -133,8 +134,8 @@ class SpillMetricsTest {
         var capturing = new CapturingMetricsProvider();
         var metrics = new SpillMetrics(capturing);
 
-        metrics.recordReclaimFailure("HIGH", SpillMetrics.REASON_NO_CANDIDATES);
-        metrics.recordReclaimFailure("CRITICAL", SpillMetrics.REASON_RECLAIM_NO_PROGRESS);
+        metrics.recordReclaimFailure("HIGH", SpillMetricAttributes.REASON_NO_CANDIDATES);
+        metrics.recordReclaimFailure("CRITICAL", SpillMetricAttributes.REASON_RECLAIM_NO_PROGRESS);
 
         assertThat(capturing.counterValue("pangrova.resource.spill.reclaim.failures")).isEqualTo(2L);
     }

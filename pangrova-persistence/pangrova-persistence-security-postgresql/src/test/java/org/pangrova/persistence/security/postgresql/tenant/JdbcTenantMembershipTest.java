@@ -1,5 +1,6 @@
 package org.pangrova.persistence.security.postgresql.tenant;
 
+import org.pangrova.security.api.enums.TenantMembershipOperation;
 import org.pangrova.security.api.enums.TenantRole;
 import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException;
@@ -34,7 +35,7 @@ class JdbcTenantMembershipTest {
     @Test
     void changesCanonicalMembershipWithoutMutatingNamespacesOrQuota() {
         Tenant before = store.getTenant(TENANT).orElseThrow();
-        var grant = mutation("Member.Name", TenantMembershipMutation.Operation.GRANT);
+        var grant = mutation("Member.Name", TenantMembershipOperation.GRANT);
         assertThat(store.mutateMembership(ADMIN, grant)).isTrue();
         assertThat(store.mutateMembership(ADMIN, grant)).isFalse();
         assertThat(store.getTenantForUser("Member.Name")).hasValueSatisfying(current -> {
@@ -42,7 +43,7 @@ class JdbcTenantMembershipTest {
             assertThat(current.role()).isEqualTo(TenantRole.MEMBER);
         });
         assertThat(store.getTenant(TENANT)).contains(before);
-        var revoke = mutation("Member.Name", TenantMembershipMutation.Operation.REVOKE);
+        var revoke = mutation("Member.Name", TenantMembershipOperation.REVOKE);
         assertThat(store.mutateMembership(ADMIN, revoke)).isTrue();
         assertThat(store.mutateMembership(ADMIN, revoke)).isFalse();
         assertThat(store.getTenantForUser("Member.Name")).isEmpty();
@@ -51,7 +52,7 @@ class JdbcTenantMembershipTest {
 
     @Test
     void checksCurrentAuthorityInsteadOfClaimsAndRechecksIdempotentCalls() {
-        var request = mutation("member", TenantMembershipMutation.Operation.GRANT);
+        var request = mutation("member", TenantMembershipOperation.GRANT);
         assertThatThrownBy(() -> store.mutateMembership(new UserIdentity("stranger", Set.of("ADMIN", "OWNER"),
                 Map.of("tenant", TENANT), Instant.EPOCH), request)).isInstanceOf(AuthorizationDeniedException.class);
         store.addUserToTenant(TENANT, "admin", TenantRole.ADMIN);
@@ -69,17 +70,17 @@ class JdbcTenantMembershipTest {
     void refusesCrossTenantTransferAndPrivilegedRevocation() {
         store.createTenant(tenant("other", TenantStatus.ACTIVE));
         store.addUserToTenant("other", "outsider", TenantRole.MEMBER);
-        for (var operation : TenantMembershipMutation.Operation.values()) {
+        for (var operation : TenantMembershipOperation.values()) {
             assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("outsider", operation)))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
         assertThat(store.getTenantForUser("outsider").orElseThrow().tenantId()).isEqualTo("other");
-        assertThat(store.mutateMembership(ADMIN, mutation("owner", TenantMembershipMutation.Operation.GRANT))).isFalse();
-        assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("owner", TenantMembershipMutation.Operation.REVOKE)))
+        assertThat(store.mutateMembership(ADMIN, mutation("owner", TenantMembershipOperation.GRANT))).isFalse();
+        assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("owner", TenantMembershipOperation.REVOKE)))
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertThat(store.getTenantForUser("owner").orElseThrow().role()).isEqualTo(TenantRole.OWNER);
         assertThatThrownBy(() -> store.mutateMembership(ADMIN,
-                new TenantMembershipMutation("other", "member", TenantMembershipMutation.Operation.GRANT)))
+                new TenantMembershipMutation("other", "member", TenantMembershipOperation.GRANT)))
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
 
@@ -87,7 +88,7 @@ class JdbcTenantMembershipTest {
     void inactiveTenantCannotChangeMembers() {
         for (var status : List.of(TenantStatus.SUSPENDED, TenantStatus.DELETED)) {
             store.updateTenant(tenant(TENANT, status));
-            assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("member", TenantMembershipMutation.Operation.GRANT)))
+            assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("member", TenantMembershipOperation.GRANT)))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
         assertThat(store.getTenantForUser("member")).isEmpty();
@@ -100,7 +101,7 @@ class JdbcTenantMembershipTest {
         try {
             java.util.concurrent.Callable<Boolean> grant = () -> {
                 barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
-                return store.mutateMembership(ADMIN, mutation("member", TenantMembershipMutation.Operation.GRANT));
+                return store.mutateMembership(ADMIN, mutation("member", TenantMembershipOperation.GRANT));
             };
             var a = pool.submit(grant);
             var b = pool.submit(grant);
@@ -117,19 +118,23 @@ class JdbcTenantMembershipTest {
         var broken = org.pangrova.testing.testkit.postgres.JdbcMutationFault.afterMutation(source,
                 "INSERT INTO tenant_user_memberships", new java.sql.SQLException("injected after insert"), null);
         assertThatThrownBy(() -> new JdbcTenantStore(broken).mutateMembership(ADMIN,
-                mutation("member", TenantMembershipMutation.Operation.GRANT)))
+                mutation("member", TenantMembershipOperation.GRANT)))
                 .hasRootCauseMessage("injected after insert");
         assertThat(store.getTenantForUser("member")).isEmpty();
     }
 
-    @Test
-    void commitAcknowledgementLossIsUnknownAndCurrentMembershipCanBeConfirmed() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void commitAcknowledgementLossIsUnknownAndCurrentMembershipCanBeConfirmed(boolean uncheckedDriverFailure) {
         var intercepted = intercept(source, connection -> proxy(java.sql.Connection.class, connection, (method, args) -> {
             Object result = invoke(connection, method, args);
-            if (method.getName().equals("commit")) throw new java.sql.SQLException("lost acknowledgement", "08006");
+            if (method.getName().equals("commit")) {
+                if (uncheckedDriverFailure) throw new IllegalStateException("pool lost acknowledgement");
+                throw new java.sql.SQLException("lost acknowledgement", "08006");
+            }
             return result;
         }));
-        var request = mutation("member", TenantMembershipMutation.Operation.GRANT);
+        var request = mutation("member", TenantMembershipOperation.GRANT);
         assertThatThrownBy(() -> new JdbcTenantStore(intercepted).mutateMembership(ADMIN, request))
                 .isInstanceOf(TenantMembershipOutcomeUnknownException.class);
         assertThat(store.getTenantForUser("member").orElseThrow().tenantId()).isEqualTo(TENANT);
@@ -156,7 +161,7 @@ class JdbcTenantMembershipTest {
             holder.setAutoCommit(false);
             org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate.lockMutation(holder);
             var pending = pool.submit(() -> new JdbcTenantStore(intercepted).mutateMembership(ADMIN,
-                    mutation("member", TenantMembershipMutation.Operation.GRANT)));
+                    mutation("member", TenantMembershipOperation.GRANT)));
             assertThat(reachedGate.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             try (var update = holder.createStatement()) {
                 update.executeUpdate("DELETE FROM tenant_user_memberships WHERE user_principal='owner'");
@@ -189,7 +194,7 @@ class JdbcTenantMembershipTest {
     @FunctionalInterface
     private interface Invocation { Object call(java.lang.reflect.Method method, Object[] args) throws Throwable; }
 
-    private static TenantMembershipMutation mutation(String principal, TenantMembershipMutation.Operation operation) {
+    private static TenantMembershipMutation mutation(String principal, TenantMembershipOperation operation) {
         return new TenantMembershipMutation(TENANT, principal, operation);
     }
     private static UserIdentity actor(String principal) { return new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH); }

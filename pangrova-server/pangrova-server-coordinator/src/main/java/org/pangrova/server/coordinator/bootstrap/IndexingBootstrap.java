@@ -205,7 +205,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     }
 
     private IndexSerializer initializeEngine(IndexingConfig config, MetricsProvider metricsProvider) {
-        engineRegistry = new IndexEngineRegistry();
+        engineRegistry = new IndexEngineRegistry(IndexingBootstrap.class.getClassLoader());
         if (engineRegistry.size() == 0) {
             throw new IllegalStateException("Indexing requires at least one JVM file-pruning strategy");
         }

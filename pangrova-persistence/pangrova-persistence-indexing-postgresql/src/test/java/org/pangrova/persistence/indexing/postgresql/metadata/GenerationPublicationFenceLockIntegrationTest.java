@@ -1,11 +1,9 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
-
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
 import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValuePublicationStore;
 import org.flywaydb.core.Flyway;
@@ -198,7 +196,7 @@ class GenerationPublicationFenceLockIntegrationTest {
                     export ? List.of() : List.of(GenerationSplit.of("source-object", new byte[] {1, 2, 3})),
                     List.of(), 3);
             var graph = export ? new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                    GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                    GenerationGraphPurpose.RELATIONAL_EXPORT,
                     List.of(GenerationStageGraph.StagePlan.of(0, 1, page.kind(), new byte[] {1},
                             GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)),
                     List.of(), List.of())

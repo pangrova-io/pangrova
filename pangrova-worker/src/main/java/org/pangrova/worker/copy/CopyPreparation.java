@@ -1,5 +1,6 @@
 package org.pangrova.worker.copy;
 
+import org.pangrova.worker.exception.CopyPreparationHaltedException;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.StageResourceGrant;
@@ -34,10 +35,10 @@ public final class CopyPreparation {
     /** Refuses the known source+readback+publication pipeline before any payload request starts. */
     public synchronized void requireStageCapacity(long size) {
         if (grant.getJvmHeapBytes() < 64 * 1024) {
-            throw new Halted(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY preparation stream buffer is not admitted");
+            throw new CopyPreparationHaltedException(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY preparation stream buffer is not admitted");
         }
         if (size < 0 || size > Long.MAX_VALUE / 2) {
-            throw new Halted(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY source size exceeds accounting domain");
+            throw new CopyPreparationHaltedException(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY source size exceeds accounting domain");
         }
         consume(readBytes, grant.getObjectStoreReadBytes(), 2 * size);
         consume(writeBytes, grant.getObjectStoreWriteBytes(), size);
@@ -57,7 +58,7 @@ public final class CopyPreparation {
     private long consume(long consumed, long limit, long bytes) {
         checkpoint();
         if (bytes < 0 || limit < 0 || bytes > limit - consumed) {
-            throw new Halted(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY preparation payload grant exhausted");
+            throw new CopyPreparationHaltedException(ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED, "COPY preparation payload grant exhausted");
         }
         return consumed + bytes;
     }
@@ -65,10 +66,10 @@ public final class CopyPreparation {
     /** Checks cancellation and the issued deadline before entering another I/O operation. */
     public synchronized void checkpoint() {
         if (cancelled || Thread.currentThread().isInterrupted()) {
-            throw new Halted(ErrorClass.ERROR_CLASS_CANCELLED, "COPY source preparation cancelled");
+            throw new CopyPreparationHaltedException(ErrorClass.ERROR_CLASS_CANCELLED, "COPY source preparation cancelled");
         }
         if (clock.millis() >= deadline) {
-            throw new Halted(ErrorClass.ERROR_CLASS_DEADLINE, "COPY source preparation deadline expired");
+            throw new CopyPreparationHaltedException(ErrorClass.ERROR_CLASS_DEADLINE, "COPY source preparation deadline expired");
         }
     }
 
@@ -160,14 +161,4 @@ public final class CopyPreparation {
                 .setObjectStoreWriteBytes(writeBytes).setSpillBytes(spillBytes).build();
     }
 
-    /** Distinguishes admission/deadline/cancellation from backend failures without hiding usage. */
-    public static final class Halted extends IllegalStateException {
-        private final ErrorClass category;
-
-        private Halted(ErrorClass category, String message) {
-            super(message);
-            this.category = category;
-        }
-        public ErrorClass category() { return category; }
-    }
 }

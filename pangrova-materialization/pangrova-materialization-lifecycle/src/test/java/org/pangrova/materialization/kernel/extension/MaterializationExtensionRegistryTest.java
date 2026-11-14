@@ -19,10 +19,10 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.PolicySnapshot;
 import org.pangrova.materialization.api.domain.Principal;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.SourceVector;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.RefreshPlan;
 import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.materialization.SourceRef;
@@ -47,15 +47,15 @@ class MaterializationExtensionRegistryTest {
         MaterializationExtensionRegistry registry = new MaterializationExtensionRegistry(
                 List.of(kindHandler(MaterializationKind.DYNAMIC_TABLE, false),
                         kindHandler(MaterializationKind.MATERIALIZED_VIEW, true)),
-                List.of(strategy(StrategyId.FULL, RefreshKind.Full.INSTANCE),
-                        strategy(StrategyId.APPEND_ONLY, RefreshKind.IncrementalAppendOnly.INSTANCE)),
+                List.of(strategy(StrategyId.FULL, RefreshKind.FULL),
+                        strategy(StrategyId.APPEND_ONLY, RefreshKind.INCREMENTAL_APPEND_ONLY)),
                 List.of(policyGuard, freshnessGuard),
                 List.of(ordersEvaluator, customersEvaluator));
 
         assertThat(registry.kindHandler(MaterializationKind.MATERIALIZED_VIEW).supportsTransparentRewrite())
                 .isTrue();
         assertThat(registry.strategy(StrategyId.APPEND_ONLY).kind())
-                .isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
         assertThat(registry.hasStrategy(StrategyId.CDC)).isFalse();
         assertThat(registry.rewriteGuards()).containsExactly(policyGuard, freshnessGuard);
         assertThat(registry.policyEvaluatorsFor(source("orders"))).containsExactly(ordersEvaluator);
@@ -83,8 +83,8 @@ class MaterializationExtensionRegistryTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> new MaterializationExtensionRegistry(
                         List.of(),
-                        List.of(strategy(StrategyId.FULL, RefreshKind.Full.INSTANCE),
-                                strategy(StrategyId.FULL, RefreshKind.Full.INSTANCE)),
+                        List.of(strategy(StrategyId.FULL, RefreshKind.FULL),
+                                strategy(StrategyId.FULL, RefreshKind.FULL)),
                         List.of(),
                         List.of()))
                 .withMessageContaining("duplicate refresh strategy");
@@ -92,7 +92,7 @@ class MaterializationExtensionRegistryTest {
         assertThatIllegalStateException()
                 .isThrownBy(() -> new MaterializationExtensionRegistry(
                         List.of(),
-                        List.of(new StubStrategy(StrategyId.CDC, RefreshKind.IncrementalAppendOnly.INSTANCE)),
+                        List.of(new StubStrategy(StrategyId.CDC, RefreshKind.INCREMENTAL_APPEND_ONLY)),
                         List.of(),
                         List.of()))
                 .withMessageContaining("declares kind");
@@ -102,12 +102,12 @@ class MaterializationExtensionRegistryTest {
     void rejectsMissingRequiredHandlersAndBaselineStrategy() {
         MaterializationExtensionRegistry onlyFull = new MaterializationExtensionRegistry(
                 List.of(kindHandler(MaterializationKind.DYNAMIC_TABLE, false)),
-                List.of(strategy(StrategyId.FULL, RefreshKind.Full.INSTANCE)),
+                List.of(strategy(StrategyId.FULL, RefreshKind.FULL)),
                 List.of(),
                 List.of());
         MaterializationExtensionRegistry onlyAppendOnly = new MaterializationExtensionRegistry(
                 List.of(kindHandler(MaterializationKind.DYNAMIC_TABLE, false)),
-                List.of(strategy(StrategyId.APPEND_ONLY, RefreshKind.IncrementalAppendOnly.INSTANCE)),
+                List.of(strategy(StrategyId.APPEND_ONLY, RefreshKind.INCREMENTAL_APPEND_ONLY)),
                 List.of(),
                 List.of());
 
@@ -123,7 +123,7 @@ class MaterializationExtensionRegistryTest {
     void rewriteParticipationRequiresAtLeastOneGuard() {
         MaterializationExtensionRegistry registry = new MaterializationExtensionRegistry(
                 List.of(kindHandler(MaterializationKind.MATERIALIZED_VIEW, true)),
-                List.of(strategy(StrategyId.FULL, RefreshKind.Full.INSTANCE)),
+                List.of(strategy(StrategyId.FULL, RefreshKind.FULL)),
                 List.of(),
                 List.of());
 

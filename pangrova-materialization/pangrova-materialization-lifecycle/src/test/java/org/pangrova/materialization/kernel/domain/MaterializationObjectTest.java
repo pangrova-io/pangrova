@@ -17,10 +17,10 @@ import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 
 class MaterializationObjectTest {
 
@@ -35,7 +35,7 @@ class MaterializationObjectTest {
         assertThat(object.revision()).isZero();
         assertThat(object.definitionRevision()).isEqualTo(1);
         assertThat(object.publishedGeneration()).isEmpty();
-        assertThat(object.state()).isEqualTo(ObjectState.Creating.INSTANCE);
+        assertThat(object.state()).isEqualTo(ObjectState.CREATING);
         assertThat(object.incarnation()).isEqualTo(INCARNATION);
         assertThat(object.definer()).isEqualTo(DEFINER);
     }
@@ -47,7 +47,7 @@ class MaterializationObjectTest {
 
         assertThat(published.revision()).isEqualTo(1);
         assertThat(published.publishedGeneration()).contains(GENERATION);
-        assertThat(published.state()).isEqualTo(ObjectState.Active.INSTANCE);
+        assertThat(published.state()).isEqualTo(ObjectState.ACTIVE);
         assertThat(published.definitionRevision()).isEqualTo(creating.definitionRevision());
         assertThat(published.incarnation()).isEqualTo(creating.incarnation());
         assertThat(published.updatedAt()).isEqualTo(LATER);
@@ -60,7 +60,7 @@ class MaterializationObjectTest {
         MaterializationException publishConflict = catchThrowableOfType(
                 () -> published.publish(GENERATION, 0, LATER), MaterializationException.class);
         MaterializationException transitionConflict = catchThrowableOfType(
-                () -> published.transitionTo(ObjectState.Suspended.INSTANCE, 0, LATER),
+                () -> published.transitionTo(ObjectState.SUSPENDED, 0, LATER),
                 MaterializationException.class);
         MaterializationException definitionConflict = catchThrowableOfType(
                 () -> published.withDefinitionRevision(2, 0, LATER), MaterializationException.class);
@@ -76,19 +76,19 @@ class MaterializationObjectTest {
     @Test
     void lifecycleTransitionsFollowTheStateMachine() {
         MaterializationObject active = creating().publish(GENERATION, 0, LATER);
-        MaterializationObject suspended = active.transitionTo(ObjectState.Suspended.INSTANCE, 1, LATER);
-        MaterializationObject resumed = suspended.transitionTo(ObjectState.Active.INSTANCE, 2, LATER);
-        MaterializationObject dropping = resumed.transitionTo(ObjectState.Dropping.INSTANCE, 3, LATER);
-        MaterializationObject dropped = dropping.transitionTo(ObjectState.Dropped.INSTANCE, 4, LATER);
+        MaterializationObject suspended = active.transitionTo(ObjectState.SUSPENDED, 1, LATER);
+        MaterializationObject resumed = suspended.transitionTo(ObjectState.ACTIVE, 2, LATER);
+        MaterializationObject dropping = resumed.transitionTo(ObjectState.DROPPING, 3, LATER);
+        MaterializationObject dropped = dropping.transitionTo(ObjectState.DROPPED, 4, LATER);
 
-        assertThat(suspended.state()).isEqualTo(ObjectState.Suspended.INSTANCE);
+        assertThat(suspended.state()).isEqualTo(ObjectState.SUSPENDED);
         assertThat(suspended.publishedGeneration()).contains(GENERATION);
-        assertThat(resumed.state()).isEqualTo(ObjectState.Active.INSTANCE);
-        assertThat(dropped.state()).isEqualTo(ObjectState.Dropped.INSTANCE);
+        assertThat(resumed.state()).isEqualTo(ObjectState.ACTIVE);
+        assertThat(dropped.state()).isEqualTo(ObjectState.DROPPED);
         assertThat(dropped.revision()).isEqualTo(5);
 
         MaterializationException illegal = catchThrowableOfType(
-                () -> dropped.transitionTo(ObjectState.Active.INSTANCE, 5, LATER),
+                () -> dropped.transitionTo(ObjectState.ACTIVE, 5, LATER),
                 MaterializationException.class);
         assertThat(illegal.getErrorCode())
                 .isEqualTo(PangrovaErrorCode.MATERIALIZATION_INVALID_STATE_TRANSITION);
@@ -97,7 +97,7 @@ class MaterializationObjectTest {
     @Test
     void publishIsIllegalWhileDropping() {
         MaterializationObject dropping = creating()
-                .transitionTo(ObjectState.Dropping.INSTANCE, 0, LATER);
+                .transitionTo(ObjectState.DROPPING, 0, LATER);
 
         MaterializationException exception = catchThrowableOfType(
                 () -> dropping.publish(GENERATION, 1, LATER), MaterializationException.class);
@@ -159,7 +159,7 @@ class MaterializationObjectTest {
                         1,
                         0,
                         Optional.of(GENERATION),
-                        ObjectState.Creating.INSTANCE,
+                        ObjectState.CREATING,
                         DEFINER,
                         SecurityMode.DEFINER,
                         RefreshMode.FULL,
@@ -178,7 +178,7 @@ class MaterializationObjectTest {
                         1,
                         0,
                         Optional.empty(),
-                        ObjectState.Creating.INSTANCE,
+                        ObjectState.CREATING,
                         DEFINER,
                         SecurityMode.DEFINER,
                         RefreshMode.FULL,

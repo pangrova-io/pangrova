@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.index;
 
+import org.pangrova.indexing.enums.IndexBuildOutcome;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +19,6 @@ import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
-import org.pangrova.indexing.build.IndexBuildResult;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 
@@ -63,7 +64,7 @@ class BuildResourceClosurePropertyTest {
         var pins = new Pins(false);
         try (var builder = builder(claims, pins, false)) {
             assertThat(builder.submitBuildTask(descriptor(indexId, generation), List.of(), null, null)
-                    .get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildResult.Outcome.STALE_GENERATION);
+                    .get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildOutcome.STALE_GENERATION);
         }
         assertReleased(claims);
         assertThat(pins.pins.get()).isZero();

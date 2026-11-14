@@ -1,5 +1,6 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.cache.CacheStats;
 import org.pangrova.metadata.api.cache.MetadataCache;
@@ -66,9 +67,9 @@ class MetadataSyncServiceTest {
     void incrementalSyncAppliesAddChanges() {
         TableMetadata meta = table("cat", "sch", "t1");
         MetadataChange addChange = new MetadataChange(
-                MetadataChange.ChangeType.ADD,
+                MetadataChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(addChange);
 
@@ -86,9 +87,9 @@ class MetadataSyncServiceTest {
         TableMetadata meta = table("cat", "sch", "t1");
         store.saveTable(meta);
         MetadataChange deleteChange = new MetadataChange(
-                MetadataChange.ChangeType.DELETE,
+                MetadataChangeType.DELETE,
                 new QualifiedTableRef("cat", "sch", "t1"), null);
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.absent.add("sch:t1");
         adapter.changes = List.of(deleteChange);
 
@@ -102,9 +103,9 @@ class MetadataSyncServiceTest {
     void incrementalSyncInvalidatesCache() {
         TableMetadata meta = table("cat", "sch", "t1");
         MetadataChange change = new MetadataChange(
-                MetadataChange.ChangeType.UPDATE,
+                MetadataChangeType.UPDATE,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(change);
 
@@ -115,7 +116,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void incrementalSyncRecordsSyncHistory() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.changes = List.of();
 
         syncService.incrementalSync(deployment("cat"), adapter);
@@ -126,9 +127,9 @@ class MetadataSyncServiceTest {
 
     @Test
     void successfulUnboundedSyncDoesNotInventCheckpoint() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.changes = List.of(new MetadataChange(
-                MetadataChange.ChangeType.ADD,
+                MetadataChangeType.ADD,
                 new QualifiedTableRef("cat", "s1", "t1"),
                 table("cat", "s1", "t1")));
 
@@ -141,7 +142,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void fullSyncSavesAllTablesFromAllSchemas() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.schemas = List.of("s1", "s2");
         adapter.tablesBySchema.put("s1", List.of("t1"));
         adapter.tablesBySchema.put("s2", List.of("t2", "t3"));
@@ -158,7 +159,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void fullSyncSavesSchemasToStore() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.schemas = List.of("s1", "s2");
 
         syncService.fullSync(deployment("cat"), adapter);
@@ -168,7 +169,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void fullSyncInvalidatesCacheForEachTable() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.schemas = List.of("s1");
         adapter.tablesBySchema.put("s1", List.of("t1", "t2"));
         adapter.tableMetadata.put("s1:t1", table("cat", "s1", "t1"));
@@ -183,7 +184,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void fullSyncAccumulatesErrorsWithoutStopping() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.schemas = List.of("s1");
         adapter.tablesBySchema.put("s1", List.of("t1", "t2"));
         adapter.tableMetadata.put("s1:t1", table("cat", "s1", "t1"));
@@ -198,13 +199,13 @@ class MetadataSyncServiceTest {
 
     @Test
     void incrementalSyncAccumulatesErrorsPerChange() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         TableMetadata meta = table("cat", "sch", "t1");
         MetadataChange goodChange = new MetadataChange(
-                MetadataChange.ChangeType.ADD,
+                MetadataChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
         MetadataChange badChange = new MetadataChange(
-                MetadataChange.ChangeType.UPDATE,
+                MetadataChangeType.UPDATE,
                 new QualifiedTableRef("cat", "sch", "t2"), null);
         adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(goodChange, badChange);
@@ -220,7 +221,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncWithRetrySucceedsOnFirstAttempt() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.changes = List.of();
 
         SyncResult result = syncService.syncWithRetry(deployment("cat"), adapter);
@@ -230,7 +231,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncWithRetryExhaustsRetriesAndThrows() {
-        FailingCatalogAdapter adapter = new FailingCatalogAdapter(4);
+        FailingCatalog adapter = new FailingCatalog(4);
 
         assertThatThrownBy(() -> syncService.syncWithRetry(deployment("cat"), adapter))
                 .isInstanceOf(MetadataSyncException.class);
@@ -238,7 +239,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncWithRetryPreservesOriginalExceptionAsCause() {
-        FailingCatalogAdapter adapter = new FailingCatalogAdapter(4);
+        FailingCatalog adapter = new FailingCatalog(4);
 
         assertThatThrownBy(() -> syncService.syncWithRetry(deployment("cat"), adapter))
                 .isInstanceOf(MetadataSyncException.class)
@@ -249,7 +250,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncWithRetryPreservesCheckedExceptionCauseChain() {
-        TypedFailingCatalogAdapter adapter = new TypedFailingCatalogAdapter(
+        TypedFailingCatalog adapter = new TypedFailingCatalog(
                 new java.io.IOException("Network timeout connecting to catalog backend"));
 
         assertThatThrownBy(() -> syncService.syncWithRetry(deployment("cat"), adapter))
@@ -261,7 +262,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncWithRetryExceptionCarriesCatalogNameAndAttemptCount() {
-        FailingCatalogAdapter adapter = new FailingCatalogAdapter(4);
+        FailingCatalog adapter = new FailingCatalog(4);
 
         var catalogStore = new RecordingProjectionTransactions(deployment("my-catalog"));
         var catalogService = new MetadataSyncService(catalogStore, catalogStore, synchronization, cache, dispatcher);
@@ -279,7 +280,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void syncResultContainsNonNegativeDuration() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.changes = List.of();
 
         SyncResult result = syncService.incrementalSync(deployment("cat"), adapter);
@@ -291,9 +292,9 @@ class MetadataSyncServiceTest {
     void incrementalSyncUsesPersistentStore() {
         TableMetadata meta = table("cat", "sch", "t1");
         MetadataChange change = new MetadataChange(
-                MetadataChange.ChangeType.ADD,
+                MetadataChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
         adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(change);
 
@@ -304,8 +305,8 @@ class MetadataSyncServiceTest {
 
     @Test
     void partialFailureIsRetriedAndNeverReturnedAsSuccessfulFullSync() {
-        StubCatalogAdapter adapter = new StubCatalogAdapter();
-        adapter.changes = List.of(new MetadataChange(MetadataChange.ChangeType.ADD,
+        SampleFederatedCatalog adapter = new SampleFederatedCatalog();
+        adapter.changes = List.of(new MetadataChange(MetadataChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "broken"), null));
         adapter.schemas = List.of("sch");
         adapter.tablesBySchema.put("sch", List.of("broken"));
@@ -323,7 +324,7 @@ class MetadataSyncServiceTest {
 
     // ── Test doubles ──
 
-    static final class StubCatalogAdapter implements FederatedCatalog {
+    static final class SampleFederatedCatalog implements FederatedCatalog {
         final java.util.Set<String> absent = new java.util.HashSet<>();
         List<MetadataChange> changes = List.of();
         List<String> schemas = List.of();
@@ -364,11 +365,11 @@ class MetadataSyncServiceTest {
         public void close() { }
     }
 
-    static final class FailingCatalogAdapter implements FederatedCatalog {
+    static final class FailingCatalog implements FederatedCatalog {
         private final int failCount;
         private int callCount;
 
-        FailingCatalogAdapter(int failCount) {
+        FailingCatalog(int failCount) {
             this.failCount = failCount;
         }
 
@@ -408,10 +409,10 @@ class MetadataSyncServiceTest {
      * Adapter that wraps a specific exception type to verify cause chain preservation
      * for non-RuntimeException failures (e.g., IOException, checked exceptions).
      */
-    static final class TypedFailingCatalogAdapter implements FederatedCatalog {
+    static final class TypedFailingCatalog implements FederatedCatalog {
         private final Exception exceptionToThrow;
 
-        TypedFailingCatalogAdapter(Exception exceptionToThrow) {
+        TypedFailingCatalog(Exception exceptionToThrow) {
             this.exceptionToThrow = exceptionToThrow;
         }
 

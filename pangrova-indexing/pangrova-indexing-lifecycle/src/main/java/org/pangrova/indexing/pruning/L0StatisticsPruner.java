@@ -6,7 +6,7 @@ import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import org.pangrova.connector.api.index.predicate.InList;
 import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +79,7 @@ final class L0StatisticsPruner {
 
     static boolean canSkipByStatistics(IndexPredicate predicate, FileColumnStatistics stats) {
         if (predicate instanceof EqualTo eq) {
-            return stats.noRowsSatisfy(ComparisonOp.EQUAL, eq.value());
+            return stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, eq.value());
         }
         if (predicate instanceof RangeQuery rq) {
             return canSkipRange(rq, stats);
@@ -92,17 +92,17 @@ final class L0StatisticsPruner {
 
     private static boolean canSkipRange(RangeQuery rq, FileColumnStatistics stats) {
         boolean skipLower = rq.lower() != null && stats.noRowsSatisfy(
-                rq.lowerInclusive() ? ComparisonOp.GREATER_THAN_OR_EQUAL
-                        : ComparisonOp.GREATER_THAN, rq.lower());
+                rq.lowerInclusive() ? ColumnComparisonOperator.GREATER_THAN_OR_EQUAL
+                        : ColumnComparisonOperator.GREATER_THAN, rq.lower());
         boolean skipUpper = rq.upper() != null && stats.noRowsSatisfy(
-                rq.upperInclusive() ? ComparisonOp.LESS_THAN_OR_EQUAL
-                        : ComparisonOp.LESS_THAN, rq.upper());
+                rq.upperInclusive() ? ColumnComparisonOperator.LESS_THAN_OR_EQUAL
+                        : ColumnComparisonOperator.LESS_THAN, rq.upper());
         return skipLower || skipUpper;
     }
 
     private static boolean canSkipAllInListValues(InList inList, FileColumnStatistics stats) {
         for (Comparable<?> val : inList.values()) {
-            if (!stats.noRowsSatisfy(ComparisonOp.EQUAL, val)) {
+            if (!stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, val)) {
                 return false;
             }
         }

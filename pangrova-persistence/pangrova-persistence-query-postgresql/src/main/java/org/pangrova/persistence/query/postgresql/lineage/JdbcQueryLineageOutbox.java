@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.postgresql.lineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 import org.pangrova.persistence.query.api.lineage.QueryLineageOutbox;
 
@@ -64,7 +65,7 @@ public final class JdbcQueryLineageOutbox implements QueryLineageOutbox {
             try (ResultSet rows = select.executeQuery()) {
                 if (!rows.next()) return Optional.empty();
                 fact = QueryLineageFactSql.decode(rows.getString("payload"));
-                String category = fact.phase() == QueryLineageFact.Phase.START ? "START" : "TERMINAL";
+                String category = fact.phase() == LineageEventType.START ? "START" : "TERMINAL";
                 if (!namespace.equals(fact.namespace()) || !fact.queryId().equals(rows.getString("query_id"))
                         || !category.equals(rows.getString("category"))
                         || !fact.eventId().equals(rows.getObject("event_id", java.util.UUID.class))) {

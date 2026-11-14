@@ -1,5 +1,8 @@
 package org.pangrova.persistence.generation.postgresql.publication.submission;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 
 import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValueDescriptorStore;
@@ -42,7 +45,7 @@ public final class JdbcGeneratedValueBuildSubmissionStore implements GeneratedVa
                 submit(connection, write, List.copyOf(builds));
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -50,18 +53,10 @@ public final class JdbcGeneratedValueBuildSubmissionStore implements GeneratedVa
         }
     }
 
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
-    }
-
     private void submit(Connection connection, WriteCommitEntry write,
             List<GeneratedValueBuildSubmission> builds) throws SQLException {
         AuthorizationTransactionGate.lockPublication(connection);
-        if (write.state() != WriteCommitEntry.State.COMMITTED || builds.isEmpty()) {
+        if (write.state() != WriteCommitState.COMMITTED || builds.isEmpty()) {
             throw new IllegalArgumentException("Generated outbox requires a COMMITTED write and all declared builds");
         }
         if (lockCommittedWrite(connection, write)) {

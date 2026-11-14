@@ -1,5 +1,9 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import org.pangrova.persistence.query.postgresql.exception.JournalPayloadConflictException;
+
+import org.pangrova.persistence.query.postgresql.exception.LineagePayloadConflictException;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -36,7 +40,7 @@ final class JournalEventSql {
         } catch (SQLException failure) {
             try {
                 connection.rollback();
-                if (failure instanceof PayloadConflict conflict) conflict.rollbackConfirmed = true;
+                if (failure instanceof JournalPayloadConflictException conflict) conflict.confirmRollback();
             } catch (SQLException rollback) {
                 if (rollback != failure) failure.addSuppressed(rollback);
             }
@@ -59,8 +63,8 @@ final class JournalEventSql {
         if (event.query != null && event.query.lineage() != null) {
             try {
                 QueryLineageFactSql.append(connection, event.query.lineage());
-            } catch (QueryLineageFactSql.PayloadConflict conflict) {
-                var rejected = new PayloadConflict(event.key());
+            } catch (LineagePayloadConflictException conflict) {
+                var rejected = new JournalPayloadConflictException(event.key());
                 rejected.addSuppressed(conflict);
                 throw rejected;
             }
@@ -78,7 +82,7 @@ final class JournalEventSql {
             select.setObject(1, event.context().eventId());
             try (ResultSet rows = select.executeQuery()) {
                 boolean exact = rows.next() && event.query.equals(readQuery(rows));
-                if (!exact || rows.next()) throw new PayloadConflict(event.key());
+                if (!exact || rows.next()) throw new JournalPayloadConflictException(event.key());
             }
         }
     }
@@ -89,7 +93,7 @@ final class JournalEventSql {
             select.setObject(1, event.context().eventId());
             try (ResultSet rows = select.executeQuery()) {
                 boolean exact = rows.next() && event.task.equals(readTask(rows));
-                if (!exact || rows.next()) throw new PayloadConflict(event.key());
+                if (!exact || rows.next()) throw new JournalPayloadConflictException(event.key());
             }
         }
     }
@@ -135,14 +139,4 @@ final class JournalEventSql {
                 rows.getString("coordinator_id"));
     }
 
-    static final class PayloadConflict extends SQLException {
-        private static final long serialVersionUID = 1L;
-        final JournalPendingWrites.Key eventId;
-        boolean rollbackConfirmed;
-
-        PayloadConflict(JournalPendingWrites.Key eventId) {
-            super("Journal event ID has a different durable payload: " + eventId, "23505");
-            this.eventId = eventId;
-        }
-    }
 }

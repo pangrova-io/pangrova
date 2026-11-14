@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 
 import java.time.Instant;
@@ -90,8 +92,8 @@ public record Generation(
 
     private static void requireEvidence(GenerationState state,
             Optional<CommitEvidence> generationEvidence) {
-        if ((state == GenerationState.Committed.INSTANCE
-                || state == GenerationState.Published.INSTANCE)
+        if ((state == GenerationState.COMMITTED
+                || state == GenerationState.PUBLISHED)
                 && generationEvidence.isEmpty()) {
             throw new IllegalArgumentException(
                     "committed or published generation requires commit evidence");
@@ -100,12 +102,12 @@ public record Generation(
 
     private static void requirePublicationInstant(GenerationState state,
             Optional<Instant> publicationInstant) {
-        if (state == GenerationState.Published.INSTANCE && publicationInstant.isEmpty()) {
+        if (state == GenerationState.PUBLISHED && publicationInstant.isEmpty()) {
             throw new IllegalArgumentException("published generation requires a publication instant");
         }
-        if (state != GenerationState.Published.INSTANCE
-                && state != GenerationState.Retired.INSTANCE
-                && state != GenerationState.Collected.INSTANCE
+        if (state != GenerationState.PUBLISHED
+                && state != GenerationState.RETIRED
+                && state != GenerationState.COLLECTED
                 && publicationInstant.isPresent()) {
             throw new IllegalArgumentException(
                     "only published, retired, or collected generations carry a publication instant");
@@ -140,7 +142,7 @@ public record Generation(
             Instant now) {
         return new Generation(id, object, incarnation, definitionRevision, producingAttempt, baseGeneration,
                 physicalTable, refreshKind, sourceVector, Optional.empty(),
-                GenerationState.Candidate.INSTANCE, now, Optional.empty());
+                GenerationState.CANDIDATE, now, Optional.empty());
     }
 
     /**
@@ -151,13 +153,13 @@ public record Generation(
      * @return committed generation
      */
     public Generation commit(CommitEvidence commitEvidence, Instant now) {
-        requireTransition(GenerationState.Committed.INSTANCE);
+        requireTransition(GenerationState.COMMITTED);
         if (evidence.isPresent()) {
             throw MaterializationException.evidenceMismatch("generation already has commit evidence");
         }
         return new Generation(id, object, incarnation, definitionRevision, producingAttempt, baseGeneration,
                 physicalTable, refreshKind, sourceVector, Optional.of(requireNonNullField(commitEvidence, "evidence")),
-                GenerationState.Committed.INSTANCE, createdAt, Optional.empty());
+                GenerationState.COMMITTED, createdAt, Optional.empty());
     }
 
     /**
@@ -167,14 +169,14 @@ public record Generation(
      * @return published generation
      */
     public Generation publish(Instant now) {
-        requireTransition(GenerationState.Published.INSTANCE);
+        requireTransition(GenerationState.PUBLISHED);
         if (evidence.isEmpty()) {
             throw MaterializationException.evidenceMismatch(
                     "cannot publish generation " + id + " without commit evidence");
         }
         return new Generation(id, object, incarnation, definitionRevision, producingAttempt, baseGeneration,
                 physicalTable, refreshKind, sourceVector, evidence,
-                GenerationState.Published.INSTANCE, createdAt, Optional.of(requireNonNullField(now, "now")));
+                GenerationState.PUBLISHED, createdAt, Optional.of(requireNonNullField(now, "now")));
     }
 
     /**
@@ -183,8 +185,8 @@ public record Generation(
      * @return retired generation
      */
     public Generation retire() {
-        requireTransition(GenerationState.Retired.INSTANCE);
-        return withState(GenerationState.Retired.INSTANCE);
+        requireTransition(GenerationState.RETIRED);
+        return withState(GenerationState.RETIRED);
     }
 
     /**
@@ -193,8 +195,8 @@ public record Generation(
      * @return quarantined generation
      */
     public Generation quarantine() {
-        requireTransition(GenerationState.Quarantined.INSTANCE);
-        return withState(GenerationState.Quarantined.INSTANCE);
+        requireTransition(GenerationState.QUARANTINED);
+        return withState(GenerationState.QUARANTINED);
     }
 
     /**
@@ -203,8 +205,8 @@ public record Generation(
      * @return collected generation
      */
     public Generation collect() {
-        requireTransition(GenerationState.Collected.INSTANCE);
-        return withState(GenerationState.Collected.INSTANCE);
+        requireTransition(GenerationState.COLLECTED);
+        return withState(GenerationState.COLLECTED);
     }
 
     private Generation withState(GenerationState target) {

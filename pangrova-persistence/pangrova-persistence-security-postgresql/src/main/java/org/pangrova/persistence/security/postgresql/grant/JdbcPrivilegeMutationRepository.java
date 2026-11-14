@@ -1,5 +1,8 @@
 package org.pangrova.persistence.security.postgresql.grant;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.security.api.enums.PrivilegeOperation;
 import org.pangrova.persistence.security.api.grant.PrivilegeMutationRepository;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
@@ -81,7 +84,7 @@ public final class JdbcPrivilegeMutationRepository implements PrivilegeMutationR
                     }
                     GrantMutationAuthority.requireRoles(connection, mutation.roles());
                     int changed = 0;
-                    if (mutation.operation() == PrivilegeMutation.Operation.GRANT) {
+                    if (mutation.operation() == PrivilegeOperation.GRANT) {
                         for (var privilege : mutation.privileges().stream().sorted().toList()) {
                             for (var role : mutation.roles().stream().sorted().toList()) {
                                 changed += PrivilegeGrantRows.grant(connection, actor.principal(), role, privilege,
@@ -98,16 +101,13 @@ public final class JdbcPrivilegeMutationRepository implements PrivilegeMutationR
                 committing = true;
                 connection.commit();
                 return receipt;
-            } catch (SQLException | RuntimeException failure) {
-                try {
-                    connection.rollback();
-                } catch (SQLException cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
-        } catch (SQLException failure) {
+        } catch (SQLException | RuntimeException failure) {
             if (committing) throw new PrivilegeMutationOutcomeUnknownException(mutation.requestId(), failure);
+            if (failure instanceof RuntimeException runtime) throw runtime;
             throw new IllegalStateException("Failed applying privilege mutation " + mutation.requestId(), failure);
         }
     }

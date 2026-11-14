@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.type;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.mapping.PangrovaTypeMapping;
 import org.pangrova.types.VectorType;
@@ -95,7 +96,7 @@ public final class PaimonTypeMapper {
      * @return the corresponding Paimon ArrayType
      */
     public static ArrayType toPaimonVectorType(VectorType vectorType) {
-        DataType elementType = vectorType.elementType() == VectorType.ElementType.DOUBLE
+        DataType elementType = vectorType.elementType() == VectorElementType.DOUBLE
                 ? new DoubleType()
                 : new FloatType();
         return new ArrayType(elementType);
@@ -200,9 +201,9 @@ public final class PaimonTypeMapper {
                     "Invalid vector dimension for column '" + columnName + "': " + dimValue, e);
         }
         ArrayType arrayType = (ArrayType) paimonType;
-        VectorType.ElementType elementType = arrayType.getElementType() instanceof DoubleType
-                ? VectorType.ElementType.DOUBLE
-                : VectorType.ElementType.FLOAT;
+        VectorElementType elementType = arrayType.getElementType() instanceof DoubleType
+                ? VectorElementType.DOUBLE
+                : VectorElementType.FLOAT;
         return new VectorType(dimension, elementType);
     }
 

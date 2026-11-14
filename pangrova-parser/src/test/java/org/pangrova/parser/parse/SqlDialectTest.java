@@ -1,8 +1,9 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.enums.IdentifierCaseSensitivity;
+import org.pangrova.parser.api.enums.IdentifierQuotingStyle;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.api.enums.SqlDialect;
-
 import org.pangrova.parser.api.ast.*;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -21,32 +22,32 @@ class SqlDialectTest {
 
     @Test
     void ansiDialectProperties() {
-        assertThat(SqlDialect.ANSI.quotingStyle()).isEqualTo(SqlDialect.QuotingStyle.DOUBLE_QUOTES);
-        assertThat(SqlDialect.ANSI.caseSensitivity()).isEqualTo(SqlDialect.CaseSensitivity.UPPER);
+        assertThat(SqlDialect.ANSI.quotingStyle()).isEqualTo(IdentifierQuotingStyle.DOUBLE_QUOTES);
+        assertThat(SqlDialect.ANSI.caseSensitivity()).isEqualTo(IdentifierCaseSensitivity.UPPER);
         assertThat(SqlDialect.ANSI.allowsDoubleQuotes()).isTrue();
         assertThat(SqlDialect.ANSI.allowsBackticks()).isFalse();
     }
 
     @Test
     void trinoDialectProperties() {
-        assertThat(SqlDialect.TRINO.quotingStyle()).isEqualTo(SqlDialect.QuotingStyle.DOUBLE_QUOTES);
-        assertThat(SqlDialect.TRINO.caseSensitivity()).isEqualTo(SqlDialect.CaseSensitivity.LOWER);
+        assertThat(SqlDialect.TRINO.quotingStyle()).isEqualTo(IdentifierQuotingStyle.DOUBLE_QUOTES);
+        assertThat(SqlDialect.TRINO.caseSensitivity()).isEqualTo(IdentifierCaseSensitivity.LOWER);
         assertThat(SqlDialect.TRINO.allowsDoubleQuotes()).isTrue();
         assertThat(SqlDialect.TRINO.allowsBackticks()).isFalse();
     }
 
     @Test
     void sparkDialectProperties() {
-        assertThat(SqlDialect.SPARK.quotingStyle()).isEqualTo(SqlDialect.QuotingStyle.BACKTICKS);
-        assertThat(SqlDialect.SPARK.caseSensitivity()).isEqualTo(SqlDialect.CaseSensitivity.PRESERVE);
+        assertThat(SqlDialect.SPARK.quotingStyle()).isEqualTo(IdentifierQuotingStyle.BACKTICKS);
+        assertThat(SqlDialect.SPARK.caseSensitivity()).isEqualTo(IdentifierCaseSensitivity.PRESERVE);
         assertThat(SqlDialect.SPARK.allowsDoubleQuotes()).isFalse();
         assertThat(SqlDialect.SPARK.allowsBackticks()).isTrue();
     }
 
     @Test
     void pangrovaDialectProperties() {
-        assertThat(SqlDialect.PANGROVA.quotingStyle()).isEqualTo(SqlDialect.QuotingStyle.BOTH);
-        assertThat(SqlDialect.PANGROVA.caseSensitivity()).isEqualTo(SqlDialect.CaseSensitivity.PRESERVE);
+        assertThat(SqlDialect.PANGROVA.quotingStyle()).isEqualTo(IdentifierQuotingStyle.BOTH);
+        assertThat(SqlDialect.PANGROVA.caseSensitivity()).isEqualTo(IdentifierCaseSensitivity.PRESERVE);
         assertThat(SqlDialect.PANGROVA.allowsDoubleQuotes()).isTrue();
         assertThat(SqlDialect.PANGROVA.allowsBackticks()).isTrue();
     }

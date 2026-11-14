@@ -82,8 +82,11 @@ properties change. Each source batch has its own durable checkpoint; the former
 `maxwell-json`. SQL `FORMAT` matches the installed identifier exactly. An unknown
 format fails before the stream is stored. A plugin registers its factory in
 `META-INF/services/org.pangrova.streaming.api.format.CdcFormatFactory` and
-returns a thread-safe decoder with the same identifier. Duplicate factory IDs
-or a mismatched decoder fail registry construction at startup.
+declares its contract version through `apiVersion()`. The Coordinator requires
+`CdcFormatFactory.API_VERSION` from every installed factory and checks identifiers
+before constructing any decoder. A factory returns one thread-safe decoder
+whose `formatId()` matches its identifier. Duplicate IDs, incompatible versions,
+and mismatched decoder identifiers fail startup.
 
 DDL persists the requested state on the accepting coordinator. Only the elected
 maintenance coordinator starts pipelines; it reconciles changes accepted by other
@@ -316,7 +319,12 @@ Without `CASCADE`, the statement fails while another live materialization
 consumes the target. `DROP ... CASCADE` drops every transitive dependent first,
 deepest dependent first, so no live definition ever references a dropped
 object. Physical generations are retained until reader pins and GC allow
-collection. The dropped name keeps a durable tombstone, and creating the same
+collection. Query scans hold reader leases until physical query drain. Incremental
+refresh attempts independently pin their base generation. Renewal and release use
+both the reader kind and its ID, even when a query and a refresh attempt share the
+same UUID. GC checks all unexpired readers before deleting a generation.
+
+The dropped name keeps a durable tombstone, and creating the same
 name again starts a new incarnation at definition revision 1 instead of
 reusing the old identity; earlier generations stay collectable history.
 

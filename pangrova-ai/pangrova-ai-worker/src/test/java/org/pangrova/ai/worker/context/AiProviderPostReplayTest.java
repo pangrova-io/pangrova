@@ -1,9 +1,11 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
+
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
@@ -82,7 +84,7 @@ class AiProviderPostReplayTest {
         try (var provider = new OpenAiCompatibleRerankingProvider(
                 URI.create(endpoint), "model", "", 4, 100.0, 5);
                 var budget = new AiTransportTestAdmission(
-                        AiCapabilityDescriptor.Operation.RERANKING, 0, 1, 1,
+                        AiOperation.RERANKING, 0, 1, 1,
                         AiTransportTestAdmission.Limits.defaults(),
                         Instant.now().plusSeconds(30))) {
             assertTerminal(() -> budget.call("rerank-post",
@@ -98,7 +100,7 @@ class AiProviderPostReplayTest {
         try (var provider = new OpenAiCompatibleRerankingProvider(
                 URI.create(endpoint), "model", "", 4, 100.0, 5);
                 var budget = new AiTransportTestAdmission(
-                        AiCapabilityDescriptor.Operation.RERANKING, 0, 1, 1,
+                        AiOperation.RERANKING, 0, 1, 1,
                         AiTransportTestAdmission.Limits.defaults(),
                         Instant.now().plusSeconds(30))) {
             var result = budget.call("rerank-success",
@@ -116,7 +118,7 @@ class AiProviderPostReplayTest {
             try (var provider = new OpenAiCompatibleRerankingProvider(
                     URI.create(endpoint), "model", "", 4, 100.0, 5);
                     var budget = new AiTransportTestAdmission(
-                            AiCapabilityDescriptor.Operation.RERANKING, 0, 1, 1,
+                            AiOperation.RERANKING, 0, 1, 1,
                             AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(30))) {
                 assertTerminal(() -> budget.call("rerank-independent-" + endpoint,
                         () -> provider.score("query", List.of("document"))));
@@ -161,7 +163,7 @@ class AiProviderPostReplayTest {
                 .satisfies(failure -> {
                     AiInvocationException invocation = (AiInvocationException) failure;
                     assertThat(invocation.category())
-                            .isEqualTo(AiInvocationException.Category.PROVIDER_UNAVAILABLE);
+                            .isEqualTo(AiFailureCategory.PROVIDER_UNAVAILABLE);
                     assertThat(invocation.retryable()).isFalse();
                 });
     }

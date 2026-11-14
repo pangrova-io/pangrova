@@ -1,8 +1,8 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.enums.ShuffleType;
-
-import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 
 import com.google.common.collect.ImmutableList;
 import io.substrait.proto.Plan;
@@ -106,7 +106,7 @@ class PlanFragmenterTest {
         var conversion = new SubstraitConverter().convertWithResult(plan, List.of());
 
         assertThat(conversion.retrievalTopKHints()).singleElement().satisfies(hint -> {
-            assertThat(hint.kind()).isEqualTo(RetrievalTopKPlanHint.Kind.VECTOR);
+            assertThat(hint.kind()).isEqualTo(RetrievalKind.VECTOR);
             assertThat(hint.sourceKey()).isEqualTo("VECTOR:embedding");
         });
     }
@@ -267,7 +267,7 @@ class PlanFragmenterTest {
                 new SubstraitPlanSerializer());
         assertThat(AuthorizedStageGraph.compile(fragmented, compiler,
                 List.of("o_orderkey", "item_count"),
-                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT).stages()).isNotEmpty();
+                StageTerminalPurpose.QUERY_RESULT).stages()).isNotEmpty();
     }
 
     @Test
@@ -394,7 +394,7 @@ class PlanFragmenterTest {
         RelNode scan = builder.scan("declared").build();
         assertThat(scan.getCluster().getMetadataQuery().getRowCount(scan)).isEqualTo(100.0);
         var stages = PlanFragmenter.fragment(scan, 0,
-                AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+                StageTerminalPurpose.RELATIONAL_EXPORT);
         assertThat(stages.stages()).singleElement().satisfies(stage -> assertThat(stage.parallelism()).isEqualTo(4));
     }
 
@@ -444,7 +444,7 @@ class PlanFragmenterTest {
     @Test
     void clusterLimitCapsExchangeCohortBeforePartitionIdentityIsAllocated() {
         FragmentedPlan fragmented = PlanFragmenter.fragment(hashExchange(), 8,
-                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT, 4);
+                StageTerminalPurpose.QUERY_RESULT, 4);
 
         assertThat(fragmented.stages()).allSatisfy(stage ->
                 assertThat(stage.parallelism()).isLessThanOrEqualTo(4));
@@ -551,7 +551,7 @@ class PlanFragmenterTest {
     @Test
     void relationalExportKeepsParallelTerminalWithoutQueryResultGather() {
         var graph = PlanFragmenter.fragment(hashExchange(), 4,
-                AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+                StageTerminalPurpose.RELATIONAL_EXPORT);
         var output = graph.stages().stream().filter(stage -> "OUTPUT".equals(stage.taskType()))
                 .findFirst().orElseThrow();
         assertThat(output.parallelism()).isEqualTo(4);
@@ -564,7 +564,7 @@ class PlanFragmenterTest {
     void relationalExportStillExecutesTopKOverTheCompleteStream() {
         var topK = LogicalSort.create(hashExchange(), RelCollations.of(new RelFieldCollation(0)),
                 null, cluster.getRexBuilder().makeExactLiteral(BigDecimal.valueOf(2)));
-        var graph = PlanFragmenter.fragment(topK, 4, AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+        var graph = PlanFragmenter.fragment(topK, 4, StageTerminalPurpose.RELATIONAL_EXPORT);
         var output = graph.stages().stream().filter(stage -> "OUTPUT".equals(stage.taskType()))
                 .findFirst().orElseThrow();
         assertThat(output.parallelism()).isOne();
@@ -604,7 +604,6 @@ class PlanFragmenterTest {
         assertThat(conversion.retrievalTopKHints()).hasSize(1);
         assertThat(conversion.retrievalTopKHints().get(0).candidateLimit()).isEqualTo(2);
     }
-
 
     @Test
     void hashPartitionsRawRowsBeforeGroupedNativeAggregation() {

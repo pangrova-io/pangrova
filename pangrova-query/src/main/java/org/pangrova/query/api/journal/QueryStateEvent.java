@@ -1,5 +1,6 @@
 package org.pangrova.query.api.journal;
 
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
@@ -34,11 +35,11 @@ public record QueryStateEvent(
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(state, "state must not be null");
         if (lineage != null) {
-            QueryLineageFact.Phase expected = switch (state) {
-                case "QUEUED" -> QueryLineageFact.Phase.START;
-                case "FINISHED" -> QueryLineageFact.Phase.COMPLETE;
-                case "FAILED" -> QueryLineageFact.Phase.FAIL;
-                case "CANCELLED" -> QueryLineageFact.Phase.ABORT;
+            LineageEventType expected = switch (state) {
+                case "QUEUED" -> LineageEventType.START;
+                case "FINISHED" -> LineageEventType.COMPLETE;
+                case "FAILED" -> LineageEventType.FAIL;
+                case "CANCELLED" -> LineageEventType.ABORT;
                 default -> throw new IllegalArgumentException("Intermediate query state cannot publish lineage");
             };
             if (!queryId.equals(lineage.queryId()) || lineage.phase() != expected) {

@@ -1,6 +1,6 @@
 package org.pangrova.types;
 
-import org.pangrova.types.VectorType.ElementType;
+import org.pangrova.types.enums.VectorElementType;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,17 +15,17 @@ class VectorTypeTest {
 
     @Test
     void dimensionBelowMinThrows() {
-        assertThrows(IllegalArgumentException.class, () -> new VectorType(0, ElementType.FLOAT));
+        assertThrows(IllegalArgumentException.class, () -> new VectorType(0, VectorElementType.FLOAT));
     }
 
     @Test
     void dimensionAboveMaxThrows() {
-        assertThrows(IllegalArgumentException.class, () -> new VectorType(65_536, ElementType.FLOAT));
+        assertThrows(IllegalArgumentException.class, () -> new VectorType(65_536, VectorElementType.FLOAT));
     }
 
     @Test
     void negativeDimensionThrows() {
-        assertThrows(IllegalArgumentException.class, () -> new VectorType(-1, ElementType.FLOAT));
+        assertThrows(IllegalArgumentException.class, () -> new VectorType(-1, VectorElementType.FLOAT));
     }
 
     // ── Defaults ────────────────────────────────────────────────────
@@ -33,20 +33,20 @@ class VectorTypeTest {
     @Test
     void nullElementTypeDefaultsToFloat() {
         VectorType vt = new VectorType(128, null);
-        assertEquals(ElementType.FLOAT, vt.elementType());
+        assertEquals(VectorElementType.FLOAT, vt.elementType());
     }
 
     // ── Boundary values ─────────────────────────────────────────────
 
     @Test
     void minDimensionAccepted() {
-        VectorType vt = new VectorType(1, ElementType.FLOAT);
+        VectorType vt = new VectorType(1, VectorElementType.FLOAT);
         assertEquals(1, vt.dimension());
     }
 
     @Test
     void maxDimensionAccepted() {
-        VectorType vt = new VectorType(65_535, ElementType.DOUBLE);
+        VectorType vt = new VectorType(65_535, VectorElementType.DOUBLE);
         assertEquals(65_535, vt.dimension());
     }
 
@@ -54,24 +54,24 @@ class VectorTypeTest {
 
     @Test
     void bytesPerVectorFloat() {
-        assertEquals(768 * 4, new VectorType(768, ElementType.FLOAT).bytesPerVector());
+        assertEquals(768 * 4, new VectorType(768, VectorElementType.FLOAT).bytesPerVector());
     }
 
     @Test
     void bytesPerVectorDouble() {
-        assertEquals(384 * 8, new VectorType(384, ElementType.DOUBLE).bytesPerVector());
+        assertEquals(384 * 8, new VectorType(384, VectorElementType.DOUBLE).bytesPerVector());
     }
 
     // ── getDisplayName ──────────────────────────────────────────────
 
     @Test
     void displayNameFloatOmitsElementType() {
-        assertEquals("VECTOR(128)", new VectorType(128, ElementType.FLOAT).getDisplayName());
+        assertEquals("VECTOR(128)", new VectorType(128, VectorElementType.FLOAT).getDisplayName());
     }
 
     @Test
     void displayNameDoubleIncludesElementType() {
-        assertEquals("VECTOR(384,DOUBLE)", new VectorType(384, ElementType.DOUBLE).getDisplayName());
+        assertEquals("VECTOR(384,DOUBLE)", new VectorType(384, VectorElementType.DOUBLE).getDisplayName());
     }
 
     @Test
@@ -83,7 +83,7 @@ class VectorTypeTest {
 
     @Test
     void typeSignatureBase() {
-        TypeSignature sig = new VectorType(768, ElementType.FLOAT).getTypeSignature();
+        TypeSignature sig = new VectorType(768, VectorElementType.FLOAT).getTypeSignature();
         assertEquals("VECTOR", sig.base());
         assertEquals(2, sig.parameters().size());
         assertEquals(768L, sig.parameters().get(0).longValue());
@@ -92,7 +92,7 @@ class VectorTypeTest {
 
     @Test
     void typeSignatureDouble() {
-        TypeSignature sig = new VectorType(384, ElementType.DOUBLE).getTypeSignature();
+        TypeSignature sig = new VectorType(384, VectorElementType.DOUBLE).getTypeSignature();
         assertEquals("DOUBLE", sig.parameters().get(1).typeSignature().base());
     }
 
@@ -100,8 +100,8 @@ class VectorTypeTest {
 
     @Test
     void equalityByValue() {
-        VectorType a = new VectorType(128, ElementType.FLOAT);
-        VectorType b = new VectorType(128, ElementType.FLOAT);
+        VectorType a = new VectorType(128, VectorElementType.FLOAT);
+        VectorType b = new VectorType(128, VectorElementType.FLOAT);
         assertEquals(a, b);
         assertEquals(a.hashCode(), b.hashCode());
     }

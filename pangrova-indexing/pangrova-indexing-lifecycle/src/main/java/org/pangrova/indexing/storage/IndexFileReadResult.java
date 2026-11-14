@@ -1,5 +1,7 @@
 package org.pangrova.indexing.storage;
 
+import org.pangrova.indexing.enums.IndexFileReadStatus;
+
 import java.util.Objects;
 
 /**
@@ -24,25 +26,15 @@ import java.util.Objects;
  */
 public final class IndexFileReadResult {
 
-    /** The three possible outcomes of an index file read attempt. */
-    public enum Status {
-        /** File existed and was successfully read. */
-        PRESENT,
-        /** File does not exist; treat as "no index", not a failure. */
-        MISSING,
-        /** File exists but could not be read (I/O error, oversized, etc.); a failure. */
-        ERROR
-    }
-
     private static final IndexFileReadResult MISSING_INSTANCE =
-            new IndexFileReadResult(Status.MISSING, null);
+            new IndexFileReadResult(IndexFileReadStatus.MISSING, null);
     private static final IndexFileReadResult ERROR_INSTANCE =
-            new IndexFileReadResult(Status.ERROR, null);
+            new IndexFileReadResult(IndexFileReadStatus.ERROR, null);
 
-    private final Status status;
+    private final IndexFileReadStatus status;
     private final byte[] bytes;
 
-    private IndexFileReadResult(Status status, byte[] bytes) {
+    private IndexFileReadResult(IndexFileReadStatus status, byte[] bytes) {
         this.status = status;
         this.bytes = bytes;
     }
@@ -50,7 +42,7 @@ public final class IndexFileReadResult {
     /** Creates a {@link Status#PRESENT} result wrapping the read bytes. */
     public static IndexFileReadResult present(byte[] bytes) {
         Objects.requireNonNull(bytes, "bytes");
-        return new IndexFileReadResult(Status.PRESENT, bytes.clone());
+        return new IndexFileReadResult(IndexFileReadStatus.PRESENT, bytes.clone());
     }
 
     /** Returns the canonical {@link Status#MISSING} result. */
@@ -63,7 +55,7 @@ public final class IndexFileReadResult {
         return ERROR_INSTANCE;
     }
 
-    public Status status() {
+    public IndexFileReadStatus status() {
         return status;
     }
 
@@ -73,21 +65,21 @@ public final class IndexFileReadResult {
      * @throws IllegalStateException if {@link #status()} is not {@link Status#PRESENT}
      */
     public byte[] bytes() {
-        if (status != Status.PRESENT) {
+        if (status != IndexFileReadStatus.PRESENT) {
             throw new IllegalStateException("bytes() requires PRESENT status, got " + status);
         }
         return bytes.clone();
     }
 
     public boolean isPresent() {
-        return status == Status.PRESENT;
+        return status == IndexFileReadStatus.PRESENT;
     }
 
     public boolean isMissing() {
-        return status == Status.MISSING;
+        return status == IndexFileReadStatus.MISSING;
     }
 
     public boolean isError() {
-        return status == Status.ERROR;
+        return status == IndexFileReadStatus.ERROR;
     }
 }

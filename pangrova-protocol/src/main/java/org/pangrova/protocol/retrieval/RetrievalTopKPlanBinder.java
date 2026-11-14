@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import java.util.HashSet;
 import java.util.List;
@@ -135,7 +135,7 @@ public final class RetrievalTopKPlanBinder {
             return rel;
         }
         if (binding.capability().getCapabilityId().equals(
-                BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID)) {
+                BuiltInCapabilityIdentifiers.BM25_RETRIEVAL_ID)) {
             retrievalInput = Bm25MaterializedScoreBinder.bind(
                     retrievalInput, binding, cursor.functionNames());
         }

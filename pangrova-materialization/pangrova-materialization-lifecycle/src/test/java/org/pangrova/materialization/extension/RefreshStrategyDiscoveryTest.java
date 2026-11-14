@@ -1,8 +1,8 @@
 package org.pangrova.materialization.extension;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.materialization.api.domain.RefreshKind;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.enums.RefreshKind;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
 import org.pangrova.materialization.api.refresh.RefreshStrategyFactory;
 import org.pangrova.materialization.strategy.AppendOnlyRefreshStrategy;
@@ -18,8 +18,8 @@ class RefreshStrategyDiscoveryTest {
     @Test
     void loadsPackagedStrategiesAndSharesOneInstancePerRegistry() {
         var registry = MaterializationExtensionRegistry.discover(getClass().getClassLoader());
-        for (RefreshKind kind : List.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE,
-                RefreshKind.IncrementalPartitionReplace.INSTANCE)) {
+        for (RefreshKind kind : List.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY,
+                RefreshKind.INCREMENTAL_PARTITION_REPLACE)) {
             RefreshStrategy strategy = registry.strategy(kind.strategyId());
             assertThat(strategy.kind()).isEqualTo(kind);
             assertThat(registry.strategy(kind.strategyId())).isSameAs(strategy);
@@ -31,8 +31,8 @@ class RefreshStrategyDiscoveryTest {
     @Test
     void rejectsInvalidSetsBeforeConstructingAnyStrategies() {
         Supplier<RefreshStrategy> never = () -> { throw new AssertionError("premature creation"); };
-        var full = new Factory(RefreshStrategyFactory.API_VERSION, RefreshKind.Full.INSTANCE, never);
-        var future = new Factory(RefreshStrategyFactory.API_VERSION + 1, RefreshKind.Full.INSTANCE, never);
+        var full = new Factory(RefreshStrategyFactory.API_VERSION, RefreshKind.FULL, never);
+        var future = new Factory(RefreshStrategyFactory.API_VERSION + 1, RefreshKind.FULL, never);
         assertThatIllegalStateException()
                 .isThrownBy(() -> MaterializationExtensionRegistry.fromFactories(List.of()))
                 .withMessageContaining("missing FULL");
@@ -46,7 +46,7 @@ class RefreshStrategyDiscoveryTest {
 
     @Test
     void rejectsNullAndMismatchedFactoryProductsAndAcceptsFullOnlyDeployment() {
-        var kind = RefreshKind.Full.INSTANCE;
+        var kind = RefreshKind.FULL;
         int version = RefreshStrategyFactory.API_VERSION;
         var wrong = new Factory(version, kind, AppendOnlyRefreshStrategy::new);
         var empty = new Factory(version, kind, () -> null);

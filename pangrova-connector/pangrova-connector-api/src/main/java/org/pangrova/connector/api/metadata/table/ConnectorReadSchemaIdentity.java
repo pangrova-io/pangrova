@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata.table;
 
+import org.pangrova.connector.api.enums.FieldIdStability;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.HashSet;
@@ -25,7 +26,6 @@ import java.util.Objects;
 @Experimental
 public record ConnectorReadSchemaIdentity(TableIdentity tableIdentity, String fieldNamespace,
         List<ConnectorTableMetadata.Column> fields, FieldIdStability stability) {
-    public enum FieldIdStability { SELECTED_SOURCE, NON_REUSABLE_NAMESPACE }
 
     public ConnectorReadSchemaIdentity {
         Objects.requireNonNull(tableIdentity, "tableIdentity");

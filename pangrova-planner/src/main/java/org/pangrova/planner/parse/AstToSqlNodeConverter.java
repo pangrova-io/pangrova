@@ -1,5 +1,11 @@
 package org.pangrova.planner.parse;
 
+import org.pangrova.parser.api.enums.NullOrdering;
+import org.pangrova.parser.api.enums.SetOperatorType;
+import org.pangrova.parser.api.enums.SortDirection;
+import org.pangrova.parser.api.enums.SqlJoinType;
+import org.pangrova.parser.api.enums.TableFunctionType;
+import org.pangrova.parser.api.enums.UnpivotNullHandling;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.parser.api.ast.AllColumns;
@@ -96,7 +102,7 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertSetQuery(SetQuery sq) {
         List<Query> queries = sq.queries();
-        List<SetQuery.SetOperatorType> operators = sq.operators();
+        List<SetOperatorType> operators = sq.operators();
         SqlNode result = convertQuery(queries.get(0));
         for (int i = 1; i < queries.size(); i++) {
             SqlOperator op = mapSetOperator(operators.get(i - 1));
@@ -105,7 +111,7 @@ public final class AstToSqlNodeConverter {
         return result;
     }
 
-    private static SqlOperator mapSetOperator(SetQuery.SetOperatorType type) {
+    private static SqlOperator mapSetOperator(SetOperatorType type) {
         return switch (type) {
             case UNION_ALL -> SqlStdOperatorTable.UNION_ALL;
             case UNION_DISTINCT -> SqlStdOperatorTable.UNION;
@@ -204,7 +210,7 @@ public final class AstToSqlNodeConverter {
                 calciteJoinType.symbol(POS), right, condType.symbol(POS), condition);
     }
 
-    private static JoinType mapJoinType(JoinClause.JoinType jt) {
+    private static JoinType mapJoinType(SqlJoinType jt) {
         return switch (jt) {
             case INNER -> JoinType.INNER;
             case LEFT -> JoinType.LEFT;
@@ -268,13 +274,13 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertLateralTableFunction(TableRef ref) {
         var funcRef = ref.tableFunctionRef().orElseThrow();
-        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.GENERATE_SERIES) {
+        if (funcRef.functionType() == TableFunctionType.GENERATE_SERIES) {
             return convertGenerateSeries(funcRef);
         }
         SqlNode argument = convertExpression(funcRef.argument());
         SqlNode unnest;
-        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.POSEXPLODE
-                || funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+        if (funcRef.functionType() == TableFunctionType.POSEXPLODE
+                || funcRef.functionType() == TableFunctionType.UNNEST_WITH_ORDINALITY) {
             // Preserve the value column followed by the ordinality column.
             unnest = new org.apache.calcite.sql.SqlUnnestOperator(true)
                     .createCall(POS, argument);
@@ -399,11 +405,11 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertSortItem(SortItem item) {
         SqlNode expr = convertExpression(item.expression());
-        if (item.direction().isPresent() && item.direction().get() == SortItem.SortDirection.DESC) {
+        if (item.direction().isPresent() && item.direction().get() == SortDirection.DESC) {
             expr = SqlStdOperatorTable.DESC.createCall(POS, expr);
         }
         if (item.nullOrdering().isPresent()) {
-            if (item.nullOrdering().get() == SortItem.NullOrdering.FIRST) {
+            if (item.nullOrdering().get() == NullOrdering.FIRST) {
                 expr = SqlStdOperatorTable.NULLS_FIRST.createCall(POS, expr);
             } else {
                 expr = SqlStdOperatorTable.NULLS_LAST.createCall(POS, expr);
@@ -419,7 +425,7 @@ public final class AstToSqlNodeConverter {
     // ── UNPIVOT / PIVOT ──
 
     private SqlNode convertUnpivot(SqlNode source, UnpivotClause unpivot) {
-        boolean includeNulls = unpivot.nullHandling() == UnpivotClause.NullHandling.INCLUDE;
+        boolean includeNulls = unpivot.nullHandling() == UnpivotNullHandling.INCLUDE;
         // measureList: the value column(s)
         SqlNodeList measureList = new SqlNodeList(
                 List.of(new SqlIdentifier(unpivot.valueColumn().parts(), POS)), POS);

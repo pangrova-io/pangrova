@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.statement.dml;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
+import java.util.Locale;
 import java.util.function.BiFunction;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
@@ -110,12 +113,12 @@ public final class DmlExpressionEvaluator {
     }
 
     private static ColumnValue evaluateBinary(BinaryExpression bin, TypedRow row) {
-        if (bin.operator() == BinaryExpression.Operator.AND) {
+        if (bin.operator() == BinaryExpressionOperator.AND) {
             return new ColumnValue.BooleanValue(
                     evaluateBooleanExpr(bin.left(), row)
                             && evaluateBooleanExpr(bin.right(), row));
         }
-        if (bin.operator() == BinaryExpression.Operator.OR) {
+        if (bin.operator() == BinaryExpressionOperator.OR) {
             return new ColumnValue.BooleanValue(
                     evaluateBooleanExpr(bin.left(), row)
                             || evaluateBooleanExpr(bin.right(), row));
@@ -127,7 +130,7 @@ public final class DmlExpressionEvaluator {
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static ColumnValue evaluateComparison(
-            BinaryExpression.Operator op, ColumnValue left, ColumnValue right) {
+            BinaryExpressionOperator op, ColumnValue left, ColumnValue right) {
         if (left instanceof ColumnValue.NullValue
                 || right instanceof ColumnValue.NullValue) {
             return new ColumnValue.BooleanValue(false);
@@ -194,7 +197,7 @@ public final class DmlExpressionEvaluator {
     // ── INSERT function evaluation (FILE_FROM_URL, FILE_FROM_BYTES) ──
 
     private static ColumnValue evaluateInsertFunction(FunctionCall func) {
-        String funcName = String.join(".", func.name().parts()).toUpperCase();
+        String funcName = String.join(".", func.name().parts()).toUpperCase(Locale.ROOT);
         return switch (funcName) {
             case "FILE_FROM_URL" -> evaluateFileFromUrl(func);
             case "FILE_FROM_BYTES" -> evaluateFileFromBytes(func);

@@ -1,5 +1,6 @@
 package org.pangrova.persistence.materialization.api.lifecycle;
 
+import org.pangrova.materialization.api.enums.GcState;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.materialization.api.port.GcHistoryEntry;
@@ -542,5 +543,5 @@ public interface MaterializationRepository {
      * @param state terminal decision state
      * @param now transition instant
      */
-    void updateGcDecision(UUID entryId, GcLedgerEntry.GcState state, Instant now);
+    void updateGcDecision(UUID entryId, GcState state, Instant now);
 }

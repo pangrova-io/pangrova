@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.enums.ShuffleType;
 
 import com.google.common.collect.ImmutableList;
@@ -141,9 +143,9 @@ class FragmentSourceParallelismTest {
         var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "bound"),
                 List.of("id"), List.of(), Map.of());
         var binding = new ConnectorReadBinding(new SourceHandle(),
-                new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
+                new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
                 new TableStatistics(rows, bytes, sourceUnits, Map.of()),
-                rows == 0 ? ConnectorReadBinding.SnapshotState.EMPTY : ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                rows == 0 ? ReadSnapshotState.EMPTY : ReadSnapshotState.SNAPSHOT,
                 rows == 0 ? OptionalLong.empty() : OptionalLong.of(1), "selected", java.util.Optional.empty());
         schema.add("bound", new AbstractTable() {
             @Override

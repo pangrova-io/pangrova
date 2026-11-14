@@ -22,6 +22,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
@@ -73,13 +74,13 @@ class PaimonMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.describe(SOURCE, "t1", "1", POLICY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                    .isEqualTo(MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
             assertThatThrownBy(() -> provider.pin(SOURCE, "t1",
                     new SourceSnapshotRef("paimon", "1", "schema", POLICY,
                             java.time.Instant.now(), true), "attempt-1"))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE);
+                    .isEqualTo(MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE);
         }
     }
 
@@ -102,7 +103,7 @@ class PaimonMaterializationSourceProviderTest {
                     provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+                    .isEqualTo(MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED);
         }
     }
 
@@ -119,7 +120,7 @@ class PaimonMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.changeSet(from, to, ChangeSetMode.APPEND_ONLY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.PROOF_INCOMPLETE);
+                    .isEqualTo(MaterializationSourceFailureReason.PROOF_INCOMPLETE);
 
             ChangeSetPlan unproven = new ChangeSetPlan(SOURCE, from.snapshot(), to.snapshot(),
                     ChangeSetMode.APPEND_ONLY, "plan:overwrite", java.time.Instant.now(),
@@ -146,7 +147,7 @@ class PaimonMaterializationSourceProviderTest {
             assertThatThrownBy(() -> provider.changeSet(from, to, ChangeSetMode.APPEND_ONLY))
                     .isInstanceOf(MaterializationSourceException.class)
                     .extracting(failure -> ((MaterializationSourceException) failure).reason())
-                    .isEqualTo(MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+                    .isEqualTo(MaterializationSourceFailureReason.CHANGESET_UNSUPPORTED);
         }
     }
 

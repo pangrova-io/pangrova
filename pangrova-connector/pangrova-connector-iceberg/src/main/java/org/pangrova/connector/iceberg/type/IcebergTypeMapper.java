@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.type;
 
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.NullOnlyType;
 import org.pangrova.types.RowType;
@@ -102,7 +103,7 @@ public final class IcebergTypeMapper {
      * @return the corresponding Iceberg ListType
      */
     public static Types.ListType toIcebergVectorType(VectorType vectorType, int elementFieldId) {
-        Type.PrimitiveType elementType = vectorType.elementType() == VectorType.ElementType.DOUBLE
+        Type.PrimitiveType elementType = vectorType.elementType() == VectorElementType.DOUBLE
                 ? Types.DoubleType.get()
                 : Types.FloatType.get();
         return Types.ListType.ofRequired(elementFieldId, elementType);
@@ -192,9 +193,9 @@ public final class IcebergTypeMapper {
                     "Invalid vector dimension for column '" + columnName + "': " + dimValue, e);
         }
         Types.ListType list = (Types.ListType) icebergType.asNestedType();
-        VectorType.ElementType elementType = list.elementType().typeId() == Type.TypeID.DOUBLE
-                ? VectorType.ElementType.DOUBLE
-                : VectorType.ElementType.FLOAT;
+        VectorElementType elementType = list.elementType().typeId() == Type.TypeID.DOUBLE
+                ? VectorElementType.DOUBLE
+                : VectorElementType.FLOAT;
         return new VectorType(dimension, elementType);
     }
 

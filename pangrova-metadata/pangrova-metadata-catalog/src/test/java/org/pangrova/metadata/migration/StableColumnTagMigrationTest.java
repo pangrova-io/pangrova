@@ -4,7 +4,7 @@ import org.pangrova.table.api.policy.GovernanceBinding;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.table.api.enums.GovernanceBindingType;
-import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import javax.sql.DataSource;
@@ -19,7 +19,7 @@ class StableColumnTagMigrationTest {
     void provenTagMigratesWithoutChangingItsIdentityOrActor() throws Exception {
         var source = source();
         var tableId = historicalTable(source, false);
-        var store = new JdbcTableControlGovernanceBindingStore(source);
+        var store = new PostgresTablePolicyRepository(source);
         var original = historicalBinding(source, tableId, "PII_EMAIL");
         insert(source, "cat|db|orders|email", "PII_EMAIL");
 
@@ -99,7 +99,7 @@ class StableColumnTagMigrationTest {
 
     private static java.util.UUID historicalBinding(DataSource source, java.util.UUID tableId, String value) {
         var id = java.util.UUID.randomUUID();
-        new JdbcTableControlGovernanceBindingStore(source).save(new org.pangrova.table.api.policy.GovernanceBinding(
+        new PostgresTablePolicyRepository(source).save(new org.pangrova.table.api.policy.GovernanceBinding(
                 id, tableId, GovernanceBindingType.COLUMN_TAG, "email:pii_type", Map.of("value", value), "alice",
                 java.time.Instant.now(), java.time.Instant.now()));
         return id;

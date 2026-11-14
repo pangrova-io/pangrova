@@ -1,5 +1,6 @@
 package org.pangrova.streaming.writer.lake;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
@@ -118,13 +119,13 @@ class LakeTableWriterTest {
     private static WriteRecord insertRecord(int id, String name) {
         return new WriteRecord(
                 TypedRow.fromRawMap(Map.of("id", id, "name", name)),
-                WriteRecord.WriteOperation.INSERT, Instant.now());
+                WriteOperation.INSERT, Instant.now());
     }
 
     private static WriteRecord deleteRecord(int id) {
         return new WriteRecord(
                 TypedRow.fromRawMap(Map.of("id", id)),
-                WriteRecord.WriteOperation.DELETE, Instant.now());
+                WriteOperation.DELETE, Instant.now());
     }
 
     /**

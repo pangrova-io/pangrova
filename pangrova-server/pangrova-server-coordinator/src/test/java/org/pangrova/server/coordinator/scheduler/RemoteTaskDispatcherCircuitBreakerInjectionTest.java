@@ -31,7 +31,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
     @Test
     void resilienceEnabled_injectsExternalCircuitBreaker() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-cb-test", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-cb-test", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -63,7 +63,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
     @Test
     void injectedCircuitBreaker_stateSharedWithDispatcher() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-cb-shared", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-cb-shared", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

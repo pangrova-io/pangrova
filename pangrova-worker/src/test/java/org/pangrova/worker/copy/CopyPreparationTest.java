@@ -1,5 +1,7 @@
 package org.pangrova.worker.copy;
 
+import org.pangrova.worker.exception.CopyPreparationHaltedException;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.ErrorClass;
@@ -22,12 +24,12 @@ class CopyPreparationTest {
     @Test
     void wholePipelinePreflightRejectsBeforeConsumingAnyAllowance() {
         var budget = budget(9, 5, 5);
-        assertThatThrownBy(() -> budget.requireStageCapacity(5)).isInstanceOf(CopyPreparation.Halted.class);
+        assertThatThrownBy(() -> budget.requireStageCapacity(5)).isInstanceOf(CopyPreparationHaltedException.class);
         assertThat(budget.usage().getObjectStoreReadBytes()).isZero();
         assertThat(budget.usage().getObjectStoreWriteBytes()).isZero();
         assertThat(budget.usage().getSpillBytes()).isZero();
         assertThatThrownBy(() -> budget.requireStageCapacity(Long.MAX_VALUE))
-                .isInstanceOf(CopyPreparation.Halted.class);
+                .isInstanceOf(CopyPreparationHaltedException.class);
     }
 
     @Test
@@ -38,9 +40,9 @@ class CopyPreparationTest {
         budget.reserveRead(5);
         budget.reserveWrite(5);
         budget.reserveDraft(5);
-        assertThatThrownBy(() -> budget.reserveRead(1)).isInstanceOf(CopyPreparation.Halted.class);
-        assertThatThrownBy(() -> budget.reserveWrite(1)).isInstanceOf(CopyPreparation.Halted.class);
-        assertThatThrownBy(() -> budget.reserveDraft(1)).isInstanceOf(CopyPreparation.Halted.class);
+        assertThatThrownBy(() -> budget.reserveRead(1)).isInstanceOf(CopyPreparationHaltedException.class);
+        assertThatThrownBy(() -> budget.reserveWrite(1)).isInstanceOf(CopyPreparationHaltedException.class);
+        assertThatThrownBy(() -> budget.reserveDraft(1)).isInstanceOf(CopyPreparationHaltedException.class);
         assertThat(budget.usage().getObjectStoreReadBytes()).isEqualTo(10);
         assertThat(budget.usage().getObjectStoreWriteBytes()).isEqualTo(5);
         assertThat(budget.usage().getSpillBytes()).isEqualTo(5);
@@ -53,7 +55,7 @@ class CopyPreparationTest {
         budget.ownDraft(draft);
         budget.reserveRead(5);
         budget.cancel();
-        assertThatThrownBy(() -> budget.reserveRead(1)).isInstanceOfSatisfying(CopyPreparation.Halted.class,
+        assertThatThrownBy(() -> budget.reserveRead(1)).isInstanceOfSatisfying(CopyPreparationHaltedException.class,
                 halted -> assertThat(halted.category()).isEqualTo(ErrorClass.ERROR_CLASS_CANCELLED));
         assertThat(budget.cleanupResources()).isTrue();
         assertThat(budget.resourcesReleased()).isTrue();

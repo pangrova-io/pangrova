@@ -533,8 +533,8 @@ class DiskAnnDistributedE2ETest extends VectorIndexE2ETestBase {
         assertThat(empty.rows()).isEmpty();
         assertThat(empty.tasks().stream().flatMap(task -> task.request().getOperatorBindingsList().stream())
                 .map(binding -> binding.getCapability().getCapabilityId()).toList())
-                .doesNotContain(org.pangrova.protocol.capability.BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID,
-                        org.pangrova.protocol.capability.BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID);
+                .doesNotContain(org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID,
+                        org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID);
         sqlRunner.executeDdl("DROP INDEX idx_diskann_pruned ON " + fqn);
         sqlRunner.executeDdl("DROP TABLE " + fqn);
     }

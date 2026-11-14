@@ -119,7 +119,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
      */
     public boolean tryPrepareTaskRetry(String queryId, String failedTaskId,
             String retryTaskId, int maxRetries) {
-        return !pipelineConfig.localShuffle() && lifecycle.tryPrepareTaskRetry(queryId, failedTaskId, retryTaskId, maxRetries);
+        return lifecycle.tryPrepareTaskRetry(queryId, failedTaskId, retryTaskId, maxRetries);
     }
 
     /** Reverts an uncommitted retry reservation after dispatch failed. */
@@ -157,8 +157,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             QueryExecutionScope queryContext,
             Consumer<DispatchResult> resultReadySink) {
         lifecycle.registerQuery(session.queryId(), dag, queryContext);
-        return dispatch(session, dag, compiler, workerSelector, timeoutMs,
-                resultReadySink);
+        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, resultReadySink);
     }
 
     /** Dispatches a DAG using any previously registered query context. */
@@ -168,18 +167,17 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             SqlCompiler compiler,
             WorkerSelector workerSelector,
             long timeoutMs) {
-        return dispatch(session, dag, compiler, workerSelector, timeoutMs,
-                ignored -> { });
+        lifecycle.registerDagIfAbsent(session.queryId(), dag);
+        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, ignored -> { });
     }
 
-    private DispatchResult dispatch(
+    private DispatchResult dispatchRegistered(
             QuerySession session,
             StageDAG dag,
             SqlCompiler compiler,
             WorkerSelector workerSelector,
             long timeoutMs,
             Consumer<DispatchResult> resultReadySink) {
-        lifecycle.registerDagIfAbsent(session.queryId(), dag);
         DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
                 compiler, pipelineConfig.localShuffle() && !dag.stageEdges().isEmpty()
                         ? new org.pangrova.coordinator.scheduler.placement.LocalShufflePlacement(workerSelector)
@@ -192,7 +190,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                     state.completion(), timeoutMs, session.queryId());
         } catch (Exception failure) {
             lifecycle.failDispatch(
-                    state.queryId(), state.cancelled(), state.dispatched());
+                    state.queryId(), state.dag(), state.cancelled(), state.dispatched());
             throw failure;
         }
     }
@@ -200,6 +198,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     private void registerListeners(DAGExecutionState state) {
         for (Stage stage : state.dag().stageEntities()) {
             stage.stateMachine().addStateChangeListener((id, previous, next) -> {
+                if (!lifecycle.owns(state.queryId(), state.dag()) || state.cancelled().get()) return;
                 updateRunningCount(previous, next, state.runningStageCount());
                 try {
                     onStateChange(stage, next, state);
@@ -346,7 +345,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     }
 
     private void scheduleStage(Stage stage, DAGExecutionState state) {
-        if (state.cancelled().get()
+        if (state.cancelled().get() || !state.dag().admitInputs(stage.stageId())
                 || !stage.stateMachine().tryTransitionTo(
                         StageState.SCHEDULING)) {
             return;
@@ -359,7 +358,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             awaitStageDispatch(stage, prepared.plan(), partitions, state);
         } catch (Exception failure) {
             stage.stateMachine().tryTransitionTo(StageState.FAILED);
-            lifecycle.failQuery(state.queryId());
+            lifecycle.failQuery(state.queryId(), state.dag());
             throw propagateSchedulingFailure(failure);
         }
     }
@@ -411,12 +410,17 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             StageNode plan,
             List<PartitionDispatch> partitions,
             DAGExecutionState state) {
+        int generation = stage.currentGeneration();
         CompletableFuture.allOf(partitions.stream()
                         .map(PartitionDispatch::future)
                         .toArray(CompletableFuture[]::new))
-                .thenRun(() -> finishStageDispatch(stage, plan, partitions, state))
+                .thenRun(() -> {
+                    if (stage.currentGeneration() == generation) finishStageDispatch(stage, plan, partitions, state);
+                })
                 .exceptionally(failure -> {
-                    failStageDispatch(stage, failure, state);
+                    if (stage.currentGeneration() == generation && lifecycle.owns(state.queryId(), state.dag())) {
+                        failStageDispatch(stage, failure, state);
+                    }
                     return null;
                 });
     }
@@ -426,20 +430,25 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             StageNode plan,
             List<PartitionDispatch> partitions,
             DAGExecutionState state) {
+        if (state.cancelled().get() || !lifecycle.owns(state.queryId(), state.dag())) return;
         leafStageDispatcher.populateDispatchRecords(
                 partitions, stage, state.dispatched(), state.results());
-        leafStageDispatcher.registerCohort(partitions, stage);
-        stage.stateMachine().tryTransitionTo(StageState.RUNNING);
-        leafStageDispatcher.registerTasks(partitions, stage, state.execution());
-        leafStageDispatcher.restoreWinners(partitions, stage);
+        if (partitions.stream().anyMatch(partition -> partition.winner() == null && partition.request().taskRequest().getTaskKind()
+                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE)) stage.markWriteAttempt();
         if (state.durable() == null && "OUTPUT".equals(plan.taskType())) {
             if (partitions.size() != 1) {
                 throw new IllegalStateException(
                         "OUTPUT stage requires a single result endpoint; stageId="
                                 + stage.stageId() + " partitions=" + partitions.size());
             }
-            state.resultReadySink().accept(state.results().get(stage.stageId()));
+            var acknowledged = state.results().get(stage.stageId());
+            if (acknowledged.resultEndpoint() != null) stage.markClientResultPublished();
+            state.resultReadySink().accept(acknowledged);
         }
+        leafStageDispatcher.registerCohort(partitions, stage);
+        stage.stateMachine().tryTransitionTo(StageState.RUNNING);
+        leafStageDispatcher.registerTasks(partitions, stage, state.execution());
+        leafStageDispatcher.restoreWinners(partitions, stage);
         lifecycle.emitStageLineage(state.queryId(), plan, false);
         if (!state.completion().isDone() && !state.cancelled().get()
                 && DAGCompletionEvaluator.allStagesFinished(state.dag())) {
@@ -468,7 +477,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
 
     private void completeQuery(DAGExecutionState state) {
         if (state.durable() != null) {
-            lifecycle.completeDurable(state.queryId(), state.completion());
+            lifecycle.completeDurable(state.queryId(), state.dag(), state.completion());
             return;
         }
         lifecycle.completeQuery(
@@ -480,6 +489,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         return failure instanceof RuntimeException runtime ? runtime
                 : new RuntimeException(
                         "Stage scheduling failed: " + failure.getMessage(), failure);
+    }
+
+    @Override
+    public boolean ownsQueryCompletion(String queryId) {
+        return lifecycle.ownsQueryCompletion(queryId);
     }
 
     /** Returns whether every tracked stage for the query has finished. */
@@ -504,6 +518,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     /** Removes all per-query dispatch state. */
     public void cancelDurable(String executionId) {
         durableControl.cancel(executionId);
+    }
+
+    /** Ends logical dispatch and finalization without retiring physical attempt ownership. */
+    public void cancelLiveDispatch(String queryId) {
+        lifecycle.cancelLiveDispatch(queryId);
     }
 
     /** Removes all per-query dispatch state. */

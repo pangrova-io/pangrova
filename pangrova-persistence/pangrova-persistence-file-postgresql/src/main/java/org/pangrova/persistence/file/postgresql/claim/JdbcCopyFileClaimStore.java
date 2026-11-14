@@ -1,5 +1,10 @@
 package org.pangrova.persistence.file.postgresql.claim;
 
+import org.pangrova.common.util.DigestUtils;
+
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
+import org.pangrova.persistence.file.api.enums.CopyFileClaimResult;
 import org.pangrova.common.annotation.DeadCode;
 import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
@@ -13,13 +18,11 @@ import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /** PostgreSQL authority for immutable COPY source-file admissions; awaiting URI execution wiring. */
 @DeadCode(issueReference = "#19 COPY INTO URI execution and publication")
 public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
 
-    private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
     private static final String COLUMNS = "claim_key, load_generation, claim_digest, "
             + "tenant_id, table_uuid, source_url, "
             + "source_version_id, source_sha256, source_size, profile_name, "
@@ -35,7 +38,7 @@ public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
     }
 
     @Override
-    public ClaimResult claim(CopyFileClaim claim) {
+    public CopyFileClaimResult claim(CopyFileClaim claim) {
         Objects.requireNonNull(claim, "claim must not be null");
         if (claim.loadGeneration() != 0) {
             throw new IllegalArgumentException(
@@ -48,10 +51,10 @@ public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
                 boolean inserted = statement.executeUpdate() == 1;
                 connection.commit();
                 if (inserted) {
-                    return ClaimResult.ACQUIRED;
+                    return CopyFileClaimResult.ACQUIRED;
                 }
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -67,20 +70,12 @@ public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
             throw new IllegalStateException("COPY source version has conflicting byte or profile evidence");
         }
         return existing.executionId().equals(claim.executionId())
-                ? ClaimResult.SAME_EXECUTION : ClaimResult.BLOCKED;
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error rollbackFailure) {
-            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
-        }
+                ? CopyFileClaimResult.SAME_EXECUTION : CopyFileClaimResult.BLOCKED;
     }
 
     @Override
     public Optional<CopyFileClaim> get(String claimKey, long loadGeneration) {
-        if (claimKey == null || !SHA_256.matcher(claimKey).matches()) {
+        if (!DigestUtils.isSha256Hex(claimKey)) {
             throw new IllegalArgumentException("claimKey must be lowercase SHA-256 hex");
         }
         if (loadGeneration < 0) {

@@ -1,17 +1,19 @@
 package org.pangrova.materialization.strategy;
 
+import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.pangrova.materialization.api.domain.Generation;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.RefreshPlan;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.refresh.RefreshContext;
 import org.pangrova.materialization.api.refresh.RefreshStrategy;
 import org.pangrova.materialization.api.refresh.StrategyCompatibility;
@@ -44,7 +46,7 @@ public final class PartitionReplaceRefreshStrategy implements RefreshStrategy {
 
     @Override
     public RefreshKind kind() {
-        return RefreshKind.IncrementalPartitionReplace.INSTANCE;
+        return RefreshKind.INCREMENTAL_PARTITION_REPLACE;
     }
 
     @Override
@@ -61,7 +63,7 @@ public final class PartitionReplaceRefreshStrategy implements RefreshStrategy {
             return Optional.of("partition replacement requires a published base generation");
         }
         Generation base = context.baseGeneration().get();
-        if (base.state() != GenerationState.Published.INSTANCE) {
+        if (base.state() != GenerationState.PUBLISHED) {
             return Optional.of(
                     "base generation " + base.id() + " is " + base.state() + ", not published");
         }
@@ -80,7 +82,7 @@ public final class PartitionReplaceRefreshStrategy implements RefreshStrategy {
     }
 
     private static Optional<String> alignmentProblem(RefreshContext context) {
-        if (context.partitionAlignment().shape() == PartitionAlignment.Shape.UNSUPPORTED) {
+        if (context.partitionAlignment().shape() == PartitionAlignmentShape.UNSUPPORTED) {
             return Optional.of("definition shape cannot be recomputed one partition at a time");
         }
         if (context.changeProof().isEmpty()) {
@@ -127,7 +129,7 @@ public final class PartitionReplaceRefreshStrategy implements RefreshStrategy {
                 return Optional.of("partition column " + column
                         + " is not exposed by a directly derived output column");
             }
-            if (alignment.shape() == PartitionAlignment.Shape.AGGREGATE
+            if (alignment.shape() == PartitionAlignmentShape.AGGREGATE
                     && !mapped.get().groupingKey()) {
                 return Optional.of("partition column " + column + " is not a grouping key");
             }

@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.enums.TaskEgressState;
+
 import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
 import java.nio.ByteBuffer;
@@ -43,7 +45,7 @@ final class RemoteShuffleTaskEgress {
     private final ConcurrentMap<Integer, RemoteShufflePartitionStats> partitions =
             new ConcurrentHashMap<>();
     private final Object lifecycleMonitor = new Object();
-    private Lifecycle lifecycle = Lifecycle.ACTIVE;
+    private TaskEgressState lifecycle = TaskEgressState.ACTIVE;
     private int activeWrites;
     private boolean activeFinish;
 
@@ -181,9 +183,9 @@ final class RemoteShuffleTaskEgress {
     void abort(String reason) {
         boolean finished;
         synchronized (lifecycleMonitor) {
-            finished = lifecycle == Lifecycle.FINISHED;
+            finished = lifecycle == TaskEgressState.FINISHED;
             if (!finished) {
-                lifecycle = Lifecycle.ABORTED;
+                lifecycle = TaskEgressState.ABORTED;
             }
             lifecycleMonitor.notifyAll();
         }
@@ -324,7 +326,7 @@ final class RemoteShuffleTaskEgress {
 
     private void beginWrite() {
         synchronized (lifecycleMonitor) {
-            if (lifecycle != Lifecycle.ACTIVE) {
+            if (lifecycle != TaskEgressState.ACTIVE) {
                 throw new IllegalStateException("Remote shuffle producer is terminal");
             }
             activeWrites++;
@@ -342,10 +344,10 @@ final class RemoteShuffleTaskEgress {
 
     private void beginFinish() {
         synchronized (lifecycleMonitor) {
-            if (lifecycle != Lifecycle.ACTIVE) {
+            if (lifecycle != TaskEgressState.ACTIVE) {
                 throw new IllegalStateException("Remote shuffle producer is terminal");
             }
-            lifecycle = Lifecycle.FINISHING;
+            lifecycle = TaskEgressState.FINISHING;
             activeFinish = true;
         }
     }
@@ -353,7 +355,7 @@ final class RemoteShuffleTaskEgress {
     private void awaitWritesBeforeFinish() {
         synchronized (lifecycleMonitor) {
             boolean interrupted = false;
-            while (activeWrites > 0 && lifecycle == Lifecycle.FINISHING) {
+            while (activeWrites > 0 && lifecycle == TaskEgressState.FINISHING) {
                 long remaining = deadlineEpochMillis - System.currentTimeMillis();
                 if (remaining <= 0) {
                     throw new RemoteShuffleClientException(
@@ -363,7 +365,7 @@ final class RemoteShuffleTaskEgress {
                     lifecycleMonitor.wait(remaining);
                 } catch (InterruptedException failure) {
                     interrupted = true;
-                    lifecycle = Lifecycle.ABORTED;
+                    lifecycle = TaskEgressState.ABORTED;
                 }
             }
             if (interrupted) {
@@ -377,7 +379,7 @@ final class RemoteShuffleTaskEgress {
 
     private void requireWritingAllowed() {
         synchronized (lifecycleMonitor) {
-            if (lifecycle == Lifecycle.ABORTED) {
+            if (lifecycle == TaskEgressState.ABORTED) {
                 throw new RemoteShuffleClientException("Remote shuffle producer is aborted");
             }
         }
@@ -385,7 +387,7 @@ final class RemoteShuffleTaskEgress {
 
     private boolean isAborted() {
         synchronized (lifecycleMonitor) {
-            return lifecycle == Lifecycle.ABORTED;
+            return lifecycle == TaskEgressState.ABORTED;
         }
     }
 
@@ -396,7 +398,7 @@ final class RemoteShuffleTaskEgress {
     }
 
     private void requireFinishingLocked() {
-        if (lifecycle != Lifecycle.FINISHING) {
+        if (lifecycle != TaskEgressState.FINISHING) {
             throw new RemoteShuffleClientException(
                     "Remote shuffle producer was aborted during completion");
         }
@@ -405,16 +407,10 @@ final class RemoteShuffleTaskEgress {
     private void markFinished() {
         synchronized (lifecycleMonitor) {
             requireFinishingLocked();
-            lifecycle = Lifecycle.FINISHED;
+            lifecycle = TaskEgressState.FINISHED;
         }
     }
 
-    private enum Lifecycle {
-        ACTIVE,
-        FINISHING,
-        FINISHED,
-        ABORTED
-    }
 
     record Binding(
             String shuffleId,

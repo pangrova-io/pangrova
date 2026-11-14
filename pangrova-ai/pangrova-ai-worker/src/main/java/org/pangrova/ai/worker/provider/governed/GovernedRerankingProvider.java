@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.worker.provider.governed;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -49,7 +51,7 @@ public final class GovernedRerankingProvider implements RerankingProvider {
                     "reranking documents must not be empty");
         }
         AiCapabilityDescriptor capability = AiInvocationRequests.requireCapability(
-                capabilities(), AiCapabilityDescriptor.Operation.RERANKING);
+                capabilities(), AiOperation.RERANKING);
         List<AiInvocationRequest.Input> inputs = documents.stream()
                 .map(document -> (AiInvocationRequest.Input)
                         new AiInvocationRequest.RerankInput(query, document))
@@ -60,8 +62,8 @@ public final class GovernedRerankingProvider implements RerankingProvider {
                 modelSignatureSha256(),
                 capability,
                 documents.size() == 1
-                        ? AiCapabilityDescriptor.ExecutionMode.SCALAR
-                        : AiCapabilityDescriptor.ExecutionMode.BATCH,
+                        ? AiExecutionMode.SCALAR
+                        : AiExecutionMode.BATCH,
                 inputs,
                 GenerationParameters.DEFAULTS);
         AiInvocationResult result = service.invoke(request);

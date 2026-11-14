@@ -110,7 +110,7 @@ class NativeWriteExecutor {
   jclass columnSchemaClass_;     // GlobalRef
   jmethodID columnSchemaCtor_;
   jclass writeModeClass_;        // GlobalRef
-  jmethodID writeModeValues_;
+  jmethodID dmlOperationFromCode_;
 
   // Cached field IDs for WriteCommitResult extraction.
   jmethodID commitResultRowsWritten_;

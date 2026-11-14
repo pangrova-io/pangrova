@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.ai.embedding;
 
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.persistence.workflow.api.security.TableControlWriteAuthority;
-
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -123,7 +123,7 @@ final class GeneratedWriteAuthorityResolver {
         var permissions = new ArrayList<>(reads);
         request.requiredWritePrivileges().forEach(privilege -> permissions.add(
                 new DeferredAuthorizationScope.TablePermission(
-                request.table(), Set.of(), privilege, DeferredAuthorizationScope.ReadMode.NONE,
+                request.table(), Set.of(), privilege, AuthorizedReadMode.NONE,
                 DeferredAuthorizationScope.PolicySnapshot.empty())));
         var scope = new DeferredAuthorizationScope(permissions,
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, models)));

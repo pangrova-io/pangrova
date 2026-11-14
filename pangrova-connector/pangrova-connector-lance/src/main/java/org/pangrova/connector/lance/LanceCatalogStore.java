@@ -76,7 +76,7 @@ final class LanceCatalogStore {
             PreparedSourcePublication publication, long writtenRows) {
         var base = output.table();
         long expectedRows = output.allocation().operation()
-                == org.pangrova.connector.api.metadata.NativeWriteAllocation.Operation.APPEND
+                == org.pangrova.connector.api.enums.NativeWriteOperation.APPEND
                 ? Math.addExact(base.rowCount(), writtenRows) : writtenRows;
         if (publication.rows() != expectedRows) {
             throw new IllegalArgumentException("SDK manifest rows differ from winners");

@@ -14,7 +14,7 @@ import org.pangrova.common.api.annotation.Internal;
 import java.util.List;
 import java.util.Objects;
 
-import static org.pangrova.protocol.capability.BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN;
+import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 /** Carries the storage row locator through an already authorized streaming map. */
 @Internal

@@ -13,15 +13,17 @@
  */
 package org.pangrova.ai.api.inference;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.api.invocation.MultimodalPrompt;
 import org.pangrova.ai.api.invocation.InferenceResult;
-
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.api.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.List;
 import java.util.Set;
@@ -111,12 +113,12 @@ public interface InferenceProvider {
         var text = new AiCapabilityDescriptor(
                 "inference:" + modelName(),
                 modelVersion(),
-                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                AiOperation.TEXT_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VARCHAR", List.of("VARCHAR"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.BATCH,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                Set.of(AiExecutionMode.SCALAR,
+                        AiExecutionMode.BATCH,
+                        AiExecutionMode.SYNC),
                 modalities,
                 maxBatchSize(),
                 resourceLimits(),
@@ -129,11 +131,11 @@ public interface InferenceProvider {
         var multimodal = new AiCapabilityDescriptor(
                 "multimodal-inference:" + modelName(),
                 modelVersion(),
-                AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION,
+                AiOperation.MULTIMODAL_GENERATION,
                 List.of(new AiCapabilityDescriptor.Signature(
                         "VARCHAR", List.of("MULTIMODAL_PROMPT"))),
-                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
-                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                Set.of(AiExecutionMode.SCALAR,
+                        AiExecutionMode.SYNC),
                 modalities,
                 1,
                 resourceLimits(),
@@ -156,7 +158,7 @@ public interface InferenceProvider {
      */
     default InferenceResult completeMultimodal(MultimodalPrompt prompt, GenerationParameters parameters) {
         throw new AiInvocationException(
-                AiInvocationException.Category.CAPABILITY_MISMATCH,
+                AiFailureCategory.CAPABILITY_MISMATCH,
                 false,
                 "Inference provider '" + modelName() + "' does not support multimodal input");
     }

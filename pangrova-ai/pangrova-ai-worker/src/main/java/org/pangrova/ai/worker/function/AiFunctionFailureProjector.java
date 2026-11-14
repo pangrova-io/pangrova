@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.function.api.runtime.FunctionFailureProjector;
 import org.pangrova.protocol.v2.ErrorClass;
@@ -60,7 +61,7 @@ public final class AiFunctionFailureProjector implements FunctionFailureProjecto
                 .setMessage(message == null || message.isBlank()
                         ? aiFailure.category().name()
                         : message)
-                .setRetryable(aiFailure.category() != AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN
+                .setRetryable(aiFailure.category() != AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN
                         && aiFailure.retryable())
                 .setFailedComponent("ai-invocation")
                 .build()

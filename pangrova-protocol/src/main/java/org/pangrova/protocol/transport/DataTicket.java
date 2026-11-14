@@ -1,5 +1,7 @@
 package org.pangrova.protocol.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -11,9 +13,7 @@ import java.util.Objects;
  * Immutable ticket identifying a data partition in the data transport plane.
  * Uses DataOutputStream/DataInputStream for lightweight serialization without Protobuf.
  */
-public record DataTicket(String queryId, String taskId, int outputPartition, TicketType type) {
-
-    public enum TicketType { SHUFFLE, RESULT }
+public record DataTicket(String queryId, String taskId, int outputPartition, DataTicketType type) {
 
     public DataTicket {
         Objects.requireNonNull(queryId, "queryId must not be null");
@@ -46,7 +46,7 @@ public record DataTicket(String queryId, String taskId, int outputPartition, Tic
             String queryId = in.readUTF();
             String taskId = in.readUTF();
             int partition = in.readInt();
-            TicketType type = TicketType.values()[in.readInt()];
+            DataTicketType type = DataTicketType.values()[in.readInt()];
             return new DataTicket(queryId, taskId, partition, type);
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed to deserialize DataTicket", e);

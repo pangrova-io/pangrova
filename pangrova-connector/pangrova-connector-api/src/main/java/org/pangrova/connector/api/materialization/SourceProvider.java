@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.materialization;
 
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
 import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
@@ -96,7 +97,7 @@ public interface SourceProvider {
     default SourceSnapshotRef describeEmpty(
             SourceRef source, String tenant, String sourceIdentity, String policyFingerprint) {
         throw new MaterializationSourceException(
-                MaterializationSourceException.Reason.SNAPSHOT_UNAVAILABLE,
+                MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,
                 "Connector " + connectorId()
                         + " cannot materialize a source without a data snapshot");
     }

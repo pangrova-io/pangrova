@@ -42,6 +42,20 @@ class IndexStrategyDiscoveryTest {
     }
 
     @Test
+    void installedStrategiesAreIndependentOfTheCallingThreadLoader() {
+        var thread = Thread.currentThread();
+        var original = thread.getContextClassLoader();
+        var empty = new ClassLoader(null) {};
+        try {
+            thread.setContextClassLoader(empty);
+            assertThat(new IndexEngineRegistry().size()).isEqualTo(9);
+            assertThat(new IndexEngineRegistry(empty).size()).isZero();
+        } finally {
+            thread.setContextClassLoader(original);
+        }
+    }
+
+    @Test
     void duplicateStrategyCannotSupplyTwoCodecsForOneType() {
         var provider = new IndexEngineRegistry().getProvider(IndexType.HASH);
         var duplicate = List.of(provider, provider);

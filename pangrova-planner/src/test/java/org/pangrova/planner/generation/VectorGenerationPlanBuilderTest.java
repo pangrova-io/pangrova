@@ -1,5 +1,7 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
+
 import io.substrait.proto.Plan;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -39,7 +41,7 @@ class VectorGenerationPlanBuilderTest {
         assertThat(plan.getRelations(0).getRoot().getNamesList()).isEmpty();
         var extension = plan.getRelations(0).getRoot().getInput().getExtensionSingle();
         assertThat(extension.getInput().getRead().getBaseSchema().getNamesList())
-                .containsExactly(BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN, "embedding");
+                .containsExactly(BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN, "embedding");
         var types = extension.getInput().getRead().getBaseSchema().getStruct().getTypesList();
         assertThat(types.get(0).getI64().getNullability())
                 .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
@@ -63,7 +65,7 @@ class VectorGenerationPlanBuilderTest {
     void rejectsReservedOrIncompleteNames(
             CapabilityRef buildCapability, ArtifactFormatRef format) {
         assertThatThrownBy(() -> VectorGenerationPlanBuilder.build(
-                List.of("items"), BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN,
+                List.of("items"), BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN,
                 buildCapability, format)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> VectorGenerationPlanBuilder.build(
                 List.of(), "embedding", buildCapability, format))

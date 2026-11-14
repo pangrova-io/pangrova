@@ -10,6 +10,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.Partitioning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
+import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
@@ -26,7 +27,7 @@ final class IcebergPartitionReadBindings {
         var metadata = ((HasTableOperations) frozen).operations().current();
         var entries = IcebergFileReadBindings.selectEntries(base, frozen);
         String location = metadata.metadataFileLocation();
-        var snapshots = new IcebergSystemTableHandle(base, IcebergSystemTableHandle.Kind.SNAPSHOTS,
+        var snapshots = new IcebergSystemTableHandle(base, IcebergSystemTableKind.SNAPSHOTS,
                 location, frozen.io().newInputFile(location).getLength());
         var inputs = List.of(
                 new ConnectorDerivedQuery.Input("pg_entries", IcebergReadBindings.bind(tables, entries)),

@@ -1,5 +1,7 @@
 package org.pangrova.governance.runtime.lineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -9,7 +11,6 @@ import org.pangrova.query.api.event.QueryCreatedEvent;
 import org.pangrova.query.api.event.QueryEventListener;
 import org.pangrova.query.api.lineage.QueryLineageMetadata;
 import org.pangrova.governance.api.lineage.DatasetRef;
-import org.pangrova.governance.api.lineage.LineageEvent;
 
 /** Publishes logical query admission and terminal events through the OpenLineage emitter. */
 public final class LineageQueryEventListener implements QueryEventListener {
@@ -27,9 +28,9 @@ public final class LineageQueryEventListener implements QueryEventListener {
     @Override
     public void queryCompleted(QueryCompletedEvent event) {
         var type = switch (event.finalState()) {
-            case FINISHED -> LineageEvent.EventType.COMPLETE;
-            case FAILED -> LineageEvent.EventType.FAIL;
-            case CANCELLED -> LineageEvent.EventType.ABORT;
+            case FINISHED -> LineageEventType.COMPLETE;
+            case FAILED -> LineageEventType.FAIL;
+            case CANCELLED -> LineageEventType.ABORT;
             default -> throw new IllegalArgumentException("Query lineage requires a terminal state");
         };
         emitter.emitTerminalEvent(type, event.queryId(), event.sql(),

@@ -77,7 +77,8 @@ public final class DigestUtils {
         return MessageDigest.isEqual(sha256().digest(data), expected);
     }
 
-    private static boolean isSha256Hex(String value) {
+    /** Checks canonical, lowercase ASCII SHA-256 text. Null and malformed values return false. */
+    public static boolean isSha256Hex(String value) {
         if (value == null || value.length() != 64) {
             return false;
         }

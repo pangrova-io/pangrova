@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
-
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
@@ -63,13 +63,13 @@ final class TaskAdmissionRegistry {
             if (current != null) {
                 if (!MessageDigest.isEqual(current.digest, digest)) {
                     throw new TaskAdmissionException(
-                            TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                            TaskAdmissionReason.IDENTITY_CONFLICT,
                             "Canonical task identity was reused with a different request: "
                                     + taskId);
                 }
                 if (current.sealed) {
                     throw new TaskAdmissionException(
-                            TaskAdmissionException.Reason.SEALED,
+                            TaskAdmissionReason.SEALED,
                             "Exact task admission is sealed: " + taskId);
                 }
                 return new Reservation(taskId, current, false);
@@ -142,7 +142,7 @@ final class TaskAdmissionRegistry {
             if (entry == null) {
                 if (mustExist) {
                     throw new TaskAdmissionException(
-                            TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                            TaskAdmissionReason.IDENTITY_CONFLICT,
                             "Known exact admission was retired before its seal: " + taskId);
                 }
                 // Do not retain arbitrary expired identities or invent a lost historical receipt.
@@ -173,7 +173,7 @@ final class TaskAdmissionRegistry {
                 || entry.deadline != request.getDeadlineEpochMs()
                 || !entry.attempt.equals(request.getAttempt())) {
             throw new TaskAdmissionException(
-                    TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                    TaskAdmissionReason.IDENTITY_CONFLICT,
                     "Admission seal does not match the issued task: "
                             + request.getAttempt().getTaskId());
         }
@@ -208,7 +208,7 @@ final class TaskAdmissionRegistry {
                                         && (entry.noOwnerExited || entry.drainReceipt != null));
         if (entries.size() >= capacity) {
             throw new TaskAdmissionException(
-                    TaskAdmissionException.Reason.CAPACITY,
+                    TaskAdmissionReason.CAPACITY,
                     "Task admission identity limit reached: " + capacity);
         }
     }
@@ -218,7 +218,7 @@ final class TaskAdmissionRegistry {
     void requireUnexpired(long deadline) {
         if (deadline <= clock.millis()) {
             throw new TaskAdmissionException(
-                    TaskAdmissionException.Reason.EXPIRED, "Task admission deadline has expired");
+                    TaskAdmissionReason.EXPIRED, "Task admission deadline has expired");
         }
     }
 
@@ -284,7 +284,7 @@ final class TaskAdmissionRegistry {
     private void requireOpen() {
         if (closed) {
             throw new TaskAdmissionException(
-                    TaskAdmissionException.Reason.CLOSED, "Task admission is closed");
+                    TaskAdmissionReason.CLOSED, "Task admission is closed");
         }
     }
 
@@ -309,7 +309,7 @@ final class TaskAdmissionRegistry {
                 requireUnexpired(entry.deadline);
                 if (entry.sealed) {
                     throw new TaskAdmissionException(
-                            TaskAdmissionException.Reason.SEALED,
+                            TaskAdmissionReason.SEALED,
                             "Exact task admission is sealed: " + taskId);
                 }
                 publication.run();
@@ -322,7 +322,7 @@ final class TaskAdmissionRegistry {
                 requireUnexpired(entry.deadline);
                 if (entry.sealed) {
                     throw new TaskAdmissionException(
-                            TaskAdmissionException.Reason.SEALED,
+                            TaskAdmissionReason.SEALED,
                             "Exact task admission is sealed: " + taskId);
                 }
                 entry.handedOff = true;
@@ -351,7 +351,7 @@ final class TaskAdmissionRegistry {
                         "Interrupted while awaiting task admission: " + taskId, failure);
             } catch (TimeoutException failure) {
                 throw new TaskAdmissionException(
-                        TaskAdmissionException.Reason.EXPIRED,
+                        TaskAdmissionReason.EXPIRED,
                         "Task admission deadline expired while awaiting its owner: " + taskId);
             } catch (ExecutionException failure) {
                 if (failure.getCause() instanceof RuntimeException error) {

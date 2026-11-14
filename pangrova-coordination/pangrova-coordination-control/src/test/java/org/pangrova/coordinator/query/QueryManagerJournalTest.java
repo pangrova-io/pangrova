@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import org.pangrova.query.api.enums.QueryState;
@@ -66,7 +67,7 @@ class QueryManagerJournalTest {
             assertThatThrownBy(() -> fixture.manager.submitQuery("journal-failure", "SELECT 1",
                     SourceFreeQueryFixture.session("journal-failure"))).isInstanceOf(JournalWriteException.class)
                     .satisfies(error -> assertThat(((JournalWriteException) error).admissionOutcome())
-                            .isEqualTo(JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER));
+                            .isEqualTo(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER));
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
             assertThat(fixture.manager.getQueryState("journal-failure")).isEmpty();
             assertThat(fixture.manager.cancelQuery("journal-failure")).isFalse();
@@ -168,7 +169,7 @@ class QueryManagerJournalTest {
             assertThatThrownBy(() -> fixture.manager.submitQuery("accepted-failure", "SELECT 1", SourceFreeQueryFixture.session("accepted-failure")))
                     .isInstanceOf(JournalWriteException.class).satisfies(error ->
                             assertThat(((JournalWriteException) error).admissionOutcome())
-                                    .isEqualTo(JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED));
+                                    .isEqualTo(JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED));
             assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
             assertThat(fixture.admission.admittedCount("fixture-tenant")).isEqualTo(1);
             fixture.store.allowQueryInsert();

@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 /** SDK manifest preparation header; its bounded new-object pages must all be sealed before catalog acceptance. */
@@ -12,7 +14,7 @@ public record PreparedSourcePublication(AcceptedSourceSnapshot candidate, long r
         if (rows < 0 || objectsCount <= 0
                 || objectsCount > (long) SourceObjectPage.MAX_PAGES * SourceObjectPage.MAX_PAGE_OBJECTS
                 || objectsSha256.length != 32 || inheritedMembership == null
-                || (!inheritedMembership.isEmpty() && !inheritedMembership.matches("[0-9a-f]{64}"))) {
+                || (!inheritedMembership.isEmpty() && !DigestUtils.isSha256Hex(inheritedMembership))) {
             throw new IllegalArgumentException("Invalid prepared source object header");
         }
     }

@@ -1,7 +1,6 @@
 package org.pangrova.shuffle.server;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
-
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
 import java.net.URI;
@@ -18,16 +17,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
-import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -256,7 +255,7 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
         var read = new ShuffleServiceEngine.ReadResult(allocation,
                 new ShuffleServiceModel.FinalizeResult(
                         1, new byte[32], List.of(), 0, 0),
-                0, 0, now + 60_000L, now - 1L);
+                0, 0, now + 60_000L, now - 1L, java.util.UUID.randomUUID(), store);
 
         assertThatThrownBy(() -> engine.readPage(read, 0))
                 .isInstanceOf(SecurityException.class)

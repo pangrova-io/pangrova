@@ -21,7 +21,7 @@ import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.enums.PinState;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourcePin;
@@ -165,9 +165,9 @@ class SourcePinSweeperTest {
         PhysicalTableRef candidate =
                 MaterializationTestFixtures.candidate(candidateDiscriminator++);
         RefreshAttempt attempt = MaterializationTestFixtures.attempt(object, attemptId,
-                candidate, RefreshKind.Full.INSTANCE, vector, Optional.empty());
+                candidate, RefreshKind.FULL, vector, Optional.empty());
         Generation generation = MaterializationTestFixtures.candidateGeneration(object,
-                generationId, attemptId, candidate, RefreshKind.Full.INSTANCE, vector,
+                generationId, attemptId, candidate, RefreshKind.FULL, vector,
                 Optional.empty());
         MaterializationWriteCapability capability = new MaterializationWriteCapability(
                 object, MaterializationTestFixtures.INCARNATION, 1, attemptId, candidate,

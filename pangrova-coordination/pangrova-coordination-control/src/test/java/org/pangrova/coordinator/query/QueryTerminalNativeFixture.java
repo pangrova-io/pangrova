@@ -33,7 +33,7 @@ import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.security.api.enums.AuditEventType;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Owns actual SQL/HTTP/JNI execution and one real frontend operation delaying physical cleanup. */

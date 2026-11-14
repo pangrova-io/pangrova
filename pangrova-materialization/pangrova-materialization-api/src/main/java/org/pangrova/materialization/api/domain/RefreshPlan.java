@@ -1,5 +1,7 @@
 package org.pangrova.materialization.api.domain;
 
+import org.pangrova.materialization.api.enums.RefreshKind;
+
 import java.util.Map;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
 import org.pangrova.connector.api.materialization.SourceRef;

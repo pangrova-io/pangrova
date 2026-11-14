@@ -1,5 +1,6 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.enums.NativeWriteOperation;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -39,8 +40,8 @@ public record LanceOutputHandle(LanceTableHandle table, NativeWriteAllocation al
 
     private static void validateMode(NativeWriteAllocation allocation, String mode) {
         if (!("INSERT".equals(mode) || "OVERWRITE".equals(mode))
-                || (allocation.operation() == NativeWriteAllocation.Operation.APPEND && !"INSERT".equals(mode))
-                || (allocation.operation() == NativeWriteAllocation.Operation.OVERWRITE && !"OVERWRITE".equals(mode))) {
+                || (allocation.operation() == NativeWriteOperation.APPEND && !"INSERT".equals(mode))
+                || (allocation.operation() == NativeWriteOperation.OVERWRITE && !"OVERWRITE".equals(mode))) {
             throw new IllegalArgumentException("Lance physical operation differs from SQL mode");
         }
     }

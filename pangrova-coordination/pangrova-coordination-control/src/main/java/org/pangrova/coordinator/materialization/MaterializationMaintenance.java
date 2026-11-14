@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.materialization;
 
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
-
 import org.pangrova.query.api.enums.QueryState;
 
 import java.time.Duration;
@@ -28,7 +27,7 @@ import org.pangrova.materialization.api.domain.DefinitionRevision;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
-import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.enums.ObjectState;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommitRecovery;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -277,7 +276,7 @@ public final class MaterializationMaintenance implements AutoCloseable {
     void refresh(MaterializationId object, CommandId commandId, TriggerKind trigger) {
         MaterializationObject header = repository.findObject(object)
                 .orElseThrow(() -> MaterializationException.notFound(object.canonicalName()));
-        if (header.state() != ObjectState.Active.INSTANCE) {
+        if (header.state() != ObjectState.ACTIVE) {
             throw MaterializationException.invalidStateTransition(
                     "refresh requires an active materialization, found " + header.state());
         }

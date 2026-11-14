@@ -11,6 +11,9 @@ import org.pangrova.common.api.annotation.Experimental;
  * can record the canonical error contract instead of a generic function
  * failure. Without an installed projector the bridge reports no projection and
  * the native engine handles the failure as an ordinary function error.</p>
+ *
+ * <p>A Worker installs at most one implementation of this contract. Discovery constructors
+ * are resource-free. The Worker may invoke the installed service concurrently.</p>
  */
 @Experimental(reason = "G-SPI-08: function/UDF plugin SPI")
 public interface FunctionFailureProjector {

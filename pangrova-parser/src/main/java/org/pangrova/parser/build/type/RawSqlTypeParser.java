@@ -1,8 +1,9 @@
 package org.pangrova.parser.build.type;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Objects;
-import org.pangrova.types.VectorType.ElementType;
+import org.pangrova.types.enums.VectorElementType;
 import org.pangrova.parser.api.enums.BaseType;
 import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.parser.api.enums.DistanceMetric;
@@ -30,7 +31,7 @@ public final class RawSqlTypeParser {
     public static DataTypeSpec parse(String rawType) {
         Objects.requireNonNull(rawType, "rawType must not be null");
         String trimmed = rawType.trim();
-        String upper = trimmed.toUpperCase();
+        String upper = trimmed.toUpperCase(Locale.ROOT);
 
         if (upper.startsWith("DECIMAL(") || upper.startsWith("NUMERIC(")) {
             return parseDecimal(upper);
@@ -120,12 +121,12 @@ public final class RawSqlTypeParser {
         if (parts.length > 3) {
             throw new IllegalArgumentException("VECTOR accepts dimension, precision and optional metric: " + s);
         }
-        ElementType element = ElementType.FLOAT;
+        VectorElementType element = VectorElementType.FLOAT;
         DistanceMetric metric = DistanceMetric.COSINE;
         if (parts.length > 1) {
             String parameter = parts[1].trim();
             if (parameter.equals("FLOAT") || parameter.equals("DOUBLE")) {
-                element = ElementType.valueOf(parameter);
+                element = VectorElementType.valueOf(parameter);
                 if (parts.length == 3) metric = DistanceMetric.valueOf(parts[2].trim());
             } else {
                 if (parts.length == 3) throw new IllegalArgumentException("Invalid VECTOR precision: " + parameter);

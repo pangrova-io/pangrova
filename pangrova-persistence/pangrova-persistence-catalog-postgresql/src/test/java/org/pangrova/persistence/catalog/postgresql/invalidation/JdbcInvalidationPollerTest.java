@@ -5,7 +5,7 @@ import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalida
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.metadata.api.cache.InvalidationProgressRegistry;
 

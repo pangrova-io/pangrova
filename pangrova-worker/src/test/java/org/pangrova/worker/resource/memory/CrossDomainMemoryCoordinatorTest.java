@@ -1,5 +1,7 @@
 package org.pangrova.worker.resource.memory;
 
+import org.pangrova.worker.enums.NativeMemoryEventType;
+import org.pangrova.worker.exception.NativeQuotaSendException;
 import org.pangrova.worker.resource.tenant.TenantResourceQuota;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,12 +64,12 @@ class CrossDomainMemoryCoordinatorTest {
     void publishQuotaChangePropagatesNativeException() {
         quotaSender.failOnNext = true;
         assertThatThrownBy(() -> coordinator.publishQuotaChange("t", 1024))
-                .isInstanceOf(NativeQuotaSender.NativeQuotaSendException.class);
+                .isInstanceOf(NativeQuotaSendException.class);
     }
 
     @Test
     void onNativeEventUpdatesUsage() {
-        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 5000, 99_000);
+        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 5000, 99_000);
         coordinator.onNativeEvent(event);
 
         assertThat(coordinator.nativeUsage("tenant-a")).isEqualTo(5000);
@@ -84,7 +86,7 @@ class CrossDomainMemoryCoordinatorTest {
         tenantTracker.setQuota("tenant-a", new TenantResourceQuota(10_000_000, 10));
         tenantTracker.tryAllocateMemory("tenant-a", 3000);
 
-        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 7000, 95_000);
+        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 7000, 95_000);
         coordinator.onNativeEvent(event);
 
         assertThat(coordinator.combinedUsage("tenant-a")).isEqualTo(3000 + 7000);
@@ -96,7 +98,7 @@ class CrossDomainMemoryCoordinatorTest {
         tenantTracker.tryAllocateMemory("tenant-a", 3000);
 
         // Event timestamp is 80_000, clock is at 100_000 → elapsed = 20_000 > timeout 10_000
-        var staleEvent = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 7000, 80_000);
+        var staleEvent = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 7000, 80_000);
         coordinator.onNativeEvent(staleEvent);
 
         long usage = coordinator.combinedUsage("tenant-a");
@@ -117,7 +119,7 @@ class CrossDomainMemoryCoordinatorTest {
     @Test
     void isNativeStatStaleFreshHeartbeat() {
         // Event at 95_000, clock at 100_000 → elapsed = 5_000 < timeout 10_000
-        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 1000, 95_000);
+        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 1000, 95_000);
         coordinator.onNativeEvent(event);
 
         assertThat(coordinator.isNativeStatStale("tenant-a")).isFalse();
@@ -126,7 +128,7 @@ class CrossDomainMemoryCoordinatorTest {
     @Test
     void isNativeStatStaleExpiredHeartbeat() {
         // Event at 85_000, clock at 100_000 → elapsed = 15_000 > timeout 10_000
-        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 1000, 85_000);
+        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 1000, 85_000);
         coordinator.onNativeEvent(event);
 
         assertThat(coordinator.isNativeStatStale("tenant-a")).isTrue();
@@ -134,7 +136,7 @@ class CrossDomainMemoryCoordinatorTest {
 
     @Test
     void spillEventUpdatesUsage() {
-        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.SPILL, 2000, 99_000);
+        var event = new NativeMemoryEvent("tenant-a", NativeMemoryEventType.SPILL, 2000, 99_000);
         coordinator.onNativeEvent(event);
 
         assertThat(coordinator.nativeUsage("tenant-a")).isEqualTo(2000);
@@ -150,8 +152,8 @@ class CrossDomainMemoryCoordinatorTest {
 
         // tenant-a has 1000 Java + 9000 Native = 10000 combined
         // tenant-b has 5000 Java + 1000 Native = 6000 combined
-        coordinator.onNativeEvent(new NativeMemoryEvent("tenant-a", NativeMemoryEvent.Type.STAT, 9000, 99_000));
-        coordinator.onNativeEvent(new NativeMemoryEvent("tenant-b", NativeMemoryEvent.Type.STAT, 1000, 99_000));
+        coordinator.onNativeEvent(new NativeMemoryEvent("tenant-a", NativeMemoryEventType.STAT, 9000, 99_000));
+        coordinator.onNativeEvent(new NativeMemoryEvent("tenant-b", NativeMemoryEventType.STAT, 1000, 99_000));
 
         var killer = new LargestQueryKiller(t -> true, coordinator::combinedUsage);
 

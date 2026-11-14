@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+import org.pangrova.execution.stage.enums.RetrievalSourceKind;
 import org.pangrova.execution.stage.binding.RetrievalMergeIntent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder.DistributedRetrieval;
@@ -22,7 +26,7 @@ class DAGDispatchEngineRetrievalBindingTest {
 
     @Test
     void selectsExactOutputTopKForNativeGlobalMerge() {
-        SerializedPlanFragment output = fragment(RetrievalTopKPlanHint.Kind.EXACT, "");
+        SerializedPlanFragment output = fragment(RetrievalKind.EXACT, "");
 
         assertThat(RetrievalPlanBinder.shouldBindDistributed(
                 output, true, true)).isTrue();
@@ -32,7 +36,7 @@ class DAGDispatchEngineRetrievalBindingTest {
 
     @Test
     void rejectsSplitBearingDistributedRetrievalOutput() {
-        SerializedPlanFragment output = fragment(RetrievalTopKPlanHint.Kind.EXACT, "");
+        SerializedPlanFragment output = fragment(RetrievalKind.EXACT, "");
 
         assertThatThrownBy(() -> RetrievalPlanBinder.shouldBindDistributed(
                 output, true, false))
@@ -43,21 +47,21 @@ class DAGDispatchEngineRetrievalBindingTest {
     @Test
     void refusesHybridLeafWhenBm25ArtifactIsUnavailable() {
         SerializedPlanFragment leaf = fragment(
-                RetrievalTopKPlanHint.Kind.VECTOR, "source-a");
+                RetrievalKind.VECTOR, "source-a");
         RetrievalMergeIntent merge = new RetrievalMergeIntent(
-                RetrievalMergeIntent.Strategy.RRF,
+                RetrievalMergeStrategy.RRF,
                 10,
                 60,
                 List.of(
                         new RetrievalMergeIntent.Source(
                                 "source-a",
-                                RetrievalMergeIntent.SourceKind.VECTOR,
+                                RetrievalSourceKind.VECTOR,
                                 ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER,
                                 1.0,
                                 40),
                         new RetrievalMergeIntent.Source(
                                 "source-b",
-                                RetrievalMergeIntent.SourceKind.FULL_TEXT,
+                                RetrievalSourceKind.FULL_TEXT,
                                 ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                                 1.0,
                                 40)));
@@ -72,7 +76,7 @@ class DAGDispatchEngineRetrievalBindingTest {
     }
 
     private static SerializedPlanFragment fragment(
-            RetrievalTopKPlanHint.Kind kind, String sourceKey) {
+            RetrievalKind kind, String sourceKey) {
         NamedStruct schema = NamedStruct.newBuilder()
                 .addNames("id")
                 .addNames("score")
@@ -85,7 +89,7 @@ class DAGDispatchEngineRetrievalBindingTest {
                 sourceKey,
                 1,
                 10,
-                RetrievalTopKPlanHint.ScoreDirection.LOWER_IS_BETTER,
+                RetrievalScoreDirection.LOWER_IS_BETTER,
                 List.of(0),
                 schema.toByteArray());
         return new SerializedPlanFragment(new byte[0], List.of(hint));

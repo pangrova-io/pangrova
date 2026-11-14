@@ -1,5 +1,7 @@
 package org.pangrova.generation.api.exchange;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 
@@ -32,7 +34,7 @@ public record GenerationExchangeRegistration(
     }
 
     static void requireSha256(String value) {
-        if (value == null || !value.matches("[0-9a-f]{64}")) {
+        if (!DigestUtils.isSha256Hex(value)) {
             throw new IllegalArgumentException("Canonical exchange SHA-256 is required");
         }
     }

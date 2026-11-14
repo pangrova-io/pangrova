@@ -1,9 +1,8 @@
 package org.pangrova.shuffle.exchange;
 
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
-
+import org.pangrova.shuffle.exchange.enums.ExchangeReadMode;
 import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
-
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 
 import java.nio.charset.StandardCharsets;
@@ -17,9 +16,9 @@ import org.pangrova.batch.api.enums.BatchFormat;
 import org.pangrova.batch.api.page.NativePage;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
-import org.pangrova.shuffle.local.spool.LocalFsSpoolStore;
 import org.pangrova.shuffle.api.spool.SpoolStoreContext;
 import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
+import org.pangrova.shuffle.local.spool.LocalFsSpoolStore;
 import org.pangrova.shuffle.local.spool.LocalFsSpoolStoreFactory;
 
 import static org.assertj.core.api.Assertions.*;
@@ -148,6 +147,16 @@ class SpoolBackedExchangeManagerTest {
                 java.util.List.<SpoolStoreFactory>of(factory, new LocalFsSpoolStoreFactory()),
                 ignored -> { throw new AssertionError(); }))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Duplicate spool provider ID");
+        SpoolStoreFactory future = new SpoolStoreFactory() {
+            public String name() { return "future"; }
+            public int apiVersion() { return API_VERSION + 1; }
+            public org.pangrova.shuffle.api.spool.SpoolStore create(SpoolStoreContext settings) {
+                throw new AssertionError("Incompatible provider opened a store");
+            }
+        };
+        assertThatThrownBy(() -> SpoolBackedExchangeManager.open(config("local-fs"),
+                java.util.List.of(factory, future), ignored -> { throw new AssertionError(); }))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Incompatible spool provider: future");
         assertThat(directory).isEmptyDirectory();
     }
 

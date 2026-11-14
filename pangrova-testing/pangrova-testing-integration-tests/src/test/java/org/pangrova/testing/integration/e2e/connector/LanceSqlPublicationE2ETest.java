@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.connector;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
@@ -14,8 +16,6 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
-import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -53,7 +53,7 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
                 .containsExactly(List.of(1L, "alice", 1.25), List.of(2L, "bob", 2.5));
         var journal = new JdbcWriteCommitJournal(stateStoreDataSource());
         var intent = journal.getEntry(response.queryId()).orElseThrow();
-        assertThat(intent.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+        assertThat(intent.state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(intent.publication()).isNotNull();
         assertThat(intent.publication().publishedVersion()).isEqualTo(1);
         assertThat(intent.executionFencingToken()).isPositive();
@@ -80,7 +80,7 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
         var catalog = metadataBootstrap.catalogRegistry().getCatalog(CATALOG);
         var metadata = catalog.getMetadata(session);
         var selected = metadata.bindRead(session, metadata.getTableHandle(session, new SchemaTableName(SCHEMA, table)));
-        assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+        assertThat(selected.state()).isEqualTo(ReadSnapshotState.EMPTY);
         executeDml("INSERT INTO " + name + " VALUES (7)");
         assertThat(executeQuery("SELECT id FROM " + name)).extracting(row -> row.getLong("id"))
                 .containsExactly(7L);

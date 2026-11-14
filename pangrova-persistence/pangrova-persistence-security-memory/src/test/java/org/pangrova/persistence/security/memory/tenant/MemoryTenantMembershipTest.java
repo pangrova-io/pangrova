@@ -1,5 +1,6 @@
 package org.pangrova.persistence.security.memory.tenant;
 
+import org.pangrova.security.api.enums.TenantMembershipOperation;
 import org.pangrova.security.api.enums.TenantRole;
 import org.pangrova.security.api.enums.TenantStatus;
 
@@ -31,7 +32,7 @@ class MemoryTenantMembershipTest {
     @Test
     void changesCanonicalMembershipWithoutMutatingNamespacesOrQuota() {
         Tenant before = store.getTenant(TENANT).orElseThrow();
-        var grant = mutation("Member.Name", TenantMembershipMutation.Operation.GRANT);
+        var grant = mutation("Member.Name", TenantMembershipOperation.GRANT);
         assertThat(store.mutateMembership(ADMIN, grant)).isTrue();
         assertThat(store.mutateMembership(ADMIN, grant)).isFalse();
         assertThat(store.getTenantForUser("Member.Name")).hasValueSatisfying(current -> {
@@ -39,7 +40,7 @@ class MemoryTenantMembershipTest {
             assertThat(current.role()).isEqualTo(TenantRole.MEMBER);
         });
         assertThat(store.getTenant(TENANT)).contains(before);
-        var revoke = mutation("Member.Name", TenantMembershipMutation.Operation.REVOKE);
+        var revoke = mutation("Member.Name", TenantMembershipOperation.REVOKE);
         assertThat(store.mutateMembership(ADMIN, revoke)).isTrue();
         assertThat(store.mutateMembership(ADMIN, revoke)).isFalse();
         assertThat(store.getTenantForUser("Member.Name")).isEmpty();
@@ -48,7 +49,7 @@ class MemoryTenantMembershipTest {
 
     @Test
     void checksCurrentAuthorityInsteadOfClaimsAndRechecksIdempotentCalls() {
-        var request = mutation("member", TenantMembershipMutation.Operation.GRANT);
+        var request = mutation("member", TenantMembershipOperation.GRANT);
         assertThatThrownBy(() -> store.mutateMembership(new UserIdentity("stranger", Set.of("ADMIN", "OWNER"),
                 Map.of("tenant", TENANT), Instant.EPOCH), request)).isInstanceOf(AuthorizationDeniedException.class);
         store.addUserToTenant(TENANT, "admin", TenantRole.ADMIN);
@@ -66,17 +67,17 @@ class MemoryTenantMembershipTest {
     void refusesCrossTenantTransferAndPrivilegedRevocation() {
         store.createTenant(tenant("other", TenantStatus.ACTIVE));
         store.addUserToTenant("other", "outsider", TenantRole.MEMBER);
-        for (var operation : TenantMembershipMutation.Operation.values()) {
+        for (var operation : TenantMembershipOperation.values()) {
             assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("outsider", operation)))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
         assertThat(store.getTenantForUser("outsider").orElseThrow().tenantId()).isEqualTo("other");
-        assertThat(store.mutateMembership(ADMIN, mutation("owner", TenantMembershipMutation.Operation.GRANT))).isFalse();
-        assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("owner", TenantMembershipMutation.Operation.REVOKE)))
+        assertThat(store.mutateMembership(ADMIN, mutation("owner", TenantMembershipOperation.GRANT))).isFalse();
+        assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("owner", TenantMembershipOperation.REVOKE)))
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertThat(store.getTenantForUser("owner").orElseThrow().role()).isEqualTo(TenantRole.OWNER);
         assertThatThrownBy(() -> store.mutateMembership(ADMIN,
-                new TenantMembershipMutation("other", "member", TenantMembershipMutation.Operation.GRANT)))
+                new TenantMembershipMutation("other", "member", TenantMembershipOperation.GRANT)))
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
 
@@ -84,7 +85,7 @@ class MemoryTenantMembershipTest {
     void inactiveTenantCannotChangeMembers() {
         for (var status : List.of(TenantStatus.SUSPENDED, TenantStatus.DELETED)) {
             store.updateTenant(tenant(TENANT, status));
-            assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("member", TenantMembershipMutation.Operation.GRANT)))
+            assertThatThrownBy(() -> store.mutateMembership(ADMIN, mutation("member", TenantMembershipOperation.GRANT)))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
         assertThat(store.getTenantForUser("member")).isEmpty();
@@ -97,7 +98,7 @@ class MemoryTenantMembershipTest {
         try {
             java.util.concurrent.Callable<Boolean> grant = () -> {
                 barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
-                return store.mutateMembership(ADMIN, mutation("member", TenantMembershipMutation.Operation.GRANT));
+                return store.mutateMembership(ADMIN, mutation("member", TenantMembershipOperation.GRANT));
             };
             var a = pool.submit(grant);
             var b = pool.submit(grant);
@@ -109,7 +110,7 @@ class MemoryTenantMembershipTest {
         }
     }
 
-    private static TenantMembershipMutation mutation(String principal, TenantMembershipMutation.Operation operation) {
+    private static TenantMembershipMutation mutation(String principal, TenantMembershipOperation operation) {
         return new TenantMembershipMutation(TENANT, principal, operation);
     }
     private static UserIdentity actor(String principal) { return new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH); }

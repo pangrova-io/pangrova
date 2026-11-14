@@ -1,5 +1,9 @@
 package org.pangrova.planner.generation;
 
+import org.pangrova.planner.constants.ArtifactBuildReport;
+import org.pangrova.planner.constants.GeneratedColumnSourceEncoding;
+import org.pangrova.planner.api.enums.AiInvocationOperation;
+
 import com.google.protobuf.Any;
 import io.substrait.proto.Expression;
 import io.substrait.proto.FunctionArgument;
@@ -27,7 +31,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import static org.pangrova.common.util.Preconditions.requireText;
-import static org.pangrova.protocol.capability.BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN;
+import static org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers.PHYSICAL_ROW_POSITION_COLUMN;
 
 /** Builds one deterministic Native source-map plan for a generated VECTOR value. */
 @Internal
@@ -37,11 +41,7 @@ public final class GeneratedValueGenerationPlanBuilder {
             "artifact-build-generated-values";
     public static final String MODEL_INVOCATION_ID =
             "generated-value-model-invocation";
-    public static final int REPORT_SCHEMA_VERSION = 2;
-    public static final String SOURCE_ENCODING = org.pangrova.planner.embedding.GeneratedColumnSourceEncoding.NAME;
 
-    private static final String SOURCE_SEPARATOR =
-            org.pangrova.planner.embedding.GeneratedColumnSourceEncoding.SEPARATOR;
     // The canonical ProjectRel assigns this alias to its second computed expression.
     private static final String GENERATED_VALUE_PROJECT_FIELD = "proj_1";
 
@@ -74,7 +74,7 @@ public final class GeneratedValueGenerationPlanBuilder {
                 BuiltInCapabilityCatalog.generatedValuesArtifactFormat(),
                 BuiltInCapabilityCatalog.physicalRowLocatorContract()),
                 new AiInvocationPlanHint(MODEL_INVOCATION_ID, "AI_EMBED", logicalModelName,
-                        AiInvocationPlanHint.Operation.EMBEDDING, false));
+                        AiInvocationOperation.EMBEDDING, false));
     }
 
     private static Plan requireSource(byte[] bytes, List<String> sources) {
@@ -125,7 +125,7 @@ public final class GeneratedValueGenerationPlanBuilder {
 
     private static Rel artifactSink(Rel projected) {
         ArtifactBuildDetail detail = ArtifactBuildDetail.newBuilder()
-                .setPlanNodeId(ARTIFACT_PLAN_NODE_ID).setReportSchemaVersion(REPORT_SCHEMA_VERSION)
+                .setPlanNodeId(ARTIFACT_PLAN_NODE_ID).setReportSchemaVersion(ArtifactBuildReport.SCHEMA_VERSION)
                 .addInputFields(PHYSICAL_ROW_POSITION_COLUMN).addInputFields(GENERATED_VALUE_PROJECT_FIELD)
                 .setInvocation(CapabilityInvocation.newBuilder()
                         .setCapability(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef())
@@ -163,7 +163,7 @@ public final class GeneratedValueGenerationPlanBuilder {
         List<Expression> arguments = new ArrayList<>(sourceCount * 2 - 1);
         for (int index = 0; index < sourceCount; index++) {
             if (index > 0) {
-                arguments.add(stringLiteral(SOURCE_SEPARATOR));
+                arguments.add(stringLiteral(GeneratedColumnSourceEncoding.SEPARATOR));
             }
             arguments.add(field(index + 1));
         }

@@ -1,9 +1,11 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.enums.SourceObjectPurpose;
+import org.pangrova.connector.api.enums.NativeWriteOperation;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
-
 import org.pangrova.connector.api.metadata.SourceCatalogDeployment;
-
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.ByteString;
@@ -224,9 +226,9 @@ public final class LanceManagedSourceFixture {
                 || !base.datasetUri().equals(uri)) throw new IllegalStateException("Actual fixture schema or base differs");
         AcceptedSourceSnapshot accepted = version == 0 ? null : store.loadSnapshot(base).reference();
         var allocation = new NativeWriteAllocation(uri, switch (operation) {
-            case LANCE_WRITE_OPERATION_CREATE -> NativeWriteAllocation.Operation.CREATE;
-            case LANCE_WRITE_OPERATION_APPEND -> NativeWriteAllocation.Operation.APPEND;
-            case LANCE_WRITE_OPERATION_OVERWRITE -> NativeWriteAllocation.Operation.OVERWRITE;
+            case LANCE_WRITE_OPERATION_CREATE -> NativeWriteOperation.CREATE;
+            case LANCE_WRITE_OPERATION_APPEND -> NativeWriteOperation.APPEND;
+            case LANCE_WRITE_OPERATION_OVERWRITE -> NativeWriteOperation.OVERWRITE;
             default -> throw new IllegalArgumentException("Unknown write operation");
         }, version, schemaSha256, writeId, "_pangrova/write-staging/" + writeId, "generation-1", actualSchema.columns());
         var output = new LanceOutputHandle(base, allocation,
@@ -242,7 +244,7 @@ public final class LanceManagedSourceFixture {
     public WriteCommitEntry recordIntent(String execution, List<byte[]> fragments) {
         var allocation = allocation(execution);
         var output = allocation.output();
-        if (journal.getEntry(execution).filter(value -> value.state() == WriteCommitEntry.State.COMMITTED).isEmpty()) {
+        if (journal.getEntry(execution).filter(value -> value.state() == WriteCommitState.COMMITTED).isEmpty()) {
             validateActualWinners(allocation, fragments);
         }
         var receipt = receipt(output.table());
@@ -252,7 +254,7 @@ public final class LanceManagedSourceFixture {
         String fingerprint = WriteCommitFingerprint.compute(intent, fragments);
         var anchor = allocation.anchor();
         var entry = new WriteCommitEntry(execution, catalog.getCatalogName(), output.table().table().toString(),
-                WriteCommitEntry.State.PENDING, Instant.now().toEpochMilli(), fragments, output.mode(), fingerprint,
+                WriteCommitState.PENDING, Instant.now().toEpochMilli(), fragments, output.mode(), fingerprint,
                 TENANT, PRINCIPAL, receipt, output.table().version(), allocation.binding().toByteArray(), fingerprint,
                 anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken(), null, null);
         journal.recordIntent(entry);
@@ -351,7 +353,7 @@ public final class LanceManagedSourceFixture {
         }).reduce(0, Math::addExact);
         var accepted = store.accept(allocation.output(), reservation, publication, rows);
         var committed = journal.getEntry(execution).orElseThrow();
-        if (committed.state() != WriteCommitEntry.State.COMMITTED || committed.publication() == null
+        if (committed.state() != WriteCommitState.COMMITTED || committed.publication() == null
                 || !Arrays.equals(committed.publication().manifestSha256(), accepted.manifestDigest())) {
             throw new IllegalStateException("PG acceptance and durable journal are not the same publication");
         }
@@ -400,7 +402,7 @@ public final class LanceManagedSourceFixture {
                             .setDigest(ByteString.copyFrom(batch.sha256())));
             for (var object : batch.objects()) request.addObjects(org.pangrova.protocol.v2.PreparedSourceObject.newBuilder()
                     .setRelativePath(object.relativePath()).setSizeBytes(object.sizeBytes())
-                    .setPurpose(object.purpose() == SourceObjectPage.Purpose.SOURCE
+                    .setPurpose(object.purpose() == SourceObjectPurpose.SOURCE
                             ? org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_SOURCE
                             : org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR));
             return request.build();
@@ -445,7 +447,7 @@ public final class LanceManagedSourceFixture {
                 // sidecar before admitting them as winners; malformed fixture input must not
                 // masquerade as a second immutable redo intent for the same query.
                 new SourceObjectPage.ObjectReference(reference.getRelativeObjectKey(), reference.getSizeBytes(),
-                        SourceObjectPage.Purpose.WINNER_SIDECAR);
+                        SourceObjectPurpose.WINNER_SIDECAR);
                 if (reference.getSizeBytes() <= 0 || reference.getSizeBytes() > 64L * 1024 * 1024) {
                     throw new IllegalArgumentException("Fixture sidecar is unbounded");
                 }
@@ -503,7 +505,7 @@ public final class LanceManagedSourceFixture {
                 .setFencingToken(anchor.fencingToken()).build();
     }
 
-    private static LanceWriteOperation operation(NativeWriteAllocation.Operation operation) {
+    private static LanceWriteOperation operation(NativeWriteOperation operation) {
         return switch (operation) {
             case CREATE -> LanceWriteOperation.LANCE_WRITE_OPERATION_CREATE;
             case APPEND -> LanceWriteOperation.LANCE_WRITE_OPERATION_APPEND;
@@ -518,7 +520,7 @@ public final class LanceManagedSourceFixture {
         var declaration = WriteDeclarationSnapshot.capture(name, metadata, GeneratedColumnSet.newBuilder().setSchemaVersion(1).build().toByteArray(), false);
         return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(name, Set.of(), Privilege.INSERT,
-                        DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
+                        AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, List.of()))));
     }
 
@@ -552,10 +554,10 @@ public final class LanceManagedSourceFixture {
 
     public record Allocation(String executionId, LanceOutputHandle output, WriteOutputBinding binding,
                              ExecutionAnchor anchor, TaskAttemptId attempt, String attemptPrefix) {}
-    private static SourceObjectPage.Purpose objectPurpose(org.pangrova.protocol.v2.SourceObjectPurpose value) {
+    private static SourceObjectPurpose objectPurpose(org.pangrova.protocol.v2.SourceObjectPurpose value) {
         return switch (value) {
-            case SOURCE_OBJECT_PURPOSE_SOURCE -> SourceObjectPage.Purpose.SOURCE;
-            case SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR -> SourceObjectPage.Purpose.WINNER_SIDECAR;
+            case SOURCE_OBJECT_PURPOSE_SOURCE -> SourceObjectPurpose.SOURCE;
+            case SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR -> SourceObjectPurpose.WINNER_SIDECAR;
             default -> throw new IllegalArgumentException("SDK object purpose is absent or unknown");
         };
     }

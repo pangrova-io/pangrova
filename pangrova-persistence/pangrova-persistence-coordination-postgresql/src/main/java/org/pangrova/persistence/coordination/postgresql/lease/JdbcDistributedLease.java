@@ -1,5 +1,7 @@
 package org.pangrova.persistence.coordination.postgresql.lease;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
@@ -105,7 +107,7 @@ public final class JdbcDistributedLease implements DistributedLease {
                 }
                 return acquired;
             } catch (SQLException | RuntimeException failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -202,7 +204,7 @@ public final class JdbcDistributedLease implements DistributedLease {
                 }
                 return renewed;
             } catch (SQLException | RuntimeException failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -230,7 +232,7 @@ public final class JdbcDistributedLease implements DistributedLease {
                 }
                 return released;
             } catch (SQLException | RuntimeException failure) {
-                rollback(conn, failure);
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -265,14 +267,6 @@ public final class JdbcDistributedLease implements DistributedLease {
         }
         conn.commit();
         return true;
-    }
-
-    private static void rollback(Connection conn, Throwable failure) {
-        try {
-            conn.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
     }
 
     private static CoordinationStorageException storeFailure(String operation, String leaseKey, SQLException failure) {

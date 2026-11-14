@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.api.exception.AiInvocationException;
 
 import java.time.Duration;
@@ -53,7 +54,7 @@ final class AiInvocationPermits implements AutoCloseable {
 
     private static AiInvocationException timeout(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.TIMEOUT, false, message, cause);
+                AiFailureCategory.TIMEOUT, false, message, cause);
     }
 
     @Override

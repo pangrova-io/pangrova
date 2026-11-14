@@ -13,10 +13,9 @@
  */
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
-
 import org.pangrova.worker.task.report.TaskStatusReporter;
-
 import org.pangrova.worker.enums.TaskState;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -61,7 +60,7 @@ final class TaskSubmissionHandler {
             }
         }
         if (owner.drainExecutor.isDraining()) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.CLOSED,
+            throw new TaskAdmissionException(TaskAdmissionReason.CLOSED,
                     "Worker is draining — new tasks are rejected");
         }
         String taskId =

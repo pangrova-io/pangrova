@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.analysis;
 
+import java.util.Optional;
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
@@ -68,13 +70,13 @@ public final class PlanFragment implements StagePlanAccess {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.planner.api.fragment.StageCoordinates> frozenCoordinates() {
-        return java.util.Optional.empty();
+    public Optional<org.pangrova.planner.api.fragment.StageCoordinates> frozenCoordinates() {
+        return Optional.empty();
     }
 
     @Override
-    public Mode mode() {
-        return Mode.LIVE_QUERY;
+    public StagePlanMode mode() {
+        return StagePlanMode.LIVE_QUERY;
     }
 
     @Override
@@ -126,6 +128,11 @@ public final class PlanFragment implements StagePlanAccess {
         return PlanSplitSourceExtractor.queryOutputColumns(planNode);
     }
 
+    /** An eligible single-table predicate scope for index selection. */
+    public Optional<ScanPredicates> singleScanPredicates() {
+        return PlanSplitSourceExtractor.singleScanPredicates(planNode);
+    }
+
     /**
      * Returns the field names of this fragment's output row type.
      */
@@ -163,7 +170,6 @@ public final class PlanFragment implements StagePlanAccess {
         }
         return List.copyOf(results);
     }
-
 
     private static String resultModel(RelNode node, int columnIndex) {
         if (node instanceof PangrovaExchangeInput input) {

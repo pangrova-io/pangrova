@@ -17,7 +17,7 @@ class PangrovaShuffleProviderIsolationTest {
         ClassLoader loader = PangrovaShuffleClient.class.getClassLoader();
         for (String excluded : List.of("org.pangrova.shuffle.exchange.ExternalShuffleTransport",
                 "org.pangrova.shuffle.exchange.SpoolBackedExchangeManager",
-                "org.pangrova.shuffle.exchange.PartitionMergeStrategy",
+                "org.pangrova.shuffle.exchange.enums.PartitionMergeStrategy",
                 "org.pangrova.shuffle.exchange.ExchangeTaskAttempt",
                 "org.pangrova.worker.execution.NativeTaskExecutor",
                 "org.pangrova.worker.jni.NativeRuntime",

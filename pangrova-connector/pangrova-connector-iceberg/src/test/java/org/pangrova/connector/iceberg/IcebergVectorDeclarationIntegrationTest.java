@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.Namespace;
@@ -38,8 +40,8 @@ class IcebergVectorDeclarationIntegrationTest {
     };
 
     @ParameterizedTest
-    @EnumSource(VectorType.ElementType.class)
-    void connectorCreatePreservesDeclaredPrecisionAndDimensionInActualSdkAndReadback(VectorType.ElementType element)
+    @EnumSource(VectorElementType.class)
+    void connectorCreatePreservesDeclaredPrecisionAndDimensionInActualSdkAndReadback(VectorElementType element)
             throws Exception {
         var configuration = new Configuration();
         configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
@@ -50,7 +52,7 @@ class IcebergVectorDeclarationIntegrationTest {
             metadata.createTable(SESSION, declared);
             var table = catalog.loadTable(TableIdentifier.of("db", "vectors"));
             assertThat(table.schema().findType("embedding").asListType().elementType()).isEqualTo(
-                    element == VectorType.ElementType.DOUBLE ? Types.DoubleType.get() : Types.FloatType.get());
+                    element == VectorElementType.DOUBLE ? Types.DoubleType.get() : Types.FloatType.get());
             assertThat(table.properties()).containsEntry("pangrova.vector.dimension.embedding", "3");
             var actual = metadata.getTableMetadata(SESSION, metadata.getTableHandle(SESSION, declared.table()));
             assertThat(actual.typedColumns().get(0).type()).isEqualTo(PangrovaType.VECTOR);
@@ -63,7 +65,7 @@ class IcebergVectorDeclarationIntegrationTest {
         var incomplete = List.of(new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR));
         assertThatThrownBy(() -> IcebergSchemaBuilder.buildIcebergSchema(incomplete, Map.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("concrete storage declaration");
-        var declared = declaration(new VectorType(3, VectorType.ElementType.DOUBLE),
+        var declared = declaration(new VectorType(3, VectorElementType.DOUBLE),
                 Map.of("pangrova.vector.dimension.embedding", "4"));
         assertThatThrownBy(() -> IcebergSchemaBuilder.buildIcebergSchema(declared.typedColumns(), declared.properties()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("dimension property disagrees");

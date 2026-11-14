@@ -17,7 +17,8 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
-  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-batch</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId><scope>test</scope></dependency>

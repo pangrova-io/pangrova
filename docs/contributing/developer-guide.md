@@ -376,6 +376,10 @@ public class QueryExecutor {
 
 // 1. ConnectorFactory
 public class CsvConnectorFactory implements ConnectorFactory {
+    @Override public int apiVersion() { return ConnectorFactoryContract.CURRENT_API_VERSION; }
+    @Override public Set<ConnectorRole> roles() { return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER); }
+    @Override public void validateConfiguration(Map<String, String> config) { new CsvConfig(config); }
+
     
     @Override
     public String getName() {
@@ -607,6 +611,10 @@ mkdir -p pangrova-connector/pangrova-connector-mydb/src/test/java/org/pangrova/c
 package org.pangrova.connector.mydb;
 
 public class MyDbConnectorFactory implements ConnectorFactory {
+    @Override public int apiVersion() { return ConnectorFactoryContract.CURRENT_API_VERSION; }
+    @Override public Set<ConnectorRole> roles() { return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER); }
+    @Override public void validateConfiguration(Map<String, String> config) { new MyDbConfig(config); }
+
 
     @Override
     public String getName() {

@@ -41,11 +41,11 @@ public final class NativeMemoryCoordinator implements AllocationListener, Shrink
     private final NativeSpillController spillController;
 
     /**
-     * Creates a coordinator with arbitrator and spill bridge wired.
+     * Creates a coordinator with the arbitrator and spill controller.
      *
      * @param maxNativeBytes upper bound for native memory reservations (positive)
      * @param arbitrator     global memory arbitrator for unified budget enforcement
-     * @param spillController    bridge to signal native operator spill on allocation denial
+     * @param spillController    controller that signals Native operator spill on allocation denial
      */
     public NativeMemoryCoordinator(long maxNativeBytes, MemoryArbitrator arbitrator,
                                    NativeSpillController spillController) {

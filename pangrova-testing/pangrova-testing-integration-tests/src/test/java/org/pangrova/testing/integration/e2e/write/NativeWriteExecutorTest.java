@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.write;
 
+import org.pangrova.worker.enums.DmlOperation;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.worker.exception.NativeRuntimeException;
 import org.pangrova.worker.write.WriteDescriptor;
@@ -95,7 +97,7 @@ class NativeWriteExecutorTest extends NativeWriteLifecycleTestBase {
                 + " (id BIGINT, day VARCHAR, region VARCHAR) PARTITIONED BY (day, region)");
         Map<String, String> partitions = Map.of("day", "2026-09-19", "region", "cn");
         try (var fixture = lifecycle()) {
-            var opened = fixture.open(table, WriteDescriptor.DmlOperation.OVERWRITE, partitions);
+            var opened = fixture.open(table, DmlOperation.OVERWRITE, partitions);
             assertThat(opened.outputHandle().staticPartitions()).isEqualTo(partitions);
             assertThat(opened.request().getExecutionOptions().getWrite().getOutputBinding()
                     .getConnector().getOutputHandle().getWriteColumnNamesList()).containsExactly("id", "day", "region");
@@ -204,7 +206,7 @@ class NativeWriteExecutorTest extends NativeWriteLifecycleTestBase {
     }
 
     private static WriteDescriptor descriptor(Map<String, String> properties) {
-        return new WriteDescriptor(WriteDescriptor.DmlOperation.INSERT,
+        return new WriteDescriptor(DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")), properties);
     }
 }

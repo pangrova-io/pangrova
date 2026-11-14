@@ -60,13 +60,13 @@ class DynamicTableRefreshModeMappingTest {
     void pinnedStrategiesMapToKernelStrategies() {
         assertThat(KernelDynamicTableService.incrementalStrategy(
                 Optional.of(org.pangrova.parser.api.enums.IncrementalStrategy.APPEND_ONLY)))
-                .contains(org.pangrova.materialization.api.domain.StrategyId.APPEND_ONLY);
+                .contains(org.pangrova.materialization.api.identity.StrategyId.APPEND_ONLY);
         assertThat(KernelDynamicTableService.incrementalStrategy(
                 Optional.of(org.pangrova.parser.api.enums.IncrementalStrategy.PARTITION_REPLACE)))
-                .contains(org.pangrova.materialization.api.domain.StrategyId.PARTITION_REPLACE);
+                .contains(org.pangrova.materialization.api.identity.StrategyId.PARTITION_REPLACE);
         assertThat(KernelDynamicTableService.incrementalStrategy(
                 Optional.of(org.pangrova.parser.api.enums.IncrementalStrategy.AFFECTED_KEY)))
-                .contains(org.pangrova.materialization.api.domain.StrategyId.AFFECTED_KEY);
+                .contains(org.pangrova.materialization.api.identity.StrategyId.AFFECTED_KEY);
     }
 
     @Test

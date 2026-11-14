@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.memory.transaction;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.common.file.CopyFilePublication;
@@ -30,7 +31,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     @Override
     public void recordIntent(WriteCommitEntry entry) {
         java.util.Objects.requireNonNull(entry, "entry");
-        if (entry.state() != WriteCommitEntry.State.PENDING) {
+        if (entry.state() != WriteCommitState.PENDING) {
             throw new IllegalArgumentException("Only PENDING write intents may be recorded");
         }
         if (entry.copyFile() != null) {
@@ -41,7 +42,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
                 return entry;
             }
             if (!existing.commitFingerprint().equals(entry.commitFingerprint())
-                    || existing.state() == WriteCommitEntry.State.ABORTED) {
+                    || existing.state() == WriteCommitState.ABORTED) {
                 throw new IllegalStateException(
                         "Conflicting write commit intent for queryId=" + entry.queryId());
             }
@@ -55,8 +56,8 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
             if (existing == null) {
                 throw new IllegalStateException("Cannot commit a missing write intent: " + queryId);
             }
-            return existing.state() == WriteCommitEntry.State.COMMITTED ? existing
-                    : existing.withState(WriteCommitEntry.State.COMMITTED, System.currentTimeMillis());
+            return existing.state() == WriteCommitState.COMMITTED ? existing
+                    : existing.withState(WriteCommitState.COMMITTED, System.currentTimeMillis());
         });
     }
 
@@ -66,7 +67,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
             if (existing == null || !existing.commitFingerprint().equals(fingerprint)) {
                 throw new IllegalStateException("Publication does not match a durable write intent");
             }
-            if (existing.state() == WriteCommitEntry.State.COMMITTED && existing.publication() == null) {
+            if (existing.state() == WriteCommitState.COMMITTED && existing.publication() == null) {
                 throw new IllegalStateException("Cannot add publication evidence after catalog commit");
             }
             return existing.withPublication(publication);
@@ -86,7 +87,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     @Override
     public boolean isCommitted(String queryId) {
         WriteCommitEntry entry = entries.get(queryId);
-        return entry != null && entry.state() == WriteCommitEntry.State.COMMITTED;
+        return entry != null && entry.state() == WriteCommitState.COMMITTED;
     }
 
     @Override
@@ -103,7 +104,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     public boolean isDeferredWorkAcknowledged(String fingerprint) {
         var entry = findByFingerprint(fingerprint).orElseThrow(() ->
                 new IllegalStateException("Deferred status requires its exact COMMITTED write anchor"));
-        if (entry.state() != WriteCommitEntry.State.COMMITTED) {
+        if (entry.state() != WriteCommitState.COMMITTED) {
             throw new IllegalStateException("Deferred status requires a committed write");
         }
         return acknowledged.contains(fingerprint);
@@ -113,7 +114,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     public void acknowledgeNoDeferredWork(String fingerprint) {
         var entry = findByFingerprint(fingerprint).orElseThrow(() ->
                 new IllegalStateException("Deferred work requires its original committed intent"));
-        if (entry.state() != WriteCommitEntry.State.COMMITTED
+        if (entry.state() != WriteCommitState.COMMITTED
                 || entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
             throw new IllegalStateException("No-work acknowledgement requires a COMMITTED absence declaration");
         }
@@ -125,7 +126,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
             java.util.Set<String> executionIds) {
         return entries.values().stream()
                 .filter(e -> executionIds.contains(e.queryId()))
-                .filter(e -> e.state() == WriteCommitEntry.State.PENDING)
+                .filter(e -> e.state() == WriteCommitState.PENDING)
                 .sorted((a, b) -> Long.compare(a.timestampMs(), b.timestampMs()))
                 .toList();
     }
@@ -135,19 +136,19 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
         java.util.Objects.requireNonNull(queryId, "queryId");
         java.util.Objects.requireNonNull(fingerprint, "fingerprint");
         entries.compute(queryId, (id, entry) -> {
-            if (entry == null || entry.state() == WriteCommitEntry.State.COMMITTED
+            if (entry == null || entry.state() == WriteCommitState.COMMITTED
                     || !entry.commitFingerprint().equals(fingerprint) || entry.publication() != null) {
                 throw new IllegalStateException("Abort does not match an exact unpublished pending or aborted intent");
             }
-            return entry.state() == WriteCommitEntry.State.ABORTED ? entry
-                    : entry.withState(WriteCommitEntry.State.ABORTED, System.currentTimeMillis());
+            return entry.state() == WriteCommitState.ABORTED ? entry
+                    : entry.withState(WriteCommitState.ABORTED, System.currentTimeMillis());
         });
     }
 
     @Override
     public void purge(String queryId) {
         entries.computeIfPresent(queryId, (id, entry) -> {
-            if (entry.state() == WriteCommitEntry.State.COMMITTED && acknowledged.remove(entry.commitFingerprint())) {
+            if (entry.state() == WriteCommitState.COMMITTED && acknowledged.remove(entry.commitFingerprint())) {
                 return null;
             }
             return entry;

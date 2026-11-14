@@ -5,7 +5,7 @@ import java.util.List;
 import org.pangrova.coordinator.resilience.degradation.GracefulDegradationController.AdmissionDecision;
 import org.pangrova.coordinator.resilience.degradation.GracefulDegradationController.AdmissionRequest;
 import org.pangrova.coordinator.resilience.degradation.GracefulDegradationController.QueryLoadEntry;
-import org.pangrova.coordinator.resilience.degradation.GracefulDegradationController.RejectionReason;
+import org.pangrova.coordinator.enums.AdmissionRejectionReason;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,7 +31,7 @@ class GracefulDegradationControllerTest {
         AdmissionDecision decision = controller.evaluateAdmission(request);
 
         assertThat(decision.admitted()).isFalse();
-        assertThat(decision.reason()).isEqualTo(RejectionReason.MEMORY_PRESSURE);
+        assertThat(decision.reason()).isEqualTo(AdmissionRejectionReason.MEMORY_PRESSURE);
     }
 
     @Test
@@ -40,7 +40,7 @@ class GracefulDegradationControllerTest {
         AdmissionDecision decision = controller.evaluateAdmission(request);
 
         assertThat(decision.admitted()).isFalse();
-        assertThat(decision.reason()).isEqualTo(RejectionReason.CPU_PRESSURE);
+        assertThat(decision.reason()).isEqualTo(AdmissionRejectionReason.CPU_PRESSURE);
     }
 
     @Test
@@ -49,7 +49,7 @@ class GracefulDegradationControllerTest {
         AdmissionDecision decision = controller.evaluateAdmission(request);
 
         assertThat(decision.admitted()).isFalse();
-        assertThat(decision.reason()).isEqualTo(RejectionReason.QUEUE_FULL);
+        assertThat(decision.reason()).isEqualTo(AdmissionRejectionReason.QUEUE_FULL);
     }
 
     @Test
@@ -58,7 +58,7 @@ class GracefulDegradationControllerTest {
         AdmissionDecision decision = controller.evaluateAdmission(request);
 
         assertThat(decision.admitted()).isFalse();
-        assertThat(decision.reason()).isEqualTo(RejectionReason.QUEUE_FULL);
+        assertThat(decision.reason()).isEqualTo(AdmissionRejectionReason.QUEUE_FULL);
     }
 
     @Test

@@ -22,7 +22,7 @@ import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.scheduler.placement.TaskScheduler;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;

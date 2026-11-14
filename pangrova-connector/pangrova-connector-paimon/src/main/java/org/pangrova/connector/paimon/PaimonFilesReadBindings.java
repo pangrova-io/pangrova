@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import com.google.protobuf.ByteString;
@@ -203,11 +205,11 @@ final class PaimonFilesReadBindings {
         var schema = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(handle.baseTable().schemaName(), handle.tableName()),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of()),
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                TableDeclarationEvidence.EXACT);
         long count = handle.manifests().stream().mapToLong(source -> source.context().getFilesCount()).sum();
         return new ConnectorReadBinding(handle, schema, new TableStatistics(count, -1, -1, Map.of()),
-                handle.snapshotId() == 0 ? ConnectorReadBinding.SnapshotState.EMPTY
-                        : ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                handle.snapshotId() == 0 ? ReadSnapshotState.EMPTY
+                        : ReadSnapshotState.SNAPSHOT,
                 handle.snapshotId() == 0 ? OptionalLong.empty() : OptionalLong.of(handle.snapshotId()),
                 handle.sourceIdentity(), java.util.Optional.empty());
     }

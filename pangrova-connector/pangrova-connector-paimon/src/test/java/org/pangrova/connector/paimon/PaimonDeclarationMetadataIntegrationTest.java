@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
@@ -100,8 +102,8 @@ class PaimonDeclarationMetadataIntegrationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(VectorType.ElementType.class)
-    void connectorCreateAndSdkMetadataReadbackRetainVectorCoordinatePrecision(VectorType.ElementType element)
+    @EnumSource(VectorElementType.class)
+    void connectorCreateAndSdkMetadataReadbackRetainVectorCoordinatePrecision(VectorElementType element)
             throws Exception {
         var options = new Options();
         options.setString("warehouse", warehouse.toString());
@@ -117,7 +119,7 @@ class PaimonDeclarationMetadataIntegrationTest {
             metadata.createTable(SESSION, declared);
             var sdk = catalog.getTable(Identifier.create("db", "vectors"));
             assertThat(sdk.rowType().getTypeAt(1)).isEqualTo(DataTypes.ARRAY(
-                    element == VectorType.ElementType.DOUBLE ? DataTypes.DOUBLE() : DataTypes.FLOAT()));
+                    element == VectorElementType.DOUBLE ? DataTypes.DOUBLE() : DataTypes.FLOAT()));
             assertThat(sdk.options()).containsEntry("pangrova.vector.dimension.embedding", "3");
             var actual = metadata.getTableMetadata(SESSION, metadata.getTableHandle(SESSION, declared.table()));
             assertThat(actual.typedColumns().get(1).type()).isEqualTo(PangrovaType.VECTOR);

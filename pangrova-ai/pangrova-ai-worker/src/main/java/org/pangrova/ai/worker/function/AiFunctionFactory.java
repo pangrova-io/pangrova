@@ -392,21 +392,7 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
     }
 
     static BlobStorage createStorage(Map<String, String> config, Iterable<BlobStorageFactory> factories) {
-        String selected = required(config, "file.storage-backend");
-        var installed = new java.util.HashMap<String, BlobStorageFactory>();
-        for (var factory : factories) {
-            String id = factory.providerId();
-            if (id == null || id.isBlank() || factory.apiVersion() != BlobStorageFactory.API_VERSION) {
-                throw new IllegalArgumentException("Invalid FILE storage factory: " + id);
-            }
-            if (installed.putIfAbsent(id, factory) != null) {
-                throw new IllegalArgumentException("Duplicate FILE storage backend: " + id);
-            }
-        }
-        var factory = installed.get(selected);
-        if (factory == null) {
-            throw new IllegalArgumentException("Unsupported FILE storage backend: " + selected);
-        }
+        var factory = BlobStorageFactory.select(config, factories);
         return java.util.Objects.requireNonNull(factory.create(config), "FILE storage factory returned null");
     }
 

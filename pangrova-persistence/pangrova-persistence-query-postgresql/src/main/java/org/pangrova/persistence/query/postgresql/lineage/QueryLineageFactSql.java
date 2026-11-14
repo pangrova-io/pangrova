@@ -1,5 +1,9 @@
 package org.pangrova.persistence.query.postgresql.lineage;
 
+import org.pangrova.persistence.query.postgresql.exception.LineagePayloadConflictException;
+
+import org.pangrova.governance.api.enums.LineageEventType;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
@@ -49,7 +53,7 @@ public final class QueryLineageFactSql {
             insert.setObject(1, fact.eventId());
             insert.setString(2, fact.namespace());
             insert.setString(3, fact.queryId());
-            insert.setString(4, fact.phase() == QueryLineageFact.Phase.START ? "START" : "TERMINAL");
+            insert.setString(4, fact.phase() == LineageEventType.START ? "START" : "TERMINAL");
             insert.setString(5, payload);
             insert.setLong(6, fact.timestampMs());
             insert.executeUpdate();
@@ -59,17 +63,10 @@ public final class QueryLineageFactSql {
             select.setObject(1, fact.eventId());
             try (ResultSet rows = select.executeQuery()) {
                 if (!rows.next() || !fact.equals(decode(rows.getString(1))) || rows.next()) {
-                    throw new PayloadConflict(fact.eventId());
+                    throw new LineagePayloadConflictException(fact.eventId());
                 }
             }
         }
     }
 
-    public static final class PayloadConflict extends SQLException {
-        private static final long serialVersionUID = 1L;
-
-        PayloadConflict(java.util.UUID identity) {
-            super("Lineage identity has a conflicting immutable payload: " + identity, "23505");
-        }
-    }
 }

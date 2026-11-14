@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -73,7 +75,7 @@ class RuntimeFilterStageHandlerTest {
 
         Optional<RuntimeFilter> registeredFilter = registry.getFilter("q-dpp:1");
         assertThat(registeredFilter).isPresent();
-        assertThat(registeredFilter.get().type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(registeredFilter.get().filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat(registeredFilter.get().column()).isEqualTo("customer_id");
 
         assertThat(dispatcher.injections).hasSize(2);
@@ -178,7 +180,7 @@ class RuntimeFilterStageHandlerTest {
 
         Optional<RuntimeFilter> filter = registry.getFilter("q-bloom:1");
         assertThat(filter).isPresent();
-        assertThat(filter.get().type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.get().filterType()).isEqualTo(DynamicFilterType.BLOOM);
         assertThat(filter.get().column()).isEqualTo("order_id");
 
         assertThat(dispatcher.injections).hasSize(1);

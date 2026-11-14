@@ -17,7 +17,7 @@
 #include "capabilities/capability/NativeCapabilityCatalog.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 #include "command/task/TaskRequestParser.h"
-#include "command/task/WorkerLocalStorage.h"
+#include "engine/resource/WorkerStorageBinding.h"
 #include "command/task/WorkerLocalCopyInput.h"
 #include "lance/LanceDatasetTestFixture.h"
 
@@ -1171,18 +1171,18 @@ TEST(ParseTaskConfigTest, LancePartitionAndWorkerLocalStorageFailClosed) {
 TEST(ParseTaskConfigTest, BucketRootWarehouseRetainsExactCatalogContainment) {
   proto::ObjectStoreExecutionBinding binding;
   binding.set_warehouse_uri("s3://warehouse");
-  EXPECT_NO_THROW(validateStorageLocation(binding, "s3://warehouse/db/items.lance"));
+  EXPECT_NO_THROW(pangrova::resource::validateStorageLocation(binding, "s3://warehouse/db/items.lance"));
   binding.set_warehouse_uri("s3://warehouse/");
-  EXPECT_NO_THROW(validateStorageLocation(binding, "s3://warehouse/db/items.lance"));
+  EXPECT_NO_THROW(pangrova::resource::validateStorageLocation(binding, "s3://warehouse/db/items.lance"));
   for (const auto& invalid : {"s3://warehouse", "s3://warehouse/", "s3://other/db/items.lance",
                              "s3://warehouse/../other/items.lance", "s3://warehouse/%2e%2e/items.lance",
                              "s3://warehouse/db%2fitems.lance", "s3://warehouse/db%00items.lance",
                              "s3:///items.lance", "s3://"}) {
-    EXPECT_THROW(validateStorageLocation(binding, invalid), std::invalid_argument) << invalid;
+    EXPECT_THROW(pangrova::resource::validateStorageLocation(binding, invalid), std::invalid_argument) << invalid;
   }
   binding.set_warehouse_uri("s3://warehouse/catalog");
-  EXPECT_NO_THROW(validateStorageLocation(binding, "s3://warehouse/catalog/db/items.lance"));
-  EXPECT_THROW(validateStorageLocation(binding, "s3://warehouse/catalog-other/items.lance"),
+  EXPECT_NO_THROW(pangrova::resource::validateStorageLocation(binding, "s3://warehouse/catalog/db/items.lance"));
+  EXPECT_THROW(pangrova::resource::validateStorageLocation(binding, "s3://warehouse/catalog-other/items.lance"),
                std::invalid_argument);
 }
 

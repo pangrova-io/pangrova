@@ -48,7 +48,7 @@ final class JdbcMaterializationWrites {
             statement.setLong(5, object.definitionRevision());
             statement.setLong(6, object.revision());
             statement.setNull(7, java.sql.Types.OTHER);
-            statement.setString(8, JdbcMaterializationRows.objectStateName(object.state()));
+            statement.setString(8, object.state().name());
             statement.setString(9, object.definer().name());
             statement.setString(10, object.securityMode().name());
             statement.setString(11, object.refreshMode().name());

@@ -468,7 +468,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var historical = metadata.bindRead(SESSION, selector.withTimeTravelSnapshot(1));
             assertThat(historical.snapshotId()).hasValue(1);
             assertThat(historical.state()).isEqualTo(
-                    org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT);
+                    org.pangrova.connector.api.enums.ReadSnapshotState.SNAPSHOT);
             assertThat(historical.sourceIdentity()).isEqualTo(first.sourceIdentity());
         }
     }

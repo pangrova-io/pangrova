@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.enums.CatalogFailureCategory;
+
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.slf4j.Logger;
@@ -24,26 +26,18 @@ final class CatalogExceptionClassifier {
     private final LongAdder accessDeniedCount = new LongAdder();
     private final LongAdder otherFailureCount = new LongAdder();
 
-    enum Category {
-        /** Transient I/O failure — caller should retry with backoff. */
-        IO_TRANSIENT,
-        /** Access denied — caller must rethrow immediately, no retry. */
-        ACCESS_DENIED,
-        /** Other unclassified failure. */
-        OTHER
-    }
 
     /**
      * Classifies the given exception into a routing category.
      */
-    Category classify(Exception e) {
+    CatalogFailureCategory classify(Exception e) {
         if (isAccessDenied(e)) {
-            return Category.ACCESS_DENIED;
+            return CatalogFailureCategory.ACCESS_DENIED;
         }
         if (isIoTransient(e)) {
-            return Category.IO_TRANSIENT;
+            return CatalogFailureCategory.IO_TRANSIENT;
         }
-        return Category.OTHER;
+        return CatalogFailureCategory.OTHER;
     }
 
     /**
@@ -58,7 +52,7 @@ final class CatalogExceptionClassifier {
      * @throws ConnectorException always for ACCESS_DENIED
      */
     ConnectorException handleAndClassify(Exception e, String operation, String tableId) {
-        Category category = classify(e);
+        CatalogFailureCategory category = classify(e);
         switch (category) {
             case ACCESS_DENIED -> {
                 accessDeniedCount.increment();

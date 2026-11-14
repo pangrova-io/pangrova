@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.streaming;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
@@ -10,7 +11,7 @@ import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.cdc.CdcConsumer;
 import org.pangrova.streaming.cdc.CdcConfig;
 import org.pangrova.streaming.writer.lake.LakeTableWriter;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -288,7 +289,7 @@ class StreamingCdcWriterE2ETest extends SqlE2ETestBase {
                 .putString("name", name)
                 .putRaw("amount", amount)
                 .build();
-        return WriteRecord.fromClient(row, WriteRecord.WriteOperation.INSERT);
+        return WriteRecord.fromClient(row, WriteOperation.INSERT);
     }
 
     // -----------------------------------------------------------------------

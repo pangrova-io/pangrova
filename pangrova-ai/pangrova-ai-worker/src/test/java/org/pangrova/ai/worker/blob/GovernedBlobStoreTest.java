@@ -1,5 +1,6 @@
 package org.pangrova.ai.worker.blob;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.junit.jupiter.api.Test;
@@ -84,7 +85,7 @@ class GovernedBlobStoreTest {
                 assertThatThrownBy(() -> store.persist(new byte[] {4, 5, 6}, "image/png"))
                         .isInstanceOfSatisfying(AiInvocationException.class, failure ->
                                 assertThat(failure.category())
-                                        .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED));
+                                        .isEqualTo(AiFailureCategory.BUDGET_EXCEEDED));
                 return null;
             });
             assertThat(AiInvocationService.resourceUsage(context.tenantId(), context.taskAttempt())

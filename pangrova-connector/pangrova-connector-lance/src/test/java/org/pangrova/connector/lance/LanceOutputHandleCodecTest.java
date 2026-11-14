@@ -1,5 +1,8 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.connector.api.enums.NativeWriteOperation;
+import org.pangrova.types.enums.VectorElementType;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
@@ -27,7 +30,7 @@ class LanceOutputHandleCodecTest {
     @Test
     void preservesExactStructuralTypesAndCanonicalAllocation() {
         List<Type> types = List.of(new VarcharType(30), new CharType(20), new DecimalType(19, 3),
-                new VectorType(3, VectorType.ElementType.DOUBLE), new ArrayType(new VarcharType(40)),
+                new VectorType(3, VectorElementType.DOUBLE), new ArrayType(new VarcharType(40)),
                 new MapType(IntegerType.INSTANCE, new ArrayType(new DecimalType(20, 4))),
                 new RowType(List.of(new RowField("text", new CharType(17)), new RowField("id", IntegerType.INSTANCE))));
         List<LanceColumn> columns = java.util.stream.IntStream.range(0, types.size()).mapToObj(index ->
@@ -35,13 +38,13 @@ class LanceOutputHandleCodecTest {
                         PangrovaTypeMapping.toPangrovaType(types.get(index)), OptionalInt.empty(), types.get(index)))).toList();
         LanceTableHandle table = new LanceTableHandle("lance_catalog", "tenant-1", new SchemaTableName("db", "vectors"),
                 "table-1", "s3://warehouse/table-1.lance", columns, Map.of("b", "2", "a", "1"), new byte[32], 0, 1, 0);
-        var allocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteAllocation.Operation.CREATE,
+        var allocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteOperation.CREATE,
                 0, table.schemaFence(), "write-1", "staging/write-1", "generation-1", columns.stream().map(LanceColumn::name).toList());
         var handle = new LanceOutputHandle(table, allocation, "INSERT", null);
         // The old positive-version input without membership is now an explicit invalid allocation.
         var unproven = new LanceTableHandle(table.catalog(), table.tenantId(), table.table(), table.tableId(),
                 table.datasetUri(), table.columns(), table.properties(), table.schemaFence(), 7, 2, 20);
-        var unprovenAllocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteAllocation.Operation.APPEND,
+        var unprovenAllocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteOperation.APPEND,
                 7, table.schemaFence(), "write-1", "staging/write-1", "generation-1", columns.stream().map(LanceColumn::name).toList());
         assertThatThrownBy(() -> new LanceOutputHandle(unproven, unprovenAllocation, "INSERT", null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("exact accepted base membership");
@@ -68,7 +71,7 @@ class LanceOutputHandleCodecTest {
 
     static LanceOutputHandle output(LanceTableHandle table) {
         return new LanceOutputHandle(table, new NativeWriteAllocation(table.datasetUri(),
-                table.version() == 0 ? NativeWriteAllocation.Operation.CREATE : NativeWriteAllocation.Operation.APPEND,
+                table.version() == 0 ? NativeWriteOperation.CREATE : NativeWriteOperation.APPEND,
                 table.version(), table.schemaFence(), java.util.UUID.randomUUID().toString(),
                 "staging/write-1", "generation-1", table.columns().stream().map(LanceColumn::name).toList()), "INSERT", null);
     }

@@ -16,7 +16,7 @@ import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.OutputSchema;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
@@ -73,7 +73,7 @@ public final class DynamicTablePublicationFixtures {
                         new ColumnDefinition("region", "VARCHAR", true, 1),
                         new ColumnDefinition("department", "VARCHAR", true, 2))),
                 java.util.Set.of(),
-                RefreshKind.Full.INSTANCE,
+                RefreshKind.FULL,
                 new SourceVector(Map.of(), revision),
                 Instant.now());
     }

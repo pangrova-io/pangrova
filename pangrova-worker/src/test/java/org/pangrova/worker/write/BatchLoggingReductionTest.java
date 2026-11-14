@@ -1,5 +1,6 @@
 package org.pangrova.worker.write;
 
+import org.pangrova.worker.enums.DmlOperation;
 import org.pangrova.worker.catalog.CatalogResourceResolver;
 
 import ch.qos.logback.classic.Level;
@@ -200,7 +201,7 @@ class BatchLoggingReductionTest {
 
     private static WriteDescriptor descriptor(String tableName) {
         return new WriteDescriptor(
-                WriteDescriptor.DmlOperation.INSERT,
+                DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),
                 Map.of("taskId", "logging-task"));

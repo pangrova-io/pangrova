@@ -1,5 +1,7 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.types.enums.VectorElementType;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,7 +36,7 @@ class NativeDatasetSchemaCompilerTest {
     @Test void nestedNamesAndParameterizedStorageUseThePlannerSchema() {
         var columns = List.of(column("payload", PangrovaType.STRUCT,
                 new RowType(List.of(new RowField("id", BigIntType.INSTANCE)))),
-                column("embedding", PangrovaType.VECTOR, new VectorType(3, VectorType.ElementType.FLOAT)),
+                column("embedding", PangrovaType.VECTOR, new VectorType(3, VectorElementType.FLOAT)),
                 column("amount", PangrovaType.DECIMAL, new DecimalType(18, 4)),
                 new ConnectorTableMetadata.Column("created_at", PangrovaType.TIMESTAMP_NS));
         var result = NativeDatasetSchemaCompiler.compile(columns);
@@ -47,7 +49,7 @@ class NativeDatasetSchemaCompilerTest {
     }
     @Test void doubleVectorNeverNarrowsToFloat32() {
         var result = NativeDatasetSchemaCompiler.compile(List.of(column("embedding", PangrovaType.VECTOR,
-                new VectorType(2, VectorType.ElementType.DOUBLE))));
+                new VectorType(2, VectorElementType.DOUBLE))));
         assertThat(result.schema().getStruct().getTypes(0).getList().getType().hasFp64()).isTrue();
         assertThat(result.columnTypes().get(0).getConstraints(1).getStringValue()).isEqualTo("FLOAT64");
     }

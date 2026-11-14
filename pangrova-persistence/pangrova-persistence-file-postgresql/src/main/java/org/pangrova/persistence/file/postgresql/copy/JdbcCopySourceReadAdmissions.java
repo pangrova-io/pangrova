@@ -1,5 +1,7 @@
 package org.pangrova.persistence.file.postgresql.copy;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.common.util.DigestUtils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -111,7 +113,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 connection.commit();
                 return new Ticket(nonce);
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -165,7 +167,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 connection.commit();
                 return new FrozenInput(new Ticket(nonce), scope, proof);
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -238,7 +240,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 connection.commit();
                 return new Redemption(current, admitted.stagedSource());
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -302,7 +304,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 connection.commit();
                 return staged;
             } catch (SQLException | RuntimeException | Error failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -580,14 +582,6 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
 
     private static AccessDeniedException denied() {
         return new AccessDeniedException("COPY source read admission is absent, revoked, expired or mismatched");
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException | RuntimeException | Error rollbackFailure) {
-            if (rollbackFailure != failure) failure.addSuppressed(rollbackFailure);
-        }
     }
 
     private record Admission(Scope scope, UserIdentity identity,

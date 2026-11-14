@@ -17,6 +17,8 @@
  */
 package org.pangrova.server.coordinator.http.request;
 
+import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
+
 import jakarta.ws.rs.ClientErrorException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.query.SubmitQueryRequest;
@@ -112,7 +114,7 @@ class IdempotencyKeyRegistryTest {
         assertThatThrownBy(() -> registry.submit("alice", "key", REQUEST, () -> {
             throw new IllegalStateException("temporarily unavailable");
         })).hasMessage("temporarily unavailable");
-        var failure = new IdempotencyKeyRegistry.RecordedSubmissionFailure("q-1",
+        var failure = new RecordedSubmissionException("q-1",
                 new IllegalStateException("already registered"));
         assertThatThrownBy(() -> registry.submit("alice", "key", REQUEST, () -> { throw failure; }))
                 .isSameAs(failure);

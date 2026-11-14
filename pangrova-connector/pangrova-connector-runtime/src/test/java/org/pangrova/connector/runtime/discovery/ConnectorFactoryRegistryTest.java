@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.discovery;
 
+import org.pangrova.connector.api.constants.ConnectorFactoryContract;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.connector.api.plugin.Connector;
@@ -34,6 +36,18 @@ class ConnectorFactoryRegistryTest {
                 List.of(new TestFactory("iceberg"), new TestFactory("iceberg"))))
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessageContaining("Duplicate ConnectorFactory name 'iceberg'");
+    }
+
+    @Test
+    void rejectsConflictingProviderIdentityAcrossRoles() {
+        var factories = List.<ConnectorFactory>of(
+                new RoleFactory("lake", Set.of(ConnectorRole.COORDINATOR)),
+                new RoleFactory("lake", Set.of(ConnectorRole.WORKER)));
+        for (ConnectorRole role : ConnectorRole.values()) {
+            assertThatThrownBy(() -> ConnectorFactoryRegistry.of(factories, role))
+                    .isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("Duplicate ConnectorFactory name 'lake'");
+        }
     }
 
     @Test
@@ -138,6 +152,21 @@ class ConnectorFactoryRegistryTest {
 
         private TestFactory(String name) {
             this.name = name;
+        }
+
+        @Override
+        public int apiVersion() {
+            return ConnectorFactoryContract.CURRENT_API_VERSION;
+        }
+
+        @Override
+        public Set<ConnectorRole> roles() {
+            return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER);
+        }
+
+        @Override
+        public void validateConfiguration(Map<String, String> config) {
+            java.util.Objects.requireNonNull(config, "config");
         }
 
         @Override

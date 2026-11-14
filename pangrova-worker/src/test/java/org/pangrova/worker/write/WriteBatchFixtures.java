@@ -1,5 +1,6 @@
 package org.pangrova.worker.write;
 
+import org.pangrova.worker.enums.DmlOperation;
 import org.pangrova.worker.catalog.CatalogResourceResolver;
 import org.pangrova.batch.api.reader.ReadableBatch;
 import org.pangrova.connector.api.data.ColumnarPageSink;
@@ -180,7 +181,7 @@ public final class WriteBatchFixtures {
     }
 
     static WriteDescriptor descriptor(String... columns) {
-        return new WriteDescriptor(WriteDescriptor.DmlOperation.INSERT,
+        return new WriteDescriptor(DmlOperation.INSERT,
                 List.of(columns).stream().map(name -> new WriteDescriptor.ColumnSchema(name, "INTEGER")).toList(),
                 Map.of("taskId", "write-task"));
     }

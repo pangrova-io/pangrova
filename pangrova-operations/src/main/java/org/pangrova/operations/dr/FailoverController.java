@@ -1,5 +1,6 @@
 package org.pangrova.operations.dr;
 
+import org.pangrova.operations.enums.FailoverStep;
 import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -55,10 +56,6 @@ public final class FailoverController {
             throw new PangrovaException(PangrovaErrorCode.OPS_FAILOVER_VERIFICATION_FAILED,
                     "Failover step " + step + " failed: " + e.getMessage(), e);
         }
-    }
-
-    public enum FailoverStep {
-        VERIFY_STANDBY, CHECK_LAG, STOP_WRITES, WAIT_CATCHUP, PROMOTE, UPDATE_DNS, NOTIFY
     }
 
     /**

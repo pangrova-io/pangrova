@@ -1,5 +1,9 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import org.pangrova.persistence.query.postgresql.journal.JournalEventKey;
+
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -8,7 +12,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.HashSet;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.pangrova.common.concurrent.GuardedBy;
@@ -23,10 +26,10 @@ import org.pangrova.query.api.journal.TaskStateEvent;
 final class JournalPendingWrites {
     private final int capacity;
     @GuardedBy("this")
-    private final Map<Key, Write> writes = new LinkedHashMap<>();
+    private final Map<JournalEventKey, Write> writes = new LinkedHashMap<>();
     // Derived ordering only: immutable events and their attempts remain owned by writes.
     @GuardedBy("this")
-    private final Map<String, LinkedHashSet<Key>> queryOrder = new LinkedHashMap<>();
+    private final Map<String, LinkedHashSet<JournalEventKey>> queryOrder = new LinkedHashMap<>();
     @GuardedBy("this")
     private final Set<String> purging = new HashSet<>();
     @GuardedBy("this")
@@ -108,7 +111,7 @@ final class JournalPendingWrites {
         List<Write> batch = new ArrayList<>(Math.min(size, writes.size()));
         if (!queryOrder.isEmpty()) {
             var query = queryOrder.entrySet().iterator().next();
-            for (Key key : query.getValue()) {
+            for (JournalEventKey key : query.getValue()) {
                 Write owner = Objects.requireNonNull(writes.get(key), "Journal ordering index lost its event owner");
                 if (owner.attempt.isDone()) owner.attempt = new CompletableFuture<>();
                 batch.add(owner);
@@ -132,7 +135,7 @@ final class JournalPendingWrites {
         batch.attempts().forEach(attempt -> attempt.complete(null));
     }
 
-    void failed(Batch batch, Throwable error, Key confirmedRejected) {
+    void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected) {
         JournalWriteException failure = failure("Journal commit not established", error);
         synchronized (this) {
             for (Write owner : batch.writes()) {
@@ -229,19 +232,19 @@ final class JournalPendingWrites {
 
     static JournalWriteException failure(String message, Throwable cause) {
         return new JournalWriteException(message, cause != null ? cause : new IllegalStateException(message),
-                JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
     }
 
     private static JournalWriteException rejected(String message, Throwable cause) {
         return new JournalWriteException(message, cause != null ? cause : new IllegalStateException(message),
-                JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+                JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
     }
 
     static final class Write {
         private final JournalPendingWrites owner;
         final QueryStateEvent query;
         final TaskStateEvent task;
-        private final Key key;
+        private final JournalEventKey key;
         @GuardedBy("owner")
         private CompletableFuture<Void> attempt = new CompletableFuture<>();
         @GuardedBy("owner")
@@ -251,23 +254,21 @@ final class JournalPendingWrites {
             this.owner = Objects.requireNonNull(owner, "owner");
             query = Objects.requireNonNull(event);
             task = null;
-            key = new Key(true, event.context().eventId());
+            key = new JournalEventKey(true, event.context().eventId());
         }
         Write(JournalPendingWrites owner, TaskStateEvent event) {
             this.owner = Objects.requireNonNull(owner, "owner");
             query = null;
             task = Objects.requireNonNull(event);
-            key = new Key(false, event.context().eventId());
+            key = new JournalEventKey(false, event.context().eventId());
         }
         JournalEventContext context() { return query != null ? query.context() : task.context(); }
-        Key key() { return key; }
+        JournalEventKey key() { return key; }
         String queryId() { return query != null ? query.queryId() : task.queryId(); }
         boolean sameEvent(Write other) {
             return Objects.equals(query, other.query) && Objects.equals(task, other.task);
         }
     }
-
-    record Key(boolean query, UUID eventId) { }
 
     record Batch(List<Write> writes, List<CompletableFuture<Void>> attempts) { }
 

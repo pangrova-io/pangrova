@@ -1,5 +1,7 @@
 package org.pangrova.worker.resource.memory;
 
+import org.pangrova.worker.enums.NativeMemoryEventType;
+import org.pangrova.worker.exception.NativeQuotaSendException;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.slf4j.Logger;
@@ -98,7 +100,7 @@ public final class HeartbeatCrossDomainMemoryCoordinator implements CrossDomainM
         try {
             nativeQuotaSender.setTenantQuota(tenantId, bytes);
             LOG.info("event=quota_pushed_to_native tenantId={} bytes={}", tenantId, bytes);
-        } catch (NativeQuotaSender.NativeQuotaSendException e) {
+        } catch (NativeQuotaSendException e) {
             LOG.error("event=quota_push_failed tenantId={} bytes={} error={}",
                     tenantId, bytes, e.getMessage());
             throw e;
@@ -116,7 +118,7 @@ public final class HeartbeatCrossDomainMemoryCoordinator implements CrossDomainM
         lastHeartbeat.computeIfAbsent(tenantId, k -> new AtomicLong(0))
                 .set(event.timestampMillis());
 
-        if (event.type() != NativeMemoryEvent.Type.STAT) {
+        if (event.type() != NativeMemoryEventType.STAT) {
             LOG.info("event=native_memory_event tenantId={} type={} allocatedBytes={}",
                     tenantId, event.type(), event.allocatedBytes());
         } else {

@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Scope: This manager governs Java-heap resources only (scan buffers,
  * shuffle buffers, sort buffers managed in Java). Native operator spill
  * (HashBuild, HashAgg, OrderBy, Window) is handled entirely by Velox
- * SharedArbitrator — see {@code VeloxMemoryBridge} and
+ * SharedArbitrator — see {@code VeloxMemoryGovernor} and
  * {@code VeloxTaskRunner} in pangrova-worker-native.</p>
  *
  * <p>Java candidates own their buffers and spill directories. This manager

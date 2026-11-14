@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.task.write;
 
+import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.query.api.write.QuarantinedWriteCommit;
@@ -103,7 +104,7 @@ public final class WriteCommitRecoveryService {
             long claimedToken,
             BiPredicate<String, Long> durableFence,
             RecoveryCounters counters) {
-        WriteCommitReconciler.RecoveryOutcome outcome;
+        WriteRecoveryOutcome outcome;
         try {
             outcome = reconciler.reconcile(entry);
         } catch (RuntimeException e) {

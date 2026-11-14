@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.query.security;
 
+import org.pangrova.planner.enums.PlannedDmlOperation;
 import org.pangrova.planner.analysis.DmlWriteTarget;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.authorization.AccessControl;
@@ -156,7 +157,7 @@ public final class AccessControlEnforcer {
     }
 
     private void enforceWritePrivilege(UserIdentity identity, QualifiedTableName ref,
-                                        DmlWriteTarget.DmlOperation operation) {
+                                        PlannedDmlOperation operation) {
         String catalog = ref.catalog();
         String schema = ref.schema();
         String table = ref.table();

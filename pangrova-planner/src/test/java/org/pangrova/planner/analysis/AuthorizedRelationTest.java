@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.StageTerminalPurpose;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -64,7 +66,7 @@ class AuthorizedRelationTest {
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addNames("orders"))).build();
         var plan = Plan.newBuilder().addRelations(PlanRel.newBuilder()
                 .setRoot(RelRoot.newBuilder().setInput(read).addNames("id"))).build();
-        return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        return new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(
                 0, 1, "OUTPUT", new SerializedPlanFragment(plan.toByteArray(), List.of(), List.of()),
                 List.of(), List.of("id"), List.of(), List.of(), 0, 0)), List.of());

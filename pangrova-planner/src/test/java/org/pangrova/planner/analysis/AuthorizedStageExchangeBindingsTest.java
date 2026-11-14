@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.StageTerminalPurpose;
+
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
@@ -44,7 +46,7 @@ class AuthorizedStageExchangeBindingsTest {
         NamedStruct schema = schema();
         var producer = stage(1, producer(values(schema, 3)),
                 schema.getNamesList().stream().map(name -> "display_" + name).toList());
-        var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var graph = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(producer, stage(0, consumer(schema), schema.getNamesList())), List.of(edge()));
         var serialized = Plan.parseFrom(graph.stages().get(1).serializedPlan().planBytes());
         assertThat(serialized.getRelations(0).getRoot().getNames(0)).isEqualTo("display_record");
@@ -86,10 +88,10 @@ class AuthorizedStageExchangeBindingsTest {
                 .setEmit(RelCommon.Emit.newBuilder().addOutputMapping(1).addOutputMapping(0)))).build();
         var expected = SubstraitRelationLayout.describe(source).outputSchema();
         var producer = stage(1, source, expected.getNamesList());
-        var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        var graph = new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(producer, stage(0, consumer(expected), expected.getNamesList())), List.of(edge()));
         assertThat(graph.stages().get(1).serializedPlan().planBytes()).isEqualTo(producer.serializedPlan().planBytes());
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(producer, stage(0, consumer(original), original.getNamesList())), List.of(edge())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen producer schema");
     }
@@ -109,20 +111,20 @@ class AuthorizedStageExchangeBindingsTest {
         var schema = schema();
         var source = stage(1, producer(values(schema, 3)), schema.getNamesList());
         var missing = stage(0, values(schema, 3), schema.getNamesList());
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(source, missing), List.of(edge()))).hasMessageContaining("graph edges");
         assertThatThrownBy(() -> AuthorizedStageGraph.validateExchangeContracts(
                 Map.of(0, plan(consumer(schema), schema.getNamesList())), List.of(edge())))
                 .hasMessageContaining("both frozen stage plans");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(stage(0, consumer(schema), schema.getNamesList())), List.of())).hasMessageContaining("graph edges");
         var duplicate = Rel.newBuilder().setCross(io.substrait.proto.CrossRel.newBuilder()
                 .setLeft(consumer(schema)).setRight(consumer(schema))).build();
         var names = List.of("left_record", "amount", "created", "left_rows", "sum", "at", "left_lookup", "va", "vc",
                 "right_record", "amount", "created", "right_rows", "sum", "at", "right_lookup", "va", "vc");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(source, stage(0, duplicate, names)), List.of(edge()))).hasMessageContaining("Duplicate exchange input");
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(stage(1, values(schema, 3), schema.getNamesList()),
                         stage(0, consumer(schema), schema.getNamesList())), List.of(edge())))
                 .hasMessageContaining("terminal exchange");
@@ -135,7 +137,7 @@ class AuthorizedStageExchangeBindingsTest {
         source = source.toBuilder().setExchange(source.getExchange().toBuilder()
                 .setRoundRobin(source.getExchange().getRoundRobin().toBuilder().setExact(false))).build();
         var changed = stage(1, source, schema.getNamesList());
-        assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new AuthorizedStageGraph(StageTerminalPurpose.RELATIONAL_EXPORT,
                 List.of(changed, stage(0, consumer(schema), schema.getNamesList())), List.of(edge())))
                 .hasMessageContaining("Producer distribution differs");
     }

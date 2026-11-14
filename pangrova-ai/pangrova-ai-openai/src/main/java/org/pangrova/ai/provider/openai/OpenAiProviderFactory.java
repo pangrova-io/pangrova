@@ -1,7 +1,6 @@
 package org.pangrova.ai.provider.openai;
 
 import org.pangrova.ai.http.AiModelProperties;
-
 import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
 import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
@@ -13,7 +12,7 @@ import java.net.URI;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.model.AiModelDescriptor;
@@ -40,7 +39,7 @@ public final class OpenAiProviderFactory implements AiProviderFactory {
     }
 
     @Override
-    public void validate(String dialect, URI endpoint, Set<Operation> capabilities, Set<Modality> modalities,
+    public void validate(String dialect, URI endpoint, Set<AiOperation> capabilities, Set<Modality> modalities,
                          int maxBatchSize, String modelName) {
         AiProviderDialectValidator.validate(dialect, endpoint, capabilities, modalities, maxBatchSize, modelName);
     }

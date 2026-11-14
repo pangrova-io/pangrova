@@ -1,5 +1,6 @@
 package org.pangrova.worker.write;
 
+import org.pangrova.worker.enums.DmlOperation;
 import org.pangrova.worker.catalog.CatalogResourceResolver;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.types.value.ColumnValue;
@@ -227,7 +228,7 @@ class WriteSessionAllocatorReuseTest {
 
     private static WriteDescriptor descriptor(String tableName) {
         return new WriteDescriptor(
-                WriteDescriptor.DmlOperation.INSERT,
+                DmlOperation.INSERT,
                 List.of(
                         new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),

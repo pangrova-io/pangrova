@@ -1,5 +1,7 @@
 package org.pangrova.persistence.coordination.postgresql.admission;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -55,7 +57,7 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -81,7 +83,7 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
                 }
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
-                rollback(connection, failure);
+                rollbackAfterFailure(connection, failure);
                 throw failure;
             }
         } catch (SQLException failure) {
@@ -157,14 +159,6 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
             if (statement.executeUpdate() != 1) {
                 throw new IllegalStateException("cluster admission ownership/count mismatch");
             }
-        }
-    }
-
-    private static void rollback(Connection connection, Throwable failure) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
         }
     }
 }

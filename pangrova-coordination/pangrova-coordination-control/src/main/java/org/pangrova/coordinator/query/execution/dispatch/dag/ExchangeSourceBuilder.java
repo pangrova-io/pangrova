@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.query.api.task.QuerySplit;
 
 import org.pangrova.execution.task.StageDispatchRecord;
@@ -75,7 +76,7 @@ final class ExchangeSourceBuilder {
                 if (producers.isEmpty()) {
                     throw new IllegalStateException("No producer tasks for exchange " + edge.exchangeId());
                 }
-                if (stage.stagePlan().mode() == StagePlanAccess.Mode.DURABLE_REPLAY) {
+                if (stage.stagePlan().mode() == StagePlanMode.DURABLE_REPLAY) {
                     throw new IllegalStateException("Durable exchange has no persisted external shuffle allocation: "
                             + edge.exchangeId());
                 }

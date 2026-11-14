@@ -1277,8 +1277,8 @@ security:
 
 ## 9. Secret Management
 
-Coordinator and Worker discover prefix-scoped `SecretProvider` implementations through
-the same registry. Coordinator includes ENV and FILE. The standard Worker includes
+Coordinator and Worker discover prefix-scoped `SecretProviderFactory` implementations through
+the same registry. It checks contract versions and duplicate prefixes before creating one resolver per installed prefix. Coordinator includes ENV and FILE. The standard Worker includes
 ENV for both AI credentials and connector references. Embedded hosts can install
 additional providers on their process classpath. An unavailable prefix fails lookup,
 and duplicate prefixes fail registration. ENV validates the variable name before
@@ -1375,7 +1375,7 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 > **Provider registration.** Coordinator loads `AuthenticatorFactory` for authentication.
-> The secret registry loads `SecretProvider` for prefix-based resolution. Embedders
+> The secret registry loads `SecretProviderFactory` for prefix-based resolution. Embedders
 > construct the AWS `KeyManager` with its configuration and own its lifetime.
 
 

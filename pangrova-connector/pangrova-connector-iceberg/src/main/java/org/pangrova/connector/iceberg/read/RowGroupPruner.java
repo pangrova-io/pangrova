@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.read;
 
-import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
 import org.pangrova.indexing.api.statistics.RowGroupSkipInfo;
 import org.pangrova.indexing.api.statistics.RowGroupStatistics;
 import org.pangrova.indexing.api.statistics.RowGroupStatistics.ColumnStats;
@@ -47,7 +47,7 @@ public final class RowGroupPruner {
      */
     public record Predicate(
             String column,
-            FileColumnStatistics.ComparisonOp op,
+            ColumnComparisonOperator op,
             Comparable<?> value) {}
 
     /**

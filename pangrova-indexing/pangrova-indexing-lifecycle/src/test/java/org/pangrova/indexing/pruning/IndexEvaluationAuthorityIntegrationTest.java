@@ -1,5 +1,6 @@
 package org.pangrova.indexing.pruning;
 
+import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
 import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
 import java.util.ServiceLoader;
@@ -13,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableSplit;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.strategy.IndexEngineRegistry;
@@ -96,7 +96,7 @@ class IndexEvaluationAuthorityIntegrationTest {
         dataFile = directory.resolve("metadata.json");
         Files.writeString(dataFile, "{\"snapshots\":[]}");
         split = new IcebergSystemTableSplit("lake.public.items",
-                IcebergSystemTableHandle.Kind.SNAPSHOTS, dataFile.toString(), Files.size(dataFile));
+                IcebergSystemTableKind.SNAPSHOTS, dataFile.toString(), Files.size(dataFile));
     }
 
     @Test

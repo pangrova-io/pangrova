@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.coordination;
 
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,7 @@ class StepDownTimingDependencyTest {
         assertThat(released).isTrue();
         assertThat(demotionFired.get()).isTrue();
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                .isEqualTo(CoordinatorRole.STANDBY);
         assertThat(haService.releaseQueryOwnership("q-1", "node-1")).isTrue();
         assertThat(haService.releaseQueryOwnership("q-2", "node-1")).isTrue();
     }
@@ -54,12 +55,12 @@ class StepDownTimingDependencyTest {
 
         haService.tryBecomeLeader("node-1");
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                .isEqualTo(CoordinatorRole.LEADER);
 
         haService.stepDown("node-1");
 
         assertThat(haService.getRole())
-                .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+                .isEqualTo(CoordinatorRole.STANDBY);
     }
 
     @Test

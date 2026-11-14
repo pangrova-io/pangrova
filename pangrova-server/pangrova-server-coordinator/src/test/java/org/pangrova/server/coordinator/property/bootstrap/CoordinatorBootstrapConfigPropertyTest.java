@@ -117,7 +117,7 @@ class CoordinatorBootstrapConfigPropertyTest {
                 coordinatorIds(),
                 Arbitraries.integers().between(0, 65535),
                 Arbitraries.longs().between(1000, 120_000),
-                Arbitraries.of(org.pangrova.server.coordinator.enums.CoordinatorRole.values()),
+                Arbitraries.of(org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.values()),
                 Arbitraries.of("0.0.0.0", "127.0.0.1", "::1")
         ).as(CoordinatorBootstrapConfig.CoreConfig::new);
 

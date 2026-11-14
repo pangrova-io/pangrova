@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.security;
 
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 import org.apache.hadoop.conf.Configuration;
@@ -96,7 +98,9 @@ final class SecuritySqlFixture implements AutoCloseable {
         connectors = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(),
                 descriptor -> Optional.empty());
         metadata = MetadataBootstrap.initialize(memoryTableStores(), store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectors);
-        var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
+        var schema = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         compiler = new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default")),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
@@ -124,7 +128,9 @@ final class SecuritySqlFixture implements AutoCloseable {
         catalog.createNamespace(Namespace.of(InternalNamespace.SCHEMA_NAME));
         catalog.createTable(TableIdentifier.of(InternalNamespace.SCHEMA_NAME, dynamicPhysical.table()),
                 ordersSchema());
-        var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
+        var schema = new MetadataSchemaBuilder(
+                metadata.metadataService(), metadata.catalogRegistry())
+                .buildRootSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
                 "security-test-tenant", "default", "default", candidate -> {

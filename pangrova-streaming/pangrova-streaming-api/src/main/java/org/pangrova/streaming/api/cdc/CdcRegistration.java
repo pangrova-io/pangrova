@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.cdc;
 
+import org.pangrova.streaming.api.enums.CdcStreamState;
+
 import java.time.Instant;
 
 /**
@@ -22,12 +24,4 @@ public record CdcRegistration(
         int maxConcurrentWrites,
         long maxPendingBytes,
         Instant lastHeartbeat,
-        Instant createdAt) {
-
-    /** CDC stream lifecycle states. */
-    public enum CdcStreamState {
-        ACTIVE,
-        PAUSED,
-        EXPIRED
-    }
-}
+        Instant createdAt) { }

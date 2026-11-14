@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.coordinator.enums.SplitFetchOutcome;
 import org.pangrova.query.api.task.QuerySplit;
 
 import java.util.List;
@@ -29,12 +30,4 @@ public record SplitFetchResult(
         return new SplitFetchResult(SplitFetchOutcome.LIMIT_REACHED, splits, reason);
     }
 
-    /**
-     * Terminal outcome of a split enumeration operation.
-     */
-    public enum SplitFetchOutcome {
-        SUCCESS,
-        FAILED,
-        LIMIT_REACHED
-    }
 }

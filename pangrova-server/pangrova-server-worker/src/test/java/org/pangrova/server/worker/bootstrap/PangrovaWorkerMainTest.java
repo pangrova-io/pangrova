@@ -337,13 +337,15 @@ class PangrovaWorkerMainTest {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
                 "observability.enabled", "true",
                 "observability.service-name", "pangrova-worker",
-                "observability.otlp-endpoint", "http://otel:4317"
+                "observability.otlp-endpoint", "http://otel:4317",
+                "observability.metrics.interval-ms", "8000"
         ));
         WorkerBootstrapConfig result = PangrovaWorkerMain.buildBootstrapConfig(config);
 
         assertThat(result.observabilityBootstrapConfig()).isNotNull();
-        assertThat(result.observabilityBootstrapConfig().serviceName()).isEqualTo("pangrova-worker");
-        assertThat(result.observabilityBootstrapConfig().otlpEndpoint()).isEqualTo("http://otel:4317");
+        assertThat(result.observabilityBootstrapConfig().getMetricsIntervalMs()).isEqualTo(8000);
+        assertThat(result.observabilityBootstrapConfig().getServiceName()).isEqualTo("pangrova-worker");
+        assertThat(result.observabilityBootstrapConfig().getOtlpEndpoint()).isEqualTo("http://otel:4317");
     }
 
     @Test

@@ -7,7 +7,7 @@ import org.pangrova.common.api.annotation.Experimental;
  * invalidation entry from the cross-coordinator {@code invalidation_log}.
  *
  * <p>F-META-03: The poller drops the unified {@link MetadataCache} L1 entry directly,
- * but downstream caches (e.g. {@code DefaultMetadataService.resolvedTableCache}) need
+ * but downstream caches (e.g. {@code CatalogTableResolution}) need
  * a typed (catalog, schema, table) signal to invalidate their entries too. This SAM
  * is the wiring point so the cross-node poller reaches every cache layer in lockstep
  * with the unified cache, eliminating divergent TTLs across coordinators.</p>

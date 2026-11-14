@@ -35,7 +35,6 @@ FlightServerRegistry::acquireShuffleServer() {
     if (!shuffle_limits_) {
       throw std::runtime_error("Refusing to start Native shuffle without a prebooked service budget");
     }
-    config.reuse_port = true;
     config.buffer_limits = *shuffle_limits_;
     config.hmac_current_key = hmac_current_key_;
     config.hmac_previous_key = hmac_previous_key_;

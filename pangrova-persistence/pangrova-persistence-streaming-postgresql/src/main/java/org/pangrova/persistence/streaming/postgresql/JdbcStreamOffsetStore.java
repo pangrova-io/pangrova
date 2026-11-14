@@ -1,5 +1,7 @@
 package org.pangrova.persistence.streaming.postgresql;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
@@ -64,11 +66,7 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
                 ps.executeBatch();
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {

@@ -1,6 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -203,7 +203,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
                         "OAUTH2", "test-secret",
                         Map.of("issuerUri", "https://issuer.example.test"));
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

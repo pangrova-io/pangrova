@@ -1,5 +1,8 @@
 package org.pangrova.materialization.kernel.usecase;
 
+import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
+import org.pangrova.materialization.api.enums.PartitionAlignmentShape;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -16,12 +19,12 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.kernel.MaterializationTestFixtures;
-import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.enums.AttemptState;
 import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.ExecutionFence;
 import org.pangrova.materialization.api.domain.Generation;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.enums.GenerationState;
 import org.pangrova.materialization.api.exception.MaterializationException;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.enums.MaterializationKind;
@@ -29,11 +32,11 @@ import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.domain.QualifiedName;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.enums.SecurityMode;
 import org.pangrova.materialization.api.domain.SourceVector;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 import org.pangrova.materialization.api.domain.TargetLag;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.Clock;
@@ -82,28 +85,28 @@ class MaterializationServiceIncrementalTest {
         execution = new RecordingExecution();
         authorizer = new RecordingAuthorizer();
         planner = new MutablePlanner(MaterializationTestFixtures.vector(ORDERS),
-                Set.of(RefreshKind.Full.INSTANCE));
+                Set.of(RefreshKind.FULL));
     }
 
     @Test
     void creationBootstrapsFullThenRefreshAppendsAProvenDelta() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         MaterializationOutcome created = service().create(command(RefreshMode.INCREMENTAL,
                 Optional.of(StrategyId.APPEND_ONLY), "create-1"));
         Generation base = created.generation();
 
         assertThat(created.newlyPublished()).isTrue();
         assertThat(execution.requests).singleElement().satisfies(request -> {
-            assertThat(request.attempt().refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+            assertThat(request.attempt().refreshKind()).isEqualTo(RefreshKind.FULL);
             assertThat(request.attempt().baseGeneration()).isEmpty();
             assertThat(request.plan()).get().satisfies(plan -> {
-                assertThat(plan.kind()).isEqualTo(RefreshKind.Full.INSTANCE);
+                assertThat(plan.kind()).isEqualTo(RefreshKind.FULL);
                 assertThat(plan.changeSets()).isEmpty();
             });
         });
 
         planner.vector = MaterializationTestFixtures.vector(Map.of(ORDERS, MaterializationTestFixtures.snapshot(ORDERS, "snap-2")), 2);
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
 
         MaterializationOutcome refreshed = service().refresh(new RefreshMaterialization(
                 OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,
@@ -111,11 +114,11 @@ class MaterializationServiceIncrementalTest {
 
         assertThat(refreshed.newlyPublished()).isTrue();
         assertThat(refreshed.generation().refreshKind())
-                .isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
         assertThat(refreshed.generation().baseGeneration()).contains(base.id());
         assertThat(execution.requests).hasSize(2);
         assertThat(execution.requests.get(1).plan()).get().satisfies(plan -> {
-            assertThat(plan.kind()).isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+            assertThat(plan.kind()).isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
             assertThat(plan.canonicalSql())
                     .contains("SELECT * FROM \"lake\".")
                     .contains("UNION ALL SELECT id, name FROM orders");
@@ -130,19 +133,19 @@ class MaterializationServiceIncrementalTest {
         assertThat(pins.released()).containsExactlyInAnyOrderElementsOf(pins.pinned());
         assertThat(repository.findReaderPins(base.id())).isEmpty();
         assertThat(repository.findAttempt(capability(1).attempt()).orElseThrow().state())
-                .isEqualTo(AttemptState.Published.INSTANCE);
+                .isEqualTo(AttemptState.PUBLISHED);
     }
 
     @Test
     void appendOnlyFailureNeverFallsBackToAFullRefresh() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         service().create(command(RefreshMode.INCREMENTAL,
                 Optional.of(StrategyId.APPEND_ONLY), "create-1"));
         Generation base = repository.findPublishedGeneration(OBJECT).orElseThrow();
         planner.vector = MaterializationTestFixtures.vector(Map.of(ORDERS, MaterializationTestFixtures.snapshot(ORDERS, "snap-2")), 2);
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         pins.failChangeSet(new MaterializationSourceException(
-                MaterializationSourceException.Reason.PIN_UNSUPPORTED, "no change log"));
+                MaterializationSourceFailureReason.PIN_UNSUPPORTED, "no change log"));
 
         assertThatThrownBy(() -> service().refresh(new RefreshMaterialization(
                 OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,
@@ -156,9 +159,9 @@ class MaterializationServiceIncrementalTest {
         assertThat(execution.requests).hasSize(1);
         MaterializationWriteCapability failed = capability(1);
         assertThat(repository.findAttempt(failed.attempt()).orElseThrow().state())
-                .isEqualTo(AttemptState.Failed.INSTANCE);
+                .isEqualTo(AttemptState.FAILED);
         assertThat(repository.findGeneration(failed.generation()).orElseThrow().state())
-                .isEqualTo(GenerationState.Collected.INSTANCE);
+                .isEqualTo(GenerationState.COLLECTED);
         assertThat(repository.findPublishedGeneration(OBJECT).orElseThrow().id()).isEqualTo(base.id());
         assertThat(repository.findReaderPins(base.id())).isEmpty();
         assertThat(pins.released()).hasSize(3).containsExactlyInAnyOrderElementsOf(pins.pinned());
@@ -186,7 +189,7 @@ class MaterializationServiceIncrementalTest {
 
     @Test
     void fullModeRejectsAnIncrementalStrategy() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL);
 
         assertThatThrownBy(() -> service().create(command(RefreshMode.FULL,
                 Optional.of(StrategyId.APPEND_ONLY), "create-1")))
@@ -200,23 +203,23 @@ class MaterializationServiceIncrementalTest {
 
     @Test
     void incrementalModeWithoutConfiguredStrategySelectsAppendOnly() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
 
         service().create(command(RefreshMode.INCREMENTAL, Optional.empty(), "create-1"));
         assertThat(execution.requests.get(0).attempt().refreshKind())
-                .isEqualTo(RefreshKind.Full.INSTANCE);
+                .isEqualTo(RefreshKind.FULL);
 
         planner.vector = MaterializationTestFixtures.vector(Map.of(ORDERS, MaterializationTestFixtures.snapshot(ORDERS, "snap-2")), 2);
         service().refresh(new RefreshMaterialization(OBJECT, MaterializationTestFixtures.REQUESTER,
                 TriggerKind.MANUAL, new CommandId("refresh-1")));
 
         assertThat(execution.requests.get(1).attempt().refreshKind())
-                .isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_APPEND_ONLY);
     }
 
     @Test
     void redefinitionBootstrapsAFullGenerationBeforeIncrementalResumes() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL, RefreshKind.INCREMENTAL_APPEND_ONLY);
         service().create(command(RefreshMode.INCREMENTAL,
                 Optional.of(StrategyId.APPEND_ONLY), "create-1"));
         Generation base = repository.findPublishedGeneration(OBJECT).orElseThrow();
@@ -232,13 +235,13 @@ class MaterializationServiceIncrementalTest {
                 OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,
                 new CommandId("refresh-1")));
 
-        assertThat(refreshed.generation().refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(refreshed.generation().refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(refreshed.generation().definitionRevision()).isEqualTo(2);
         assertThat(refreshed.generation().baseGeneration()).isEmpty();
         assertThat(refreshed.generation().id()).isNotEqualTo(base.id());
         assertThat(execution.requests.get(1).attempt().baseGeneration()).isEmpty();
         assertThat(execution.requests.get(1).plan()).get().satisfies(plan -> {
-            assertThat(plan.kind()).isEqualTo(RefreshKind.Full.INSTANCE);
+            assertThat(plan.kind()).isEqualTo(RefreshKind.FULL);
             assertThat(plan.changeSets()).isEmpty();
         });
         assertThat(pins.changeSets()).isEmpty();
@@ -246,10 +249,10 @@ class MaterializationServiceIncrementalTest {
 
     @Test
     void partitionReplaceRefreshPlansOnlyTheChangedPartitions() {
-        planner.kinds = Set.of(RefreshKind.Full.INSTANCE,
-                RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        planner.kinds = Set.of(RefreshKind.FULL,
+                RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         planner.alignment = new org.pangrova.materialization.api.domain.PartitionAlignment(
-                org.pangrova.materialization.api.domain.PartitionAlignment.Shape.SCAN,
+                PartitionAlignmentShape.SCAN,
                 List.of(new org.pangrova.materialization.api.domain.PartitionAlignment.Column(
                         "region", "name", false)));
         MaterializationOutcome created = service().create(command(RefreshMode.INCREMENTAL,
@@ -267,10 +270,10 @@ class MaterializationServiceIncrementalTest {
                 new CommandId("refresh-1")));
 
         assertThat(refreshed.generation().refreshKind())
-                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+                .isEqualTo(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
         assertThat(refreshed.generation().baseGeneration()).contains(base.id());
         assertThat(execution.requests.get(1).plan()).get().satisfies(plan -> {
-            assertThat(plan.kind()).isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+            assertThat(plan.kind()).isEqualTo(RefreshKind.INCREMENTAL_PARTITION_REPLACE);
             assertThat(plan.canonicalSql())
                     .contains("WHERE ((\"name\" IS NULL OR \"name\" <> 'eu'))")
                     .contains("WHERE (\"name\" = 'eu')");

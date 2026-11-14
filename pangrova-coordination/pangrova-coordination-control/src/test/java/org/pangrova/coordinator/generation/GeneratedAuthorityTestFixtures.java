@@ -1,7 +1,8 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.security.api.enums.AuthorizedReadMode;
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
-
 import org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
@@ -55,9 +56,9 @@ final class GeneratedAuthorityTestFixtures {
             var models = ModelAuthorityFixtures.models().observe(connection, "alice", Set.of("catalog.embed"));
             var read = new DeferredAuthorizationScope.TablePermission(table,
                     Set.of("title", "body", "embedding"), Privilege.SELECT,
-                    DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED, GeneratedProtectedInputFixtures.observations());
+                    AuthorizedReadMode.SECURITY_TRANSFORMED, GeneratedProtectedInputFixtures.observations());
             var write = new DeferredAuthorizationScope.TablePermission(table, Set.of(), Privilege.INSERT,
-                    DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
+                    AuthorizedReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty());
             var scope = new DeferredAuthorizationScope(List.of(read, write),
                     Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, models)));
             connection.commit();
@@ -73,7 +74,7 @@ final class GeneratedAuthorityTestFixtures {
                 "INSERT", 40L, new byte[]{42}, "alice", receipt, null);
         String fingerprint = WriteCommitFingerprint.compute(intent, List.of(new byte[]{1}));
         journal.recordIntent(new WriteCommitEntry("generated-write", "lake", "sales.documents",
-                WriteCommitEntry.State.PENDING, 1_000L, List.of(new byte[]{1}), "INSERT", fingerprint,
+                WriteCommitState.PENDING, 1_000L, List.of(new byte[]{1}), "INSERT", fingerprint,
                 "tenant-a", "alice", receipt, 40L, new byte[]{42}, fingerprint, null, null, 0, null, null));
         journal.markCommitted("generated-write");
         return fingerprint;

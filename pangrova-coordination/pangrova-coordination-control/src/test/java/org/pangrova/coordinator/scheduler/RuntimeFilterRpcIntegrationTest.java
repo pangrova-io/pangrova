@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -109,7 +111,7 @@ class RuntimeFilterRpcIntegrationTest {
         // F-AQE-02: registry key is namespaced by queryId to prevent cross-query collisions
         Optional<RuntimeFilter> registeredFilter = registry.getFilter("q-rpc-dpp:1");
         assertThat(registeredFilter).isPresent();
-        assertThat(registeredFilter.get().type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(registeredFilter.get().filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat(registeredFilter.get().column()).isEqualTo("customer_id");
 
         // Verify: the RPC call completed without error (worker returns CONFLICT
@@ -162,7 +164,7 @@ class RuntimeFilterRpcIntegrationTest {
         // F-AQE-02: registry key is namespaced by queryId
         Optional<RuntimeFilter> filter = registry.getFilter("q-rpc-bloom:1");
         assertThat(filter).isPresent();
-        assertThat(filter.get().type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.get().filterType()).isEqualTo(DynamicFilterType.BLOOM);
         assertThat(filter.get().column()).isEqualTo("order_id");
     }
 

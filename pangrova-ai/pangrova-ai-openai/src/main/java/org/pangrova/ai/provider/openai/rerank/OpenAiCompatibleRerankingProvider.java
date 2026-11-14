@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.provider.openai.rerank;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -131,14 +133,14 @@ public final class OpenAiCompatibleRerankingProvider implements RerankingProvide
             throw responseFailure(response.statusCode());
         } catch (IOException failure) {
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Reranking provider POST outcome is unknown",
                     failure);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                     false,
                     "Reranking provider POST was interrupted with unknown outcome",
                     failure);
@@ -170,10 +172,10 @@ public final class OpenAiCompatibleRerankingProvider implements RerankingProvide
     }
 
     private static AiInvocationException responseFailure(int statusCode) {
-        AiInvocationException.Category category =
+        AiFailureCategory category =
                 statusCode == HTTP_TOO_MANY_REQUESTS
-                        ? AiInvocationException.Category.RATE_LIMIT
-                        : AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+                        ? AiFailureCategory.RATE_LIMIT
+                        : AiFailureCategory.PROVIDER_UNAVAILABLE;
         return new AiInvocationException(
                 category, false, "Reranking provider returned HTTP " + statusCode);
     }
@@ -252,14 +254,14 @@ public final class OpenAiCompatibleRerankingProvider implements RerankingProvide
             long waitMillis = AiProviderCallContext.remainingTimeout(timeout).toMillis();
             if (!rateLimiter.tryAcquire(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS)) {
                 throw new AiInvocationException(
-                        AiInvocationException.Category.RATE_LIMIT,
+                        AiFailureCategory.RATE_LIMIT,
                         true,
                         "Timed out waiting for reranking provider admission");
             }
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
+                    AiFailureCategory.TIMEOUT,
                     false,
                     "Reranking provider admission was interrupted",
                     failure);
@@ -272,7 +274,7 @@ public final class OpenAiCompatibleRerankingProvider implements RerankingProvide
 
     private static AiInvocationException invalidResponse(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID, false, message, cause);
+                AiFailureCategory.PROVIDER_RESPONSE_INVALID, false, message, cause);
     }
 
     @Override

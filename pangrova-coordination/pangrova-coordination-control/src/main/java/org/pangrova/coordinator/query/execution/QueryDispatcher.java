@@ -97,8 +97,7 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 ? new QueryTracer(tracingProvider) : null;
         var splitMgr = resolveSplitAssignmentManager(deps);
         var workerSelector = createWorkerSelector(deps, splitMgr);
-        var rfHandler = createRuntimeFilterHandler(deps);
-        var dagEngine = createDagEngine(deps, splitMgr, rfHandler);
+        var dagEngine = createDagEngine(deps, splitMgr);
         long dagDispatchTimeoutMs = deps.taskTimeoutSeconds() > 0
                 ? deps.taskTimeoutSeconds() * 1000L : DEFAULT_DAG_DISPATCH_TIMEOUT_MS;
 
@@ -107,7 +106,7 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                         dagEngine, workerSelector,
                         deps.workerManager(), deps.taskTracker(),
                         deps.catalogRegistry(),
-                        deps.indexAwareSplitFetcher(), rfHandler,
+                        deps.indexAwareSplitFetcher(),
                         dagDispatchTimeoutMs), writeAuthorityResolver);
 
         this.pipelineExecutor = new QueryPipelineExecutor(
@@ -291,7 +290,9 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
 
     @Override
     public void cancelDispatchedTasks(String queryId) {
-        ownershipTracker.cancelDispatchedTasks(queryId);
+        org.pangrova.common.lifecycle.ResourceCloser.closeAll(null,
+                () -> ownershipTracker.cancelDispatchedTasks(queryId),
+                () -> schedulingEngine.dagEngine().cancelLiveDispatch(queryId));
     }
 
     public TaskCancelRetrier cancelRetrier() {
@@ -342,27 +343,8 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 deps.embeddingModelRegistry());
     }
 
-    private static org.pangrova.coordinator.query.execution.dispatch.dag
-            .handler.RuntimeFilterStageHandler createRuntimeFilterHandler(
-            QueryDispatcherContext deps) {
-        if (deps.runtimeFilterRegistry() == null) {
-            return null;
-        }
-        return new org.pangrova.coordinator.query.execution.dispatch.dag
-                .handler.RuntimeFilterStageHandler(
-                new org.pangrova.planner.runtimefilter
-                        .RuntimeFilterGenerator(),
-                deps.runtimeFilterRegistry(),
-                deps.dispatcher(),
-                deps.taskTracker(),
-                new org.pangrova.coordinator.query.execution.dispatch.dag
-                        .handler.ShuffleOutputCollector());
-    }
-
     private static DAGDispatchEngine createDagEngine(
-            QueryDispatcherContext deps, SplitAssignmentManager splitMgr,
-            org.pangrova.coordinator.query.execution.dispatch.dag
-                    .handler.RuntimeFilterStageHandler rfHandler) {
+            QueryDispatcherContext deps, SplitAssignmentManager splitMgr) {
         return new DAGDispatchEngine(new DAGDispatchContext(
                 deps.dispatcher(), deps.taskTracker(),
                 deps.lineageEmitter(), deps.catalogRegistry(),
@@ -372,15 +354,13 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 deps.workerManager().requiresLocalShuffle() ? PipelineConfig.LOCAL : PipelineConfig.ENABLED,
                 deps.shuffleLifecycleManager(), splitMgr,
                 deps.resilienceRegistry(), deps.stateJournal()),
-                buildStageHandlers(deps, rfHandler),
+                buildStageHandlers(deps),
                 deps.indexAwareSplitFetcher(), deps.artifactBindingResolver(), deps.generatedValueReadResolver());
     }
 
     private static List<org.pangrova.coordinator.query.execution.dispatch
             .dag.handler.StageLifecycleHandler> buildStageHandlers(
-            QueryDispatcherContext deps,
-            org.pangrova.coordinator.query.execution.dispatch.dag
-                    .handler.RuntimeFilterStageHandler rfHandler) {
+            QueryDispatcherContext deps) {
         var handlers = new ArrayList<org.pangrova.coordinator.query.execution
                 .dispatch.dag.handler.StageLifecycleHandler>();
         if (deps.shuffleLifecycleManager() != null) {
@@ -401,9 +381,6 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
             handlers.add(new org.pangrova.coordinator.query.execution
                     .dispatch.dag.handler.RetryStageHandler(
                     deps.resilienceRegistry()));
-        }
-        if (rfHandler != null) {
-            handlers.add(rfHandler);
         }
         return List.copyOf(handlers);
     }

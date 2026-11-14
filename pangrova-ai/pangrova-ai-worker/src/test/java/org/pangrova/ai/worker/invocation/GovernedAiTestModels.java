@@ -1,8 +1,9 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.worker.governance.AiInvocationAuthorizer;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.model.AiModelIdentity;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
@@ -71,10 +72,10 @@ final class GovernedAiTestModels implements AutoCloseable {
     }
 
     AiExecutionContext context(String taskId) {
-        return context(taskId, AiCapabilityDescriptor.Operation.TEXT_GENERATION, 8);
+        return context(taskId, AiOperation.TEXT_GENERATION, 8);
     }
 
-    private AiExecutionContext context(String taskId, AiCapabilityDescriptor.Operation operation, long calls) {
+    private AiExecutionContext context(String taskId, AiOperation operation, long calls) {
         return contexts.computeIfAbsent(taskId, key -> {
             var request = taskRequest(key, operation, calls);
             AiInvocationService.registerTask(request);
@@ -83,7 +84,7 @@ final class GovernedAiTestModels implements AutoCloseable {
     }
 
     private org.pangrova.protocol.v2.TaskRequest taskRequest(
-            String taskId, AiCapabilityDescriptor.Operation operation, long calls) {
+            String taskId, AiOperation operation, long calls) {
         var builder = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
                 taskId, "query-a", 0, 0, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, authorityPlan());
         builder.setAttempt(builder.getAttempt().toBuilder().setExecutionOwner(
@@ -95,10 +96,10 @@ final class GovernedAiTestModels implements AutoCloseable {
                         .setGrantId(taskId + ":grant").setCpuSlots(2).setNativeMemoryBytes(1048576)
                         .setProviderConcurrency(2).setProviderItems(1024).setProviderAttempts(4096)
                         .setProviderRequestBytes(268435456).setProviderResponseBytes(1073741824));
-        builder.addOperatorBindings(operatorBinding(binding(AiCapabilityDescriptor.Operation.TEXT_GENERATION,
-                taskId, operation == AiCapabilityDescriptor.Operation.TEXT_GENERATION ? calls : 8)));
-        builder.addOperatorBindings(operatorBinding(binding(AiCapabilityDescriptor.Operation.EMBEDDING,
-                taskId, operation == AiCapabilityDescriptor.Operation.EMBEDDING ? calls : 8)));
+        builder.addOperatorBindings(operatorBinding(binding(AiOperation.TEXT_GENERATION,
+                taskId, operation == AiOperation.TEXT_GENERATION ? calls : 8)));
+        builder.addOperatorBindings(operatorBinding(binding(AiOperation.EMBEDDING,
+                taskId, operation == AiOperation.EMBEDDING ? calls : 8)));
         return builder.build();
     }
 
@@ -117,7 +118,7 @@ final class GovernedAiTestModels implements AutoCloseable {
     }
 
     private static org.pangrova.protocol.v2.OperatorBinding operatorBinding(BoundAiInvocation binding) {
-        boolean embeds = binding.operation() == AiCapabilityDescriptor.Operation.EMBEDDING;
+        boolean embeds = binding.operation() == AiOperation.EMBEDDING;
         var output = embeds ? org.pangrova.protocol.type.VectorLogicalType.create(384)
                 : org.pangrova.protocol.v2.LogicalType.newBuilder().setCanonicalSql("VARCHAR")
                         .setSubstraitType(io.substrait.proto.Type.newBuilder().setString(
@@ -139,28 +140,28 @@ final class GovernedAiTestModels implements AutoCloseable {
                         .setProviderResponseBytes(binding.maxProviderResponseBytes())).build();
     }
 
-    BoundAiInvocation binding(AiCapabilityDescriptor.Operation operation, String taskId, long calls) {
-        String name = operation == AiCapabilityDescriptor.Operation.EMBEDDING ? "embed" : "chat";
+    BoundAiInvocation binding(AiOperation operation, String taskId, long calls) {
+        String name = operation == AiOperation.EMBEDDING ? "embed" : "chat";
         var model = registry.models().stream().filter(value -> value.name().equals(name)).findFirst().orElseThrow();
         return new BoundAiInvocation("operator-" + name, name, model.version(), AiModelIdentity.signatureSha256(model),
                 operation, "query-a:stage-a:" + taskId + ":operator-" + name,
                 REQUEST_LIMITS, 2, calls, 32, 2097152, 8388608, 0,
-                operation == AiCapabilityDescriptor.Operation.EMBEDDING ? 384 : 0);
+                operation == AiOperation.EMBEDDING ? 384 : 0);
     }
 
-    <T> T invoke(AiCapabilityDescriptor.Operation operation, String taskId, long calls, Supplier<T> callback) {
+    <T> T invoke(AiOperation operation, String taskId, long calls, Supplier<T> callback) {
         return AiExecutionContext.callWith(context(taskId, operation, calls), () ->
                 AiExecutionContext.callWithBoundInvocation(binding(operation, taskId, calls), callback));
     }
 
-    AiInvocationRequest request(AiCapabilityDescriptor.Operation operation, String taskId,
-            AiCapabilityDescriptor.ExecutionMode mode, java.util.List<AiInvocationRequest.Input> inputs) {
+    AiInvocationRequest request(AiOperation operation, String taskId,
+            AiExecutionMode mode, java.util.List<AiInvocationRequest.Input> inputs) {
         var binding = binding(operation, taskId, 8);
         var context = context(taskId);
         return new AiInvocationRequest("request-" + taskId, context.tenantId(), context.principal(),
                 context.queryId(), context.traceId(), binding.modelId(), binding.modelVersion(),
                 binding.modelSignatureSha256(), binding.modelVersion(), operation, mode,
-                operation == AiCapabilityDescriptor.Operation.EMBEDDING
+                operation == AiOperation.EMBEDDING
                         ? Optional.of(org.pangrova.ai.api.enums.EmbeddingPurpose.DOCUMENT) : Optional.empty(),
                 inputs, GenerationParameters.DEFAULTS, context.deadline().orElseThrow(),
                 binding.idempotencyBase() + ":" + "0".repeat(64), Map.of("task_id", taskId,

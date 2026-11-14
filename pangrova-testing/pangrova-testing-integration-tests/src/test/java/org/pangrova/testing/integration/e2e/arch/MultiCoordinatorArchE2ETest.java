@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.arch;
 
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.types.value.TypedRow;
@@ -197,9 +197,9 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
 
             // Verify role config separation
             CoreConfig queryCore = new CoreConfig("query-coord-1", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY, "0.0.0.0");
             CoreConfig maintenanceCore = new CoreConfig("maint-coord-1", 8082,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
 
             assertThat(queryCore.role().isQuery()).isTrue();
             assertThat(queryCore.role().isMaintenance()).isFalse();

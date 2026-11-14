@@ -1,14 +1,17 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.server.coordinator.enums.CoordinatorRole;
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
+import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.security.api.authentication.AuthenticatorFactory;
 import org.pangrova.config.enums.ShuffleMode;
-import org.pangrova.config.CoordinatorOptions;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 
@@ -24,7 +27,7 @@ public record CoordinatorBootstrapConfig(
         WorkerHealthConfig workerHealth,
         MetadataJdbcConfig metadataJdbcConfig,
         SecurityConfig securityConfig,
-        ObservabilityBootstrapConfig observabilityBootstrapConfig) {
+        ObservabilityConfig observabilityBootstrapConfig) {
 
     public CoordinatorBootstrapConfig {
         if (core == null) {
@@ -51,7 +54,7 @@ public record CoordinatorBootstrapConfig(
     public static CoordinatorBootstrapConfig withDefaults(String coordinatorId, int httpPort) {
         return new CoordinatorBootstrapConfig(
                 new CoreConfig(coordinatorId, httpPort, CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 FeatureFlags.allDisabled(),
                 QueryConfig.defaults(),
                 TransportConfig.defaults(),
@@ -65,7 +68,7 @@ public record CoordinatorBootstrapConfig(
     public int httpPort() { return core.httpPort(); }
     public String httpHost() { return core.httpHost(); }
     public long shutdownTimeoutMs() { return core.shutdownTimeoutMs(); }
-    public CoordinatorRole role() { return core.role(); }
+    public CoordinatorDeploymentRole role() { return core.role(); }
 
     public boolean observabilityEnabled() { return featureFlags.observability(); }
     public boolean securityEnabled() { return featureFlags.security(); }
@@ -159,10 +162,16 @@ public record CoordinatorBootstrapConfig(
 
     /** Core identity and lifecycle parameters. */
     public record CoreConfig(String coordinatorId, int httpPort, long shutdownTimeoutMs,
-                             CoordinatorRole role, String httpHost) {
+                             CoordinatorDeploymentRole role, String httpHost, Optional<Path> pluginDirectory) {
+        public CoreConfig(String coordinatorId, int httpPort, long shutdownTimeoutMs,
+                          CoordinatorDeploymentRole role, String httpHost) {
+            this(coordinatorId, httpPort, shutdownTimeoutMs, role, httpHost, Optional.empty());
+        }
+
         public static final long DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
         public CoreConfig {
+            java.util.Objects.requireNonNull(pluginDirectory, "pluginDirectory");
             if (coordinatorId == null || coordinatorId.isBlank()) {
                 throw new IllegalArgumentException("coordinatorId must not be blank");
             }
@@ -170,7 +179,7 @@ public record CoordinatorBootstrapConfig(
                 throw new IllegalArgumentException("httpPort must be >= 0");
             }
             if (role == null) {
-                role = CoordinatorRole.COMBINED;
+                role = CoordinatorDeploymentRole.COMBINED;
             }
             if (httpHost == null || httpHost.isBlank()) {
                 throw new IllegalArgumentException("HTTP bind host must not be blank");
@@ -331,7 +340,7 @@ public record CoordinatorBootstrapConfig(
          * (localhost, 127.0.0.1, or ::1).
          */
         public boolean isLoopbackAdvertisedHost() {
-            String normalized = advertisedHost.trim().toLowerCase();
+            String normalized = advertisedHost.trim().toLowerCase(Locale.ROOT);
             return "localhost".equals(normalized)
                     || "127.0.0.1".equals(normalized)
                     || "::1".equals(normalized);
@@ -360,8 +369,13 @@ public record CoordinatorBootstrapConfig(
     }
 
     /** JDBC connection parameters for the metadata store backend. */
-    public record MetadataJdbcConfig(String jdbcUrl, String username, String password) {
+    public record MetadataJdbcConfig(String jdbcUrl, String username, String password,
+            MetadataCacheDeployment cache) {
+        public MetadataJdbcConfig(String jdbcUrl, String username, String password) {
+            this(jdbcUrl, username, password, MetadataCacheDeployment.defaults());
+        }
         public MetadataJdbcConfig {
+            java.util.Objects.requireNonNull(cache);
             if (jdbcUrl == null || jdbcUrl.isBlank()) {
                 throw new IllegalArgumentException("jdbcUrl must not be blank");
             }
@@ -428,25 +442,6 @@ public record CoordinatorBootstrapConfig(
                     + ", configuredAuthProperties=" + authenticatorProperties.keySet() + "]";
         }
     }
-
-    /** OTel bootstrap parameters for observability initialization. */
-    public record ObservabilityBootstrapConfig(String serviceName, String otlpEndpoint) {
-        public ObservabilityBootstrapConfig {
-            if (serviceName == null || serviceName.isBlank()) {
-                throw new IllegalArgumentException("serviceName must not be blank");
-            }
-            if (otlpEndpoint == null || otlpEndpoint.isBlank()) {
-                throw new IllegalArgumentException("otlpEndpoint must not be blank");
-            }
-        }
-    }
-
-    /**
-     * L2 result cache configuration.
-     * When {@code redisUrl} is non-null, Redis is used as the L2 cache backend.
-     * Otherwise, an in-memory L2 cache is used.
-     */
-
 
     /** Returns the spill budget derived from query config, defaulting to disabled. */
     public SpillBudget spillBudget() {

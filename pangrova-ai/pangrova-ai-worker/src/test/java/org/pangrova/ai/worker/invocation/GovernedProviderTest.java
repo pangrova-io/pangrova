@@ -1,9 +1,10 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
@@ -27,7 +28,7 @@ class GovernedProviderTest {
                     models.service((request, capability) -> {}, AiInvocationObserver.noop()));
             assertThatThrownBy(() -> governed.complete("hello", GenerationParameters.DEFAULTS))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION))
+                            assertThat(failure.category()).isEqualTo(AiFailureCategory.AUTHORIZATION))
                     .hasMessageContaining("no trusted native task context");
         }
     }
@@ -40,7 +41,7 @@ class GovernedProviderTest {
             assertThatThrownBy(() -> AiExecutionContext.callWith(models.context("no-binding"),
                     () -> governed.complete("hello", GenerationParameters.DEFAULTS)))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION))
+                            assertThat(failure.category()).isEqualTo(AiFailureCategory.AUTHORIZATION))
                     .hasMessageContaining("no exact Native OperatorBinding");
             assertThat(AiExecutionContext.current()).isEmpty();
             assertThat(AiExecutionContext.boundInvocation()).isEmpty();
@@ -52,10 +53,10 @@ class GovernedProviderTest {
         try (var models = new GovernedAiTestModels("http://127.0.0.1:1")) {
             var governed = new GovernedInferenceProvider(models.inference(),
                     models.service((request, capability) -> {}, AiInvocationObserver.noop()));
-            assertThatThrownBy(() -> models.invoke(AiCapabilityDescriptor.Operation.EMBEDDING,
+            assertThatThrownBy(() -> models.invoke(AiOperation.EMBEDDING,
                     "wrong-operation", 1, () -> governed.complete("hello", GenerationParameters.DEFAULTS)))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH))
+                            assertThat(failure.category()).isEqualTo(AiFailureCategory.CAPABILITY_MISMATCH))
                     .hasMessageContaining("exact OperatorBinding");
             assertThat(AiExecutionContext.boundInvocation()).isEmpty();
             assertThat(AiExecutionContext.providerIdempotencyBase()).isEmpty();
@@ -70,7 +71,7 @@ class GovernedProviderTest {
             assertThatThrownBy(() -> governed.embed(
                     EmbeddingBatchRequest.text(EmbeddingPurpose.DOCUMENT, List.of("hello"))))
                     .isInstanceOfSatisfying(AiInvocationException.class, failure ->
-                            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.AUTHORIZATION))
+                            assertThat(failure.category()).isEqualTo(AiFailureCategory.AUTHORIZATION))
                     .hasMessageContaining("no trusted native task context");
         }
     }

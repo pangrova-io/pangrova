@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.provider.governed;
 
+import org.pangrova.ai.api.enums.AiExecutionMode;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
@@ -27,10 +29,10 @@ public final class GovernedInferenceProvider implements InferenceProvider {
     @Override
     public InferenceResult complete(String prompt, GenerationParameters parameters) {
         AiCapabilityDescriptor capability = AiInvocationRequests.requireCapability(
-                capabilities(), AiCapabilityDescriptor.Operation.TEXT_GENERATION);
+                capabilities(), AiOperation.TEXT_GENERATION);
         var request = AiInvocationRequests.create(
                 modelName(), modelVersion(), modelSignatureSha256(), capability,
-                AiCapabilityDescriptor.ExecutionMode.SCALAR,
+                AiExecutionMode.SCALAR,
                 List.of(new AiInvocationRequest.TextInput(prompt)), parameters);
         return singleResult(service.invoke(request));
     }
@@ -39,15 +41,15 @@ public final class GovernedInferenceProvider implements InferenceProvider {
     public List<InferenceResult> completeBatch(
             List<String> prompts, GenerationParameters parameters) {
         AiCapabilityDescriptor capability = AiInvocationRequests.requireCapability(
-                capabilities(), AiCapabilityDescriptor.Operation.TEXT_GENERATION);
+                capabilities(), AiOperation.TEXT_GENERATION);
         List<AiInvocationRequest.Input> inputs = prompts.stream()
                 .map(value -> (AiInvocationRequest.Input) new AiInvocationRequest.TextInput(value))
                 .toList();
         var request = AiInvocationRequests.create(
                 modelName(), modelVersion(), modelSignatureSha256(), capability,
                 prompts.size() == 1
-                        ? AiCapabilityDescriptor.ExecutionMode.SCALAR
-                        : AiCapabilityDescriptor.ExecutionMode.BATCH,
+                        ? AiExecutionMode.SCALAR
+                        : AiExecutionMode.BATCH,
                 inputs, parameters);
         AiInvocationResult result = service.invoke(request);
         return java.util.stream.IntStream.range(0, result.outputs().size())
@@ -59,10 +61,10 @@ public final class GovernedInferenceProvider implements InferenceProvider {
     public InferenceResult completeMultimodal(
             MultimodalPrompt prompt, GenerationParameters parameters) {
         AiCapabilityDescriptor capability = AiInvocationRequests.requireCapability(
-                capabilities(), AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
+                capabilities(), AiOperation.MULTIMODAL_GENERATION);
         var request = AiInvocationRequests.create(
                 modelName(), modelVersion(), modelSignatureSha256(), capability,
-                AiCapabilityDescriptor.ExecutionMode.SCALAR,
+                AiExecutionMode.SCALAR,
                 List.of(new AiInvocationRequest.MultimodalInput(prompt)), parameters);
         return singleResult(service.invoke(request));
     }

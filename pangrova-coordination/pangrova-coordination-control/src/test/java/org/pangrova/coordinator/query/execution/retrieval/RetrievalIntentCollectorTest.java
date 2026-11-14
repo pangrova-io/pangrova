@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution.retrieval;
 
+import org.pangrova.indexing.api.enums.HybridSearchMode;
+import org.pangrova.execution.api.enums.RetrievalMergeStrategy;
+
+
 import java.util.List;
 import java.util.Map;
 
@@ -28,7 +32,7 @@ class RetrievalIntentCollectorTest {
                 VectorSearchNode node = new VectorSearchNode(
                         "catalog.schema.items", "embedding", new float[]{1.0f, 0.0f},
                         2, metric, "index-1", capability, 4, List.of(),
-                        new VectorHybridSearchStrategy(VectorHybridSearchStrategy.Mode.ANN_THEN_FILTER, 2), 7,
+                        new VectorHybridSearchStrategy(HybridSearchMode.ANN_THEN_FILTER, 2), 7,
                         "snapshot-7", "snapshot-7", 0);
                 DispatchQueryContext context = new DispatchQueryContext(
                         Map.of(), "SELECT ...", null).withVectorSearch(node);
@@ -64,7 +68,7 @@ class RetrievalIntentCollectorTest {
 
         RetrievalMergeIntent intent = collector.collectRetrievalMergeIntent(context.vectorSearchNode(), context.rerankerPlan()).orElseThrow();
 
-        assertThat(intent.strategy()).isEqualTo(RetrievalMergeIntent.Strategy.RRF);
+        assertThat(intent.strategy()).isEqualTo(RetrievalMergeStrategy.RRF);
         assertThat(intent.rrfK()).isEqualTo(60);
         assertThat(intent.outputLimit()).isEqualTo(10);
         assertThat(intent.sources()).extracting(RetrievalMergeIntent.Source::sourceId)

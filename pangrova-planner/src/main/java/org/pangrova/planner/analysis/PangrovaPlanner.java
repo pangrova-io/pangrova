@@ -1,7 +1,6 @@
 package org.pangrova.planner.analysis;
 
 import org.pangrova.planner.api.exception.PlannerException;
-
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.type.PlannerTypeFactory;

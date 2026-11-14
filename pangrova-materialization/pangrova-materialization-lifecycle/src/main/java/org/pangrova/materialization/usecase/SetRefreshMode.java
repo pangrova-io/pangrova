@@ -5,7 +5,7 @@ import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.Principal;
 import org.pangrova.materialization.api.enums.RefreshMode;
-import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.identity.StrategyId;
 
 /**
  * Command that changes the refresh mode and follows it with a full publication.

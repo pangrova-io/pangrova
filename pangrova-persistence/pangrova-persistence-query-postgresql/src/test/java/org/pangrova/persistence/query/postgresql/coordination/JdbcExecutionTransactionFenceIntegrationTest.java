@@ -3,7 +3,7 @@ package org.pangrova.persistence.query.postgresql.coordination;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.exception.ExecutionOwnerLostException;
-import org.pangrova.query.api.exception.ExecutionOwnerLostException.Reason;
+import org.pangrova.query.api.enums.ExecutionOwnerLossReason;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
 
@@ -79,14 +79,14 @@ class JdbcExecutionTransactionFenceIntegrationTest extends ContainerTestBase {
     void distinguishesMissingReplacedAndExpiredOwners() throws Exception {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            assertLoss(connection, "missing", "owner", "process", 7, Reason.ABSENT);
-            assertLoss(connection, "execution", "other-owner", "process", 7, Reason.REPLACED);
-            assertLoss(connection, "execution", "owner", "previous-process", 7, Reason.REPLACED);
-            assertLoss(connection, "execution", "owner", "process", 8, Reason.REPLACED);
+            assertLoss(connection, "missing", "owner", "process", 7, ExecutionOwnerLossReason.ABSENT);
+            assertLoss(connection, "execution", "other-owner", "process", 7, ExecutionOwnerLossReason.REPLACED);
+            assertLoss(connection, "execution", "owner", "previous-process", 7, ExecutionOwnerLossReason.REPLACED);
+            assertLoss(connection, "execution", "owner", "process", 8, ExecutionOwnerLossReason.REPLACED);
             try (var update = connection.createStatement()) {
                 update.executeUpdate("UPDATE execution_anchor SET expires_at=clock_timestamp()-interval '1 second'");
             }
-            assertLoss(connection, "execution", "owner", "process", 7, Reason.EXPIRED);
+            assertLoss(connection, "execution", "owner", "process", 7, ExecutionOwnerLossReason.EXPIRED);
             connection.rollback();
         }
     }
@@ -122,7 +122,7 @@ class JdbcExecutionTransactionFenceIntegrationTest extends ContainerTestBase {
     }
 
     private void assertLoss(Connection connection, String execution, String owner, String incarnation,
-            long token, Reason reason) {
+            long token, ExecutionOwnerLossReason reason) {
         var failure = assertThrows(ExecutionOwnerLostException.class,
                 () -> fence.requireCurrent(connection, execution, owner, incarnation, token));
         assertThat(failure.reason()).isEqualTo(reason);

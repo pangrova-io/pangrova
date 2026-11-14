@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.security.expression;
 
+import org.pangrova.planner.exception.FilterParseException;
+
 import org.apache.calcite.config.CalciteConnectionConfigImpl;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.RelOptCluster;
@@ -154,10 +156,4 @@ public final class FilterExpressionParser {
         }
     }
 
-    /** Exception thrown when a filter expression cannot be parsed or converted. */
-    public static final class FilterParseException extends RuntimeException {
-        public FilterParseException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

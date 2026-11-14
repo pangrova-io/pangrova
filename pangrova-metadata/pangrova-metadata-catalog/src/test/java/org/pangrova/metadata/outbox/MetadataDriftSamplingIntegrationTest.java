@@ -1,5 +1,6 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -122,7 +123,7 @@ class MetadataDriftSamplingIntegrationTest {
         // A closed real source would fail any read; DELETE must never consult it.
         source.close();
 
-        service.validateSyncedSample(scope, service.beginObservation(scope), source, List.of(new MetadataChange(MetadataChange.ChangeType.DELETE,
+        service.validateSyncedSample(scope, service.beginObservation(scope), source, List.of(new MetadataChange(MetadataChangeType.DELETE,
                 new QualifiedTableRef("cat", "sch", "t1"), null)));
 
         assertThat(service.getSchemaDriftDetectedCount()).isZero();
@@ -197,7 +198,7 @@ class MetadataDriftSamplingIntegrationTest {
     }
 
     private static MetadataChange change(TableMetadata actual) {
-        return new MetadataChange(MetadataChange.ChangeType.UPDATE, new QualifiedTableRef("cat", "sch", "t1"), actual);
+        return new MetadataChange(MetadataChangeType.UPDATE, new QualifiedTableRef("cat", "sch", "t1"), actual);
     }
 
     private static TableMetadata table(boolean expanded) {

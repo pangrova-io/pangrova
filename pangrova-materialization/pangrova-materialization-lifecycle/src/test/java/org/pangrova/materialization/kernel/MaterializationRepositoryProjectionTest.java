@@ -1,5 +1,7 @@
 package org.pangrova.materialization.kernel;
 
+import org.pangrova.materialization.api.enums.GcDecision;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
@@ -19,7 +21,7 @@ import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
-import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.enums.RefreshMode;
 import org.pangrova.materialization.api.domain.Schedule;
 import org.pangrova.materialization.api.enums.SecurityMode;
@@ -103,7 +105,7 @@ class MaterializationRepositoryProjectionTest {
                     assertThat(entry.object()).isEqualTo(dependent);
                     assertThat(entry.generation()).isEqualTo(retained.id());
                     assertThat(entry.decision())
-                            .isEqualTo(GcLedgerEntry.GcDecision.COLLECT);
+                            .isEqualTo(GcDecision.COLLECT);
                 });
     }
 
@@ -146,13 +148,13 @@ class MaterializationRepositoryProjectionTest {
         CommitEvidence evidence = new CommitEvidence(
                 "iceberg", "commit-" + attemptId.value(), "manifest", "v2", NOW);
         RefreshAttempt attempt = MaterializationTestFixtures.attempt(
-                        object, attemptId, table, RefreshKind.Full.INSTANCE,
+                        object, attemptId, table, RefreshKind.FULL,
                         vector, Optional.empty())
                 .markBuilding(NOW)
                 .markCommitted(evidence, NOW);
         Generation candidate = MaterializationTestFixtures.candidateGeneration(
                         object, GenerationId.random(), attemptId, table,
-                        RefreshKind.Full.INSTANCE, vector, Optional.empty())
+                        RefreshKind.FULL, vector, Optional.empty())
                 .commit(evidence, NOW);
         repository.putAttempt(attempt);
         repository.putGeneration(candidate);
@@ -170,13 +172,13 @@ class MaterializationRepositoryProjectionTest {
         CommitEvidence evidence = new CommitEvidence(
                 "iceberg", "commit-" + attemptId.value(), "manifest", "v2", NOW);
         RefreshAttempt attempt = MaterializationTestFixtures.attempt(
-                        object, attemptId, table, RefreshKind.Full.INSTANCE,
+                        object, attemptId, table, RefreshKind.FULL,
                         vector, Optional.empty())
                 .markBuilding(NOW)
                 .markCommitted(evidence, NOW);
         Generation candidate = MaterializationTestFixtures.candidateGeneration(
                         object, GenerationId.random(), attemptId, table,
-                        RefreshKind.Full.INSTANCE, vector, Optional.empty())
+                        RefreshKind.FULL, vector, Optional.empty())
                 .commit(evidence, NOW);
         repository.putAttempt(attempt);
         return candidate;

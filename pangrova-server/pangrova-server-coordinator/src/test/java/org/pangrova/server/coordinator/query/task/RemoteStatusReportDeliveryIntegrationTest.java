@@ -7,13 +7,13 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.protocol.task.TerminalReportDeliveryPolicy;
+import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.testing.testkit.TestObservability;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 import java.net.http.HttpRequest;
@@ -106,7 +106,7 @@ class RemoteStatusReportDeliveryIntegrationTest {
             String closedAddress = fixture.relay().uri().toString();
             fixture.relay().close();
             try (var defaultReporter = new RemoteTaskStatusReporter(
-                    closedAddress, TestObservability.TRACING, NativeReportDeliveryFixture.SECRET)) {
+                    closedAddress, TestObservability.TRACING, TestObservability.METRICS, NativeReportDeliveryFixture.SECRET)) {
                 assertThatThrownBy(() -> defaultReporter.report(actual))
                         .isInstanceOf(IllegalStateException.class).hasMessageContaining("not acknowledged");
             }

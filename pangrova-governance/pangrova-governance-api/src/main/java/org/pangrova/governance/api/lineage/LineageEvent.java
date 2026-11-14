@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.lineage;
 
+import org.pangrova.governance.api.enums.LineageEventType;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -8,7 +10,7 @@ import java.util.Map;
  * Represents an OpenLineage-compatible run event.
  */
 public record LineageEvent(
-    EventType eventType,
+    LineageEventType eventType,
     String runId,
     String jobName,
     String sql,
@@ -23,5 +25,4 @@ public record LineageEvent(
         facets = facets == null ? Map.of() : Map.copyOf(facets);
     }
 
-    public enum EventType { START, COMPLETE, FAIL, ABORT }
 }

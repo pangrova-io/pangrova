@@ -1,5 +1,6 @@
 package org.pangrova.metadata.outbox;
 
+import org.pangrova.metadata.api.enums.MetadataChangeType;
 import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -103,9 +104,9 @@ final class PostgresFederationInventory implements FederatedCatalog {
                 List<MetadataChange> changes = new ArrayList<>();
                 while (rows.next()) {
                     TableMetadata metadata = serializer.deserialize(rows.getString(1));
-                    MetadataChange.ChangeType type = metadata.createdAt() != null
+                    MetadataChangeType type = metadata.createdAt() != null
                             && metadata.createdAt().isAfter(since)
-                            ? MetadataChange.ChangeType.ADD : MetadataChange.ChangeType.UPDATE;
+                            ? MetadataChangeType.ADD : MetadataChangeType.UPDATE;
                     changes.add(new MetadataChange(type,
                             new QualifiedTableRef(metadata.catalog(), metadata.schema(), metadata.table()), metadata));
                 }

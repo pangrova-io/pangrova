@@ -1,5 +1,7 @@
 package org.pangrova.client.cli;
 
+import org.pangrova.client.cli.exception.ResultDecodeException;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;

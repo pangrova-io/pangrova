@@ -101,7 +101,7 @@ class TaskStatusReceiverGuardTest {
         tracker.updateTaskState("q1", "t1", "RUNNING");
 
         assertEquals(
-                org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING,
+                org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING,
                 tracker.getTaskState("q1", "t1"));
     }
 

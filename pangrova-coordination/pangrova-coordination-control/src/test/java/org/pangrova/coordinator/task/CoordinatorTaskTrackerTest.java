@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.scheduler.api.speculation.TaskDuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,7 +47,7 @@ class CoordinatorTaskTrackerTest {
         assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "FINISHED")).isTrue();
         assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "FINISHED")).isTrue();
         assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "RUNNING")).isFalse();
-        assertThat(tracker.getTaskState(QUERY_ID, "short-task")).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.getTaskState(QUERY_ID, "short-task")).isEqualTo(ScheduledTaskState.FINISHED);
     }
 
     @Test
@@ -88,7 +89,7 @@ class CoordinatorTaskTrackerTest {
     void unsubmittedPendingTaskCannotBeCompleted() {
         tracker.registerTask(QUERY_ID, "not-submitted");
         assertThat(tracker.updateTaskState(QUERY_ID, "not-submitted", "FINISHED")).isFalse();
-        assertThat(tracker.getTaskState(QUERY_ID, "not-submitted")).isEqualTo(TaskStateMachine.State.PENDING);
+        assertThat(tracker.getTaskState(QUERY_ID, "not-submitted")).isEqualTo(ScheduledTaskState.PENDING);
     }
 
     @Test

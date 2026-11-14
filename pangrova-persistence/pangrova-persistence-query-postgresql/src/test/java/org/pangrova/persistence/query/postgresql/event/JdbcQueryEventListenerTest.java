@@ -12,11 +12,9 @@ import org.pangrova.query.api.event.QueryCreatedEvent;
 import org.pangrova.query.api.event.QueryEventListener;
 import org.pangrova.query.api.event.QueryStatistics;
 import org.pangrova.query.api.event.SplitCompletedEvent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.query.event.QueryEventDispatcher;
@@ -29,72 +27,13 @@ import org.pangrova.query.event.QueryEventDispatcher;
  */
 class JdbcQueryEventListenerTest {
 
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test")
-            .withUsername("pangrova")
-            .withPassword("pangrova_test");
-
-    @BeforeAll
-    static void startContainer() { PG.start(); }
-
-    @AfterAll
-    static void stopContainer() { PG.stop(); }
-
     private DataSource dataSource;
     private JdbcQueryEventListener listener;
 
     @BeforeEach
-    void setUp() throws Exception {
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
-        // Drop tables so each test starts with a clean schema
-        try (var conn = ds.getConnection()) {
-            conn.createStatement().execute("DROP TABLE IF EXISTS query_split_profiles");
-            conn.createStatement().execute("DROP TABLE IF EXISTS query_events");
-        }
-        this.dataSource = ds;
-        createSchema(ds);
-        this.listener = new JdbcQueryEventListener(ds);
-    }
-
-    private static void createSchema(DataSource ds) throws Exception {
-        try (var conn = ds.getConnection(); var stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE query_events (
-                        query_id        VARCHAR(128) PRIMARY KEY,
-                        sql_text        TEXT,
-                        principal       VARCHAR(256),
-                        final_state     VARCHAR(32) NOT NULL,
-                        create_time     TIMESTAMP,
-                        end_time        TIMESTAMP,
-                        wall_time_ms    BIGINT,
-                        cpu_time_ms     BIGINT,
-                        total_rows      BIGINT,
-                        total_bytes     BIGINT,
-                        failure_message TEXT,
-                        success         BOOLEAN
-                    )
-                    """);
-            stmt.execute("""
-                    CREATE TABLE query_split_profiles (
-                        query_id            VARCHAR(128) NOT NULL,
-                        stage_id            VARCHAR(128) NOT NULL,
-                        split_id            VARCHAR(256) NOT NULL,
-                        catalog_name        VARCHAR(256),
-                        start_time          TIMESTAMP,
-                        end_time            TIMESTAMP,
-                        duration_ms         BIGINT,
-                        processed_rows      BIGINT,
-                        processed_bytes     BIGINT,
-                        failure_message     TEXT,
-                        success             BOOLEAN,
-                        PRIMARY KEY (query_id, stage_id, split_id)
-                    )
-                    """);
-        }
+    void setUp() throws java.sql.SQLException {
+        dataSource = MigratedPostgres.create();
+        listener = new JdbcQueryEventListener(dataSource);
     }
 
     @Test

@@ -1,10 +1,10 @@
 ---
-title: "JNI Bridge"
+title: "JNI Runtime"
 description: "Canonical Java and Native execution protocol and ownership contracts"
-sidebar_label: "JNI Bridge"
+sidebar_label: "JNI Runtime"
 ---
 
-# JNI Bridge
+# JNI Runtime
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
@@ -38,7 +38,7 @@ they must not introduce feature-specific task envelopes or a second proto tree.
 The single serialization boundary between Java and Native is the JNI bridge in `pangrova-worker`:
 
 ```
-Java Layer                          JNI Bridge                    C++ Layer
+Java Layer                          JNI Runtime                    C++ Layer
 ─────────────────────────────────────────────────────────────────────────────
 TaskRequestBuilder.build()    →   nativeCreateTaskExecutor()  →  TaskRequestParser
   (Java proto serialization)        (byte[] transfer)             (Native proto deserialization)
@@ -237,6 +237,15 @@ task members so reverse member destruction releases the plan before its pools.
   bytes. Conflicting bundles fail regardless of classpath order; identical
   duplicates are accepted. Availability and successful library loading do not
   prove every JNI declaration or execution path is compatible.
+
+### Native write operation identity
+
+The C++ write sink maps SQL INSERT/APPEND, UPDATE/MERGE/OVERWRITE and DELETE
+to operation codes 0, 1 and 2 respectively. JNI resolves
+`org.pangrova.worker.enums.DmlOperation.fromNativeCode(int)` and passes the
+result to the task-bound `WriteDescriptor` constructor. Unknown codes fail
+before the connector opens a sink. Java declaration order does not affect the
+mapping. Connector writes bind to the output handle allocated for the task.
 
 ### 3.8 Canonical four-layer execution boundary
 

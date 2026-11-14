@@ -251,7 +251,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         byte[] checksum = java.util.HexFormat.of().parseHex(
                 IcebergManifestReadBindings.digest(manifest, manifest.getLength()));
         return new org.pangrova.connector.api.commit.NativeWriteFinalization(
-                org.pangrova.connector.api.commit.NativeWriteFinalization.Outcome.COMMITTED,
+                org.pangrova.connector.api.enums.NativeWriteCommitOutcome.COMMITTED,
                 snapshot.snapshotId(), checksum);
     }
 

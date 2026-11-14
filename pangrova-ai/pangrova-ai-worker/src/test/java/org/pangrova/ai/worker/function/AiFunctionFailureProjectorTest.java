@@ -13,6 +13,8 @@
  */
 package org.pangrova.ai.worker.function;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.protocol.v2.ErrorClass;
@@ -27,7 +29,7 @@ class AiFunctionFailureProjectorTest {
     @Test
     void uncertainProviderOutcomeProjectsToNonRetryableNativeTaskFailure() throws Exception {
         var failure = new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                 true,
                 "response lost after provider accepted POST");
 
@@ -44,7 +46,7 @@ class AiFunctionFailureProjectorTest {
     @Test
     void wrappedInvocationFailureStillProjectsToTheCanonicalContract() throws Exception {
         var failure = new AiInvocationException(
-                AiInvocationException.Category.TIMEOUT, true, "provider timed out");
+                AiFailureCategory.TIMEOUT, true, "provider timed out");
         var wrapped = new IllegalStateException("Batch evaluation failed", failure);
 
         var projected = ExecutionError.parseFrom(projector.describeFailure(wrapped));
@@ -58,7 +60,7 @@ class AiFunctionFailureProjectorTest {
     @Test
     void largeProviderMessageKeepsTheCanonicalNativeFailureBounded() throws Exception {
         var failure = new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN,
                 false,
                 "x".repeat(100_000));
 

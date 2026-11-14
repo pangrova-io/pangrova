@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.indexing.ddl;
 
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
@@ -212,7 +214,7 @@ public final class DurableIndexBuildService {
                 BuiltInCapabilityCatalog.vectorArtifactBuildPlanRef(algorithm);
         String metric = requireMetric(descriptor.properties(), algorithm);
         VectorShape vector = resolveVectorShape(table, column, session);
-        if (vector.elementType() != VectorType.ElementType.FLOAT) {
+        if (vector.elementType() != VectorElementType.FLOAT) {
             throw validation("Native ANN build requires VECTOR(..., FLOAT)");
         }
         validateDeclaredDimension(descriptor.properties(), vector.dimension());
@@ -325,11 +327,11 @@ public final class DurableIndexBuildService {
             Map<String, String> properties, int dimension, String metric) {
         String capabilityId = buildCapability.getCapabilityId();
         List<NamedValue> result;
-        if (BuiltInCapabilityCatalog.HNSW_ARTIFACT_BUILD_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_ID.equals(capabilityId)) {
             result = new ArrayList<>(hnswProperties(properties, dimension));
-        } else if (BuiltInCapabilityCatalog.IVF_PQ_ARTIFACT_BUILD_ID.equals(capabilityId)) {
+        } else if (BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_ID.equals(capabilityId)) {
             result = new ArrayList<>(ivfPqProperties(properties, dimension));
-        } else if (BuiltInCapabilityCatalog.DISKANN_ARTIFACT_BUILD_ID.equals(capabilityId)) {
+        } else if (BuiltInCapabilityIdentifiers.DISKANN_ARTIFACT_BUILD_ID.equals(capabilityId)) {
             result = new ArrayList<>(diskAnnProperties(properties, dimension));
         } else {
             throw validation("Unknown Native artifact build capability");
@@ -491,7 +493,7 @@ public final class DurableIndexBuildService {
                 PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR, message, cause);
     }
 
-    private record VectorShape(int dimension, VectorType.ElementType elementType) {}
+    private record VectorShape(int dimension, VectorElementType elementType) {}
 
     private record NativeBuildSpec(
             GenerationPlan plan,

@@ -246,7 +246,7 @@ public final class StreamScheduler implements AutoCloseable {
                 reader, converter, writeSink, quotaEnforcer,
                 deps.watermarkTracker(), deps.maintenanceScheduler(),
                 new CdcPipelineRuntimeHooks(
-                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), deps.commitCoordinator()));
+                        deps.metricsProvider(), listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), deps.commitCoordinator()));
 
         return new CdcPipelineLoop(pipelineConfig, loopDeps, offsets);
     }

@@ -3,6 +3,7 @@ package org.pangrova.planner.embedding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -93,7 +94,7 @@ public final class QueryTextEmbedRule {
      * @return true if it is a recognized distance function
      */
     public static boolean isDistanceFunction(String functionName) {
-        return functionName != null && DISTANCE_FUNCTIONS.contains(functionName.toUpperCase());
+        return functionName != null && DISTANCE_FUNCTIONS.contains(functionName.toUpperCase(Locale.ROOT));
     }
 
     /**

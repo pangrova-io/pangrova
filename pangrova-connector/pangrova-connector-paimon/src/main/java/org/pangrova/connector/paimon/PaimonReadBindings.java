@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import org.apache.paimon.Snapshot;
@@ -35,7 +37,7 @@ final class PaimonReadBindings {
         var declaration = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(selector.schemaName(), selector.tableName()),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, schema.options()),
-                ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+                TableDeclarationEvidence.EXACT);
         var properties = new LinkedHashMap<>(schema.options());
         properties.put(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY, identity);
         if (selector.snapshotId().isEmpty()) properties.put(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY, "true");
@@ -50,21 +52,21 @@ final class PaimonReadBindings {
         var statistics = PaimonTableStatisticsReader.build(table, snapshot, schema.rowType());
         validateSelected(table, bound);
         return new ConnectorReadBinding(bound, declaration, statistics,
-                snapshot == null ? ConnectorReadBinding.SnapshotState.EMPTY
-                        : ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                snapshot == null ? ReadSnapshotState.EMPTY
+                        : ReadSnapshotState.SNAPSHOT,
                 snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.id()), identity,
                 Optional.of(new org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity(
                         new org.pangrova.connector.api.metadata.table.TableIdentity("PAIMON", table.uuid(),
                                 table.location().toString(), schema.schemaFingerprint()),
                         "paimon.branch-fields.v1:" + table.snapshotManager().branch(), columns,
-                        org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                        org.pangrova.connector.api.enums.FieldIdStability
                                 .SELECTED_SOURCE)));
     }
 
     static void validate(Catalog catalog, ConnectorReadBinding binding) {
         var handle = (PaimonTableHandle) binding.handle();
         var table = load(catalog, handle);
-        var snapshot = binding.state() == ConnectorReadBinding.SnapshotState.EMPTY
+        var snapshot = binding.state() == ReadSnapshotState.EMPTY
                 ? null : selectedSnapshot(table, handle);
         if (!binding.sourceIdentity().equals(identity(table, snapshot))) {
             throw new IllegalStateException("Selected source identity changed");

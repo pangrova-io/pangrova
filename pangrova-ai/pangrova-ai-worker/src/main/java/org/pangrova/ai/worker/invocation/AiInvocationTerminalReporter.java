@@ -13,6 +13,7 @@
  */
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
@@ -51,7 +52,7 @@ final class AiInvocationTerminalReporter {
     private static AiInvocationException terminalFailure(
             AiInvocationRequest request, String stage, RuntimeException failure) {
         return new AiInvocationException(
-                AiInvocationException.Category.INTERNAL,
+                AiFailureCategory.INTERNAL,
                 false,
                 "AI invocation " + request.requestId()
                         + " failed during " + stage

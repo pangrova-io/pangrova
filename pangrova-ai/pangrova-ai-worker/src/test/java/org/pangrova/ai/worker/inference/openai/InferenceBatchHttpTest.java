@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+import org.pangrova.ai.api.enums.AiOperation;
 import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
 import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvider;
@@ -7,7 +9,6 @@ import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvide
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.api.inference.InferenceProvider;
@@ -56,7 +57,7 @@ class InferenceBatchHttpTest {
                 ? new OpenAiResponsesInferenceProvider(config, Optional.empty())
                 : new OpenAiCompatibleInferenceProvider(config, Optional.empty());
         try (var closeable = (java.io.Closeable) provider;
-                var budget = new AiTransportTestAdmission(AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                var budget = new AiTransportTestAdmission(AiOperation.TEXT_GENERATION,
                         0, 2, 2, AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(15))) {
             Throwable failure = catchThrowable(() -> budget.call("mixed-batch", () -> provider.completeBatch(
                     List.of("known-failure", "unknown-outcome"), GenerationParameters.DEFAULTS)));
@@ -65,7 +66,7 @@ class InferenceBatchHttpTest {
             }
             assertThat(failure).isInstanceOf(AiInvocationException.class);
             var typed = (AiInvocationException) failure;
-            assertThat(typed.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+            assertThat(typed.category()).isEqualTo(AiFailureCategory.PROVIDER_OUTCOME_UNCERTAIN);
             assertThat(typed.retryable()).isFalse();
             assertThat(typed.getSuppressed()).hasSize(1);
             assertThat(typed.getSuppressed()[0]).isInstanceOf(AiInvocationException.class)

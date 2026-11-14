@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.postgresql.transaction;
 
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
@@ -17,7 +19,7 @@ class JdbcWriteCommitJournalInitializationTest extends ContainerTestBase {
                 .isInstanceOfSatisfying(JournalWriteException.class, failure -> {
                     assertThat(failure).hasMessageContaining("canonical schema");
                     assertThat(failure.admissionOutcome())
-                            .isEqualTo(JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+                            .isEqualTo(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
                 });
         try (var connection = source.getConnection(); var statement = connection.createStatement();
              var result = statement.executeQuery("SELECT to_regclass('write_commit_journal')")) {

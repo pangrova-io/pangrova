@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.enums.IcebergCommitOutcome;
+
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.pangrova.common.concurrent.ThreadUtils;
@@ -20,7 +22,7 @@ import org.slf4j.LoggerFactory;
  * fingerprint marker must be present and in the current snapshot ancestry.
  * Without a durable commit context there is no way to attribute a new
  * snapshot to our commit — a concurrent writer's snapshot descends from the
- * same base — so an advanced table is always {@link CommitOutcome#UNKNOWN}.
+ * same base — so an advanced table is always {@link IcebergCommitOutcome#UNKNOWN}.
  *
  * <p>An unchanged snapshot is not proof of failure: a cancelled task may still
  * be executing in a remote catalog. Absence of a marker always remains UNKNOWN.
@@ -40,17 +42,11 @@ final class CommitStatusVerifier {
      */
     static final int MAX_VERIFICATION_ATTEMPTS = 2;
 
-    enum CommitOutcome {
-        /** Commit succeeded — the snapshot carries our durable fingerprint marker. */
-        SUCCEEDED,
-        /** Cannot determine outcome — requires reconciliation, never an automatic retry. */
-        UNKNOWN
-    }
 
     /**
      * Result of commit status verification, including the outcome and diagnostic context.
      */
-    record VerificationResult(CommitOutcome outcome, String detail) {}
+    record VerificationResult(IcebergCommitOutcome outcome, String detail) {}
 
     private CommitStatusVerifier() {
     }
@@ -58,7 +54,7 @@ final class CommitStatusVerifier {
     /**
      * Verifies a commit that carried no durable commit context. Without a marker
      * an advanced snapshot cannot be attributed to this commit, so advancement is
-     * reported as {@link CommitOutcome#UNKNOWN}. An unchanged snapshot also remains
+     * reported as {@link IcebergCommitOutcome#UNKNOWN}. An unchanged snapshot also remains
      * unknown because a remote commit may still publish after verification.
      */
     static VerificationResult verify(Table table, long preCommitSnapshotId, String tableId) {
@@ -90,7 +86,7 @@ final class CommitStatusVerifier {
                         LOG.info("event=commit_timeout_verified_success table={} "
                                         + "proof=commit_marker attempt={}",
                                 tableId, attempt + 1);
-                        return new VerificationResult(CommitOutcome.SUCCEEDED,
+                        return new VerificationResult(IcebergCommitOutcome.SUCCEEDED,
                                 "Commit fingerprint marker is present in the current snapshot ancestry");
                     }
                 }
@@ -98,7 +94,7 @@ final class CommitStatusVerifier {
             } catch (Exception e) {
                 LOG.warn("event=commit_timeout_verification_error table={} attempt={} error={}",
                         tableId, attempt + 1, e.getMessage());
-                return new VerificationResult(CommitOutcome.UNKNOWN,
+                return new VerificationResult(IcebergCommitOutcome.UNKNOWN,
                         "Verification failed: " + e.getMessage());
             }
         }
@@ -107,7 +103,7 @@ final class CommitStatusVerifier {
             LOG.warn("event=commit_timeout_unprovable table={} preCommitSnapshot={} "
                             + "reason=snapshot_advanced_without_commit_marker",
                     tableId, preCommitSnapshotId);
-            return new VerificationResult(CommitOutcome.UNKNOWN,
+            return new VerificationResult(IcebergCommitOutcome.UNKNOWN,
                     "Snapshot advanced without provable Pangrova commit evidence; "
                             + "another writer may have committed");
         }
@@ -115,7 +111,7 @@ final class CommitStatusVerifier {
         LOG.warn("event=commit_timeout_unprovable table={} "
                         + "preCommitSnapshot={} reason=snapshot_unchanged_after_grace",
                 tableId, preCommitSnapshotId);
-        return new VerificationResult(CommitOutcome.UNKNOWN,
+        return new VerificationResult(IcebergCommitOutcome.UNKNOWN,
                 "Snapshot unchanged after %d verification attempts (grace=%dms); remote commit may still publish"
                         .formatted(MAX_VERIFICATION_ATTEMPTS, VERIFICATION_GRACE_MS));
     }

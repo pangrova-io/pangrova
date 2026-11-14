@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import java.util.Optional;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.planner.metadata.PlanTable;
 
@@ -65,10 +67,26 @@ public final class PlanSplitSourceExtractor {
                     .toList();
             descriptors.add(new SplitSourceDescriptor(
                     ref.catalogName(), ref.schemaName(), ref.tableName(),
-                    constraint, columns, java.util.Optional.ofNullable(PlanTable.require(ref.scan())
+                    constraint, columns, Optional.ofNullable(PlanTable.require(ref.scan())
                             .unwrap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding.class))));
         }
         return descriptors;
+    }
+
+    /** Returns scalar predicates only when their provenance is unambiguous for one physical scan. */
+    static Optional<ScanPredicates> singleScanPredicates(RelNode plan) {
+        var predicates = FilterPredicateExtractor.extract(plan);
+        if (predicates.isEmpty()) return Optional.empty();
+        List<TableScanRef> references = new ArrayList<>();
+        collectTableScans(plan, references);
+        if (references.size() != 1) return Optional.empty();
+        var scan = references.get(0);
+        var columns = scan.scan().getRowType().getFieldNames();
+        var matching = predicates.stream().filter(predicate -> columns.contains(predicate.column())).toList();
+        if (matching.isEmpty()) return Optional.empty();
+        return Optional.of(new ScanPredicates(
+                new QualifiedTableName(
+                        scan.catalogName(), scan.schemaName(), scan.tableName()), matching));
     }
 
     /**

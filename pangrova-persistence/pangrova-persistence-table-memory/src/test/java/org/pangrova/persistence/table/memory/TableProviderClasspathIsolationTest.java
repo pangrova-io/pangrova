@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
 import org.pangrova.persistence.table.memory.statistics.InMemoryTableControlStatisticsStore;
-import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.policy.InMemoryTablePolicyRepository;
 
 import java.util.List;
 
@@ -30,6 +30,6 @@ class TableProviderClasspathIsolationTest {
         assertThat(new InMemoryTableControlStore()).isNotNull();
         assertThat(new InMemoryTableControlMaintenanceStore()).isNotNull();
         assertThat(new InMemoryTableControlStatisticsStore()).isNotNull();
-        assertThat(new InMemoryTableControlGovernanceBindingStore()).isNotNull();
+        assertThat(new InMemoryTablePolicyRepository()).isNotNull();
     }
 }

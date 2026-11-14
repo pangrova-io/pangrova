@@ -3,6 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import java.util.List;
 
 import org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider;
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog;
 import org.pangrova.planner.analysis.PangrovaPlanner;
@@ -71,7 +72,9 @@ final class PlannerWiring {
             org.pangrova.connector.api.session.ConnectorSession session) {
         var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                 metadataBootstrap.catalogRegistry(), session);
-        var rootSchema = metadataBootstrap.buildCalciteSchema(session, readBindings);
+        var rootSchema = new MetadataSchemaBuilder(
+                metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
+                .buildRootSchema(session, readBindings);
         var stats = new StatisticsCollector(
                 new CatalogStatisticsProvider(readBindings,
                         metadataBootstrap.catalogRegistry().tableStatistics()));

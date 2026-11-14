@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.OptionalLong;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.types.enums.PangrovaType;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ConnectorDerivedQueryTest {
     @Test
     void retainsExactSelectedInputWithoutExposingItsHandleInDiagnostics() {
-        var binding = binding(ConnectorReadBinding.SnapshotState.METADATA);
+        var binding = binding(ReadSnapshotState.METADATA);
         var inputs = new ArrayList<>(List.of(new ConnectorDerivedQuery.Input("source", binding)));
         var query = new ConnectorDerivedQuery("SELECT id FROM source", inputs);
         inputs.clear();
@@ -25,22 +27,22 @@ class ConnectorDerivedQueryTest {
 
     @Test
     void rejectsAmbiguousAliasesAndSourcesWithoutFrozenEvidence() {
-        var source = binding(ConnectorReadBinding.SnapshotState.METADATA);
+        var source = binding(ReadSnapshotState.METADATA);
         assertThatThrownBy(() -> new ConnectorDerivedQuery("SELECT * FROM source", List.of(
                 new ConnectorDerivedQuery.Input("source", source),
                 new ConnectorDerivedQuery.Input("SOURCE", source)))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConnectorDerivedQuery.Input("source",
-                binding(ConnectorReadBinding.SnapshotState.UNVERSIONED))).isInstanceOf(IllegalArgumentException.class);
+                binding(ReadSnapshotState.UNVERSIONED))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConnectorDerivedQuery(" ", List.of(
                 new ConnectorDerivedQuery.Input("source", source)))).isInstanceOf(IllegalArgumentException.class);
     }
 
-    private static ConnectorReadBinding binding(ConnectorReadBinding.SnapshotState state) {
+    private static ConnectorReadBinding binding(ReadSnapshotState state) {
         var columns = List.of(new ConnectorTableMetadata.Column("id", PangrovaType.BIGINT));
         var metadata = new ConnectorTableMetadata(new SchemaTableName("schema", "source"),
                 List.of("id"), columns, Map.of());
         return new ConnectorReadBinding(new ConnectorTableHandle() {},
-                new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
+                new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
                 TableStatistics.UNKNOWN, state, OptionalLong.empty(), "private-source-location", java.util.Optional.empty());
     }
 }

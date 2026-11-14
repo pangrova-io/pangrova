@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 import java.util.stream.Stream;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -105,7 +107,7 @@ class PlanExecutionFactoryDeleteFailureTest {
     private static Stream<Arguments> invalidColumns() {
         return Stream.of(false, true).flatMap(partitioned -> Stream.of(
                 equalToSeven("missing_column"),
-                new BinaryExpression(equalToSeven("id"), BinaryExpression.Operator.AND,
+                new BinaryExpression(equalToSeven("id"), BinaryExpressionOperator.AND,
                         equalToSeven("missing_column")))
                 .map(predicate -> Arguments.of(partitioned, predicate)));
     }

@@ -1,13 +1,13 @@
 package org.pangrova.observability.api.metrics;
 
+import org.pangrova.common.api.annotation.Stable;
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 
-import org.pangrova.common.api.annotation.Stable;
-
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.function.Supplier;
 
 /**
@@ -51,6 +51,12 @@ public interface MetricsProvider {
      */
     ObservableDoubleGauge createGauge(String name, String description,
                                        String unit, Supplier<Double> supplier);
+
+    /** Records a dimensional gauge only when the observation is available. The caller owns the registration. */
+    default ObservableDoubleGauge createObservedGauge(String name, String description, String unit,
+            MetricAttributes attributes, Supplier<OptionalDouble> sample) {
+        throw new UnsupportedOperationException("Provider does not support dimensional gauge observations");
+    }
 
     /**
      * Creates a histogram with the specified bucket boundaries.

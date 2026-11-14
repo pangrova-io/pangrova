@@ -1,5 +1,7 @@
 package org.pangrova.ai.api.invocation;
 
+import org.pangrova.ai.api.enums.AiFailureCategory;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.exception.AiInvocationException;
 
@@ -45,7 +47,7 @@ class AiProviderCallContextTest {
                 .isInstanceOf(AiInvocationException.class)
                 .satisfies(failure -> assertThat(
                         ((AiInvocationException) failure).category())
-                        .isEqualTo(AiInvocationException.Category.TIMEOUT));
+                        .isEqualTo(AiFailureCategory.TIMEOUT));
     }
 
     @Test
@@ -62,7 +64,7 @@ class AiProviderCallContextTest {
                 .isInstanceOf(AiInvocationException.class)
                 .satisfies(failure -> assertThat(
                         ((AiInvocationException) failure).category())
-                        .isEqualTo(AiInvocationException.Category.TIMEOUT));
+                        .isEqualTo(AiFailureCategory.TIMEOUT));
         assertThat(admissions).hasValue(0);
     }
 }

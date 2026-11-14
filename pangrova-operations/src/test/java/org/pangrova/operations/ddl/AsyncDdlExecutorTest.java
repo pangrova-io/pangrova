@@ -1,5 +1,8 @@
 package org.pangrova.operations.ddl;
 
+import org.pangrova.operations.enums.DdlJobState;
+import org.pangrova.operations.enums.DdlJobType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -34,10 +37,10 @@ class AsyncDdlExecutorTest {
         DdlJob result = executor.submit(job);
 
         assertThat(executed.get()).isTrue();
-        assertThat(result.state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
+        assertThat(result.state()).isEqualTo(DdlJobState.COMPLETED);
 
         DdlJob stored = store.findById("sync-1").orElseThrow();
-        assertThat(stored.state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
+        assertThat(stored.state()).isEqualTo(DdlJobState.COMPLETED);
     }
 
     @Test
@@ -53,7 +56,7 @@ class AsyncDdlExecutorTest {
                 .hasMessageContaining("simulated failure");
 
         DdlJob failed = store.findById("sync-fail").orElseThrow();
-        assertThat(failed.state()).isEqualTo(DdlJob.DdlJobState.FAILED);
+        assertThat(failed.state()).isEqualTo(DdlJobState.FAILED);
     }
 
     @Test
@@ -84,11 +87,11 @@ class AsyncDdlExecutorTest {
         DdlJob result = executor.submit(job);
 
         // DATA_REWRITE jobs transition to RUNNING but are not yet executed (gated)
-        assertThat(result.state()).isEqualTo(DdlJob.DdlJobState.RUNNING);
+        assertThat(result.state()).isEqualTo(DdlJobState.RUNNING);
         assertThat(callbackInvoked.get()).isFalse();
 
         DdlJob stored = store.findById("rewrite-1").orElseThrow();
-        assertThat(stored.state()).isEqualTo(DdlJob.DdlJobState.RUNNING);
+        assertThat(stored.state()).isEqualTo(DdlJobState.RUNNING);
 
         // Release the gate and clean up
         gate.countDown();
@@ -124,12 +127,12 @@ class AsyncDdlExecutorTest {
         executor.cancel("rewrite-cancel");
 
         DdlJob cancelled = store.findById("rewrite-cancel").orElseThrow();
-        assertThat(cancelled.state()).isEqualTo(DdlJob.DdlJobState.CANCELLED);
+        assertThat(cancelled.state()).isEqualTo(DdlJobState.CANCELLED);
 
         gate.countDown();
         executor.close();
         assertThat(executed).isFalse();
-        assertThat(store.findById("rewrite-cancel").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.CANCELLED);
+        assertThat(store.findById("rewrite-cancel").orElseThrow().state()).isEqualTo(DdlJobState.CANCELLED);
     }
 
     @Test
@@ -155,7 +158,7 @@ class AsyncDdlExecutorTest {
                 finish.countDown();
             }
         }
-        assertThat(store.findById("running").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.CANCELLED);
+        assertThat(store.findById("running").orElseThrow().state()).isEqualTo(DdlJobState.CANCELLED);
     }
 
     @Test
@@ -167,7 +170,7 @@ class AsyncDdlExecutorTest {
             assertThatThrownBy(() -> executor.submit(newDataRewriteJob("rejected")))
                     .isInstanceOf(java.util.concurrent.RejectedExecutionException.class);
         }
-        assertThat(store.findById("rejected").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.FAILED);
+        assertThat(store.findById("rejected").orElseThrow().state()).isEqualTo(DdlJobState.FAILED);
     }
 
     @Test
@@ -179,12 +182,12 @@ class AsyncDdlExecutorTest {
         // Submit a METADATA_ONLY job which completes synchronously
         executor.submit(newMetadataOnlyJob("sync-done"));
         assertThat(store.findById("sync-done").orElseThrow().state())
-                .isEqualTo(DdlJob.DdlJobState.COMPLETED);
+                .isEqualTo(DdlJobState.COMPLETED);
 
         // Cancelling a completed job should have no effect
         executor.cancel("sync-done");
         assertThat(store.findById("sync-done").orElseThrow().state())
-                .isEqualTo(DdlJob.DdlJobState.COMPLETED);
+                .isEqualTo(DdlJobState.COMPLETED);
     }
 
     @Test
@@ -220,9 +223,9 @@ class AsyncDdlExecutorTest {
         executor.submit(newMetadataOnlyJob("m-c"));
 
         assertThat(executionOrder.get()).isEqualTo(3);
-        assertThat(store.findById("m-a").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
-        assertThat(store.findById("m-b").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
-        assertThat(store.findById("m-c").orElseThrow().state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
+        assertThat(store.findById("m-a").orElseThrow().state()).isEqualTo(DdlJobState.COMPLETED);
+        assertThat(store.findById("m-b").orElseThrow().state()).isEqualTo(DdlJobState.COMPLETED);
+        assertThat(store.findById("m-c").orElseThrow().state()).isEqualTo(DdlJobState.COMPLETED);
     }
 
     @Test
@@ -236,7 +239,7 @@ class AsyncDdlExecutorTest {
         DdlJob result = executor.submit(job);
 
         assertThat(executed.get()).isTrue();
-        assertThat(result.state()).isEqualTo(DdlJob.DdlJobState.COMPLETED);
+        assertThat(result.state()).isEqualTo(DdlJobState.COMPLETED);
     }
 
     @Test
@@ -261,7 +264,7 @@ class AsyncDdlExecutorTest {
         executor.close();
 
         assertThat(store.findById("rewrite-await").orElseThrow().state())
-                .isEqualTo(DdlJob.DdlJobState.COMPLETED);
+                .isEqualTo(DdlJobState.COMPLETED);
     }
 
     @Test
@@ -300,8 +303,8 @@ class AsyncDdlExecutorTest {
         var unavailable = new IllegalStateException("job store unavailable");
         var store = new InMemoryDdlJobStore() {
             @Override
-            public boolean compareAndUpdateState(String id, DdlJob.DdlJobState expected, DdlJob.DdlJobState next) {
-                if (next == DdlJob.DdlJobState.CANCELLED) {
+            public boolean compareAndUpdateState(String id, DdlJobState expected, DdlJobState next) {
+                if (next == DdlJobState.CANCELLED) {
                     throw unavailable;
                 }
                 return super.compareAndUpdateState(id, expected, next);
@@ -336,23 +339,23 @@ class AsyncDdlExecutorTest {
 
     private static DdlJob newDataRewriteJob(String id) {
         Instant now = Instant.now();
-        return new DdlJob(id, DdlJob.DdlType.DATA_REWRITE,
+        return new DdlJob(id, DdlJobType.DATA_REWRITE,
                 "ALTER TABLE t SET TBLPROPERTIES('format-version'='2')",
-                DdlJob.DdlJobState.PENDING, 0.0, now, now, null);
+                DdlJobState.PENDING, 0.0, now, now, null);
     }
 
     private static DdlJob newMetadataOnlyJob(String id) {
         Instant now = Instant.now();
-        return new DdlJob(id, DdlJob.DdlType.METADATA_ONLY,
+        return new DdlJob(id, DdlJobType.METADATA_ONLY,
                 "ALTER TABLE t ADD COLUMN c INT",
-                DdlJob.DdlJobState.PENDING, 0.0, now, now, null);
+                DdlJobState.PENDING, 0.0, now, now, null);
     }
 
     private static DdlJob newTableLockJob(String id) {
         Instant now = Instant.now();
-        return new DdlJob(id, DdlJob.DdlType.TABLE_LOCK,
+        return new DdlJob(id, DdlJobType.TABLE_LOCK,
                 "LOCK TABLE t",
-                DdlJob.DdlJobState.PENDING, 0.0, now, now, null);
+                DdlJobState.PENDING, 0.0, now, now, null);
     }
 
     /** Simple in-memory DdlJobStore for testing. */
@@ -377,8 +380,8 @@ class AsyncDdlExecutorTest {
         }
 
         @Override
-        public boolean compareAndUpdateState(String jobId, DdlJob.DdlJobState expectedState,
-                                              DdlJob.DdlJobState newState) {
+        public boolean compareAndUpdateState(String jobId, DdlJobState expectedState,
+                                              DdlJobState newState) {
             AtomicBoolean updated = new AtomicBoolean(false);
             jobs.computeIfPresent(jobId, (id, existing) -> {
                 if (existing.state() == expectedState) {

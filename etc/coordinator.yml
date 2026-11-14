@@ -103,13 +103,6 @@ coordinator:
     max-retry: 3
 
 
-# ── State Store ───────────────────────────────────────────────
-#
-# Unified backend for all distributed state (HA leases, task
-# journals, distributed DDL locks). JDBC is mandatory in
-# production — IN_MEMORY loses all state on restart.
-state-store:
-  type: JDBC
 
 
 # ── Metadata ─────────────────────────────────────────────────

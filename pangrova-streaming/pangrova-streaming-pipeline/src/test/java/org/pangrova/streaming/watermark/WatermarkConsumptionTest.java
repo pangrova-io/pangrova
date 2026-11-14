@@ -1,5 +1,6 @@
 package org.pangrova.streaming.watermark;
 
+import org.pangrova.connector.api.enums.WriteOperation;
 import org.pangrova.streaming.enums.LateDataPolicy;
 
 import org.pangrova.types.value.TypedRow;
@@ -85,7 +86,7 @@ class WatermarkConsumptionTest {
 
     private static WriteRecord makeRecord(Instant eventTime) {
         TypedRow row = TypedRow.fromRawMap(Map.of("id", 1, "value", "test"));
-        return new WriteRecord(row, WriteRecord.WriteOperation.INSERT, eventTime);
+        return new WriteRecord(row, WriteOperation.INSERT, eventTime);
     }
 
     static final class NoOpWatermarkStore implements WatermarkStore {

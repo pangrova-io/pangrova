@@ -54,7 +54,7 @@ class MetadataSyncFallbackAndDriftTest {
     void cancelledSourceCannotFallBackToFullSyncOrAdvanceTheCursor() {
         var reads = new java.util.concurrent.atomic.AtomicInteger();
         var stopped = new java.util.concurrent.CancellationException("source closed");
-        var catalog = new IncrementalFailingAdapter() {
+        var catalog = new FailingIncrementalCatalog() {
             @Override public org.pangrova.metadata.api.catalog.MetadataChangeBatch readChangesSince(Instant since) {
                 reads.incrementAndGet();
                 throw stopped;
@@ -75,7 +75,7 @@ class MetadataSyncFallbackAndDriftTest {
     @DisplayName("syncWithRetry falls back to fullSync when all incremental attempts fail")
     void syncWithRetryFallsBackToFullSync() {
         // Adapter that fails incremental (readChangesSince throws) but succeeds full sync
-        var adapter = new IncrementalFailingAdapter();
+        var adapter = new FailingIncrementalCatalog();
         adapter.schemas = List.of("s1");
         adapter.tablesBySchema.put("s1", List.of("t1"));
         adapter.tableMetadata.put("s1:t1", table("cat", "s1", "t1"));
@@ -90,7 +90,7 @@ class MetadataSyncFallbackAndDriftTest {
     @Test
     @DisplayName("syncWithRetry succeeds on second incremental attempt")
     void syncWithRetrySucceedsOnRetry() {
-        var adapter = new FailNTimesAdapter(1);
+        var adapter = new RetryableTestCatalog(1);
 
         SyncResult result = syncService.syncWithRetry(deployment("cat"), adapter);
 
@@ -109,7 +109,7 @@ class MetadataSyncFallbackAndDriftTest {
     // ── Test doubles ──
 
     /** Adapter that always fails incremental sync but succeeds full sync. */
-    static class IncrementalFailingAdapter implements FederatedCatalog {
+    static class FailingIncrementalCatalog implements FederatedCatalog {
         List<String> schemas = List.of();
         final Map<String, List<String>> tablesBySchema = new HashMap<>();
         final Map<String, TableMetadata> tableMetadata = new HashMap<>();
@@ -137,11 +137,11 @@ class MetadataSyncFallbackAndDriftTest {
     }
 
     /** Adapter that fails N times then succeeds. */
-    static final class FailNTimesAdapter implements FederatedCatalog {
+    static final class RetryableTestCatalog implements FederatedCatalog {
         private final int failCount;
         private int callCount;
 
-        FailNTimesAdapter(int failCount) { this.failCount = failCount; }
+        RetryableTestCatalog(int failCount) { this.failCount = failCount; }
 
         @Override public List<String> listSchemas() { return List.of(); }
         @Override public List<String> listTables(String schema) { return List.of(); }

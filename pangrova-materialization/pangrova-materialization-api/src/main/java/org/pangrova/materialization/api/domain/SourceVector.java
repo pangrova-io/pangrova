@@ -71,7 +71,7 @@ public record SourceVector(Map<SourceRef, SourceSnapshotRef> snapshots, long can
         StringBuilder canonical = new StringBuilder("vector:").append(canonicalVersion);
         snapshots.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(
-                        Comparator.comparing(SourceRef::canonicalName, Utf8Order.UNSIGNED)))
+                        Comparator.comparing(SourceRef::canonicalName, Utf8Order::compareUnsigned)))
                 .forEach(entry -> {
                     SourceSnapshotRef snapshot = entry.getValue();
                     canonical.append('|')

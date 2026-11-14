@@ -1,12 +1,11 @@
 package org.pangrova.worker.write;
 
 /**
- * JNI bridge interface for native-to-Java write operations.
+ * Write operations called from Native execution through JNI.
  *
  * <p>Native workers call these methods via JNI to write data through Java
  * connector {@link org.pangrova.connector.api.data.ConnectorPageSink}
- * implementations. This is the write-path counterpart of the existing
- * native read bridge, maintaining architectural symmetry.
+ * implementations.
  *
  * <h3>Thread model</h3>
  * The native thread calls JNI; Java executes on the same thread (pull mode).

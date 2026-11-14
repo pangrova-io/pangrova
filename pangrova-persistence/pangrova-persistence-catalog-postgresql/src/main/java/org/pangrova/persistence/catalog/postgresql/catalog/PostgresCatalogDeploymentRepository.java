@@ -1,12 +1,11 @@
 package org.pangrova.persistence.catalog.postgresql.catalog;
 
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
-
 import org.pangrova.common.json.CanonicalJsonMapper;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.api.enums.InvalidationType;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;

@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorization;
 
 import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
@@ -306,7 +308,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             conn.commit();
             return true;
         } catch (SQLException | RuntimeException failure) {
-            rollback(conn, failure);
+            rollbackAfterFailure(conn, failure);
             throw failure;
         }
     }
@@ -448,14 +450,6 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         String reason = failureReason == null || failureReason.isBlank()
                 ? "state_transition" : failureReason;
         return reason.substring(0, Math.min(reason.length(), 1024));
-    }
-
-    private static void rollback(Connection connection, Exception original) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackFailure) {
-            original.addSuppressed(rollbackFailure);
-        }
     }
 
     boolean updateIndexState(String indexId, String newState,

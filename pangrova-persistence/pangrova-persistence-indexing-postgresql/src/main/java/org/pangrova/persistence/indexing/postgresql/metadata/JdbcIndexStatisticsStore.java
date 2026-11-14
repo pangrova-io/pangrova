@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
+
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
@@ -49,12 +51,8 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
                 bindStatisticsBatch(ps, tenantId, catalog, schema, table, statistics);
                 ps.executeBatch();
                 conn.commit();
-            } catch (SQLException | RuntimeException failure) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackFailure) {
-                    failure.addSuppressed(rollbackFailure);
-                }
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollbackAfterFailure(conn, failure);
                 throw failure;
             }
         } catch (SQLException e) {

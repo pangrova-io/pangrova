@@ -1,5 +1,7 @@
 package org.pangrova.indexing.planner.vector;
 
+import org.pangrova.indexing.api.enums.HybridSearchMode;
+import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -11,6 +13,7 @@ import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
+import org.pangrova.planner.analysis.PlannedQuery;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rex.RexCall;
@@ -67,14 +70,14 @@ public final class VectorSearchRewriter {
      * VECTOR index). Detects the {@link LogicalSort} root internally so callers that
      * hold an opaque plan never name Calcite types.
      *
-     * @param planRoot    the plan root node
+     * @param plan    the optimized query plan
      * @param indexLookup function: (tableName, columnName) → matching VECTOR IndexDescriptors
      * @return the rewritten node, or empty if the pattern does not match
      */
     public static Optional<VectorSearchNode> tryRewrite(
-            RelNode planRoot,
+            PlannedQuery plan,
             BiFunction<String, String, List<IndexDescriptor>> indexLookup) {
-        if (!(planRoot instanceof LogicalSort sortNode)) {
+        if (!(plan.plan() instanceof LogicalSort sortNode)) {
             return Optional.empty();
         }
         return tryRewrite(sortNode, indexLookup);
@@ -118,7 +121,7 @@ public final class VectorSearchRewriter {
             return Optional.empty();
         }
         if (!preFilters.isEmpty()) {
-            if (!BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(
+            if (!BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(
                     retrievalCapability.getCapabilityId())
                     || !org.pangrova.planner.retrieval.FilteredRetrievalEligibility
                             .supported(sortNode.getInput())) {
@@ -136,11 +139,11 @@ public final class VectorSearchRewriter {
                 effectiveK = (int) Math.ceil(candidate.topK * (1.0 / estimatedRecall));
             }
             strategy = new VectorHybridSearchStrategy(
-                    VectorHybridSearchStrategy.Mode.ANN_THEN_FILTER, effectiveK);
+                    HybridSearchMode.ANN_THEN_FILTER, effectiveK);
         } else {
             int effectiveK = candidate.topK;
             strategy = new VectorHybridSearchStrategy(
-                    VectorHybridSearchStrategy.Mode.ANN_THEN_FILTER, effectiveK);
+                    HybridSearchMode.ANN_THEN_FILTER, effectiveK);
         }
 
         return Optional.of(new VectorSearchNode(
@@ -163,18 +166,18 @@ public final class VectorSearchRewriter {
         int dynamic = (int) Math.min(
                 (long) MAX_SEARCH_BUDGET, Math.max(64L, Math.multiplyExact((long) effectiveK, 4L)));
         String capabilityId = retrievalCapability.getCapabilityId();
-        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
             return boundedProperty(
                     properties, "ef_search", dynamic, effectiveK, MAX_SEARCH_BUDGET);
         }
-        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
             int clusters = boundedProperty(
                     properties, "coarse_clusters", 64, 1, MAX_COARSE_CLUSTERS);
             return boundedProperty(
                     properties, "nprobes", Math.min(8, clusters), 1, clusters);
         }
-        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
-                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityIdentifiers.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             return boundedProperty(
                     properties, "search_list_size", dynamic, effectiveK, MAX_SEARCH_BUDGET);
         }

@@ -1,9 +1,8 @@
 package org.pangrova.metadata.generation.jdbc;
 
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
-
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
-
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
@@ -110,7 +109,7 @@ class JdbcTabularExportPublicationStoreTest {
     private static GenerationDispatchSpec dispatch() {
         return GenerationDispatchSpecFactory.create(
                 "empty-export-job", new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
-                        GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                        GenerationGraphPurpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
                                 org.pangrova.generation.api.enums.GenerationPageKind.RELATIONAL_PARTITION,
                                 "substrait-plan".getBytes(StandardCharsets.UTF_8), GenerationStageTemplate.of("operator-binding".getBytes(StandardCharsets.UTF_8), List.of(), List.of()),

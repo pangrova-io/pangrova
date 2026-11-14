@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.memory.transaction;
 
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -21,14 +23,14 @@ class InMemoryWriteCommitJournalTest {
         journal.markAborted(intent.queryId(), intent.commitFingerprint());
         assertThatThrownBy(() -> journal.markCommitted(intent.queryId())).isInstanceOf(IllegalStateException.class);
         assertThat(journal.getEntry(intent.queryId())).get()
-                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.ABORTED);
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitState.ABORTED);
     }
 
     @Test
     void admissionRequiresAPendingIntent() {
         var journal = new InMemoryWriteCommitJournal();
         var intent = intent();
-        for (var state : List.of(WriteCommitEntry.State.COMMITTED, WriteCommitEntry.State.ABORTED)) {
+        for (var state : List.of(WriteCommitState.COMMITTED, WriteCommitState.ABORTED)) {
             assertThatThrownBy(() -> journal.recordIntent(intent.withState(state, 2)))
                     .isInstanceOf(IllegalArgumentException.class);
         }
@@ -66,7 +68,7 @@ class InMemoryWriteCommitJournalTest {
         String fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
                 "query", "tenant", "catalog", "schema.table", "INSERT", -1, binding,
                 "principal", receipt, null), fragments);
-        return new WriteCommitEntry("query", "catalog", "schema.table", WriteCommitEntry.State.PENDING,
+        return new WriteCommitEntry("query", "catalog", "schema.table", WriteCommitState.PENDING,
                 1, fragments, "INSERT", fingerprint, "tenant", "principal", receipt, -1, binding,
                 fingerprint, null, null, 0, null, null);
     }

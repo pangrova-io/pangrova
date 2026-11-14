@@ -1,12 +1,11 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 import org.pangrova.query.dispatch.StatementResult;
-
 import org.pangrova.query.api.enums.StatementCategory;
-
 import org.pangrova.execution.task.DispatchResult;
-
 import org.pangrova.query.api.enums.QueryState;
 
 import java.util.ArrayList;
@@ -74,14 +73,14 @@ final class PlanExecutionFactoryDeleteTestSupport {
     }
 
     static BinaryExpression equalToSeven(String column) {
-        return new BinaryExpression(Identifier.of(column), BinaryExpression.Operator.EQUAL,
+        return new BinaryExpression(Identifier.of(column), BinaryExpressionOperator.EQUAL,
                 Literal.ofInteger(7));
     }
 
     static BinaryExpression arithmeticPredicate() {
         return new BinaryExpression(
-                new BinaryExpression(Identifier.of("id"), BinaryExpression.Operator.ADD, Literal.ofInteger(1)),
-                BinaryExpression.Operator.EQUAL, Literal.ofInteger(7));
+                new BinaryExpression(Identifier.of("id"), BinaryExpressionOperator.ADD, Literal.ofInteger(1)),
+                BinaryExpressionOperator.EQUAL, Literal.ofInteger(7));
     }
 
     static void assertDmlResult(StatementResult result) {
