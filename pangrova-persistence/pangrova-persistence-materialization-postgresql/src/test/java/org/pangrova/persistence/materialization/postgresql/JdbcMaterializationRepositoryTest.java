@@ -24,7 +24,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import java.util.stream.Stream;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.materialization.api.domain.AttemptId;
@@ -253,6 +254,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(replayed.newlyPublished()).isFalse();
         assertThat(replayed.object().revision()).isEqualTo(1);
         assertThat(replayed.generation().id()).isEqualTo(generationId);
+        assertReaderNamespacesIsolated(repository, generationId, now);
         assertReaderPinFailure(dataSource, repository, generationId, now, failure, rollbackFailure);
         assertThat(repository.findObject(object).orElseThrow().revision()).isEqualTo(1);
 
@@ -298,30 +300,59 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertTransactionFailure(caught, failure, rollbackFailure);
     }
 
+    private static void assertReaderNamespacesIsolated(MaterializationRepository repository,
+                                                      GenerationId generation, Instant now) {
+        AttemptId attempt = AttemptId.random();
+        var attemptReader = ReaderId.refreshAttempt(attempt);
+        var queryReader = ReaderId.query(new QueryId(attempt.value().toString()));
+        var queryPin = new ReaderPin(generation, queryReader, "query", now.plusSeconds(50), now);
+        var attemptPin = new ReaderPin(generation, attemptReader, "refresh", now.plusSeconds(50), now);
+        repository.pinReader(queryPin);
+        repository.pinReader(attemptPin);
+        repository.renewReaderPins(queryReader, now.plusSeconds(200), now.plusSeconds(10));
+        assertThat(repository.findReaderPins(generation)).containsExactly(
+                attemptPin, queryPin.renew(java.time.Duration.ofSeconds(190), now.plusSeconds(10)));
+        repository.releaseReaderPins(attemptReader);
+        assertThat(repository.findReaderPins(generation)).extracting(ReaderPin::reader).containsExactly(queryReader);
+        repository.pinReader(attemptPin);
+        repository.releaseReaderPin(generation, queryReader);
+        assertThat(repository.findReaderPins(generation)).containsExactly(attemptPin);
+        repository.pinReader(queryPin);
+        repository.renewReaderPins(attemptReader, now.plusSeconds(200), now.plusSeconds(10));
+        assertThat(repository.purgeExpiredReaderPins(now.plusSeconds(50))).isOne();
+        assertThat(repository.findReaderPins(generation)).extracting(ReaderPin::reader)
+                .containsExactly(attemptReader);
+        repository.releaseReaderPins(queryReader);
+        assertThat(repository.findReaderPins(generation)).hasSize(1);
+        repository.releaseReaderPins(attemptReader);
+        assertThat(repository.findReaderPins(generation)).isEmpty();
+    }
+
     private static void assertReaderPinFailure(DataSource dataSource, MaterializationRepository repository,
             GenerationId generation, Instant now, Throwable failure, SQLException rollbackFailure) throws SQLException {
         var failingRepository = new JdbcMaterializationRepository(JdbcMutationFault.afterMutation(dataSource,
                 "INSERT INTO materialization.reader_pins ", failure, rollbackFailure));
-        ReaderPin pin = new ReaderPin(generation, QueryId.random(), "reader", now.plusSeconds(60), now);
+        ReaderPin pin = new ReaderPin(generation, ReaderId.query(new QueryId(java.util.UUID.randomUUID().toString())), "reader", now.plusSeconds(60), now);
         Throwable caught = catchThrowable(() -> failingRepository.pinReader(pin));
         assertReaderPinCount(dataSource, pin, 0);
         assertTransactionFailure(caught, failure, rollbackFailure);
         repository.pinReader(pin);
         assertReaderPinCount(dataSource, pin, 1);
-        repository.releaseReaderPin(pin.generation(), pin.query());
+        repository.releaseReaderPin(pin.generation(), pin.reader());
         assertReaderPinCount(dataSource, pin, 0);
-        repository.renewReaderPins(pin.query(), now.plusSeconds(360), now.plusSeconds(300));
+        repository.renewReaderPins(pin.reader(), now.plusSeconds(360), now.plusSeconds(300));
         assertReaderPinCount(dataSource, pin, 0); // A late renewal must never recreate released pins.
-        repository.releaseReaderPins(pin.query());
+        repository.releaseReaderPins(pin.reader());
         assertReaderPinCount(dataSource, pin, 0);
     }
 
     private static void assertReaderPinCount(DataSource dataSource, ReaderPin pin, int expected) throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT count(*) FROM materialization.reader_pins WHERE generation_id=? AND query_id=?")) {
+                        "SELECT count(*) FROM materialization.reader_pins WHERE generation_id=? AND reader_kind=? AND reader_id=?")) {
             statement.setObject(1, pin.generation().value());
-            statement.setString(2, pin.query().value());
+            statement.setString(2, pin.reader().kind().name());
+            statement.setString(3, pin.reader().id());
             try (var rows = statement.executeQuery()) {
                 assertThat(rows.next()).isTrue();
                 assertThat(rows.getInt(1)).isEqualTo(expected);

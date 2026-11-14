@@ -3,7 +3,7 @@ package org.pangrova.coordinator.materialization;
 import java.util.Collection;
 import java.util.List;
 import org.pangrova.query.api.retention.ReaderPinLifecycle;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
 import org.pangrova.materialization.usecase.ReaderPinLeases;
 
 /** Binds query lifecycle events to durable materialization reader-pin leases. */

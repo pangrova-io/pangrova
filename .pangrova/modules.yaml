@@ -66,7 +66,7 @@ artifacts:
     moduleName: org.pangrova.materialization.api
     packageRoots: [org.pangrova.materialization.api]
     exports: [org.pangrova.materialization.api]
-    allowedImports: [pangrova-common, pangrova-connector-api]
+    allowedImports: [pangrova-execution-api, pangrova-common, pangrova-connector-api]
     forbiddenImports: [pangrova-materialization-lifecycle, pangrova-materialization-strategies-builtin, pangrova-persistence-materialization-postgresql, pangrova-planner, pangrova-metadata-catalog, pangrova-coordination-control, pangrova-worker]
     providers: {}
 
@@ -76,7 +76,7 @@ artifacts:
     packageRoots: [org.pangrova.materialization.usecase, org.pangrova.materialization.extension]
     testPackageRoots: [org.pangrova.materialization.kernel]
     exports: [org.pangrova.materialization.usecase, org.pangrova.materialization.extension]
-    allowedImports: [pangrova-persistence-materialization-api, pangrova-materialization-api, pangrova-common, pangrova-connector-api]
+    allowedImports: [pangrova-execution-api, pangrova-persistence-materialization-api, pangrova-materialization-api, pangrova-common, pangrova-connector-api]
     forbiddenImports: [pangrova-persistence-materialization-postgresql, pangrova-planner, pangrova-metadata-catalog, pangrova-coordination-control, pangrova-worker, pangrova-connector-iceberg, pangrova-connector-lance, pangrova-connector-paimon]
     providers: {}
 
@@ -107,7 +107,7 @@ artifacts:
     moduleName: org.pangrova.persistence.materialization.postgresql
     packageRoots: [org.pangrova.persistence.materialization.postgresql]
     exports: [org.pangrova.persistence.materialization.postgresql]
-    allowedImports: [pangrova-persistence-materialization-api, pangrova-materialization-api, pangrova-connector-api, pangrova-common, pangrova-persistence-jdbc-support]
+    allowedImports: [pangrova-execution-api, pangrova-persistence-materialization-api, pangrova-materialization-api, pangrova-connector-api, pangrova-common, pangrova-persistence-jdbc-support]
     forbiddenImports: [pangrova-materialization-lifecycle, pangrova-materialization-strategies-builtin, pangrova-planner, pangrova-metadata-catalog, pangrova-coordination-control, pangrova-worker]
     providers: {}
 

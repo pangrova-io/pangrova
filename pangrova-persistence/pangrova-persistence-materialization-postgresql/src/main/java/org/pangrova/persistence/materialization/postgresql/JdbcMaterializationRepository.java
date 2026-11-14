@@ -24,7 +24,7 @@ import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.ObjectState;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.domain.Schedule;
@@ -875,18 +875,18 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
     }
 
     @Override
-    public void releaseReaderPin(GenerationId generation, QueryId query) {
-        readerPins.releaseReaderPin(generation, query);
+    public void releaseReaderPin(GenerationId generation, ReaderId reader) {
+        readerPins.releaseReaderPin(generation, reader);
     }
 
     @Override
-    public void releaseReaderPins(QueryId query) {
-        readerPins.releaseReaderPins(query);
+    public void releaseReaderPins(ReaderId reader) {
+        readerPins.releaseReaderPins(reader);
     }
 
     @Override
-    public void renewReaderPins(QueryId query, Instant expiresAt, Instant heartbeatAt) {
-        readerPins.renewReaderPins(query, expiresAt, heartbeatAt);
+    public void renewReaderPins(ReaderId reader, Instant expiresAt, Instant heartbeatAt) {
+        readerPins.renewReaderPins(reader, expiresAt, heartbeatAt);
     }
 
     @Override

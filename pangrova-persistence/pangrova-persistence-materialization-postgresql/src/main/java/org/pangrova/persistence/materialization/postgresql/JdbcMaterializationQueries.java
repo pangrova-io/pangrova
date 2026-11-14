@@ -16,7 +16,8 @@ import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
+import org.pangrova.materialization.api.enums.ReaderKind;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.domain.Schedule;
@@ -286,13 +287,13 @@ final class JdbcMaterializationQueries {
         }, JdbcMaterializationRows::mapReclaimableSourcePin);
     }
     public List<ReaderPin> findReaderPins(GenerationId generation) {
-        String sql = "SELECT generation_id, query_id, owner, expires_at, heartbeat_at "
+        String sql = "SELECT generation_id, reader_kind, reader_id, owner, expires_at, heartbeat_at "
                 + "FROM materialization.reader_pins WHERE generation_id=? "
-                + "ORDER BY expires_at, query_id";
+                + "ORDER BY expires_at, reader_kind, reader_id";
         return jdbc.queryList("findReaderPins", sql, statement ->
                 statement.setObject(1, generation.value()), result -> new ReaderPin(
                         new GenerationId(result.getObject("generation_id", UUID.class)),
-                        new QueryId(result.getString("query_id")),
+                        new ReaderId(ReaderKind.valueOf(result.getString("reader_kind")), result.getString("reader_id")),
                         result.getString("owner"),
                         getInstant(result, "expires_at"),
                         getInstant(result, "heartbeat_at")));

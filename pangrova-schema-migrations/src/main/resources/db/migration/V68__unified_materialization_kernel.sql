@@ -353,18 +353,20 @@ CREATE INDEX IF NOT EXISTS materialization_schedules_due
 
 CREATE TABLE IF NOT EXISTS materialization.reader_pins (
     generation_id UUID NOT NULL,
-    query_id VARCHAR(128) NOT NULL,
+    reader_kind VARCHAR(32) NOT NULL CHECK (reader_kind IN ('QUERY', 'REFRESH_ATTEMPT')),
+    reader_id VARCHAR(128) NOT NULL CHECK (btrim(reader_id) <> ''),
+    CHECK (reader_kind <> 'REFRESH_ATTEMPT' OR reader_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
     owner VARCHAR(255) NOT NULL CHECK (btrim(owner) <> ''),
     expires_at TIMESTAMPTZ(6) NOT NULL,
     heartbeat_at TIMESTAMPTZ(6) NOT NULL,
-    PRIMARY KEY (generation_id, query_id),
+    PRIMARY KEY (generation_id, reader_kind, reader_id),
     FOREIGN KEY (generation_id) REFERENCES materialization.generations (generation_id),
     CHECK (expires_at >= heartbeat_at)
 );
 CREATE INDEX IF NOT EXISTS materialization_reader_pins_expiry
     ON materialization.reader_pins (expires_at);
-CREATE INDEX IF NOT EXISTS materialization_reader_pins_query
-    ON materialization.reader_pins (query_id);
+CREATE INDEX IF NOT EXISTS materialization_reader_pins_reader
+    ON materialization.reader_pins (reader_kind, reader_id);
 
 CREATE TABLE IF NOT EXISTS materialization.gc_ledger (
     entry_id UUID PRIMARY KEY,
@@ -971,8 +973,8 @@ CREATE OR REPLACE FUNCTION materialization.validate_reader_pin()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'UPDATE' THEN
-        IF (NEW.generation_id, NEW.query_id, NEW.owner) IS DISTINCT FROM
-           (OLD.generation_id, OLD.query_id, OLD.owner) THEN
+        IF (NEW.generation_id, NEW.reader_kind, NEW.reader_id, NEW.owner) IS DISTINCT FROM
+           (OLD.generation_id, OLD.reader_kind, OLD.reader_id, OLD.owner) THEN
             RAISE EXCEPTION 'reader pin identity is immutable';
         END IF;
         IF NEW.heartbeat_at < OLD.heartbeat_at OR NEW.expires_at < OLD.expires_at THEN

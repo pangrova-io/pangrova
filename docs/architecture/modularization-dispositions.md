@@ -15,6 +15,8 @@ python3 .pangrova/scripts/export-class-inventory.py --base b51114d0 --output tar
 
 ## 物化
 
+`MaterializationReadPin` 使用 Execution API 的 `QueryId`，`MaterializationAttemptExecutor` 使用本领域的 `AttemptId`。持久化端口只接受带 `QUERY` 或 `REFRESH_ATTEMPT` 类型的 `ReaderId`。V68 空库初始化以 `(generation_id, reader_kind, reader_id)` 为主键，按 `(reader_kind, reader_id)` 索引续租与释放。到期清理和 GC 仍检查所有 reader 的有效期。PostgreSQL 对相同 UUID 的双行执行续租、定向释放、批量释放和到期清理，GC 用例验证存活的 refresh pin 可以独立保护已退役 generation。本批独立检出完成 143 项 reactor 编译，6 类 41 项测试通过；另以匹配发布基线 WriteDescriptor 的 macOS arm64 classifier 运行真实 Coordinator、Worker 和 Iceberg，DynamicTableMaterializationE2ETest 的 10 项全部通过。
+
 表中的类名以 `org.pangrova.` 为共同前缀，制品名以 `pangrova-` 为共同前缀。
 
 | 原类 | 处置及实际目标 | 生产调用、事实与资源 | 验证 |

@@ -25,7 +25,7 @@ import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.ObjectState;
 import org.pangrova.materialization.api.enums.PinState;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.domain.Schedule;
@@ -869,8 +869,8 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         List<ReaderPin> pins = readerPins.computeIfAbsent(pin.generation(), key -> new ArrayList<>());
         for (int index = 0; index < pins.size(); index++) {
             ReaderPin existing = pins.get(index);
-            if (existing.query().equals(pin.query())) {
-                pins.set(index, new ReaderPin(existing.generation(), existing.query(),
+            if (existing.reader().equals(pin.reader())) {
+                pins.set(index, new ReaderPin(existing.generation(), existing.reader(),
                         existing.owner(),
                         later(existing.expiresAt(), pin.expiresAt()),
                         later(existing.heartbeatAt(), pin.heartbeatAt())));
@@ -881,24 +881,24 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     @Override
-    public void releaseReaderPin(GenerationId generation, QueryId query) {
+    public void releaseReaderPin(GenerationId generation, ReaderId reader) {
         readerPins.getOrDefault(generation, new ArrayList<>())
-                .removeIf(pin -> pin.query().equals(query));
+                .removeIf(pin -> pin.reader().equals(reader));
     }
 
     @Override
-    public void releaseReaderPins(QueryId query) {
+    public void releaseReaderPins(ReaderId reader) {
         readerPins.values().forEach(pins ->
-                pins.removeIf(pin -> pin.query().equals(query)));
+                pins.removeIf(pin -> pin.reader().equals(reader)));
     }
 
     @Override
-    public void renewReaderPins(QueryId query, Instant expiresAt, Instant heartbeatAt) {
+    public void renewReaderPins(ReaderId reader, Instant expiresAt, Instant heartbeatAt) {
         readerPins.replaceAll((generation, pins) -> {
             List<ReaderPin> renewed = new ArrayList<>(pins.size());
             for (ReaderPin pin : pins) {
-                renewed.add(pin.query().equals(query)
-                        ? new ReaderPin(pin.generation(), pin.query(), pin.owner(),
+                renewed.add(pin.reader().equals(reader)
+                        ? new ReaderPin(pin.generation(), pin.reader(), pin.owner(),
                                 later(pin.expiresAt(), expiresAt),
                                 later(pin.heartbeatAt(), heartbeatAt))
                         : pin);

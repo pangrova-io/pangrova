@@ -1801,10 +1801,12 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-api: compile
+      pangrova-execution-api: compile
     imports:
       main:
         - pangrova-common
         - pangrova-connector-api
+        - pangrova-execution-api
       test: []
     exportedPackages:
       - org.pangrova.materialization.api.definition
@@ -1825,6 +1827,7 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-api: compile
+      pangrova-execution-api: compile
       pangrova-materialization-api: compile
       pangrova-materialization-strategies-builtin: test
       pangrova-persistence-materialization-api: compile
@@ -1832,11 +1835,13 @@ artifacts:
       main:
         - pangrova-common
         - pangrova-connector-api
+        - pangrova-execution-api
         - pangrova-materialization-api
         - pangrova-persistence-materialization-api
       test:
         - pangrova-common
         - pangrova-connector-api
+        - pangrova-execution-api
         - pangrova-materialization-api
         - pangrova-materialization-strategies-builtin
         - pangrova-persistence-materialization-api
@@ -2815,6 +2820,7 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-api: compile
+      pangrova-execution-api: compile
       pangrova-materialization-api: compile
       pangrova-persistence-jdbc-support: compile
       pangrova-persistence-materialization-api: compile
@@ -2828,6 +2834,7 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-connector-api
+        - pangrova-execution-api
         - pangrova-materialization-api
         - pangrova-persistence-materialization-api
         - pangrova-testing-kit

@@ -10,7 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.materialization.kernel.InMemoryMaterializationRepository;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.materialization.usecase.ReaderPinLeases;
@@ -34,7 +35,7 @@ class ReaderPinLeasesTest {
 
     @Test
     void leasesEveryScannedGenerationAndReleasesThemTogether() {
-        QueryId query = QueryId.random();
+        QueryId query = new QueryId(UUID.randomUUID().toString());
 
         leases.acquire(first, query, "alice");
         leases.acquire(second, query, "alice");
@@ -42,7 +43,7 @@ class ReaderPinLeasesTest {
         assertThat(repository.findReaderPins(first))
                 .singleElement()
                 .satisfies(pin -> {
-                    assertThat(pin.query()).isEqualTo(query);
+                    assertThat(pin.reader()).isEqualTo(ReaderId.query(query));
                     assertThat(pin.owner()).isEqualTo("alice");
                     assertThat(pin.expiresAt()).isEqualTo(NOW.plus(LEASE));
                     assertThat(pin.heartbeatAt()).isEqualTo(NOW);
@@ -57,7 +58,7 @@ class ReaderPinLeasesTest {
 
     @Test
     void renewExtendsTheLeaseOfLiveQueries() {
-        QueryId query = QueryId.random();
+        QueryId query = new QueryId(UUID.randomUUID().toString());
         leases.acquire(first, query, "alice");
         clock.advance(LEASE.dividedBy(2));
 
@@ -70,8 +71,8 @@ class ReaderPinLeasesTest {
 
     @Test
     void releaseIgnoresQueriesThisCoordinatorNeverLeased() {
-        QueryId foreign = QueryId.random();
-        repository.pinReader(new ReaderPin(first, foreign, "bob",
+        QueryId foreign = new QueryId(UUID.randomUUID().toString());
+        repository.pinReader(new ReaderPin(first, ReaderId.query(foreign), "bob",
                 NOW.plus(LEASE), NOW));
 
         leases.release(foreign);
@@ -81,8 +82,8 @@ class ReaderPinLeasesTest {
 
     @Test
     void purgeRemovesOnlyExpiredLeases() {
-        QueryId live = QueryId.random();
-        QueryId dead = QueryId.random();
+        QueryId live = new QueryId(UUID.randomUUID().toString());
+        QueryId dead = new QueryId(UUID.randomUUID().toString());
         leases.acquire(first, live, "alice");
         leases.acquire(second, dead, "bob");
         clock.advance(LEASE.plusSeconds(1));

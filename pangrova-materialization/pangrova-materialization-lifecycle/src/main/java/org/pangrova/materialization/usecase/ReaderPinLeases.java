@@ -7,7 +7,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.materialization.api.domain.GenerationId;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.port.Clock;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -58,7 +59,7 @@ public final class ReaderPinLeases {
      */
     public void acquire(GenerationId generation, QueryId query, String owner) {
         Instant now = clock.now();
-        repository.pinReader(new ReaderPin(generation, query, owner,
+        repository.pinReader(new ReaderPin(generation, ReaderId.query(query), owner,
                 now.plus(lease), now));
         leased.add(query);
     }
@@ -72,7 +73,7 @@ public final class ReaderPinLeases {
         if (!leased.contains(query)) {
             return;
         }
-        repository.releaseReaderPins(query);
+        repository.releaseReaderPins(ReaderId.query(query));
         leased.remove(query);
     }
 
@@ -89,7 +90,7 @@ public final class ReaderPinLeases {
                 continue;
             }
             try {
-                repository.renewReaderPins(query, now.plus(lease), now);
+                repository.renewReaderPins(ReaderId.query(query), now.plus(lease), now);
             } catch (RuntimeException renewalFailure) {
                 if (failure == null) {
                     failure = renewalFailure;

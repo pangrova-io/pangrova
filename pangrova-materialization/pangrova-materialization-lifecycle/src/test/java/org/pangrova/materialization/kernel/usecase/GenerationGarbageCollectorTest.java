@@ -22,7 +22,8 @@ import org.pangrova.materialization.api.domain.GenerationState;
 import org.pangrova.materialization.api.enums.MaterializationKind;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
@@ -101,21 +102,28 @@ class GenerationGarbageCollectorTest {
     }
 
     @Test
-    void skipsGenerationHeldByALiveReaderPin() {
+    void releasingAQueryCannotCollectARetiredGenerationHeldByASameIdAttempt() {
         Generation head = published(HEAD_ID, HEAD_ATTEMPT, candidateTable(1), NOW);
         Generation retired = published(RETIRED_ID, RETIRED_ATTEMPT, candidateTable(0),
                 NOW.minus(Duration.ofHours(2))).retire();
         repository.putObject(object.publish(HEAD_ID, 0, NOW));
         repository.putGeneration(head);
         repository.putGeneration(retired);
-        repository.pinReader(new ReaderPin(RETIRED_ID, QueryId.random(), "query-owner",
-                NOW.plus(Duration.ofMinutes(10)), NOW));
+        AttemptId attempt = AttemptId.random();
+        var reader = ReaderId.query(new QueryId(attempt.value().toString()));
+        var refresh = ReaderId.refreshAttempt(attempt);
+        repository.pinReader(new ReaderPin(RETIRED_ID, reader, "query-owner", NOW.plus(RETENTION), NOW));
+        repository.pinReader(new ReaderPin(RETIRED_ID, refresh, "refresh-owner", NOW.plus(RETENTION), NOW));
+        repository.releaseReaderPins(reader);
 
         GcReport report = collector.runOnce(new GcPolicy(RETENTION, 10));
 
         assertThat(report.examined()).isZero();
         assertThat(store.dropped).isEmpty();
         assertThat(repository.gcLedger()).isEmpty();
+        repository.releaseReaderPins(refresh);
+        assertThat(collector.runOnce(new GcPolicy(RETENTION, 10)).collected()).isOne();
+        assertThat(store.dropped).containsExactly(candidateTable(0));
     }
 
     @Test
@@ -130,7 +138,7 @@ class GenerationGarbageCollectorTest {
         repository.recordGcDecision(entry);
         // A reader pins the generation after the collector selected it and
         // before the row lock is taken.
-        repository.pinReader(new ReaderPin(RETIRED_ID, QueryId.random(), "query-owner",
+        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId(java.util.UUID.randomUUID().toString())), "query-owner",
                 NOW.plus(Duration.ofMinutes(10)), NOW));
 
         boolean collected = repository.collectGeneration(retired, entry,
@@ -157,7 +165,7 @@ class GenerationGarbageCollectorTest {
         repository.putObject(object.publish(HEAD_ID, 0, NOW));
         repository.putGeneration(head);
         repository.putGeneration(retired);
-        repository.pinReader(new ReaderPin(RETIRED_ID, QueryId.random(), "query-owner",
+        repository.pinReader(new ReaderPin(RETIRED_ID, ReaderId.query(new QueryId(java.util.UUID.randomUUID().toString())), "query-owner",
                 NOW.minus(Duration.ofMinutes(1)), NOW.minus(Duration.ofMinutes(2))));
 
         GcReport report = collector.runOnce(new GcPolicy(RETENTION, 10));

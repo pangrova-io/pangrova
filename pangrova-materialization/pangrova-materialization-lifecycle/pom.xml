@@ -19,6 +19,7 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-materialization-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

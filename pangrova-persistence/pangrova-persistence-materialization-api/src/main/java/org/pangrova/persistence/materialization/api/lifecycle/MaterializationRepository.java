@@ -23,7 +23,7 @@ import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.MaterializationObject;
 import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.domain.Schedule;
@@ -452,31 +452,31 @@ public interface MaterializationRepository {
      * Releases a reader pin.
      *
      * @param generation pinned generation
-     * @param query owning query
+     * @param reader exact reader kind and identifier
      */
-    void releaseReaderPin(GenerationId generation, QueryId query);
+    void releaseReaderPin(GenerationId generation, ReaderId reader);
 
     /**
-     * Releases every reader pin held by a query.
+     * Releases every reader pin held by one query or refresh attempt.
      *
-     * <p>Terminal query cleanup releases by query identity because a query may
+     * <p>Terminal query cleanup releases by typed reader identity because a reader may
      * have scanned several generations of the same or different objects.
      *
-     * @param query owning query
+     * @param reader exact reader kind and identifier
      */
-    void releaseReaderPins(QueryId query);
+    void releaseReaderPins(ReaderId reader);
 
     /**
-     * Renews every reader pin held by a query.
+     * Renews every reader pin held by one query or refresh attempt.
      *
      * <p>Renewal must only extend the lease; an expired pin stays expired
-     * unless the owning query is still alive and calls back.
+     * unless its owner renews it before purge. Renewal cannot reinsert a purged or released pin.
      *
-     * @param query owning query
+     * @param reader exact reader kind and identifier
      * @param expiresAt new expiry instant
      * @param heartbeatAt heartbeat instant
      */
-    void renewReaderPins(QueryId query, Instant expiresAt, Instant heartbeatAt);
+    void renewReaderPins(ReaderId reader, Instant expiresAt, Instant heartbeatAt);
 
     /**
      * Deletes expired reader pins.

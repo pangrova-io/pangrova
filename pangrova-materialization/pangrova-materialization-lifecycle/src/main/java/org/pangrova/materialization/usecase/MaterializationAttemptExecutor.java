@@ -21,7 +21,7 @@ import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.api.domain.PartitionAlignment;
 import org.pangrova.materialization.api.domain.PhysicalTableRef;
 import org.pangrova.materialization.api.domain.Principal;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 import org.pangrova.materialization.api.domain.RefreshAttempt;
 import org.pangrova.materialization.api.domain.RefreshKind;
@@ -107,8 +107,8 @@ final class MaterializationAttemptExecutor {
 
         String pinOwner = attemptId.value().toString();
         List<PinnedSource> held = new ArrayList<>();
-        QueryId readerQuery = kind.isIncremental()
-                ? new QueryId(attemptId.value().toString()) : null;
+        ReaderId baseReader = kind.isIncremental()
+                ? ReaderId.refreshAttempt(attemptId) : null;
         try {
             for (var entry : sourceVector.snapshots().entrySet()) {
                 held.add(pinExact(object.tenant().value(), entry.getKey(), entry.getValue(),
@@ -120,13 +120,13 @@ final class MaterializationAttemptExecutor {
                     held.add(pinExact(object.tenant().value(), entry.getKey(), entry.getValue(),
                             pinOwner));
                 }
-                ports.repository().pinReader(new ReaderPin(base.id(), readerQuery,
+                ports.repository().pinReader(new ReaderPin(base.id(), baseReader,
                         "materialization-attempt:" + attemptId.value(),
                         now.plus(sourcePinTtl), now));
             }
         } catch (RuntimeException failure) {
             failBeforeExecution(attempt, generation, failure);
-            releasePins(held, attemptId, readerQuery, failure);
+            releasePins(held, attemptId, baseReader, failure);
             throw failure;
         }
 
@@ -136,7 +136,7 @@ final class MaterializationAttemptExecutor {
                     planned.partitionAlignment());
         } catch (RuntimeException failure) {
             failBeforeExecution(attempt, generation, failure);
-            releasePins(held, attemptId, readerQuery, failure);
+            releasePins(held, attemptId, baseReader, failure);
             throw failure;
         }
 
@@ -150,7 +150,7 @@ final class MaterializationAttemptExecutor {
                     attempt, definition, capability, sessionProperties, Optional.of(plan)));
         } catch (RuntimeException failure) {
             quarantine(attempt, generation, failure);
-            releasePins(held, attemptId, readerQuery, failure);
+            releasePins(held, attemptId, baseReader, failure);
             throw failure;
         }
 
@@ -178,7 +178,7 @@ final class MaterializationAttemptExecutor {
             publicationFailure = failure;
             throw failure;
         } finally {
-            releasePins(held, attemptId, readerQuery, publicationFailure);
+            releasePins(held, attemptId, baseReader, publicationFailure);
         }
     }
 
@@ -331,12 +331,12 @@ final class MaterializationAttemptExecutor {
         return pinned;
     }
 
-    private void releasePins(List<PinnedSource> held, AttemptId attemptId, QueryId readerQuery,
+    private void releasePins(List<PinnedSource> held, AttemptId attemptId, ReaderId baseReader,
             RuntimeException primary) {
         RuntimeException failure = null;
-        if (readerQuery != null) {
+        if (baseReader != null) {
             try {
-                ports.repository().releaseReaderPins(readerQuery);
+                ports.repository().releaseReaderPins(baseReader);
             } catch (RuntimeException releaseFailure) {
                 failure = releaseFailure;
             }

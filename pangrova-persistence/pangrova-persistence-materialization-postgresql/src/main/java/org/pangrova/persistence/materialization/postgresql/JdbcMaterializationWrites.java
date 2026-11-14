@@ -248,7 +248,7 @@ final class JdbcMaterializationWrites {
                 statement.setNull(7, java.sql.Types.OTHER);
             }
             if (event.query().isPresent()) {
-                statement.setObject(8, event.query().orElseThrow().value());
+                statement.setString(8, event.query().orElseThrow().id());
             } else {
                 statement.setNull(8, java.sql.Types.OTHER);
             }

@@ -9,7 +9,7 @@ import org.pangrova.materialization.api.domain.CommandId;
 import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.Principal;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
 
 /**
  * Structured audit and outbox event.
@@ -53,6 +53,11 @@ public record MaterializationEvent(
         if (command == null || attempt == null || generation == null || query == null) {
             throw new IllegalArgumentException("optional event references must not be null");
         }
+        query.ifPresent(id -> {
+            if (id.id().isBlank() || id.id().length() > 128) {
+                throw new IllegalArgumentException("materialization event query id must contain 1 to 128 characters");
+            }
+        });
         detail = detail == null ? "" : detail;
         if (occurredAt == null) {
             throw new IllegalArgumentException("occurredAt must not be null");

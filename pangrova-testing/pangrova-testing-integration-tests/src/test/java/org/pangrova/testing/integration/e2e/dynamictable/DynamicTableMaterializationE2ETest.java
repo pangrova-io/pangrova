@@ -113,7 +113,8 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
             assertThat(queryManager.getActiveQueryIds()).contains(admittedQuery);
             assertThat(authority.repository().findReaderPins(published.generation()))
                     .singleElement().satisfies(pin -> {
-                        assertThat(pin.query().value()).isEqualTo(admittedQuery);
+                        assertThat(pin.reader()).isEqualTo(org.pangrova.materialization.api.domain.ReaderId.query(
+                                new org.pangrova.execution.api.identity.QueryId(admittedQuery)));
                         assertThat(pin.owner()).isEqualTo(e2eUserIdentity().principal());
                     });
             heldOperation.close();

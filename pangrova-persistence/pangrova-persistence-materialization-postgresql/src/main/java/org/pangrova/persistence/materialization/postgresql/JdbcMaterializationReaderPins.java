@@ -10,7 +10,7 @@ import org.pangrova.materialization.api.domain.AttemptId;
 import org.pangrova.materialization.api.domain.GcLedgerEntry;
 import org.pangrova.materialization.api.domain.GenerationId;
 import org.pangrova.materialization.api.exception.MaterializationException;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderId;
 import org.pangrova.materialization.api.domain.ReaderPin;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
@@ -56,18 +56,19 @@ final class JdbcMaterializationReaderPins {
                                 + " is no longer readable");
             }
             try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO materialization.reader_pins (generation_id, query_id, owner, "
-                            + "expires_at, heartbeat_at) VALUES (?,?,?,?,?) "
-                            + "ON CONFLICT (generation_id, query_id) DO UPDATE SET "
+                    "INSERT INTO materialization.reader_pins (generation_id, reader_kind, reader_id, owner, "
+                            + "expires_at, heartbeat_at) VALUES (?,?,?,?,?,?) "
+                            + "ON CONFLICT (generation_id, reader_kind, reader_id) DO UPDATE SET "
                             + "heartbeat_at=GREATEST(materialization.reader_pins.heartbeat_at, "
                             + "EXCLUDED.heartbeat_at), "
                             + "expires_at=GREATEST(materialization.reader_pins.expires_at, "
                             + "EXCLUDED.expires_at)")) {
                 statement.setObject(1, pin.generation().value());
-                statement.setObject(2, pin.query().value());
-                statement.setString(3, pin.owner());
-                setInstant(statement, 4, pin.expiresAt());
-                setInstant(statement, 5, pin.heartbeatAt());
+                statement.setString(2, pin.reader().kind().name());
+                statement.setString(3, pin.reader().id());
+                statement.setString(4, pin.owner());
+                setInstant(statement, 5, pin.expiresAt());
+                setInstant(statement, 6, pin.heartbeatAt());
                 statement.executeUpdate();
             }
             return null;
@@ -91,39 +92,42 @@ final class JdbcMaterializationReaderPins {
         }
     }
 
-    public void releaseReaderPin(GenerationId generation, QueryId query) {
+    public void releaseReaderPin(GenerationId generation, ReaderId reader) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "DELETE FROM materialization.reader_pins "
-                             + "WHERE generation_id=? AND query_id=?")) {
+                             + "WHERE generation_id=? AND reader_kind=? AND reader_id=?")) {
             statement.setObject(1, generation.value());
-            statement.setObject(2, query.value());
+            statement.setString(2, reader.kind().name());
+            statement.setString(3, reader.id());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw MaterializationException.repositoryFailure("releaseReaderPin failed", failure);
         }
     }
 
-    public void releaseReaderPins(QueryId query) {
+    public void releaseReaderPins(ReaderId reader) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "DELETE FROM materialization.reader_pins WHERE query_id=?")) {
-            statement.setString(1, query.value());
+                     "DELETE FROM materialization.reader_pins WHERE reader_kind=? AND reader_id=?")) {
+            statement.setString(1, reader.kind().name());
+            statement.setString(2, reader.id());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw MaterializationException.repositoryFailure("releaseReaderPins failed", failure);
         }
     }
 
-    public void renewReaderPins(QueryId query, Instant expiresAt, Instant heartbeatAt) {
+    public void renewReaderPins(ReaderId reader, Instant expiresAt, Instant heartbeatAt) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "UPDATE materialization.reader_pins SET "
                              + "heartbeat_at=GREATEST(heartbeat_at, ?), "
-                             + "expires_at=GREATEST(expires_at, ?) WHERE query_id=?")) {
+                             + "expires_at=GREATEST(expires_at, ?) WHERE reader_kind=? AND reader_id=?")) {
             setInstant(statement, 1, heartbeatAt);
             setInstant(statement, 2, expiresAt);
-            statement.setString(3, query.value());
+            statement.setString(3, reader.kind().name());
+            statement.setString(4, reader.id());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw MaterializationException.repositoryFailure("renewReaderPins failed", failure);

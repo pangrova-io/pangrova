@@ -3,7 +3,7 @@ package org.pangrova.coordinator.materialization;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
-import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.materialization.usecase.ReaderPinLeases;
 import org.pangrova.connector.api.session.ConnectorSession;
