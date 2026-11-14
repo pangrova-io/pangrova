@@ -26,16 +26,22 @@ class MaterializationArchitectureTest {
                     type -> type.getPackageName().startsWith("org.pangrova.connector.")
                             && !type.getPackageName().startsWith("org.pangrova.connector.api"));
 
+    /** Query identity is shared by reader pins and journaled events across domains. */
+    private static DescribedPredicate<JavaClass> contractsAndQueryId(String... packages) {
+        return JavaClass.Predicates.resideInAnyPackage(packages)
+                .or(JavaClass.Predicates.equivalentTo(org.pangrova.execution.api.identity.QueryId.class));
+    }
+
     @Test
     void kernelDependsOnlyOnJdkCommonAndContractPackages() {
         classes()
                 .that().resideInAPackage("org.pangrova.materialization..")
-                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                .should().onlyDependOnClassesThat(contractsAndQueryId(
                         "java..",
                         "org.pangrova.materialization..",
                         "org.pangrova.persistence.materialization.api..",
                         "org.pangrova.connector.api..",
-                        "org.pangrova.common..")
+                        "org.pangrova.common.."))
                 .check(KERNEL);
     }
 
@@ -66,20 +72,20 @@ class MaterializationArchitectureTest {
     void domainDoesNotDependOnPortsOrExtensions() {
         classes()
                 .that().resideInAPackage("org.pangrova.materialization.api.domain..")
-                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                .should().onlyDependOnClassesThat(contractsAndQueryId(
                         "java..", "org.pangrova.common..", "org.pangrova.connector.api..",
                         "org.pangrova.materialization.api.domain..", "org.pangrova.materialization.api.enums..",
-                        "org.pangrova.materialization.api.exception..")
+                        "org.pangrova.materialization.api.identity..", "org.pangrova.materialization.api.exception.."))
                 .check(KERNEL);
     }
 
     @Test
     void publicContractsDoNotDependOnPersistenceOrRegistry() {
-        noClasses()
+        classes()
                 .that().resideInAPackage("org.pangrova.materialization.api..")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "org.pangrova.persistence..", "org.pangrova.materialization..",
-                        "org.pangrova.materialization.usecase..")
+                .should().onlyDependOnClassesThat(contractsAndQueryId(
+                        "java..", "org.pangrova.common..", "org.pangrova.connector.api..",
+                        "org.pangrova.materialization.api.."))
                 .check(KERNEL);
     }
 
