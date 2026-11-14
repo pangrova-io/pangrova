@@ -16,13 +16,11 @@ import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BiFunction;
 
 /**
@@ -40,8 +38,6 @@ import java.util.function.BiFunction;
  */
 public final class VectorSearchRewriter {
 
-    private static final Logger LOG = LoggerFactory.getLogger(VectorSearchRewriter.class);
-
     // COSINE_SIMILARITY is intentionally excluded: it returns higher values for
     // more similar vectors, so correct ANN usage is ORDER BY ... DESC LIMIT K.
     // Since this rewriter only matches ASC ordering, including COSINE_SIMILARITY
@@ -51,8 +47,6 @@ public final class VectorSearchRewriter {
             "L2_DISTANCE", DistanceMetric.L2,
             "COSINE_DISTANCE", DistanceMetric.COSINE,
             "INNER_PRODUCT", DistanceMetric.INNER_PRODUCT);
-
-    private static final Set<String> DISTANCE_FUNCTIONS = FUNCTION_TO_METRIC.keySet();
 
     private static final RecallEstimationHint RECALL_ESTIMATOR = EmpiricalRecallEstimator.defaultEstimator();
 
@@ -113,8 +107,6 @@ public final class VectorSearchRewriter {
             // brute-force scan for unindexed vector queries.
             return Optional.empty();
         }
-
-        validateDistanceMetricCompatibility(matchingIndex, candidate.call.metric);
 
         List<String> preFilters = extractPreFilters(sortNode.getInput());
         VectorHybridSearchStrategy strategy;
@@ -241,6 +233,11 @@ public final class VectorSearchRewriter {
     }
 
     private static int extractTopK(LogicalSort sort) {
+        // Indexed retrieval and its physical binder accept only the first page.
+        if (sort.offset != null && (!(sort.offset instanceof RexLiteral offset)
+                || !Long.valueOf(0L).equals(offset.getValueAs(Long.class)))) {
+            return -1;
+        }
         if (sort.fetch == null) {
             return -1;
         }
@@ -268,11 +265,11 @@ public final class VectorSearchRewriter {
     }
 
     private static DistanceCall parseDistanceCall(RexNode expr, RelNode input) {
-        if (!(expr instanceof RexCall call)
-                || !DISTANCE_FUNCTIONS.contains(call.getOperator().getName().toUpperCase())
-                || call.getOperands().size() != 2) {
+        if (!(expr instanceof RexCall call) || call.getOperands().size() != 2) {
             return null;
         }
+        DistanceMetric metric = FUNCTION_TO_METRIC.get(call.getOperator().getName().toUpperCase(Locale.ROOT));
+        if (metric == null) return null;
         // Try canonical order: column, vector
         String columnName = extractColumnName(call.getOperands().get(0), input);
         float[] queryVector = extractVectorLiteral(call.getOperands().get(1));
@@ -284,8 +281,7 @@ public final class VectorSearchRewriter {
         if (columnName == null || queryVector == null) {
             return null;
         }
-        return new DistanceCall(columnName, queryVector,
-                FUNCTION_TO_METRIC.get(call.getOperator().getName().toUpperCase()));
+        return new DistanceCall(columnName, queryVector, metric);
     }
 
     /**
@@ -431,40 +427,6 @@ public final class VectorSearchRewriter {
     private static boolean metricMatches(IndexDescriptor descriptor, DistanceMetric metric) {
         String indexMetric = descriptor.properties().get("metric");
         return indexMetric != null && indexMetric.equalsIgnoreCase(metric.name());
-    }
-
-    /**
-     * Validates that the query distance metric is compatible with the index's
-     * configured metric. Incompatible combinations (e.g., L2 query on COSINE index)
-     * produce incorrect nearest-neighbor results.
-     *
-     * @throws IllegalArgumentException if the metric is incompatible
-     */
-    private static void validateDistanceMetricCompatibility(
-            IndexDescriptor index, DistanceMetric queryMetric) {
-        String indexMetricStr = index.properties().get("metric");
-        if (indexMetricStr == null) {
-            return; // no metric configured — skip validation
-        }
-        DistanceMetric indexMetric;
-        try {
-            indexMetric = DistanceMetric.valueOf(indexMetricStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            LOG.warn("event=unknown_index_metric indexId={} metric={} action=skip_validation",
-                    index.indexId(), indexMetricStr);
-            return;
-        }
-        // COSINE_SIMILARITY and COSINE_DISTANCE both use cosine-based indexes
-        if (queryMetric == indexMetric) {
-            return;
-        }
-        // L2 index is only valid for L2 queries; COSINE index for COSINE queries;
-        // INNER_PRODUCT index for INNER_PRODUCT queries
-        throw new IllegalArgumentException(
-                "Distance metric mismatch: query uses " + queryMetric
-                        + " but index '" + index.indexId() + "' is built with " + indexMetric
-                        + ". Rebuild the index with metric=" + queryMetric
-                        + " or change the query distance function.");
     }
 
     private record DistanceCall(String column, float[] queryVector, DistanceMetric metric) {}

@@ -14,20 +14,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class VectorSearchRewriterCastTest {
     @Test
     void decimalQueryCastStillReachesTheIndexLookupForTheSamePhysicalFloatColumn() {
-        var lookupColumns = lookupColumns("ARRAY[1.25,2.5]");
+        var lookupColumns = lookupColumns("ARRAY[1.25,2.5]", "LIMIT 5");
         assertThat(lookupColumns).containsExactly("vec");
     }
 
     @Test
     void wideningTheIndexedFloatColumnToDoubleDoesNotUseTheFloatIndex() {
-        var lookupColumns = lookupColumns("ARRAY[CAST(1.25 AS DOUBLE),CAST(2.5 AS DOUBLE)]");
+        var lookupColumns = lookupColumns("ARRAY[CAST(1.25 AS DOUBLE),CAST(2.5 AS DOUBLE)]", "LIMIT 5");
         assertThat(lookupColumns).isEmpty();
     }
 
-    private static List<String> lookupColumns(String queryVector) {
+    @Test
+    void offsetIsCheckedBeforeResolvingOrBindingAnIndex() {
+        assertThat(lookupColumns("ARRAY[1.25,2.5]", "LIMIT 5 OFFSET 1")).isEmpty();
+        assertThat(lookupColumns("ARRAY[1.25,2.5]", "LIMIT 5 OFFSET 0")).containsExactly("vec");
+    }
+
+    private static List<String> lookupColumns(String queryVector, String pagination) {
         var compiled = new SqlCompiler().compileForPolicyApplication("SELECT L2_DISTANCE(vec," + queryVector
                 + ") FROM (SELECT ARRAY[CAST(1 AS FLOAT),CAST(2 AS FLOAT)] AS vec "
-                + "UNION ALL SELECT ARRAY[CAST(3 AS FLOAT),CAST(4 AS FLOAT)]) t ORDER BY 1 LIMIT 5");
+                + "UNION ALL SELECT ARRAY[CAST(3 AS FLOAT),CAST(4 AS FLOAT)]) t ORDER BY 1 " + pagination);
         var lookupColumns = new ArrayList<String>();
         var result = VectorSearchRewriter.tryRewrite(findSort(compiled.plan()), (table, column) -> {
             lookupColumns.add(column);

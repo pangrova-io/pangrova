@@ -18,6 +18,8 @@ reranking are distinct execution paths.
   The strategy-selection helper is not wired as a general default adaptive planner.
 - Hybrid rewriting covers bounded positive `MATCH` plus vector-distance patterns.
   Arbitrary OR/NOT, GROUP BY/HAVING, or retrieval combinations are not blanket support.
+- A positive SQL `OFFSET` uses the ordinary ordered query path. Indexed nearest-neighbor
+  retrieval accepts the first page (`LIMIT K` or `LIMIT K OFFSET 0`).
 - Multi-vector source expressions require per-source bindings; the current collector
   rejects the ambiguous multi-vector form shown below.
 - Text-to-vector shorthand is not wired by default. Explicit model invocation,
