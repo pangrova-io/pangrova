@@ -1,5 +1,11 @@
 package org.pangrova.metadata.catalog.registry;
 
+import org.pangrova.metadata.api.exception.CatalogAccessDeniedException;
+import org.pangrova.connector.api.index.CommitListener;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadataLease;
+import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
+import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.metadata.api.catalog.CatalogReadAccess;
 
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -21,6 +27,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -54,6 +62,11 @@ public class CatalogRegistry implements CatalogReadAccess {
     private final Map<String, CatalogHandle> catalogs = new ConcurrentHashMap<>();
     // Names currently being registered -- guards the window between check and loadCatalog
     private final java.util.Set<String> registering = ConcurrentHashMap.newKeySet();
+    // A querying authority can retain metadata from this particular handle after a revision change.
+    private final Map<CatalogHandle, Integer> queryLeases = new IdentityHashMap<>();
+    // Listeners registered on an incarnation follow its revisions, never a different deployment.
+    private final Map<String, List<CommitListener>> commitListeners = new HashMap<>();
+    private final Set<CatalogHandle> retired = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private final CatalogDeploymentRepository store;
     private final CatalogDeploymentResolver catalogIdentities;
     private final CatalogHealthMonitor healthMonitor;
@@ -140,6 +153,56 @@ public class CatalogRegistry implements CatalogReadAccess {
         LOG.info("Registered catalog, catalog={}", descriptor.name());
     }
 
+    /** Resolves current durable deployment under its tenant admission policy. */
+    public CatalogDescriptor requireVisibleDescriptor(String name, String tenant) {
+        CatalogDescriptor descriptor = store.getCatalogDescriptor(name)
+                .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' not found"));
+        if (!descriptor.allowedTenants().isEmpty()
+                && (tenant == null || !descriptor.allowedTenants().contains(tenant))) {
+            throw new CatalogAccessDeniedException("Catalog '" + name + "' not found");
+        }
+        return descriptor;
+    }
+
+    /**
+     * Validates a replacement handle, then atomically publishes the next revision,
+     * immutable history and invalidation under the repository's predecessor fence.
+     * Failed or unknown commits never compensate by deleting the durable deployment.
+     */
+    public synchronized void alterProperties(String name, String tenant, Map<String, String> updates) {
+        CatalogDescriptor current = requireVisibleDescriptor(name, tenant);
+        if (registering.contains(name)) {
+            throw new CatalogBackendException("Catalog registration in progress: " + name);
+        }
+        if (updates.isEmpty() || updates.keySet().stream().anyMatch("connector"::equalsIgnoreCase)) {
+            throw new IllegalArgumentException("ALTER CATALOG requires connector properties and cannot replace its provider");
+        }
+        var properties = new HashMap<>(current.properties());
+        properties.putAll(updates);
+        CatalogDescriptor next = new CatalogDescriptor(name, current.type(), current.provider(),
+                current.state(), properties, current.comment(), current.allowedTenants(),
+                current.incarnationId(), Math.incrementExact(current.revision()));
+        CatalogHandle replacement = createHandle(next);
+        try {
+            store.saveCatalogDescriptor(next);
+        } catch (RuntimeException | Error failure) {
+            abandonHandle(replacement, failure);
+            throw failure;
+        }
+        CatalogHandle previous = catalogs.put(name, replacement);
+        if (previous != null) retireHandle(previous);
+    }
+
+    /** Binds tenant visibility and conditional deletion to exactly the same durable revision. */
+    public synchronized void unregister(String name, String tenant) {
+        var visible = requireVisibleDescriptor(name, tenant);
+        var handle = catalogs.get(name);
+        if (handle == null || !visible.identity().equals(handle.getDescriptor().identity())) {
+            throw new CatalogBackendException("Catalog deployment changed before drop: " + name);
+        }
+        unregister(name);
+    }
+
     /** Drops the deployment represented by the local handle using its immutable revision. */
     public void unregister(String name) {
         CatalogHandle handle;
@@ -153,9 +216,10 @@ public class CatalogRegistry implements CatalogReadAccess {
                         "Catalog deployment changed before drop: " + name);
             }
             catalogs.remove(name);
+            commitListeners.remove(handle.getDescriptor().incarnationId());
         }
         try {
-            handle.shutdown();
+            retireHandle(handle);
         } finally {
             dispatchEvent(new MetadataEvent.CatalogDroppedEvent(name));
         }
@@ -173,6 +237,89 @@ public class CatalogRegistry implements CatalogReadAccess {
             throw new CatalogSuspendedException("Catalog '" + name + "' is suspended");
         }
         return handle;
+    }
+
+    /** Binds an acknowledged event subscription to the deployment, including subsequent revisions. */
+    public synchronized void registerCommitListener(String catalog, CommitListener listener) {
+        var handle = getCatalog(catalog);
+        String incarnation = handle.getDescriptor().incarnationId();
+        var listeners = commitListeners.computeIfAbsent(incarnation, ignored -> new ArrayList<>());
+        if (!listeners.contains(listener)) {
+            handle.registerCommitListener(listener);
+            listeners.add(listener);
+        }
+    }
+
+    /** The handle and metadata selected together for one resolved catalog access. */
+    public record QueryCatalog(CatalogHandle handle, ConnectorMetadata metadata) {}
+
+    @Override
+    public ConnectorMetadata metadataForQuery(String name, ConnectorSession session) {
+        return queryCatalog(name, session).metadata();
+    }
+
+    /** Returns the exact data providers associated with this query's winning metadata revision. */
+    public QueryCatalog queryCatalog(String name, ConnectorSession session) {
+        if (session.getQueryAuthority().isEmpty()) {
+            var handle = getCatalog(name);
+            return new QueryCatalog(handle, handle.getMetadata(session));
+        }
+        var scope = ConnectorMetadataScope.require(session.getQueryAuthority().orElseThrow());
+        var retained = scope.acquireMetadata(name, () -> acquireMetadata(name, session));
+        if (!(retained instanceof CatalogLease lease) || lease.registry != this) {
+            throw new IllegalStateException("Query metadata has a different catalog owner: " + name);
+        }
+        return lease.catalog;
+    }
+
+    private CatalogLease acquireMetadata(String name, ConnectorSession session) {
+        var handle = retainForQuery(name);
+        try {
+            return new CatalogLease(this, new QueryCatalog(handle,
+                    java.util.Objects.requireNonNull(handle.getMetadata(session), "catalog metadata")));
+        } catch (RuntimeException | Error failure) {
+            try {
+                releaseFromQuery(handle);
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    private record CatalogLease(CatalogRegistry registry, QueryCatalog catalog) implements ConnectorMetadataLease {
+        @Override public ConnectorMetadata metadata() { return catalog.metadata(); }
+        @Override public void release() { registry.releaseFromQuery(catalog.handle()); }
+    }
+
+    /** Retains the exact handle until the metadata query has released its connector resources. */
+    public synchronized CatalogHandle retainForQuery(String name) {
+        CatalogHandle handle = getCatalog(name);
+        queryLeases.merge(handle, 1, Math::addExact);
+        return handle;
+    }
+
+    /** Releases one query's reference and closes an obsolete handle after its last borrower exits. */
+    public synchronized void releaseFromQuery(CatalogHandle handle) {
+        Integer count = queryLeases.get(handle);
+        if (count == null) throw new IllegalStateException("Catalog handle has no query lease");
+        if (count > 1) {
+            queryLeases.put(handle, count - 1);
+        } else {
+            if (retired.contains(handle)) {
+                handle.shutdown();
+                retired.remove(handle);
+            }
+            queryLeases.remove(handle);
+        }
+    }
+
+    private synchronized void retireHandle(CatalogHandle handle) {
+        retired.add(handle);
+        if (!queryLeases.containsKey(handle)) {
+            handle.shutdown();
+            retired.remove(handle);
+        }
     }
 
     public List<String> listCatalogNames() {
@@ -217,10 +364,14 @@ public class CatalogRegistry implements CatalogReadAccess {
     }
 
     /** Shuts down the health monitor and all registered catalogs. */
-    public void shutdown() {
+    public synchronized void shutdown() {
         healthMonitor.stop();
-        catalogs.values().forEach(CatalogHandle::shutdown);
+        commitListeners.clear();
+        retired.addAll(catalogs.values());
         catalogs.clear();
+        for (var handle : List.copyOf(retired)) {
+            retireHandle(handle);
+        }
         LOG.info("CatalogRegistry shut down");
     }
 
@@ -288,7 +439,10 @@ public class CatalogRegistry implements CatalogReadAccess {
             try {
                 if (current != null) {
                     catalogs.remove(name);
-                    current.shutdown();
+                    if (!current.getDescriptor().incarnationId().equals(descriptor.incarnationId())) {
+                        commitListeners.remove(current.getDescriptor().incarnationId());
+                    }
+                    retireHandle(current);
                 }
                 loadCatalog(descriptor);
                 loaded.add(name);
@@ -307,7 +461,8 @@ public class CatalogRegistry implements CatalogReadAccess {
             if (!storeNames.contains(localName)) {
                 CatalogHandle handle = catalogs.remove(localName);
                 if (handle != null) {
-                    handle.shutdown();
+                    commitListeners.remove(handle.getDescriptor().incarnationId());
+                    retireHandle(handle);
                     removed.add(localName);
                     LOG.info("event=catalog_reconcile_removed catalog={}", localName);
                 }
@@ -372,12 +527,29 @@ public class CatalogRegistry implements CatalogReadAccess {
         catalogs.put(descriptor.name(), handle);
     }
 
-    private CatalogHandle createHandle(CatalogDescriptor descriptor) {
-        return switch (descriptor.type()) {
+    private synchronized CatalogHandle createHandle(CatalogDescriptor descriptor) {
+        var handle = switch (descriptor.type()) {
             case INTERNAL -> new InternalCatalogHandle(descriptor);
             case CONNECTOR -> createConnectorHandle(descriptor);
             case FEDERATION -> createFederationHandle(descriptor);
         };
+        try {
+            for (var listener : commitListeners.getOrDefault(descriptor.incarnationId(), List.of())) {
+                handle.registerCommitListener(listener);
+            }
+            return handle;
+        } catch (RuntimeException | Error failure) {
+            abandonHandle(handle, failure);
+            throw failure;
+        }
+    }
+
+    private void abandonHandle(CatalogHandle handle, Throwable failure) {
+        try {
+            retireHandle(handle);
+        } catch (RuntimeException | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+        }
     }
 
     private CatalogHandle createConnectorHandle(CatalogDescriptor descriptor) {

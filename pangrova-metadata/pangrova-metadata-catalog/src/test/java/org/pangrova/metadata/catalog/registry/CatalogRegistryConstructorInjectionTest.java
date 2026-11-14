@@ -142,7 +142,7 @@ class CatalogRegistryConstructorInjectionTest {
 
     // ── Test infrastructure ──
 
-    static final class NoOpConnector implements Connector {
+    static class NoOpConnector implements Connector {
         @Override public ConnectorMetadata getMetadata(ConnectorSession s) {
             return new NoOpMetadata();
         }

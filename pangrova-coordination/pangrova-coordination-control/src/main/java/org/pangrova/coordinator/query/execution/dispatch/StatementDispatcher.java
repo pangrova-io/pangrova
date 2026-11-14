@@ -18,8 +18,6 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.parser.api.ast.Statement;
-import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
-import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -30,8 +28,6 @@ import org.pangrova.query.dispatch.StatementExecutionFactory;
 /**
  * Pure dispatcher for DDL/DML/utility statements.
  * Delegates execution to registered factories and fires completion events.
- * Contains minimal routing logic; statement rejection for unsupported types
- * ({@code rejectUnsupported}) is the only business decision in this class.
  */
 public final class StatementDispatcher {
 
@@ -78,7 +74,6 @@ public final class StatementDispatcher {
         if (ddlGuard != null) {
             ddlGuard.requireLeaderForDdl(ast);
         }
-        rejectUnsupported(ast);
         StatementExecutionFactory<?> factory = registry.get(ast.getClass());
         if (factory == null) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
@@ -103,7 +98,6 @@ public final class StatementDispatcher {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Statement is not routable: " + ast.getClass().getSimpleName());
         }
-        rejectUnsupported(ast);
         StatementExecutionFactory<?> factory = registry.get(ast.getClass());
         if (factory == null) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
@@ -141,26 +135,6 @@ public final class StatementDispatcher {
      */
     public boolean isRoutable(Statement stmt) {
         return registry.containsKey(stmt.getClass());
-    }
-
-    /**
-     * Rejects unsupported statement types with a descriptive error message
-     * containing the SQL syntax name. Called before factory lookup so that
-     * unsupported statements fail fast with a clear message.
-     *
-     * <p>Data-driven: unsupported types are declared in a static map rather
-     * than an if-else chain, making it easy to add new unsupported types.</p>
-     */
-    private static final Map<Class<? extends Statement>, String> UNSUPPORTED_STATEMENTS = Map.of(
-            DescribeCatalogStatement.class, "DESCRIBE CATALOG",
-            AlterCatalogStatement.class, "ALTER CATALOG"
-    );
-
-    private static void rejectUnsupported(Statement stmt) {
-        String sqlName = UNSUPPORTED_STATEMENTS.get(stmt.getClass());
-        if (sqlName != null) {
-            throw new UnsupportedOperationException(sqlName + " is not supported");
-        }
     }
 
     @SuppressWarnings("unchecked")

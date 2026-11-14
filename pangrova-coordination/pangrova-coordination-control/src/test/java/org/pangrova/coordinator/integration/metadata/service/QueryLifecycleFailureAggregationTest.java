@@ -262,6 +262,25 @@ class QueryLifecycleFailureAggregationTest {
     }
 
     @Test
+    void retryingALeaseReleaseDoesNotRepeatSuccessfulMetadataCleanup() {
+        var lifetime = query("lease-release-retry");
+        var healthy = new RecordingMetadata();
+        var releases = new java.util.concurrent.atomic.AtomicInteger();
+        lifetime.authority().acquireMetadata("cat", () -> new org.pangrova.connector.api.metadata.ConnectorMetadataLease() {
+            @Override public ConnectorMetadata metadata() { return healthy; }
+            @Override public void release() {
+                if (releases.incrementAndGet() == 1) throw new IllegalStateException("close interrupted");
+            }
+        });
+        lifetime.seal();
+        assertThat(lifetime.authority().cleanupMetadata().failures()).containsKey("cat");
+        lifetime.authority().cleanupMetadata().requireSuccess();
+        assertThat(releases).hasValue(2);
+        assertThat(healthy.cleanupQueryIds).containsExactly("lease-release-retry");
+        lifetime.retire();
+    }
+
+    @Test
     void failedBeginCannotBecomeAnIdempotentSuccessAndItsOriginalOwnerIsCleaned() {
         var failing = new FailingMetadata("original begin failed");
         buildServiceWithCatalogs(catalogEntry("failed", failing));

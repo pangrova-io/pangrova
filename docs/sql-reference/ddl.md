@@ -48,6 +48,8 @@ ALTER CATALOG lakehouse SET PROPERTIES (
 );
 ```
 
+Requires `ALTER_CATALOG` on the named catalog and a tenant admitted by that deployment. The supplied properties are merged with the current configuration. The connector provider is fixed for the catalog incarnation. Publication advances the revision and keeps its exact predecessor available to pinned tasks.
+
 ### SHOW CATALOGS
 
 ```sql
@@ -59,6 +61,8 @@ SHOW CATALOGS;
 ```sql
 DESCRIBE CATALOG lakehouse;
 ```
+
+With catalog access and an admitted tenant, this returns `catalog_name`, `catalog_type`, `provider`, `catalog_state`, and `revision`. Connector configuration values and secret references stay private.
 
 ---
 

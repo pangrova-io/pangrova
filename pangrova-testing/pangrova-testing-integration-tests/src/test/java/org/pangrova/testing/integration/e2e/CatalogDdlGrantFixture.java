@@ -17,16 +17,26 @@ public final class CatalogDdlGrantFixture {
 
     public static void withCatalogLifecycleGrants(DataSource dataSource, String principal,
                                                    String catalog, Runnable scenario) {
+        withGrants(dataSource, principal, catalog, scenario, Privilege.CREATE_CATALOG, Privilege.DROP_CATALOG);
+    }
+
+    public static void withCatalogRevisionGrants(DataSource dataSource, String principal,
+                                                 String catalog, Runnable scenario) {
+        withGrants(dataSource, principal, catalog, scenario, Privilege.CREATE_CATALOG,
+                Privilege.DROP_CATALOG, Privilege.ALTER_CATALOG, Privilege.SELECT);
+    }
+
+    private static void withGrants(DataSource dataSource, String principal, String catalog,
+                                   Runnable scenario, Privilege... privileges) {
         var roles = new JdbcRoleStore(dataSource);
         String role = "e2e_catalog_" + UUID.randomUUID();
         roles.createRole(Role.of(role));
         try {
             roles.grantRoleToUser(UserRoleAssignment.of(principal, role));
             var grants = new JdbcGrantStore(dataSource);
-            grants.addGrant(PrivilegeGrant.of(
-                    role, Privilege.CREATE_CATALOG, "CATALOG", catalog, null, null, null));
-            grants.addGrant(PrivilegeGrant.of(
-                    role, Privilege.DROP_CATALOG, "CATALOG", catalog, null, null, null));
+            for (Privilege privilege : privileges) {
+                grants.addGrant(PrivilegeGrant.of(role, privilege, "CATALOG", catalog, null, null, null));
+            }
             scenario.run();
         } finally {
             roles.dropRole(role);

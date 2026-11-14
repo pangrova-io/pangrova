@@ -76,7 +76,8 @@ class StatementDispatcherPropertyTest {
                 new AlterTableStatement.ChangeColumnType(name, "col", org.pangrova.parser.build.type.RawSqlTypeParser.parse("BIGINT")),
                 new CreateSchemaStatement(Identifier.of("cat", "sch"), false),
                 new CreateCatalogStatement("catalog", Optional.of("iceberg"), Map.of()),
-                new DropCatalogStatement("catalog")
+                new DropCatalogStatement("catalog"),
+                new AlterCatalogStatement("catalog", Map.of("p", Literal.ofString("v")))
         ));
     }
 
@@ -107,7 +108,8 @@ class StatementDispatcherPropertyTest {
                 new ShowSchemasStatement("default"),
                 new ShowTablesStatement(List.of("cat", "sch")),
                 new DescribeTableStatement(name),
-                new ShowCatalogsStatement()
+                new ShowCatalogsStatement(),
+                new DescribeCatalogStatement("catalog")
         ));
     }
 
@@ -139,10 +141,7 @@ class StatementDispatcherPropertyTest {
 
     @Provide
     Arbitrary<Statement> unsupportedStatements() {
-        return Arbitraries.of(
-                new DescribeCatalogStatement("cat"),
-                new AlterCatalogStatement("cat", Map.of())
-        );
+        return Arbitraries.of(new UseBranchStatement("main", Identifier.of("catalog", "schema", "table")));
     }
 
     @Provide
@@ -666,7 +665,9 @@ class StatementDispatcherPropertyTest {
     }
 
     private static void assertMissingAuthorityBehavior(Statement stmt, QuerySession session, AccessControl control) {
-        if (stmt instanceof GrantTenantStatement || stmt instanceof RevokeTenantStatement) {
+        if (stmt instanceof GrantTenantStatement || stmt instanceof RevokeTenantStatement
+                || stmt instanceof CreateCatalogStatement || stmt instanceof DropCatalogStatement
+                || stmt instanceof AlterCatalogStatement || stmt instanceof DescribeCatalogStatement) {
             assertThatThrownBy(() -> PermissionChecker.check(stmt, session, control))
                     .isInstanceOf(org.pangrova.security.api.exception.AccessDeniedException.class);
         } else {
@@ -732,7 +733,7 @@ class StatementDispatcherPropertyTest {
 
     /**
      * Property 5: Unsupported statement rejection — for any unsupported statement
-     * (DescribeCatalogStatement, AlterCatalogStatement),
+     * (such as USE BRANCH),
      * {@code StatementDispatcher.executeDirect()} rejects execution.
      *
      * <p>Unsupported statements categorize to UNKNOWN, so {@code isRoutable()} returns
@@ -787,7 +788,7 @@ class StatementDispatcherPropertyTest {
         // executeDirect with null QueryStateMachine — factory executes, events fire
         dispatcher.executeDirect(
                 stmt, null, "q-direct",
-                new QuerySession("q-direct", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
+                new QuerySession("q-direct", Map.of(), TEST_USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         // Verify factory executed and completion event fired
         assertThat(recordingListener.events)
@@ -818,7 +819,7 @@ class StatementDispatcherPropertyTest {
         String queryId = "q-completion-" + stmt.getClass().getSimpleName();
         dispatcher.executeDirect(
                 stmt, null, queryId,
-                new QuerySession(queryId, Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
+                new QuerySession(queryId, Map.of(), TEST_USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         // Both listeners must have received exactly one event
         assertThat(listener1.events)
@@ -840,7 +841,7 @@ class StatementDispatcherPropertyTest {
 
     /**
      * Builds a {@link StatementDispatcher} with the given factories and listeners.
-     * Uses null compiler, null resultService, and null accessControl for lightweight
+     * Uses a recording authorization provider and omits the compiler and result service for lightweight
      * test construction.
      */
     private static StatementDispatcher buildDispatcher(
@@ -851,7 +852,7 @@ class StatementDispatcherPropertyTest {
                 null,       // resultService — not needed for unit tests
                 factories,
                 listeners,
-                null);      // accessControl — null skips permission checks
+                new RecordingAccessControl());
         return new StatementDispatcher(context);
     }
 
@@ -912,7 +913,7 @@ class StatementDispatcherPropertyTest {
         tasks.put(org.pangrova.parser.api.ast.statement.stream.DropStreamStatement.class, noOp);
         tasks.put(org.pangrova.parser.api.ast.statement.stream.ShowStreamsStatement.class, noOp);
         tasks.put(org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement.class, noOp);
-        // Unsupported (registered so they appear in registry but rejected by rejectUnsupported)
+        // Catalog mutation and inspection use separate production handlers.
         tasks.put(DescribeCatalogStatement.class, noOp);
         tasks.put(AlterCatalogStatement.class, noOp);
         tasks.put(CallStatement.class, noOp);
@@ -964,7 +965,7 @@ class StatementDispatcherPropertyTest {
                     AlterTableStatement.ChangeColumnType.class,
                     CreateSchemaStatement.class,
                     CreateCatalogStatement.class,
-                    DropCatalogStatement.class);
+                    DropCatalogStatement.class, AlterCatalogStatement.class);
         }
     }
 
@@ -1085,6 +1086,11 @@ class StatementDispatcherPropertyTest {
         @Override
         public void checkCanDropCatalog(UserIdentity user, String catalog) {
             calls.add("checkCanDropCatalog");
+        }
+
+        @Override
+        public void checkCanAlterCatalog(UserIdentity user, String catalog) {
+            calls.add("checkCanAlterCatalog");
         }
 
         // ── SchemaAccessControl ──

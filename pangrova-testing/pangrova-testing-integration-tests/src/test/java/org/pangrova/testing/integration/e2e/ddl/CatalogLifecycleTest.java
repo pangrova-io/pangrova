@@ -96,10 +96,44 @@ class CatalogLifecycleTest extends PangrovaE2ETestBase {
                                 + " WITH ('connector' = 'iceberg', "
                                 + "'warehouse' = '" + icebergWarehouse() + "')");
                         try {
+                            var denied = framework.executeQuery("ALTER CATALOG " + catName
+                                    + " SET PROPERTIES ('client.note' = 'unauthorized')");
+                            assertThat(denied.success()).isFalse();
+                            assertThat(denied.errorMessage()).contains("ALTER_CATALOG");
                             assertThat(executeQuery("SHOW CATALOGS"))
                                     .anySatisfy(row -> assertThat(row.toString()).contains(catName));
                         } finally {
                             executeDdl("DROP CATALOG " + catName);
+                        }
+                    });
+        }
+
+        @Test
+        void alterPublishesOneRevisionAndDescribeOmitsConnectorProperties() {
+            String catalog = "revised_" + System.nanoTime();
+            CatalogDdlGrantFixture.withCatalogRevisionGrants(
+                    stateStoreDataSource(), authenticatedCatalogSession(CATALOG).getUser(), catalog, () -> {
+                        executeDdl("CREATE CATALOG " + catalog + " USING iceberg WITH ('warehouse' = '"
+                                + icebergWarehouse() + "')");
+                        try {
+                            var before = executeQuery("DESCRIBE CATALOG " + catalog).get(0);
+                            assertThat(before.getLong("revision")).isEqualTo(1L);
+                            executeDdl("ALTER CATALOG " + catalog + " SET PROPERTIES ('client.note' = 'private-note')");
+                            var after = executeQuery("DESCRIBE CATALOG " + catalog).get(0);
+                            assertThat(after.columnNames()).containsExactly("catalog_name", "catalog_type",
+                                    "provider", "catalog_state", "revision");
+                            assertThat(after.getString("provider")).isEqualTo("iceberg");
+                            assertThat(after.getLong("revision")).isEqualTo(2L);
+                            assertThat(after.toString()).doesNotContain("private-note", "client.note", "warehouse");
+                            var deployments = new org.pangrova.persistence.catalog.postgresql.catalog
+                                    .PostgresCatalogDeploymentRepository(stateStoreDataSource());
+                            var current = deployments.getCatalogDescriptor(catalog).orElseThrow();
+                            assertThat(current.properties()).containsEntry("client.note", "private-note")
+                                    .containsEntry("warehouse", icebergWarehouse().toString());
+                            assertThat(deployments.findCatalogDescriptorRevision(catalog, current.incarnationId(), 1)
+                                    .orElseThrow().properties()).doesNotContainKey("client.note");
+                        } finally {
+                            executeDdl("DROP CATALOG " + catalog);
                         }
                     });
         }

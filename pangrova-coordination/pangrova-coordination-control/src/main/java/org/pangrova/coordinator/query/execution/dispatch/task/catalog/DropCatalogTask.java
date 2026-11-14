@@ -23,7 +23,7 @@ public final class DropCatalogTask implements MetadataTask<DropCatalogStatement>
 
     @Override
     public StatementResult execute(DropCatalogStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeDropCatalog(statement);
+        List<TypedRow> rows = executor.executeDropCatalog(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.DDL);
     }
 

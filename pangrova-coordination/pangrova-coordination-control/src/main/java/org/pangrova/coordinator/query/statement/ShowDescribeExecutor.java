@@ -290,7 +290,19 @@ public final class ShowDescribeExecutor {
                 .build();
     }
 
-    /** Lists the catalogs visible to the coordinator. */
+    /** Returns public deployment fields from the authorized tenant-visible revision. */
+    public TypedRow describeCatalog(String name, QuerySession session) {
+        var descriptor = catalogRegistry.requireVisibleDescriptor(name, session.tenantId());
+        // Connector-defined properties, comments and tenant bindings can contain secrets.
+        // Only fixed deployment metadata crosses the public SQL boundary.
+        return TypedRow.builder().putString("catalog_name", descriptor.name())
+                .putString("catalog_type", descriptor.type().name())
+                .putString("provider", descriptor.provider())
+                .putString("catalog_state", descriptor.state().name())
+                .putLong("revision", descriptor.revision()).build();
+    }
+
+    /** Lists locally registered catalogs. */
     public List<TypedRow> executeShowCatalogs() {
         return catalogRegistry.listCatalogNames().stream()
                 .map(name -> TypedRow.builder()

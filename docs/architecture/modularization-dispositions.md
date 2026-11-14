@@ -445,3 +445,12 @@ Worker 与 Standalone 中的两份 Native 资源分别来自 Worker JAR 和平�
 | `server.worker` 的独立及嵌入入口 | 将现有 LoggingAuditEventWriter 传给 Worker bootstrap。Worker 只持有 Security API 的 writer 并借用它，保持 Worker 与 Coordinator、JDBC 解耦。生产结构化日志为 Worker 侧完成证据；Coordinator 使用其既有日志或组合后端。 |
 
 以发布提交 7a374091f 为父提交，在独立检出中使用 JDK 17、Maven 3.9.16 和 Python 3.12 生成协议并编译 143 项 reactor，14 个 File、Worker、SQL 和 HTTP 测试类的 103 项测试全部通过，无跳过。PostgreSQL 测例核对 6 次签票和 7 次实际操作，覆盖同一 READ 票的 HEAD、Range GET、客户端写失败及条件删除失败。MinIO 测例核对 multipart 完成与跨 Worker 恢复。
+
+## Catalog DDL 与查询资源
+
+| 能力 | 实际入口、权威与验证 |
+|---|---|
+| Catalog 配置与授权 | SQL 的 CREATE、DROP、ALTER、DESCRIBE 由同一组任务注册。访问检查要求当前身份，ALTER 使用专用 CATALOG grant。ALTER 在发布前创建并验证候选 Connector，然后以 PostgreSQL 的 incarnation 和 predecessor revision 提交 current、history 和 invalidation。未确认提交保留持久化事实，节点可重新对账。DESCRIBE 只返回名称、类别、Provider、状态、revision。CREATE/ALTER 的 SQL 报告文本在生成查询事件、审计、lineage 与 journal 前去除属性。 |
+| Catalog 资源 | QueryConnectorAuthority 单次取得实际 metadata 及其 CatalogHandle。提前规划、增量扫描和 metadata query scope 共用这一版本，持续到该查询 drain 和 cleanup 完成。旧 revision 在所有读者释放后关闭，释放失败可以重试。对同一 incarnation 的提交监听器在替换前登记到新 handle。 |
+
+本批以 f522eceab 为父提交独立编译 143 项 reactor，7 类 66 项测试全部通过。CatalogLifecycleTest 另在真实 Coordinator、Worker、PostgreSQL 和 Iceberg 上通过 6 项，包括 CREATE/DROP、ALTER/DESCRIBE、无授权拒绝、输出脱敏和历史 revision；两组均无跳过。

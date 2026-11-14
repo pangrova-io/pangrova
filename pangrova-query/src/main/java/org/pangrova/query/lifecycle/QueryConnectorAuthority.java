@@ -2,7 +2,7 @@ package org.pangrova.query.lifecycle;
 
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.connector.api.query.ConnectorQueryOperation;
-import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadataLease;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 import org.pangrova.connector.api.metadata.ConnectorQueryCleanupResult;
 
@@ -46,7 +46,7 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
     }
 
     @Override
-    public ConnectorMetadata beginMetadata(String catalog, java.util.function.Supplier<ConnectorMetadata> lookup) {
+    public ConnectorMetadataLease acquireMetadata(String catalog, java.util.function.Supplier<ConnectorMetadataLease> lookup) {
         if (catalog == null || catalog.isBlank()) {
             throw new IllegalArgumentException("Resolved catalog is required");
         }
@@ -61,11 +61,11 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
                 return awaitBegin(existing.completed);
             }
             try {
-                ConnectorMetadata resolved = java.util.Objects.requireNonNull(lookup.get(), "resolved metadata");
+                ConnectorMetadataLease resolved = java.util.Objects.requireNonNull(lookup.get(), "resolved metadata lease");
                 synchronized (this) {
                     candidate.owner = resolved;
                 }
-                resolved.beginQuery(this);
+                resolved.metadata().beginQuery(this);
                 candidate.completed.complete(resolved);
                 return resolved;
             } catch (RuntimeException | Error failure) {
@@ -75,7 +75,7 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
         }
     }
 
-    private static ConnectorMetadata awaitBegin(CompletableFuture<ConnectorMetadata> began) {
+    private static ConnectorMetadataLease awaitBegin(CompletableFuture<ConnectorMetadataLease> began) {
         try {
             return began.join();
         } catch (CompletionException failure) {
@@ -110,7 +110,12 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
             for (var entry : retained.entrySet()) {
                 try {
                     if (entry.getValue().owner != null) {
-                        entry.getValue().owner.cleanupQuery(this);
+                        var begun = entry.getValue();
+                        if (!begun.cleaned) {
+                            begun.owner.metadata().cleanupQuery(this);
+                            begun.cleaned = true;
+                        }
+                        begun.owner.release();
                     }
                     synchronized (this) {
                         metadata.remove(entry.getKey(), entry.getValue());
@@ -141,7 +146,8 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
     }
 
     private static final class MetadataBegin {
-        private final CompletableFuture<ConnectorMetadata> completed = new CompletableFuture<>();
-        private ConnectorMetadata owner;
+        private final CompletableFuture<ConnectorMetadataLease> completed = new CompletableFuture<>();
+        private ConnectorMetadataLease owner;
+        private boolean cleaned;
     }
 }

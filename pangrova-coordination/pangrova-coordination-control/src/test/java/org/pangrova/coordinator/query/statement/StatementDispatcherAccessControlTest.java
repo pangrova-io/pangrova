@@ -91,6 +91,9 @@ class StatementDispatcherAccessControlTest {
         @Override public void checkCanAccessCatalog(UserIdentity u, String c) {
             throw new AccessDeniedException("denied");
         }
+        @Override public void checkCanCreateCatalog(UserIdentity u, String c) { throw new AccessDeniedException("denied"); }
+        @Override public void checkCanAlterCatalog(UserIdentity u, String c) { throw new AccessDeniedException("denied"); }
+        @Override public void checkCanDropCatalog(UserIdentity u, String c) { throw new AccessDeniedException("denied"); }
         @Override public void checkCanAccessSchema(UserIdentity u, String c, String s) {
             throw new AccessDeniedException("denied");
         }

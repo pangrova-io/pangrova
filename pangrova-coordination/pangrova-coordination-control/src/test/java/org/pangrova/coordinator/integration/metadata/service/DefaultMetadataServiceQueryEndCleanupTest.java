@@ -92,6 +92,24 @@ class DefaultMetadataServiceQueryEndCleanupTest {
     }
 
     @Test
+    void plannerFirstResolutionPinsSplitProvidersAcrossAlterAndEagerMetadataBegin() {
+        var first = query("before-alter");
+        var session = org.pangrova.metadata.connector.DefaultConnectorSession.fromSessionContext(
+                first.metadataSession(), "test_catalog", "default");
+        var before = registry.queryCatalog("test_catalog", session);
+        registry.alterProperties("test_catalog", null, Map.of("updated", "true"));
+        service.beginQuery(first.metadataSession());
+        assertThat(registry.queryCatalog("test_catalog", session).handle()).isSameAs(before.handle());
+        var next = query("after-alter");
+        var newSession = org.pangrova.metadata.connector.DefaultConnectorSession.fromSessionContext(
+                next.metadataSession(), "test_catalog", "default");
+        service.beginQuery(next.metadataSession());
+        assertThat(registry.queryCatalog("test_catalog", newSession).handle().getDescriptor().revision()).isEqualTo(2);
+        cleanup("before-alter");
+        cleanup("after-alter");
+    }
+
+    @Test
     void onQueryEndRemovesActiveQueryAfterNormalCompletion() {
         service.beginQuery(query("q-normal").metadataSession());
         assertThat(service.activeQueryCount()).isEqualTo(1);

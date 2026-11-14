@@ -17,7 +17,18 @@ import java.util.function.Supplier;
 @Experimental
 public interface ConnectorMetadataScope extends ConnectorQueryAuthority {
     /** Retains and begins the actual resolved metadata instance with this same public lifetime. */
-    ConnectorMetadata beginMetadata(String resolvedCatalog, Supplier<ConnectorMetadata> lookup);
+    default ConnectorMetadata beginMetadata(String resolvedCatalog, Supplier<ConnectorMetadata> lookup) {
+        return acquireMetadata(resolvedCatalog, () -> {
+            var metadata = Objects.requireNonNull(lookup.get(), "resolved metadata");
+            return new ConnectorMetadataLease() {
+                @Override public ConnectorMetadata metadata() { return metadata; }
+                @Override public void release() { /* The caller owns this connector. */ }
+            };
+        }).metadata();
+    }
+
+    /** Retains the winning catalog lease once, regardless of which query path resolves it first. */
+    ConnectorMetadataLease acquireMetadata(String resolvedCatalog, Supplier<ConnectorMetadataLease> lookup);
 
     /** Releases retained metadata after physical drain; failed cleanup remains owned for retry. */
     ConnectorQueryCleanupResult cleanupMetadata();

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
 import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.metadata.resolution.ConnectorTableLookup;
 import org.pangrova.metadata.resolution.QualifiedTableNames;
@@ -557,8 +558,16 @@ public final class DdlExecutor {
         return List.of();
     }
 
-    public List<TypedRow> executeDropCatalog(DropCatalogStatement stmt) {
-        catalogRegistry.unregister(stmt.name());
+    /** Mutates only connector properties of the current tenant-visible deployment. */
+    public void alterCatalog(AlterCatalogStatement statement, QuerySession session) {
+        catalogRegistry.alterProperties(statement.name(), session.tenantId(),
+                DmlExpressionEvaluator.convertProperties(statement.properties()));
+        invalidateSchemaCache();
+    }
+
+    public List<TypedRow> executeDropCatalog(DropCatalogStatement stmt, QuerySession session) {
+        catalogRegistry.unregister(stmt.name(), session.tenantId());
+        invalidateSchemaCache();
         LOG.info("event=catalog_dropped catalog={}", stmt.name());
         return List.of();
     }

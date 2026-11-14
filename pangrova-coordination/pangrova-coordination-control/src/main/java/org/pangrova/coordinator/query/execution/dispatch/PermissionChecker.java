@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
 import org.pangrova.query.statement.StatementTableTargets;
 
 import org.pangrova.query.session.SessionTableNames;
@@ -80,6 +82,14 @@ public final class PermissionChecker {
             checkFileSpaceMutation(stmt, context, accessControl, user);
             return;
         }
+        if (stmt instanceof CreateCatalogStatement || stmt instanceof DropCatalogStatement
+                || stmt instanceof AlterCatalogStatement || stmt instanceof DescribeCatalogStatement) {
+            if (accessControl == null || user == null) {
+                throw new AccessDeniedException("Authenticated catalog principal and access-control provider are required");
+            }
+            checkCatalogPrivilege(stmt, accessControl, user);
+            return;
+        }
         boolean viewMutation = stmt instanceof org.pangrova.parser.api.ast.statement.CreateViewStatement
                 || stmt instanceof org.pangrova.parser.api.ast.statement.DropViewStatement;
         if (viewMutation && (accessControl == null || user == null)) {
@@ -89,7 +99,13 @@ public final class PermissionChecker {
                 : StatementTableTargets.resolve(stmt, context);
         checkReservedDynamicTableGeneration(stmt, parts);
         if (accessControl == null || user == null) return;
-        if (checkCatalogOrSchema(stmt, context, accessControl, user)) return;
+        if (stmt instanceof CreateSchemaStatement create) {
+            var name = create.schemaName().parts();
+            if (name.isEmpty() || name.size() > 2) throw new IllegalArgumentException("Invalid schema name: " + name);
+            String catalog = name.size() == 2 ? name.get(0) : SessionTableNames.defaultCatalog(context);
+            accessControl.checkCanCreateSchema(user, catalog, name.get(name.size() - 1));
+            return;
+        }
         if (parts == null) return;
         switch (StatementClassifier.categorize(stmt)) {
             case DML -> checkDml(stmt, user, accessControl, parts.catalog(), parts.schema(), parts.table());
@@ -196,26 +212,16 @@ public final class PermissionChecker {
         }
     }
 
-    private static boolean checkCatalogOrSchema(Statement stmt, QuerySession context,
-            AccessControl accessControl, UserIdentity user) {
+    private static void checkCatalogPrivilege(Statement stmt, AccessControl accessControl, UserIdentity user) {
         if (stmt instanceof CreateCatalogStatement create) {
             accessControl.checkCanCreateCatalog(user, create.name());
-            return true;
-        }
-        if (stmt instanceof DropCatalogStatement drop) {
+        } else if (stmt instanceof DropCatalogStatement drop) {
             accessControl.checkCanDropCatalog(user, drop.name());
-            return true;
+        } else if (stmt instanceof AlterCatalogStatement alter) {
+            accessControl.checkCanAlterCatalog(user, alter.name());
+        } else {
+            accessControl.checkCanAccessCatalog(user, ((DescribeCatalogStatement) stmt).name());
         }
-        if (stmt instanceof CreateSchemaStatement create) {
-            var name = create.schemaName().parts();
-            if (name.isEmpty() || name.size() > 2) {
-                throw new IllegalArgumentException("Invalid schema name: " + name);
-            }
-            String catalog = name.size() == 2 ? name.get(0) : SessionTableNames.defaultCatalog(context);
-            accessControl.checkCanCreateSchema(user, catalog, name.get(name.size() - 1));
-            return true;
-        }
-        return false;
     }
 
     private static void checkDml(Statement stmt, UserIdentity user,

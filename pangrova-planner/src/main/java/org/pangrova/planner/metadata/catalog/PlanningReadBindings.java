@@ -4,7 +4,6 @@ import org.pangrova.metadata.api.catalog.CatalogReadAccess;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.metadata.api.exception.MetadataResolutionException;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
@@ -71,10 +70,7 @@ public final class PlanningReadBindings {
     }
 
     private AdmittedRead loadAdmitted(TableKey key, ConnectorSession session) {
-        var metadata = session.getQueryAuthority().map(ConnectorMetadataScope::require)
-                .map(authority -> authority.beginMetadata(key.catalog(),
-                    () -> catalogs.getCatalog(key.catalog()).getMetadata(session)))
-                .orElseGet(() -> catalogs.getCatalog(key.catalog()).getMetadata(session));
+        var metadata = catalogs.metadataForQuery(key.catalog(), session);
         var control = catalogs.tableControl();
         var controlled = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
                 : Optional.<TableControlRecord>empty();

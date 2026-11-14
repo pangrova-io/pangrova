@@ -47,7 +47,7 @@ final class MetadataQueryLifecycles {
             for (String name : catalogs.listCatalogNames()) {
                 try {
                     var actor = DefaultConnectorSession.fromSessionContext(session, name, session.currentSchema());
-                    owner.authority.beginMetadata(name, () -> catalogs.getCatalog(name).getMetadata(actor));
+                    catalogs.metadataForQuery(name, actor);
                     succeeded.add(name);
                 } catch (Exception failure) {
                     failed.put(name, failure);

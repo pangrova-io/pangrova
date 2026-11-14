@@ -1879,11 +1879,8 @@ SHOW CATALOGS;
 -- show Catalog details
 DESCRIBE CATALOG iceberg_prod;
 
--- suspend a Catalog (used during maintenance)
-ALTER CATALOG hive_federation SET state = 'SUSPENDED';
-
--- resume a Catalog
-ALTER CATALOG hive_federation SET state = 'ACTIVE';
+-- publish revised provider properties; tasks bound to an older revision retain its identity
+ALTER CATALOG iceberg_prod SET PROPERTIES ('uri' = 'https://catalog.example.com/api');
 
 -- unload a Catalog
 DROP CATALOG hive_federation;

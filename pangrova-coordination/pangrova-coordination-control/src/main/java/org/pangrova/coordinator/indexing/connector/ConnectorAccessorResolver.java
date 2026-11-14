@@ -158,7 +158,7 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
     public void registerCommitListener(
             String catalogName,
             org.pangrova.connector.api.index.CommitListener listener) {
-        catalogRegistry.getCatalog(catalogName).registerCommitListener(listener);
+        catalogRegistry.registerCommitListener(catalogName, listener);
     }
 
     /**

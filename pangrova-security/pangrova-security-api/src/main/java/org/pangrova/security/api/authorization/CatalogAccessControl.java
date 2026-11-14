@@ -4,25 +4,15 @@ import org.pangrova.security.api.identity.UserIdentity;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-/**
- * Access control for catalog-level operations.
- * Provides default implementations for create/drop/alter that delegate
- * to the base catalog access check.
- */
+/** Catalog inspection and mutation privileges are independent authorization decisions. */
 @Experimental
 public interface CatalogAccessControl {
 
     void checkCanAccessCatalog(UserIdentity user, String catalog);
 
-    default void checkCanCreateCatalog(UserIdentity user, String catalog) {
-        checkCanAccessCatalog(user, catalog);
-    }
+    void checkCanCreateCatalog(UserIdentity user, String catalog);
 
-    default void checkCanDropCatalog(UserIdentity user, String catalog) {
-        checkCanAccessCatalog(user, catalog);
-    }
+    void checkCanDropCatalog(UserIdentity user, String catalog);
 
-    default void checkCanAlterCatalog(UserIdentity user, String catalog) {
-        checkCanAccessCatalog(user, catalog);
-    }
+    void checkCanAlterCatalog(UserIdentity user, String catalog);
 }

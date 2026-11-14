@@ -21,9 +21,8 @@ import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder;
-import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateCatalogTask;
+import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogStatementTasks;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
-import org.pangrova.coordinator.query.execution.dispatch.task.catalog.DropCatalogTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowCatalogsTask;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
@@ -389,8 +388,6 @@ final class QueryExecutionBootstrap {
         var dropTableTask = new org.pangrova.coordinator.query.execution.dispatch.task.DropTableTask(ddlExecutor);
         var alterTableTask = new org.pangrova.coordinator.query.execution.dispatch.task.AlterTableTask(ddlExecutor);
         var createSchemaTask = new CreateSchemaTask(ddlExecutor);
-        var createCatalogTask = new CreateCatalogTask(ddlExecutor);
-        var dropCatalogTask = new DropCatalogTask(ddlExecutor);
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableStatement.class, createTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.DropTableStatement.class, dropTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.AddColumn.class, alterTableTask);
@@ -408,8 +405,7 @@ final class QueryExecutionBootstrap {
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.Adopt.class, alterTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.CreateSchemaStatement.class, createSchemaTask);
-        tasks.put(org.pangrova.parser.api.ast.CreateCatalogStatement.class, createCatalogTask);
-        tasks.put(org.pangrova.parser.api.ast.statement.DropCatalogStatement.class, dropCatalogTask);
+        CatalogStatementTasks.register(tasks, ddlExecutor, showDescribeExecutor);
         // SET session property (no-op, returns empty result)
         tasks.put(SetSessionStatement.class,
                 (MetadataTask<SetSessionStatement>)

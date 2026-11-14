@@ -2489,10 +2489,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.CreateSchemaStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask(ddlExecutor));
-        tasks.put(org.pangrova.parser.api.ast.CreateCatalogStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateCatalogTask(ddlExecutor));
-        tasks.put(org.pangrova.parser.api.ast.statement.DropCatalogStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.catalog.DropCatalogTask(ddlExecutor));
+        org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogStatementTasks.register(
+                tasks, ddlExecutor, showDescribeExecutor);
         // SHOW / DESCRIBE
         tasks.put(org.pangrova.parser.api.ast.ShowSchemasStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowSchemasTask(showDescribeExecutor));

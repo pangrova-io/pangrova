@@ -72,11 +72,9 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
 
         ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(),
                 ref.schema());
-        CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
-        ConnectorMetadata metadata = session.getQueryAuthority()
-                .map(org.pangrova.connector.api.metadata.ConnectorMetadataScope::require)
-                .map(authority -> authority.beginMetadata(ref.catalog(), () -> catalogHandle.getMetadata(session)))
-                .orElseGet(() -> catalogHandle.getMetadata(session));
+        var catalog = catalogRegistry.queryCatalog(ref.catalog(), session);
+        CatalogHandle catalogHandle = catalog.handle();
+        ConnectorMetadata metadata = catalog.metadata();
         ConnectorTableHandle tableHandle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
 
         if (fromSnapshot == toSnapshot) {

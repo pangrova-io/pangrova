@@ -171,7 +171,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                     LogContext.setQueryId(queryId);
                     incrementCounter(querySubmitCounter);
                     LOG.info("event=query_submitted queryId={}", queryId);
-                    auditBridge.emitAuditSubmitted(queryId, sql, submittedSession, stateMachine);
+                    auditBridge.emitAuditSubmitted(queryId, stateMachine.getSql(), submittedSession, stateMachine);
                     admission.checkDegradation();
                     return executeQuery(queryId, sql, submittedSession, stateMachine);
                 } finally {
@@ -276,7 +276,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     private QueryStateMachine resolveOrCreateStateMachine(String queryId, QuerySession session, String sql) {
         QueryStateMachine sm = new QueryStateMachine(true, session != null && session.userIdentity() != null
                 ? session.userIdentity().principal() : "anonymous");
-        sm.bindSql(sql);
+        sm.bindSql(org.pangrova.parser.parse.SqlDiagnostics.forReporting(sql));
         sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
         sm.setBeforeTerminalTransition(() -> shuffleCleanupPending.accept(queryId));
         QueryStateMachine existing = queries.register(queryId, sm,

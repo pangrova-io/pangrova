@@ -116,6 +116,72 @@ class CatalogRegistryEventDispatchTest {
     }
 
     @Test
+    void unknownAlterOutcomeKeepsThePriorHandleAndRecoversTheDurableRevision() {
+        var store = new InMemoryStore() {
+            @Override
+            public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
+                super.saveCatalogDescriptor(descriptor);
+                if (descriptor.revision() == 2) throw new IllegalStateException("commit outcome unconfirmed");
+            }
+        };
+        var reg = new CatalogRegistry(memoryTableStores(), store);
+        var descriptor = internalCatalog("alter_outcome");
+        try {
+            reg.register(descriptor);
+            var original = reg.getCatalog(descriptor.name());
+            assertThat(catchThrowable(() -> reg.alterProperties(descriptor.name(), null, Map.of("a", "b"))))
+                    .hasMessage("commit outcome unconfirmed");
+            assertThat(reg.getCatalog(descriptor.name())).isSameAs(original);
+            assertThat(store.getCatalogDescriptor(descriptor.name()).orElseThrow().revision()).isEqualTo(2);
+            assertThat(reg.reconcileFromStore().loaded()).containsExactly(descriptor.name());
+            assertThat(reg.getCatalog(descriptor.name()).getDescriptor().properties()).containsEntry("a", "b");
+        } finally {
+            reg.shutdown();
+        }
+    }
+
+    @Test
+    void tenantAndProviderValidationPrecedeMutationAndOldQueriesOwnTheirHandleUntilCleanup() {
+        var store = new InMemoryStore();
+        var closed = new java.util.ArrayList<Long>();
+        var subscribed = new java.util.ArrayList<Long>();
+        var reg = new CatalogRegistry(memoryTableStores(), store,
+                descriptor -> new org.pangrova.metadata.connector.ConnectorCatalogHandle(descriptor,
+                        new CatalogRegistryConstructorInjectionTest.NoOpConnector() {
+                            @Override public void shutdown() { closed.add(descriptor.revision()); }
+                            @Override public void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
+                                subscribed.add(descriptor.revision());
+                            }
+                        }), null, null);
+        var original = new CatalogDescriptor("restricted", CatalogType.CONNECTOR, "test",
+                CatalogState.ACTIVE, Map.of(), "", Set.of("owner"));
+        try {
+            reg.register(original);
+            reg.registerCommitListener(original.name(), event -> {});
+            var handle = reg.retainForQuery(original.name());
+            assertThat(catchThrowable(() -> reg.requireVisibleDescriptor(original.name(), "other")))
+                    .isInstanceOf(org.pangrova.metadata.api.exception.CatalogAccessDeniedException.class);
+            assertThat(catchThrowable(() -> reg.alterProperties(original.name(), "other", Map.of("a", "b"))))
+                    .isInstanceOf(org.pangrova.metadata.api.exception.CatalogAccessDeniedException.class);
+            assertThat(catchThrowable(() -> reg.unregister(original.name(), "other")))
+                    .isInstanceOf(org.pangrova.metadata.api.exception.CatalogAccessDeniedException.class);
+            assertThat(catchThrowable(() -> reg.alterProperties(original.name(), "owner", Map.of("Connector", "other"))))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(store.getCatalogDescriptor(original.name())).contains(original);
+            reg.alterProperties(original.name(), "owner", Map.of("a", "b"));
+            assertThat(reg.getCatalog(original.name())).isNotSameAs(handle);
+            assertThat(closed).isEmpty();
+            assertThat(subscribed).containsExactly(1L, 2L);
+            reg.releaseFromQuery(handle);
+            assertThat(closed).containsExactly(1L);
+            reg.unregister(original.name(), "owner");
+            assertThat(closed).containsExactly(1L, 2L);
+        } finally {
+            reg.shutdown();
+        }
+    }
+
+    @Test
     void handleCreationFailureCannotCompensateAReplacement() {
         var store = new InMemoryStore();
         var replacement = internalCatalog("peer_replaced");

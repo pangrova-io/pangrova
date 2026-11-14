@@ -14,7 +14,7 @@ public final class StatementClassifier {
     /** Classifies syntax independently of provider availability; unsupported kinds remain UNKNOWN. */
     public static StatementCategory categorize(Statement statement) {
         return switch (statement.type()) {
-            case CREATE_CATALOG, DROP_CATALOG, CREATE_SCHEMA, CREATE_TABLE, CREATE_TABLE_AS_SELECT,
+            case CREATE_CATALOG, ALTER_CATALOG, DROP_CATALOG, CREATE_SCHEMA, CREATE_TABLE, CREATE_TABLE_AS_SELECT,
                     DROP_TABLE, ALTER_TABLE, CREATE_BRANCH, DROP_BRANCH, CREATE_TAG, DROP_TAG,
                     CREATE_VIEW, DROP_VIEW, CREATE_EMBEDDING_MODEL, ALTER_EMBEDDING_MODEL,
                     DROP_EMBEDDING_MODEL, CREATE_STORAGE_PROFILE, DROP_STORAGE_PROFILE,
@@ -24,7 +24,7 @@ public final class StatementClassifier {
                     GRANT_PRIVILEGE, REVOKE_PRIVILEGE -> StatementCategory.DDL;
             case INSERT, INSERT_OVERWRITE, INSERT_SELECT, DELETE, UPDATE, MERGE -> StatementCategory.DML;
             case EXPLAIN -> StatementCategory.EXPLAIN;
-            case SHOW_SCHEMAS, SHOW_TABLES, SHOW_TABLE_CONTROLS, DESCRIBE_TABLE, SHOW_CATALOGS,
+            case SHOW_SCHEMAS, SHOW_TABLES, SHOW_TABLE_CONTROLS, DESCRIBE_TABLE, SHOW_CATALOGS, DESCRIBE_CATALOG,
                     SHOW_VIEWS, SHOW_EMBEDDING_MODELS, SHOW_STORAGE_PROFILES, SHOW_BRANCHES,
                     SHOW_TAGS, SHOW_METADATA, SHOW_BACKFILL_STATUS, SHOW_SEMANTIC_VIEWS,
                     SHOW_MATERIALIZATIONS, SHOW_MATERIALIZATION_DEPENDENCIES,
@@ -43,7 +43,7 @@ public final class StatementClassifier {
             case CREATE_STREAM, ALTER_STREAM, DROP_STREAM, SHOW_STREAMS, DESCRIBE_STREAM -> StatementCategory.STREAM;
             case QUERY, SET_QUERY, CTE_QUERY, INCREMENTAL_READ -> StatementCategory.QUERY;
             // These parsed operations have no execution implementation. Never fall through to a query.
-            case ALTER_CATALOG, DESCRIBE_CATALOG, BACKFILL_COLUMN, CANCEL_BACKFILL,
+            case BACKFILL_COLUMN, CANCEL_BACKFILL,
                     USE_BRANCH -> StatementCategory.UNKNOWN;
         };
     }
