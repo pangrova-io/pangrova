@@ -121,7 +121,37 @@ class RuntimeClasspathTest(unittest.TestCase):
                 with ZipFile(unrelated, "w") as jar:
                     jar.writestr(member, b"")
                 with self.assertRaisesRegex(ValueError, "runtime"):
-                    stage.check_contents(role, unrelated, self.home / "server.jar")
+                    stage.check_contents(role, unrelated, self.home / "server.jar", stage.RoleContents())
+
+    def test_stager_checks_ownership_across_all_jars_in_one_role(self):
+        spec = importlib.util.spec_from_file_location("stage", ROOT / "deploy/docker/stage-role-classpaths.py")
+        stage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stage)
+        service = "META-INF/services/org.pangrova.example.Factory"
+
+        def make_jar(name, module, members):
+            path = self.home / name
+            with ZipFile(path, "w") as jar:
+                jar.writestr("META-INF/MANIFEST.MF",
+                             "Manifest-Version: 1.0\r\nAutomatic-Module-Name: " + module + "\r\n\r\n")
+                for entry, content in members.items():
+                    jar.writestr(entry, content)
+            return path
+
+        first = make_jar("first.jar", "org.pangrova.\r\n first", {
+            "org/pangrova/example/A.class": b"", "META-INF/versions/17/org/pangrova/example/A.class": b"",
+            service: "example.Provider # selected factory\n"})
+        for module, entries, message in (
+                ("another", {"org/pangrova/example/B.class": b""}, "Conflicting runtime owners"),
+                ("org.pangrova.first", {"org/pangrova/other/C.class": b""}, "Conflicting runtime owners"),
+                ("another", {service: "example.Provider\n"}, "Duplicate standalone service"),
+                ("", {"org/pangrova/other/C.class": b""}, "Automatic-Module-Name")):
+            with self.subTest(entries=entries, module=module):
+                contents = stage.RoleContents()
+                stage.check_contents("standalone", first, self.home / "server.jar", contents)
+                other = make_jar("other.jar", module, entries)
+                with self.assertRaisesRegex(ValueError, message):
+                    stage.check_contents("standalone", other, self.home / "server.jar", contents)
 
     def test_unbuilt_role_fails_with_actionable_build_command(self):
         result = self.resolve('coordinator')

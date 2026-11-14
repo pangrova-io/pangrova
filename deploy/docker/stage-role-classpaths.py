@@ -28,19 +28,56 @@ EXCLUDED_PACKAGES = {
 }
 
 
-def check_contents(role, source, application):
+class RoleContents:
+    """Owners of Pangrova packages, module names and SPI registrations in one process."""
+
+    def __init__(self):
+        self.packages = {}
+        self.modules = {}
+        self.providers = {}
+
+    @staticmethod
+    def claim(owners, key, source):
+        previous = owners.setdefault(key, source)
+        if previous != source:
+            raise ValueError(f"Conflicting runtime owners for {key}: {previous.name} and {source.name}")
+
+
+def check_contents(role, source, application, contents):
     with ZipFile(source) as jar:
         if source == application and MAIN_CLASS[role] not in jar.namelist():
             raise ValueError(f"Missing {role} process entry point in {source.name}")
+        contains_engine_classes = False
         for member in jar.namelist():
             path = member
             if member.startswith("META-INF/versions/"):
                 path = member.split("/", 3)[-1]
             if path.endswith(".class") and path.startswith(EXCLUDED_PACKAGES[role]):
                 raise ValueError(f"Unexpected {role} runtime class in {source.name}: {member}")
+            if path.startswith("org/pangrova/") and path.endswith(".class"):
+                contains_engine_classes = True
+                contents.claim(contents.packages, path.rsplit("/", 1)[0], source)
+            if member.startswith("META-INF/services/org.pangrova.") and not member.endswith("/"):
+                service = member.removeprefix("META-INF/services/")
+                for line in jar.read(member).decode("utf-8").splitlines():
+                    provider = line.partition("#")[0].strip()
+                    if provider:
+                        key = (service, provider)
+                        if key in contents.providers:
+                            raise ValueError(f"Duplicate {role} service registration {key} in "
+                                             f"{source.name} and {contents.providers[key].name}")
+                        contents.providers[key] = source
             if role == "coordinator" and path.rsplit("/", 1)[-1] in (
                     "libpangrova_native.so", "libpangrova_native.dylib", "pangrova_native.dll"):
                 raise ValueError(f"Unexpected Coordinator native runtime in {source.name}: {member}")
+        if contains_engine_classes or source.name.startswith("pangrova-"):
+            manifest = jar.read("META-INF/MANIFEST.MF").replace(b"\r\n", b"\n").replace(b"\n ", b"")
+            main_section = manifest.partition(b"\n\n")[0]
+            names = [line.partition(b": ")[2].decode("utf-8") for line in main_section.splitlines()
+                     if line.lower().startswith(b"automatic-module-name: ")]
+            if len(names) != 1 or not names[0].strip():
+                raise ValueError(f"Expected one Automatic-Module-Name in {source.name}")
+            contents.claim(contents.modules, names[0], source)
 
 
 def stage(project, library):
@@ -55,6 +92,7 @@ def stage(project, library):
         role_dir = library / role
         role_dir.mkdir()
         names = []
+        contents = RoleContents()
         for source in [application, *(Path(entry) for entry in entries)]:
             if not source.is_file() or source.suffix != ".jar":
                 raise ValueError(f"{role} runtime dependency is missing or is not a JAR: {source}")
@@ -69,7 +107,7 @@ def stage(project, library):
                     or (role == "coordinator" and name.startswith(("pangrova-worker-", "pangrova-server-worker-", "pangrova-native-bundle-")))
                     or name.startswith("pangrova-testing-")):
                 raise ValueError(f"Unexpected {role} runtime dependency: {name}")
-            check_contents(role, source, application)
+            check_contents(role, source, application, contents)
             # The frozen regression inventory uses the flat standalone closure.
             flat = library / name
             if role == "standalone":

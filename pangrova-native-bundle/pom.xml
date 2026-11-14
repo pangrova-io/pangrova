@@ -13,6 +13,9 @@
     <artifactId>pangrova-native-bundle</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Native Bundle</name>
+    <properties>
+        <module.name>org.pangrova.worker.jni.bundle</module.name>
+    </properties>
     <description>
         Per-platform classifier JAR containing the native JNI library (libpangrova_native).
         Follows the Netty tcnative-boringssl-static / sqlite-jdbc pattern:
