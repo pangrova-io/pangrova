@@ -1212,6 +1212,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             try {
                 rows = fetchResultsViaTransport(endpoint, queryId);
             } catch (Exception transportFailure) {
+                cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
                 String queryFailure = awaitQueryFailure(queryId, transportFailure);
                 if (queryFailure != null) {
                     throw new IllegalStateException("Query failed: " + queryId
