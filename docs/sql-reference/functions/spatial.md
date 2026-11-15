@@ -29,7 +29,9 @@ SELECT ST_GEOMFROMTEXT('POINT (116.39 39.91)') AS point;
 ST_GEOGRAPHYFROMTEXT(wkt) → VARBINARY
 ```
 
-Parses a WKT string into a GEOGRAPHY value (encoded as WKB).
+Parses a WKT string into a GEOGRAPHY value (encoded as WKB). GEOGRAPHY shares the
+GEOMETRY WKB representation; predicates currently evaluate planar coordinates
+until a distinct geodesic operator is implemented.
 
 ```sql
 SELECT ST_GEOGRAPHYFROMTEXT('POLYGON ((30 10, 40 40, 20 40, 10 20, 30 10))') AS region;
@@ -87,7 +89,8 @@ WHERE ST_CONTAINS(boundary, query_point);
 ## Notes
 
 - GEOMETRY uses planar (Cartesian) coordinate math
-- GEOGRAPHY uses geodesic (spherical) coordinate math on WGS 84
+- GEOGRAPHY currently uses the same planar coordinate evaluation; geodesic (spherical) math on WGS 84 is not implemented
+- `ST_WITHIN`, `ST_INTERSECTS`, and `ST_CONTAINS` support POINT and POLYGON operands; other geometry kinds are rejected with an explicit error
 - Both types are stored as WKB binary (reuses VARBINARY column reader)
 - Iceberg format-version 3 is required for GEOMETRY/GEOGRAPHY columns
 - CRS metadata (default CRS:84) is preserved through Iceberg table properties

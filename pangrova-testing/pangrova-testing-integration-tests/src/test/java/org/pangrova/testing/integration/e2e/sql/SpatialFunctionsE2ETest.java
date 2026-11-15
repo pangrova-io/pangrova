@@ -113,6 +113,33 @@ class SpatialFunctionsE2ETest extends PangrovaE2ETestBase {
     }
 
     @Nested
+    @DisplayName("ST_GEOGRAPHYFROMTEXT")
+    class StGeographyFromText {
+
+        @Test
+        @DisplayName("geography constructor produces WKB usable by predicates")
+        void geographyConstructorFeedsPredicates() {
+            executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, region GEOMETRY)"
+                    + " TBLPROPERTIES ('format-version' = '3')");
+            executeDml("INSERT INTO " + fqn() + " VALUES "
+                    + "(1, X'0103000000010000000500000000000000000000000000000000000000"
+                    + "00000000000024400000000000000000"
+                    + "00000000000024400000000000002440"
+                    + "00000000000000000000000000002440"
+                    + "00000000000000000000000000000000')");
+
+            String sql = "SELECT id FROM " + fqn()
+                    + " WHERE ST_CONTAINS(region, ST_GEOGRAPHYFROMTEXT('POINT(5 5)'))";
+            assertThat(executeQuery(sql))
+                    .extracting(row -> ((Number) row.getRaw("id")).longValue())
+                    .containsExactly(1L);
+
+            executeDdl("DROP TABLE " + fqn());
+        }
+    }
+
+    @Nested
     @DisplayName("ST_CONTAINS")
     class StContains {
 

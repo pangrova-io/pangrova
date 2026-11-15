@@ -429,12 +429,20 @@ std::vector<exec::FunctionSignaturePtr> binaryPredicateSignature() {
 }  // namespace
 
 void registerSpatialFunctions() {
+  const std::vector<exec::FunctionSignaturePtr> constructorSignature{
+      exec::FunctionSignatureBuilder()
+          .returnType("varbinary")
+          .argumentType("varchar")
+          .build()};
   exec::registerVectorFunction(
       "st_geomfromtext",
-      {exec::FunctionSignatureBuilder()
-           .returnType("varbinary")
-           .argumentType("varchar")
-           .build()},
+      constructorSignature,
+      std::make_unique<GeomFromTextFunction>());
+  // GEOGRAPHY shares the WKB representation; predicates evaluate planar
+  // coordinates until a distinct geodesic operator exists.
+  exec::registerVectorFunction(
+      "st_geographyfromtext",
+      constructorSignature,
       std::make_unique<GeomFromTextFunction>());
   exec::registerVectorFunction(
       "st_within",
