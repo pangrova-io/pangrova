@@ -1238,7 +1238,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         String url = "http://localhost:" + coordinatorHttpServer.getPort()
                 + "/v1/query/" + queryId + "/state";
         long deadline = System.nanoTime()
-                + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                + java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
         while (System.nanoTime() < deadline) {
             try {
                 HttpResponse<String> response = HTTP_CLIENT.send(
