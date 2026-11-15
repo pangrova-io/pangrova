@@ -326,6 +326,7 @@ jobs:
                        WorkerShuffleChannelAdmissionIntegrationTest \
                        NativeShuffleEgressContractIntegrationTest \
                        NativeAiFailureProjectionRegistrationTest \
+                       WorkerMembershipAdmissionE2ETest \
                        'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
                        LocalGovernedFileSqlE2ETest; do
             file_backend=s3

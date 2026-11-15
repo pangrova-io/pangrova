@@ -179,7 +179,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 | Same-source production image | Verified image ID, source revision, classifier and runtime manifest |
 | Complete installed Java reactor | Independent-process integration tests that resolve reactor artifacts |
 | `native-runtime,full-regression verify` | Unit/integration/E2E/activation smoke in one reactor run |
-| Seven isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM; LOCAL FILE selects its own deployment |
+| Eight isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM; LOCAL FILE selects its own deployment |
 | Selected native ASan/UBSan builds + tests | Zero findings before production correctness acceptance |
 
 ```
@@ -215,7 +215,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 │ Step 6: Java Full Test (all modules, shared E2E and smoke)       │
 │   mvn -q -Pfull-regression verify                               │
 │                                                                  │
-│ Step 7: Isolated Native owner E2E (seven separate JVMs)          │
+│ Step 7: Isolated Native owner E2E (eight separate JVMs)          │
 │   see commands below                                             │
 │                                                                  │
 │ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
@@ -238,6 +238,7 @@ for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTe
              WorkerShuffleChannelAdmissionIntegrationTest \
              NativeShuffleEgressContractIntegrationTest \
              NativeAiFailureProjectionRegistrationTest \
+             WorkerMembershipAdmissionE2ETest \
              'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
              LocalGovernedFileSqlE2ETest; do
   file_backend=s3
@@ -248,10 +249,10 @@ for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTe
 done
 ```
 
-The Step 6 shared run, including `ActivationSmokeE2ETest`, and all seven isolated
+The Step 6 shared run, including `ActivationSmokeE2ETest`, and all eight isolated
 owner selections must pass; report their test counts
 separately. A single shared JVM run that excludes these selections without the
-seven isolated results is incomplete.
+eight isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
 command that selects no applicable tests is not validation. Use the optional

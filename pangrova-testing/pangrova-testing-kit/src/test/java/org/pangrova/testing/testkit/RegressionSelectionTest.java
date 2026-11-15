@@ -46,6 +46,7 @@ class RegressionSelectionTest {
                 "WorkerShuffleChannelAdmissionIntegrationTest",
                 "NativeShuffleEgressContractIntegrationTest",
                 "NativeAiFailureProjectionRegistrationTest",
+                "WorkerMembershipAdmissionE2ETest",
                 "LocalGovernedFileSqlE2ETest",
                 "CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes")) {
             assertThat(workflow).contains(owner);
