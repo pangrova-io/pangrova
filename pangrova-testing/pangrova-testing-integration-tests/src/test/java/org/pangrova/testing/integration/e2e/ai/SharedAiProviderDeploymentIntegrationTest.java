@@ -34,7 +34,7 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
         selected.container().withExtraHost("registry.ollama.ai", "127.0.0.1");
         try (var provider = new SharedAiProvider(selected, Duration.ofMinutes(3))) {
             var config = provider.prepare();
-            assertThat(selected.container().execInContainer("getent", "hosts", "registry.ollama.ai")
+            assertThat(selected.container().execInContainer("getent", "ahostsv4", "registry.ollama.ai")
                     .getStdout()).contains("127.0.0.1");
             HttpRequest request = HttpRequest.newBuilder(URI.create(provider.endpoint("/api/tags")))
                     .timeout(Duration.ofSeconds(10)).GET().build();
