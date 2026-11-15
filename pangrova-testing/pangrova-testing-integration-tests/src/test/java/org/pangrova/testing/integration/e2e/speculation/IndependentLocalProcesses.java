@@ -250,12 +250,18 @@ final class IndependentLocalProcesses implements AutoCloseable {
     long pid(String workerId) { return workers.get(workerId).process().pid(); }
     long coordinatorPid() { return coordinator.process().pid(); }
 
-    boolean hasAttributedQueryAudit(String queryId) throws IOException {
-        String record = " msg=query=" + queryId + " user=" + ProcessSecurityAuthority.USER
-                + " tenant=" + ProcessSecurityAuthority.TENANT + " ";
-        try (var lines = Files.lines(workspace.resolve("logs/coordinator.log"), StandardCharsets.UTF_8)) {
-            return lines.anyMatch(line -> line.contains("logger=pangrova.audit.query ")
-                    && line.contains(record));
+    boolean hasAttributedQueryAudit(String queryId) throws java.sql.SQLException {
+        try (var connection = security.dataSource().getConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT user_id, tenant_id FROM query_audit_records WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return false;
+                }
+                return ProcessSecurityAuthority.USER.equals(result.getString("user_id"))
+                        && ProcessSecurityAuthority.TENANT.equals(result.getString("tenant_id"));
+            }
         }
     }
     Path retainDiagnostics() {
