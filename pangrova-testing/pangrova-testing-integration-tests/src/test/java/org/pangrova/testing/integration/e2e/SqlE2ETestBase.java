@@ -1212,22 +1212,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             try {
                 rows = fetchResultsViaTransport(endpoint, queryId);
             } catch (Exception transportFailure) {
-                String url = "http://localhost:" + coordinatorHttpServer.getPort()
-                        + "/v1/query/" + queryId + "/state";
-                String queryFailure = null;
-                try {
-                    HttpResponse<String> response = HTTP_CLIENT.send(
-                            authenticatedHttpRequest(URI.create(url)).GET().build(),
-                            HttpResponse.BodyHandlers.ofString());
-                    if (response.statusCode() == 200) {
-                        var status = MAPPER.readTree(response.body());
-                        if ("FAILED".equals(status.path("state").asText())) {
-                            queryFailure = extractErrorDetail(status);
-                        }
-                    }
-                } catch (Exception statusFailure) {
-                    transportFailure.addSuppressed(statusFailure);
-                }
+                String queryFailure = awaitQueryFailure(queryId, transportFailure);
                 if (queryFailure != null) {
                     throw new IllegalStateException("Query failed: " + queryId
                             + " — " + queryFailure, transportFailure);
@@ -1246,6 +1231,40 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         releaseNativeTaskAfterTerminal(workerTaskId);
         return remapColumnNames(rows, submitResponse.columnNames());
+    }
+
+    /** Surfaces a terminal query error recorded shortly after the result transport failed. */
+    private static String awaitQueryFailure(String queryId, Exception transportFailure) {
+        String url = "http://localhost:" + coordinatorHttpServer.getPort()
+                + "/v1/query/" + queryId + "/state";
+        long deadline = System.nanoTime()
+                + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            try {
+                HttpResponse<String> response = HTTP_CLIENT.send(
+                        authenticatedHttpRequest(URI.create(url)).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    var status = MAPPER.readTree(response.body());
+                    String state = status.path("state").asText();
+                    if ("FAILED".equals(state)) {
+                        return extractErrorDetail(status);
+                    }
+                    if ("FINISHED".equals(state) || "CANCELLED".equals(state)) {
+                        return null;
+                    }
+                }
+            } catch (Exception statusFailure) {
+                transportFailure.addSuppressed(statusFailure);
+            }
+            try {
+                Thread.sleep(POLL_INTERVAL_MS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
     }
 
     protected static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
