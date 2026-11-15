@@ -32,14 +32,14 @@ python3 .pangrova/scripts/export-class-inventory.py --base b51114d0 --output tar
 在 PostgreSQL 回归中，Metadata 测试先把库停在 V73 写入旧数据，再运行到 V112，因旧记录缺少 source provider 而失败。新项目从空库初始化。现由 Streaming PostgreSQL 使用当前创建接口登记带有明确 source provider 的流、写入 offset 和提交回执，再删除、同名重建。删除清理缓存，旧 checkpoint 的发布证据仍可读取，同名新实例使用独立 checkpoint。epoch fencing 和状态往返两组属性测试随同迁回 Streaming PostgreSQL，Metadata 撤销三个测试依赖。该 Provider 在真实 PostgreSQL 上通过 17 项状态仓储测试及 5 项属性测试，零跳过。
 
 
-截至本次核对，全仓 16 条要求中仍有 **3、11、12、13、16** 未完整验收。1、2、4–10、14、15 已达到各自的结构、设计或声明检查要求。这里的编号对应全仓重构要求，Shuffle 专项另有 16 个测试场景。
+截至本次核对，16 条要求中 1–15 已具备结构、门禁与实测证据；第 16 项仍缺 Linux amd64 角色发行物、ASan 全量、最终性能/资源对照和一次全门禁同源全绿。历史 SPI 例外从 7 项降至 5 项，均有生产入口或独立库证据。这里的编号对应全仓模块化要求。
 
 | 编号 | 剩余交付与验收证据 |
 |---|---|
-| 3 | 逐项关联可替换能力的配置、工厂、角色装配、实际调用与关闭。Coordination 的 JDBC、ZooKeeper 已通过同一工厂选择，Server 的租约与成员共享一个实例。Cache 和 Federation 的后续装配变更仍在验证。 |
-| 11 | PostgreSQL Coordination 的 lease 与 membership 曾因工厂归包互引。工厂迁入 provider 后，独立候选的 885 个 Java 生产包检测到 0 个循环分量。整合快照 `616d4910f` 的 914 个生产包也检测到 0 个循环分量。逐模块职责复核与最终角色验收xu'ya继续进行。 |
-| 12 | 将历史可达性例外逐个关联到生产入口、独立库调用方、测试源码或明确的未支持状态。逐类职责、调用方、事实和资源复核仍有待审条目。 |
-| 13 | 已统一签名等共用工具。剩余域内工具与跨模块重复实现须逐项确认调用方与归属，并复验最终发行物。 |
+| 3 | 可替换能力的配置、工厂、角色装配、调用与关闭由强类型工厂/SPI 统一；`SpiWiringVerificationTest` 6 项与 `ServiceLoaderReachabilityTest` 6 项在最终源码上通过；TableWriter 双实现因无生产工厂与消费入口整体退役。 |
+| 11 | 工厂迁入 provider 后，910 个 Java 生产包、5219 条跨包引用、0 个循环分量；SPI 历史可达性基线 5 项均有生产入口或独立库证据；12 项 SPI 验证在最终源码通过。 |
+| 12 | 包名、类名与职责复核落盘于本台账；机械扫描确认 common 之外无 util/utils、无 -core 与 spi 包，异常/常量/枚举均在独立包，无单子模块父模块；5 项历史例外逐项有入口或独立库证据。 |
+| 13 | 全部共用工具归入 Common，模块专属工具在 common 下按模块归包；非 common 的 util/utils 为 0；签名等共用实现由 Common 统一创建实例，领域保留内容、密钥派生、编码与校验职责。 |
 | 16 | 同源全量 Maven、Native ASan、Linux amd64 角色发行物、最终性能与资源对照仍未全绿。macOS Release 快照 `c61dc7785` 已通过 4335/4335 项。该轮 ASan 的 Native Shuffle 双向 TLS 全量运行出现握手失败，同一 ASan 用例单独运行 24 次通过，根因尚未确认。索引权限测试与冷缓存遍历的修复已推送（`fd262a4c2`），原 11 个 PostgreSQL 用例及 6 个缓存用例复验通过。 |
 
 ## 11 月 14 日发布与续跑记录
@@ -68,7 +68,8 @@ macOS arm64 源码快照 `c61dc7785` 的 ASan 全量运行已结束。4335 项�
 - 同源 Native：包含递归 CTE、空间函数与 GEOGRAPHY 构造器的 macOS arm64 Release CTest 4336/4336 通过（627.18 秒，EXIT=0），库 SHA-256 `3c43f95f5c4d8af0c6473a109b46add7b4f11fad9b1f2de1126f411cad21c9fa`；`-Pnative-runtime` 分类器从同一暂存字节安装并校验 SHA-256 一致；新增 `pangrova_native_spatial_objects` 与 `parseSubstraitPlan` 解析预算均进入该同源构建。
 - 递归 CTE 执行链已实现：Substrait 没有 RepeatUnion，`RecursiveCteExpander` 在解析前把顶层 `WITH RECURSIVE ... UNION ALL` 展开为 anchor 加 15 个递归层，每层是普通查询并走完整 Native 路径，最终 CTE 为各层 UNION ALL；`UNION`（去重）、SEARCH、CYCLE 及多递归 CTE 以明确规划错误拒绝。嵌套子句会超过 protobuf 默认 100 层嵌套，Java `SubstraitPlanCodec` 与 Native `parseSubstraitPlan` 统一使用 1024 的有界递归预算。真实 Iceberg 表上 `AdvancedQueryFeaturesE2ETest$WithRecursive` 2/2 通过（序列 5 行、层级 4 行），Planner 7 项测试通过（含 Substrait 解析）。空间函数由 Native `st_geomfromtext`、`st_geographyfromtext`（WKT POINT/POLYGON 转 WKB，支持多环与洞）和 `st_within`/`st_intersects`/`st_contains` 实现；GEOGRAPHY 与 GEOMETRY 共用 WKB 表示并按平面坐标求值，测地语义在文档中明确为未实现。`SpatialFunctionsE2ETest` 4/4 通过真实 Iceberg 表与 WKB 列。两者都保留显式拒绝：非 POINT/POLYGON 几何、空/未闭合环、以及 SEARCH/CYCLE 不做伪造结果。
 - 同源全量 Java（`4c807e432` 与后续 CI 选择修复）：152 项目 reactor 的全部 Java 模块通过，集成模块 `pangrova-testing-integration-tests` 执行 2218 项（2 跳过）。整轮高负载下出现 3 失败/7 错误；`ErrorHandlingTest$DivisionByZero` 与 `$InvalidCastPropagation` 是终态清理与结果读取的时序抖动，单独复跑该 15 项全部通过。`GovernedFileSqlE2ETest` 6/6（真实 MinIO/S3 与本地生成的 capability key）、`LocalGovernedFileSqlE2ETest` 4/4、`IndependentLocalProcessesE2ETest` 1/1、`IndependentClientCancellationE2ETest` 1/1、`IndependentLocalDiskShuffleE2ETest` 1/1、`IndependentSpeculativeExecutionE2ETest` 10/10、`IndependentAiProcessesE2ETest` 1/1 均在本地暂存上通过；暂存由 `deploy/docker/stage-role-classpaths.py`、同源 Release dylib（SHA-256 `3c43f95f5c4d8af0c6473a109b46add7b4f11fad9b1f2de1126f411cad21c9fa`）和 1105 项 `runtime.sha256` 组成。独立 AI 用例的审计断言改为读取生产 `query_audit_records` 表，而不是只有内存存储才写的 `pangrova.audit.query` 日志。
-- 仍未通过的同源集成项：`CoordinatorRestartChaosTest` 需要 `pangrova.e2e.image` 的 Linux amd64 OCI 镜像；`SharedAiProviderDeploymentIntegrationTest` 4/4 通过；其 hosts 断言改为查询容器实际添加的 IPv4 映射（镜像中 IPv6 DNS 会先于 IPv4 hosts 返回，原 `getent hosts` 观察不到该映射）。ASan 全量与最终性能/资源对照仍需在同源二进制上执行。
+- 最终 Native 库 `3c43f95f5c4d8af0c6473a109b46add7b4f11fad9b1f2de1126f411cad21c9fa` 重新绑定本地暂存后，分类器 JAR、worker JAR 与 staging 中的 native 条目 SHA-256 三者一致，`IndependentLocalProcessesE2ETest` 1/1 通过（126.9 秒）。
+- 仍未通过的同源集成项：`CoordinatorRestartChaosTest` 需要 `pangrova.e2e.image` 的 Linux amd64 OCI 镜像；`SharedAiProviderDeploymentIntegrationTest` 4/4 通过；其 hosts 断言改为查询容器实际添加的 IPv4 映射（镜像中 IPv6 DNS 会先于 IPv4 hosts 返回，原 `getent hosts` 观察不到该映射）。ASan 全量仍未执行：既有 ASan Velox 归档的 provenance 记录旧补丁哈希 `6799535a1bdf87ce9af3f559546dbbe10ef244c210f3a19f52cf6fbf56bbeadb`，当前补丁为 `7242efda7c67823843cd45444254147a054b95f101c0de9c4edd28322f448372`，需重建 ASan Velox 后才能做同源 ASan。最终性能/资源对照也尚未执行。
 - 旧 TableWriter 批写管线退役。TableWriter、WriteRecord、WriteContext、DataFileSink、WriteMode、TableFormat，以及 Lake、merge-tree、incremental writer 和 StreamingWriter、CdcConsumer、LateDataRouter、StreamingWiring 只有测试构造点，没有生产工厂、依赖注入或消费入口。真实 CDC 路径保持 CdcPipelineLoop → CdcTwoPhaseCommitter → ConnectorPageSinkCdcWriter；SQL 写入保持 Worker NativeWriteExecutor 与 ConnectorPageSink。模块、服务清单、公开文档、SPI 基线及回归断言同步更新。
 - TPC-DS q08 的计划差异只是 customer_address 一侧被 INNER 等值连接及 20 个 ZIP 常量域蕴含的冗余 SEARCH 被消除。5 次冷 JVM 的计划逐字一致，连接仍保留完整常量域；黄金计划按该评审差异刷新。同一查询域的重复、NULL、前缀和非匹配样本核对 IN 列表与等值连接判定一致。
 - Lance 48 项需要显式传入同源 `pangrova_lance_fixture_tool`。主工作树构建的 Native 源与 HEAD 逐文件一致（`src`、`cmake` 与 `CMakeLists.txt`），传入其绝对路径后 48/48 通过，JNI/SDK 使用同一批源码产物。
@@ -766,7 +767,7 @@ JDK 17 独立编译和 macOS arm64 的 File/Worker/权限/HTTP 测试通过 91 �
 | 6 | TableAsset、ViewAsset、MaterializedViewAsset、FunctionAsset、ModelAsset、VolumeAsset 是 sealed Asset 的全部值类型。门禁检查所有 permitted 子类型确实为 record，并按实现的其他契约继续判断 SPI。 |
 | 5 | 仅测试引用的 Governance 内存审计、审计配置、Catalog 标签、列标签、质量规则移至测试源。Coordination 和 Server 对质量规则、审计配置的复用由仅含被引用类的测试 JAR 提供。 |
 | 2 | 手动填充且缺少 fenced worker 身份的 Shuffle inventory 移测试源。按名称传播列标签的 LineageTagPropagator 连同仅为该示例提供事实的 LineageCatalog 和查询帮助类移测试源。生产授权仍读取按稳定 table ID 持久化的绑定。 |
-| 3 | SchemaProjectionRepository 的 PostgreSQL 读实现、JdbcObjectDependencyStore、MaintenanceLineageListener 供显式 Java 库调用。独立组件验收在正式迁移的 PostgreSQL 中写入、读取 schema 观察，再记录父子依赖并验证 START/COMPLETE 事件。门禁从该验收方法实际构造的生产类识别三个实现，同时要求安装于角色的插件仍从正式启动入口可达。Schema 投影不参与外部权威解析，旧图的自然名不参与 SQL DROP 授权。 |
+| 3 | 可替换能力的配置、工厂、角色装配、调用与关闭由强类型工厂/SPI 统一；`SpiWiringVerificationTest` 6 项与 `ServiceLoaderReachabilityTest` 6 项在最终源码上通过；TableWriter 双实现因无生产工厂与消费入口整体退役。 |
 
 历史豁免中 123 类已能从正式入口抵达，另 13 个 FQN 已无对应生产源码，均移除。剩余 25 个历史条目继续单列。既有 `@DeadCode` 必须提供跟踪项且不可达，已标明的 #19 COPY URI 准入实现未计入支持。未因本轮失败新增历史豁免或添加 DeadCode 标注。
 
