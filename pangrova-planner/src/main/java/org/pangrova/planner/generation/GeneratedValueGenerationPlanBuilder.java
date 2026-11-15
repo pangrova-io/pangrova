@@ -79,7 +79,7 @@ public final class GeneratedValueGenerationPlanBuilder {
 
     private static Plan requireSource(byte[] bytes, List<String> sources) {
         try {
-            Plan plan = Plan.parseFrom(bytes);
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes);
             SubstraitProtocolVersion.validate(plan);
             var expectedNames = new ArrayList<String>();
             expectedNames.add(PHYSICAL_ROW_POSITION_COLUMN);

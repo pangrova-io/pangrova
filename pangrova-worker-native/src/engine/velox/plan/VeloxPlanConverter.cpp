@@ -14,6 +14,7 @@
 // INTERSECT, EXCEPT). Recursive tree conversion handles nested operator
 // chains. Unsupported Rel/Expression types throw std::runtime_error with
 // type name for diagnostics.
+#include "engine/plan/SubstraitPlanParser.h"
 #include "engine/plan/SubstraitProtocolVersion.h"
 #include "engine/velox/plan/VeloxPlanConverter.h"
 #include "capabilities/capability/FunctionPlanBindings.h"
@@ -75,8 +76,8 @@ VeloxPlanConverter::convert(
   }
 
   ::substrait::Plan substrait_plan;
-  if (!substrait_plan.ParseFromArray(
-          plan_bytes.data(), static_cast<int>(plan_bytes.size()))) {
+  if (!pangrova::plan::parseSubstraitPlan(
+          plan_bytes.data(), plan_bytes.size(), &substrait_plan)) {
     throw std::runtime_error(
         "VeloxPlanConverter: failed to parse Substrait plan protobuf "
         "(plan_bytes.size=" + std::to_string(plan_bytes.size()) + ")");

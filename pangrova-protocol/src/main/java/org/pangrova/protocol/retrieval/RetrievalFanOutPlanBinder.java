@@ -47,7 +47,7 @@ public final class RetrievalFanOutPlanBinder {
             throw new IllegalArgumentException("fan-out relation ID prefix is required");
         }
         try {
-            Plan original = Plan.parseFrom(planBytes);
+            Plan original = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             return bindParsed(original, fanOut, idPrefix);
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException(
@@ -98,7 +98,7 @@ public final class RetrievalFanOutPlanBinder {
             BoundExecutionPlan bound = RetrievalTopKPlanBinder.bindExecution(
                     branchPlan.toByteArray(), List.of(source.binding()),
                     idPrefix + "-source-" + sourceIndex++);
-            Rel exchange = Plan.parseFrom(bound.planBytes())
+            Rel exchange = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bound.planBytes())
                     .getRelations(0).getRoot().getInput();
             requireProducerExchange(exchange);
             exchangeTemplate = requireMatchingExchange(exchangeTemplate, exchange);

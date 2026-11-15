@@ -193,7 +193,7 @@ public final class GeneratedValuesOverlayPlanBinder {
 
     private static Plan parse(byte[] bytes) {
         try {
-            return Plan.parseFrom(bytes);
+            return org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes);
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("Generated query plan is malformed", failure);
         }

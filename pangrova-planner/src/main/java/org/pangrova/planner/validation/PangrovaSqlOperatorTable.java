@@ -25,9 +25,10 @@ import java.util.List;
  * Composite SQL operator table that chains the standard Calcite operators
  * with Pangrova-specific spatial and array functions.
  *
- * <p>Spatial functions ({@code ST_INTERSECTS}, {@code ST_WITHIN},
- * {@code ST_CONTAINS}) accept a column reference plus four numeric
- * bounding-box coordinates and return {@code BOOLEAN NULLABLE}.</p>
+ * <p>Spatial predicates ({@code ST_INTERSECTS}, {@code ST_WITHIN},
+ * {@code ST_CONTAINS}) take two geometry operands and return
+ * {@code BOOLEAN NULLABLE}; {@code ST_GEOMFROMTEXT} converts WKT text to
+ * {@code VARBINARY} geometry.</p>
  *
  * <p>Array functions ({@code ARRAY_CONTAINS}, {@code ARRAY_CONTAINS_ALL})
  * test element containment and return {@code BOOLEAN NULLABLE}.</p>

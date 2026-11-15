@@ -12,6 +12,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
+import org.pangrova.planner.rewrite.RecursiveCteExpander;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -40,6 +41,7 @@ import org.pangrova.planner.statistics.StatisticsCollector;
 public final class PangrovaPlanner {
 
     private final PangrovaParserFactory parserFactory;
+    private final RecursiveCteExpander recursiveCteExpander;
     private final RelDataTypeFactory typeFactory;
     private final CalciteCatalogReader catalogReader;
     private final java.util.concurrent.atomic.AtomicLong constantFoldedTotal =
@@ -92,6 +94,7 @@ public final class PangrovaPlanner {
     public PangrovaPlanner(CalciteSchema rootSchema, List<String> defaultSchemaPath,
                          PlannerContext deps) {
         this.parserFactory = new PangrovaParserFactory();
+        this.recursiveCteExpander = new RecursiveCteExpander(this.parserFactory);
         this.typeFactory = new PlannerTypeFactory();
         this.catalogReader = PlannerComponentFactory.buildCatalogReader(
                 typeFactory, rootSchema, defaultSchemaPath);
@@ -436,7 +439,7 @@ public final class PangrovaPlanner {
 
     private SqlNode parse(String sql) {
         try {
-            return parserFactory.parseToSqlNode(sql);
+            return parserFactory.parseToSqlNode(recursiveCteExpander.expand(sql));
         } catch (org.pangrova.parser.api.exception.ParseException e) {
             throw e;
         } catch (Exception e) {

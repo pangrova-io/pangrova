@@ -49,7 +49,7 @@ final class RetrievalOutputProjection {
         BoundExecutionPlan restore(BoundExecutionPlan bound) {
             if (projection == null) return bound;
             try {
-                Plan plan = Plan.parseFrom(bound.planBytes());
+                Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bound.planBytes());
                 Rel visible = Rel.newBuilder().setProject(projection.toBuilder()
                         .setInput(plan.getRelations(0).getRoot().getInput())).build();
                 Plan output = plan.toBuilder().setRelations(0, plan.getRelations(0).toBuilder()

@@ -128,7 +128,7 @@ public final class GenerationDispatchProtocolValidator {
     /** Validates only the canonical executable stage bytes, never SQL reconstructed during replay. */
     public static void validatePlan(org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage) {
         try {
-            Plan plan = Plan.parseFrom(stage.planBytes());
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(stage.planBytes());
             if (!plan.getUnknownFields().asMap().isEmpty()
                     || plan.getRelationsCount() != 1) {
                 throw new IllegalArgumentException(

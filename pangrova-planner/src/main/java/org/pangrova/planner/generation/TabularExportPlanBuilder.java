@@ -91,7 +91,7 @@ public final class TabularExportPlanBuilder {
             throw new IllegalArgumentException("normalizedPlan must not be empty");
         }
         try {
-            return Plan.parseFrom(bytes);
+            return org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes);
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("normalizedPlan is not Substrait", failure);
         }

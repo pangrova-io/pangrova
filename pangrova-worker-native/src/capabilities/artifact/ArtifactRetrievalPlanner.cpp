@@ -1,6 +1,7 @@
 // Copyright (c) Pangrova contributors. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+#include "engine/plan/SubstraitPlanParser.h"
 #include "engine/plan/SubstraitProtocolVersion.h"
 #include "capabilities/artifact/ArtifactRetrievalPlanner.h"
 
@@ -405,8 +406,8 @@ ArtifactRetrievalPlanner::prepare(
 
   substrait::Plan plan;
   if (substrait_plan.empty() ||
-      !plan.ParseFromArray(
-          substrait_plan.data(), static_cast<int>(substrait_plan.size()))) {
+      !pangrova::plan::parseSubstraitPlan(
+          substrait_plan.data(), substrait_plan.size(), &plan)) {
     throw std::runtime_error(
         "Artifact retrieval preparation received an invalid Substrait plan");
   }

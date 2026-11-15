@@ -49,7 +49,8 @@ public final class RetrievalTopKPlanBinder {
             return new BoundExecutionPlan(planBytes, List.of());
         }
         try {
-            io.substrait.proto.Plan plan = io.substrait.proto.Plan.parseFrom(planBytes);
+            io.substrait.proto.Plan plan =
+                    org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             RetrievalTopKBindingCursor cursor = new RetrievalTopKBindingCursor(
                     bindings, idPrefix, SubstraitFunctionNames.index(plan));
             io.substrait.proto.Plan.Builder builder = plan.toBuilder();

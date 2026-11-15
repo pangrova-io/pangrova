@@ -606,5 +606,6 @@ SELECT * FROM org_tree ORDER BY level, name;
 ```
 
 **Notes:**
-- Supports `SEARCH DEPTH FIRST BY` and `SEARCH BREADTH FIRST BY` clauses
-- Supports `CYCLE` detection clause
+- The recursive member must be combined with the anchor by `UNION ALL`
+- The planner resolves the fixed point into up to 16 iterations (one anchor execution and 15 recursive steps) and executes each iteration through the native engine; rows from iterations beyond that bound are not returned
+- `UNION` (distinct), `SEARCH DEPTH FIRST/BREADTH FIRST`, and `CYCLE` clauses are rejected with an explicit planner error because the native execution layer has no operator for them

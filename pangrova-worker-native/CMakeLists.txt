@@ -407,6 +407,8 @@ pangrova_add_object_target(pangrova_native_udf_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/src/udf/*.cpp)
 pangrova_add_object_target(pangrova_native_lance_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/src/lance/*.cpp)
+pangrova_add_object_target(pangrova_native_spatial_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/spatial/*.cpp)
 
 set(PANGROVA_OBJECT_TARGETS
   pangrova_native_command_objects
@@ -416,7 +418,8 @@ set(PANGROVA_OBJECT_TARGETS
   pangrova_native_index_objects
   pangrova_native_vector_objects
   pangrova_native_udf_objects
-  pangrova_native_lance_objects)
+  pangrova_native_lance_objects
+  pangrova_native_spatial_objects)
 
 # Third-party dependencies are shared by every first-party OBJECT target.
 add_library(pangrova_native_deps INTERFACE)

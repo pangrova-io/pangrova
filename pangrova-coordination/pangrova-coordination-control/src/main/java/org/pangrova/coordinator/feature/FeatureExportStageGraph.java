@@ -35,7 +35,8 @@ final class FeatureExportStageGraph {
             var plan = terminal ? TabularExportPlanBuilder.build(stage.serializedPlan().planBytes()).planBytes()
                     : stage.serializedPlan().planBytes();
             try {
-                var root = io.substrait.proto.Plan.parseFrom(plan).getRelations(0).getRoot();
+                var root = org.pangrova.protocol.substrait.SubstraitPlanCodec
+                        .parse(plan).getRelations(0).getRoot();
                 SubstraitRelationLayout.rootSchema(root);
             } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
                 throw new IllegalArgumentException("Feature export stage " + stage.stageId()

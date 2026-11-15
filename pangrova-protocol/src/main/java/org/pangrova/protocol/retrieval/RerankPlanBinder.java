@@ -41,7 +41,7 @@ public final class RerankPlanBinder {
     public static BoundExecutionPlan bindFinalTopKExecution(
             byte[] planBytes, RerankBinding binding, String planNodeId) {
         try {
-            Plan plan = Plan.parseFrom(planBytes);
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             if (plan.getRelationsCount() != 1 || !plan.getRelations(0).hasRoot()) {
                 throw new IllegalArgumentException(
                         "rerank requires exactly one rooted fragment");
@@ -84,7 +84,7 @@ public final class RerankPlanBinder {
             throw new IllegalArgumentException("rerank plan node ID is required");
         }
         try {
-            Plan plan = Plan.parseFrom(planBytes);
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             var scope = RetrievalOutputProjection.peel(plan);
             return scope.restore(bindParsed(scope.inner(), binding, planNodeId));
         } catch (InvalidProtocolBufferException failure) {

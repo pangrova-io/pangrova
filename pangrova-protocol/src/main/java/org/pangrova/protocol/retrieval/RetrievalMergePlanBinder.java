@@ -50,7 +50,7 @@ public final class RetrievalMergePlanBinder {
             throw new IllegalArgumentException("retrieval merge plan node ID is required");
         }
         try {
-            Plan plan = Plan.parseFrom(planBytes);
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             if (plan.getRelationsCount() != 1 || !plan.getRelations(0).hasRoot()) {
                 throw new IllegalArgumentException(
                         "retrieval merge requires exactly one rooted fragment");
@@ -114,7 +114,7 @@ public final class RetrievalMergePlanBinder {
             throw new IllegalArgumentException("retrieval merge plan node ID is required");
         }
         try {
-            Plan plan = Plan.parseFrom(planBytes);
+            Plan plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(planBytes);
             var scope = RetrievalOutputProjection.peel(plan);
             return scope.restore(bindFinalTopK(scope.inner(), binding, expectedFinalLimit, planNodeId));
         } catch (InvalidProtocolBufferException failure) {

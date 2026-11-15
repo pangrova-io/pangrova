@@ -21,7 +21,7 @@ public final class CompiledScanSchemas {
     public static Map<String, byte[]> extract(byte[] bytes) {
         try {
             Map<String, byte[]> result = new HashMap<>();
-            visit(Plan.parseFrom(bytes), result);
+            visit(org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes), result);
             return result;
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalStateException("Server-compiled relation is not canonical Substrait", failure);

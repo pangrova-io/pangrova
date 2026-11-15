@@ -172,7 +172,7 @@ final class AuthorizedStageExchangeBindings {
     private static Fragment fragment(int stageId, SerializedPlanFragment serialized) {
         Plan plan;
         try {
-            plan = Plan.parseFrom(serialized.planBytes());
+            plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(serialized.planBytes());
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("Stage requires canonical serialized plan: " + stageId, failure);
         }

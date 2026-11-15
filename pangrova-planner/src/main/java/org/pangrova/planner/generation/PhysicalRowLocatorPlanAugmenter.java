@@ -61,7 +61,7 @@ public final class PhysicalRowLocatorPlanAugmenter {
 
     private static Plan parse(byte[] bytes) {
         try {
-            return Plan.parseFrom(bytes);
+            return org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes);
         } catch (InvalidProtocolBufferException exception) {
             throw new IllegalArgumentException("Authorized source plan is malformed", exception);
         }
