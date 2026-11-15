@@ -17,7 +17,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NATIVE_DIR="${ROOT_DIR}/pangrova-worker-native"
 SRC_DIR="${NATIVE_DIR}/src"
 
-TARGET_DIRS=(command jni capabilities engine indexing lance udf vector)
+TARGET_DIRS=(command jni capabilities engine indexing lance spatial udf vector)
 JNI_UPCALL_ADAPTERS=(
     "engine/memory/PangrovaAllocationListener.h"
     "engine/shuffle/ShuffleEgressExecutor.h"
