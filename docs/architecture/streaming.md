@@ -218,7 +218,7 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 │                       │                                                          │
 │                       ▼                                                          │
 │           ┌───────────────────────┐                                              │
-│           │ TableMaintenanceSpi   │  ← Unified maintenance interface             │
+│           │ TableMaintenance   │  ← Unified maintenance interface             │
 │           │ (compaction/orphan)   │                                              │
 │           └───────────────────────┘                                              │
 │                                                                                  │
@@ -611,7 +611,7 @@ public class PaimonTableWriter implements TableWriter {
 
 ---
 
-### 2.9 TableMaintenanceSpi
+### 2.9 TableMaintenance
 
 This interface describes maintenance operations, not their statement wiring. The
 default bootstrap injects `ControlledTableMaintenance` into `MaintenanceExecutor`;
@@ -626,7 +626,7 @@ A unified table maintenance interface supporting compaction, orphan cleanup, and
  * All operations are async and non-blocking.
  * Triggered by MaintenanceScheduler based on time interval (not threshold).
  */
-public interface TableMaintenanceSpi {
+public interface TableMaintenance {
 
     /**
      * Execute compaction asynchronously.
@@ -695,7 +695,7 @@ The three trigger mechanisms are ranked by priority from high to low. When multi
 
 Production scheduling is registry-driven. `ControlledTableSource` lists only
 ACTIVE LINKED/MANAGED records whose policy enables an operation; OBSERVED tables
-are absent because they have no persisted record. `ControlledTableMaintenanceSpi`
+are absent because they have no persisted record. `CoordinatorTableMaintenance`
 reports due-ness from the last terminal run per operation and executes
 `COMPACT`, `EXPIRE_SNAPSHOTS`, and `REMOVE_ORPHAN_FILES` through the same
 ownership/policy/lease/version checks as a manual statement.
@@ -737,7 +737,7 @@ record's format.
  */
 public class MaintenanceScheduler implements AutoCloseable {
 
-    private final TableMaintenanceSpi maintenance;
+    private final TableMaintenance maintenance;
     private final MetadataService metadataService;
     private final MaintenanceConfig config;
     private final ScheduledExecutorService scanScheduler;
@@ -1631,7 +1631,7 @@ See [14 §7](./observability.md) for structured logging format.
 > **CDC Consumer Deployment**: CDC Consumer runs as an embedded component within Worker processes (default) or as standalone processes. The deployment model is defined here in §3. For cluster-level deployment topology, see [distributed.md §2](./distributed.md). CDC Consumer instances register with ZooKeeper for partition assignment coordination.
 
 
-> **TableMaintenanceSpi Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.
+> **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.
 
 
 > **Watermark State Machine (§5)**:

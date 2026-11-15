@@ -23,7 +23,7 @@ import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.maintenance.MaintenanceStatus;
 import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.maintenance.TableMaintenance;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.junit.jupiter.api.Test;
 
@@ -142,7 +142,7 @@ class CdcPipelineLoopTest {
         }
     }
 
-    static class StubMaintenanceSpi implements TableMaintenanceSpi {
+    static class StubMaintenanceSpi implements TableMaintenance {
         @Override
         public CompletableFuture<CompactionResult> compactAsync(String tableName) {
             return CompletableFuture.completedFuture(new CompactionResult(tableName, 0, 0, 0L));

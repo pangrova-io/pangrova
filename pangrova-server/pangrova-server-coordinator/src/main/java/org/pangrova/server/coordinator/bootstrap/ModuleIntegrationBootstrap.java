@@ -485,7 +485,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                 new org.pangrova.coordinator.maintenance.ControlledTableSource(
                         catalogs.tableControl(), policies);
         return new MaintenanceScheduler(
-                new org.pangrova.coordinator.maintenance.ControlledTableMaintenanceSpi(
+                new org.pangrova.coordinator.maintenance.CoordinatorTableMaintenance(
                         catalogs, policies, executor, maintenanceConfig, new OtelExecutionTraceContextFactory()),
                 maintenanceConfig);
     }

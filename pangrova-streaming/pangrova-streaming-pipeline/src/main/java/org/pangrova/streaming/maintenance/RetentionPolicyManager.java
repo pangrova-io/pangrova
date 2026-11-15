@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Per-table data retention policy manager.
  *
- * <p>Delegates snapshot expiration to {@link TableMaintenanceSpi#expireSnapshotsAsync}
+ * <p>Delegates snapshot expiration to {@link TableMaintenance#expireSnapshotsAsync}
  * for each table that has a registered {@link RetentionPolicy}.</p>
  *
  * <p>Thread safety: all mutable state is in a {@link ConcurrentHashMap};
@@ -24,10 +24,10 @@ public class RetentionPolicyManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(RetentionPolicyManager.class);
 
-    private final TableMaintenanceSpi maintenance;
+    private final TableMaintenance maintenance;
     private final Map<String, RetentionPolicy> policies = new ConcurrentHashMap<>();
 
-    public RetentionPolicyManager(TableMaintenanceSpi maintenance) {
+    public RetentionPolicyManager(TableMaintenance maintenance) {
         this.maintenance = maintenance;
     }
 
@@ -49,7 +49,7 @@ public class RetentionPolicyManager {
      * Enforce retention for a single table. Idempotent — safe to call repeatedly.
      *
      * <p>If no policy is registered for the table, this is a no-op.
-     * Calls {@link TableMaintenanceSpi#expireSnapshotsAsync} with the policy's
+     * Calls {@link TableMaintenance#expireSnapshotsAsync} with the policy's
      * retention period and logs the outcome.</p>
      *
      * @return future that completes with the expiration result, or a completed

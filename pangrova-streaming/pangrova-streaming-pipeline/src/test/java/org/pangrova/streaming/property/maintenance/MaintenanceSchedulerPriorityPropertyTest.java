@@ -92,7 +92,7 @@ class MaintenanceSchedulerPriorityPropertyTest {
                 2, 2, capacity, Duration.ofSeconds(5));
     }
 
-    static class NoOpSpi implements TableMaintenanceSpi {
+    static class NoOpSpi implements TableMaintenance {
         @Override public CompletableFuture<CompactionResult> compactAsync(String t) {
             return CompletableFuture.completedFuture(new CompactionResult(t, 0, 0, 0));
         }

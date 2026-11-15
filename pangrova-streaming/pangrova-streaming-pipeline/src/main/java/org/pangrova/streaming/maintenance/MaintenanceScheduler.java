@@ -37,7 +37,7 @@ public class MaintenanceScheduler implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(MaintenanceScheduler.class);
 
-    private final TableMaintenanceSpi maintenance;
+    private final TableMaintenance maintenance;
     private final MaintenanceConfig config;
     private final Semaphore concurrencyLimiter;
     private final PriorityBlockingQueue<MaintenanceTask> taskQueue;
@@ -53,7 +53,7 @@ public class MaintenanceScheduler implements AutoCloseable {
     private final Object lock = new Object();
 
     /** Creates a scheduler that drives maintenance tasks through the given SPI. */
-    public MaintenanceScheduler(TableMaintenanceSpi maintenance, MaintenanceConfig config) {
+    public MaintenanceScheduler(TableMaintenance maintenance, MaintenanceConfig config) {
         this.maintenance = maintenance;
         this.config = config;
         this.concurrencyLimiter = new Semaphore(config.maxConcurrentTasks());

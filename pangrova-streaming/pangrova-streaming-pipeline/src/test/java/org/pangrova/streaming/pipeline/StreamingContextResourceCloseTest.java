@@ -33,7 +33,7 @@ class StreamingContextResourceCloseTest {
         return new StreamingContext(scheduler, tracker);
     }
 
-    static final class NoOpSpi implements TableMaintenanceSpi {
+    static final class NoOpSpi implements TableMaintenance {
         @Override
         public CompletableFuture<CompactionResult> compactAsync(String t) {
             return CompletableFuture.completedFuture(new CompactionResult(t, 0, 0, 0));

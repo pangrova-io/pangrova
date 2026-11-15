@@ -711,7 +711,7 @@ Query-B (snapshot 102) → CacheKey{file1, 0, 64MB, 102, "def"} → Cache Entry 
 
 ```
 MaintenanceScheduler.expireSnapshotsAsync(tableName)
-  → TableMaintenanceSpi.expireSnapshotsAsync()
+  → TableMaintenance.expireSnapshotsAsync()
     → Iceberg Table.expireSnapshots().commit()
       → Returns List<Long> expiredSnapshotIds
   → CacheEvictionNotifier.notifySnapshotExpired(tableName, expiredSnapshotIds)

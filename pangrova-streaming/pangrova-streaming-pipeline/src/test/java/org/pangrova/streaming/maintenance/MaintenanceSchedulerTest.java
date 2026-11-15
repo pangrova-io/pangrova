@@ -20,13 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class MaintenanceSchedulerTest {
 
-    private StubTableMaintenanceSpi spi;
+    private StubTableMaintenance spi;
     private MaintenanceConfig config;
     private MaintenanceScheduler scheduler;
 
     @BeforeEach
     void setUp() {
-        spi = new StubTableMaintenanceSpi();
+        spi = new StubTableMaintenance();
         config = new MaintenanceConfig(
             Duration.ofMillis(1),   // compactionInterval (very short for tests)
             Duration.ofHours(6),
@@ -273,7 +273,7 @@ class MaintenanceSchedulerTest {
 
     // --- Stub SPI ---
 
-    private static class StubTableMaintenanceSpi implements TableMaintenanceSpi {
+    private static class StubTableMaintenance implements TableMaintenance {
 
         private final ConcurrentHashMap<String, MaintenanceStatus> statuses = new ConcurrentHashMap<>();
         private final CountDownLatch scheduledCycle = new CountDownLatch(1);

@@ -123,7 +123,7 @@ class RetentionPolicyManagerTest {
     /**
      * In-memory SPI that records calls and returns deterministic results.
      */
-    private static class RecordingMaintenanceSpi implements TableMaintenanceSpi {
+    private static class RecordingMaintenanceSpi implements TableMaintenance {
 
         final AtomicInteger expireCalls = new AtomicInteger();
         final ConcurrentHashMap<String, MaintenanceStatus> statuses = new ConcurrentHashMap<>();

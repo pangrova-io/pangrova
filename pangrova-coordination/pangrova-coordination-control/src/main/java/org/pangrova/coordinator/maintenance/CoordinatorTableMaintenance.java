@@ -27,7 +27,7 @@ import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceStatus;
 import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.maintenance.TableMaintenance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,11 +51,11 @@ import java.util.concurrent.CompletableFuture;
  * version-stability check, and durable run history. A table whose catalog record
  * is quarantined, stale, or missing is skipped instead of being maintained.</p>
  */
-public final class ControlledTableMaintenanceSpi implements TableMaintenanceSpi {
+public final class CoordinatorTableMaintenance implements TableMaintenance {
     private final ExecutionTraceContextFactory traceContexts;
 
     private static final Logger LOG =
-            LoggerFactory.getLogger(ControlledTableMaintenanceSpi.class);
+            LoggerFactory.getLogger(CoordinatorTableMaintenance.class);
     private static final String SYSTEM_ACTOR = "system:maintenance";
     private static final int RUN_HISTORY_LIMIT = 100;
 
@@ -65,14 +65,14 @@ public final class ControlledTableMaintenanceSpi implements TableMaintenanceSpi 
     private final MaintenanceConfig config;
     private final Clock clock;
 
-    public ControlledTableMaintenanceSpi(CatalogRegistry catalogs,
+    public CoordinatorTableMaintenance(CatalogRegistry catalogs,
             TableControlMaintenanceService policies, ControlledTableMaintenance executor,
             MaintenanceConfig config, ExecutionTraceContextFactory traceContexts) {
         this(catalogs, policies, executor, config, Clock.systemUTC(), traceContexts);
     }
 
     /** Creates the SPI with an explicit clock for deterministic scheduling tests. */
-    public ControlledTableMaintenanceSpi(CatalogRegistry catalogs,
+    public CoordinatorTableMaintenance(CatalogRegistry catalogs,
             TableControlMaintenanceService policies, ControlledTableMaintenance executor,
             MaintenanceConfig config, Clock clock, ExecutionTraceContextFactory traceContexts) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");

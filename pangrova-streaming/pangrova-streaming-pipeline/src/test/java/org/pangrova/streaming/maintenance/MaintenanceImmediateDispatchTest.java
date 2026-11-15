@@ -86,7 +86,7 @@ class MaintenanceImmediateDispatchTest {
 
     // --- SPI stub that tracks immediate execution ---
 
-    private static class ImmediateDispatchSpi implements TableMaintenanceSpi {
+    private static class ImmediateDispatchSpi implements TableMaintenance {
 
         final CountDownLatch executionLatch = new CountDownLatch(1);
         final CountDownLatch multiLatch = new CountDownLatch(2);

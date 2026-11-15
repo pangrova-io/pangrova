@@ -24,7 +24,7 @@ import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.maintenance.MaintenanceStatus;
 import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.maintenance.TableMaintenance;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -198,7 +198,7 @@ class StreamSchedulerWatermarkCleanupTest extends org.pangrova.testing.testkit.C
         @Override public void close() {}
     }
 
-    static class NoOpTableMaintenance implements TableMaintenanceSpi {
+    static class NoOpTableMaintenance implements TableMaintenance {
         @Override public java.util.concurrent.CompletableFuture<CompactionResult> compactAsync(String table) {
             return java.util.concurrent.CompletableFuture.completedFuture(
                     new CompactionResult(table, 0, 0, 0L));

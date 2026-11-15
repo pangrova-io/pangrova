@@ -59,7 +59,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class ControlledTableMaintenanceSpiTest {
+class CoordinatorTableMaintenanceTest {
 
     private static final Instant NOW = Instant.parse("2026-05-01T00:00:00Z");
 
@@ -69,7 +69,7 @@ class ControlledTableMaintenanceSpiTest {
     private TableControlMaintenanceService policies;
     private TestLease lease;
     private MutableClock clock;
-    private ControlledTableMaintenanceSpi spi;
+    private CoordinatorTableMaintenance spi;
 
     @BeforeEach
     void setUp() {
@@ -91,7 +91,7 @@ class ControlledTableMaintenanceSpiTest {
         lease = new TestLease();
         var executor = new ControlledTableMaintenance(
                 registry, policies, lease, "coordinator-1", Duration.ofMinutes(5), clock, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
-        spi = new ControlledTableMaintenanceSpi(
+        spi = new CoordinatorTableMaintenance(
                 registry, policies, executor, MaintenanceConfig.defaults(), clock, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 

@@ -2578,7 +2578,7 @@ ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amou
 │  • A unified abstraction is needed, supporting global config and auto scheduling│
 │                                                                                  │
 │  Design principles:                                                              │
-│  1. Unified interface: define a generic TableMaintenanceSpi, hiding low-level diffs│
+│  1. Unified interface: define a generic TableMaintenance, hiding low-level diffs│
 │  2. Configurable: support global default config + table-level overrides          │
 │  3. Schedulable: support manual trigger + automatic scheduled dispatch           │
 │  4. Observable: metrics like execution status, duration, cleanup volume of tasks │
@@ -2597,11 +2597,11 @@ ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amou
 ```
 
 
-### 13.2 TableMaintenanceSpi Interface
+### 13.2 TableMaintenance Interface
 
 
 
-The authoritative `TableMaintenanceSpi` interface is defined in [streaming.md §2.9](./streaming.md). All maintenance operations are **async and non-blocking**, returning `CompletableFuture<*Result>`. The interface provides:
+The authoritative `TableMaintenance` interface is defined in [streaming.md §2.9](./streaming.md). All maintenance operations are **async and non-blocking**, returning `CompletableFuture<*Result>`. The interface provides:
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
@@ -2610,7 +2610,7 @@ The authoritative `TableMaintenanceSpi` interface is defined in [streaming.md §
 | `expireSnapshotsAsync(tableName, olderThan)` | `CompletableFuture<SnapshotExpirationResult>` | Expire old snapshots |
 | `getMaintenanceStatus(tableName)` | `MaintenanceStatus` | Get current maintenance status (synchronous) |
 
-The coordinator receives a `TableMaintenanceSpi` from the streaming-module wiring;
+The coordinator receives a `TableMaintenance` from the streaming-module wiring;
 `MaintenanceExecutor` invokes it without depending on a connector-specific provider
 type. Connector maintenance procedures remain format-specific.
 

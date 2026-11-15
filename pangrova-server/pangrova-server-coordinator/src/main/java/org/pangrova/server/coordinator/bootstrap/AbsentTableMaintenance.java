@@ -6,7 +6,7 @@ import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.maintenance.MaintenanceStatus;
 import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.maintenance.TableMaintenance;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -23,7 +23,7 @@ import java.util.concurrent.CompletableFuture;
  * <p>Extracted to eliminate duplication between the two bootstrap classes
  * (F-COORD-26).</p>
  */
-final class AbsentTableMaintenance implements TableMaintenanceSpi {
+final class AbsentTableMaintenance implements TableMaintenance {
 
     private static final AbsentTableMaintenance INSTANCE = new AbsentTableMaintenance();
 

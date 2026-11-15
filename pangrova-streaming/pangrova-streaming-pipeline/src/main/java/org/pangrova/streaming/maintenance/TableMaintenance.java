@@ -6,7 +6,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * SPI for table maintenance operations.
  */
-public interface TableMaintenanceSpi {
+public interface TableMaintenance {
 
     CompletableFuture<CompactionResult> compactAsync(String tableName);
 

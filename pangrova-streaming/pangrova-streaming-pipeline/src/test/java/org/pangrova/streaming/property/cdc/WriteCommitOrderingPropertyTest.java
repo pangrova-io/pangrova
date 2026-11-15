@@ -211,7 +211,7 @@ class WriteCommitOrderingPropertyTest {
         @Override public void onWriteComplete(String tableName, WriteResult result) {}
     }
 
-    static class StubMaintenanceSpi implements TableMaintenanceSpi {
+    static class StubMaintenanceSpi implements TableMaintenance {
         @Override public CompletableFuture<CompactionResult> compactAsync(String t) {
             return CompletableFuture.completedFuture(new CompactionResult(t, 0, 0, 0L));
         }

@@ -690,7 +690,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 | Storage Adapter (Java) | pangrova-connector-{format}/ | Maps storage-specific metadata to PangrovaReadExtension | Implement the StorageAdapter interface |
 | File Format Reader (C++) | pangrova-worker-native/src/engine/ | Reads specific file formats (Parquet/ORC/Avro) | Implement the DataSourceFactory interface |
 | Delete Handler (C++) | pangrova-worker-native/src/engine/delete/ | Handles different types of delete files | Implement the DeleteHandler interface |
-| TableMaintenanceSpi (Java) | pangrova-connector-{format}/ | Async compaction, orphan cleanup, snapshot expiration | Implement TableMaintenanceSpi interface, see [streaming.md §2.9](./streaming.md) (authoritative) |
+| TableMaintenance (Java) | pangrova-connector-{format}/ | Async compaction, orphan cleanup, snapshot expiration | Implement TableMaintenance interface, see [streaming.md §2.9](./streaming.md) (authoritative) |
 | Properties Handler | properties map in protocol | Passes format-specific metadata | Convention-based key prefix |
 
 **Write SPI boundary.**

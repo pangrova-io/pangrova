@@ -205,7 +205,7 @@ class WatermarkMonotonicityPropertyTest {
         @Override public void onWriteComplete(String tableName, WriteResult result) {}
     }
 
-    static class StubSpi implements TableMaintenanceSpi {
+    static class StubSpi implements TableMaintenance {
         @Override public CompletableFuture<CompactionResult> compactAsync(String t) {
             return CompletableFuture.completedFuture(new CompactionResult(t, 0, 0, 0L));
         }

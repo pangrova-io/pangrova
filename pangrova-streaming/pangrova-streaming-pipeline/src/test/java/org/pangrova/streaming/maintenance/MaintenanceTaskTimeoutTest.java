@@ -127,7 +127,7 @@ class MaintenanceTaskTimeoutTest {
 
     // --- SPI stub that tracks cancellation ---
 
-    private static class TimeoutTrackingSpi implements TableMaintenanceSpi {
+    private static class TimeoutTrackingSpi implements TableMaintenance {
 
         private volatile boolean blockForever;
         private volatile CompletableFuture<CompactionResult> lastIssuedFuture;
