@@ -18,26 +18,7 @@ description: "Diagnose and recover from exhausted worker storage"
 
 ## Decision Tree
 
-```
-Disk full suspected on worker?
-  │
-  ├─► Which directory is full?
-  │     │
-  │     ├─► /mnt/spill (spill directory)
-  │     │     └─► Queries that need spill are failing → Step 1A: Spill Recovery
-  │     │
-  │     ├─► /mnt/nvme0/velox-cache (SSD cache)
-  │     │     └─► Cache writes failing, performance degraded → Step 1B: Cache Recovery
-  │     │
-  │     └─► Root filesystem (/)
-  │           └─► Critical: OS disk full → escalate immediately, may need worker restart
-  │
-  └─► Is the worker still HEALTHY in the cluster?
-        │
-        ├─► YES ──► Proceed with cleanup — do not restart
-        │
-        └─► NO  ──► Worker process may have crashed → use worker-crash-runbook instead
-```
+![Disk full suspected on worker?](/img/diagrams/generated/disk-full-runbook-01-e98b4f342e.svg)
 
 ---
 

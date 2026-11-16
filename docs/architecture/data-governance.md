@@ -72,30 +72,7 @@ management, durable execution wiring or candidate-write validation.
 
 ### 2.1 Supported Schema Changes
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Schema Evolution Support                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Change types:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operation          │ Iceberg │ Paimon │ Note                           │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  ADD COLUMN         │ ✓       │ ✓      │ Add a column; position can be specified│   │
-│  │  DROP COLUMN        │ ✓       │ ✓      │ Drop a column; data retained   │   │
-│  │  RENAME COLUMN      │ ✓       │ ✓      │ Rename a column                │   │
-│  │  ALTER COLUMN TYPE  │ Partial │ Partial│ Only compatible type promotions supported│   │
-│  │  REORDER COLUMNS    │ ✓       │ ✗      │ Reorder columns                │   │
-│  │  ADD NESTED FIELD   │ ✓       │ ✓      │ Add field to nested struct     │   │
-│  │  CHANGE NULLABILITY │ ✓       │ ✓      │ NOT NULL → NULL (not the reverse)│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Type promotion rules (safe changes): see [metadata.md §3.7](./metadata.md)  │
-│  `SchemaEvolutionValidator.SAFE_PROMOTIONS` for the authoritative rule set.      │
-│                                                                                  │
-
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Schema Evolution Support](/img/diagrams/generated/data-governance-01-6a2c0f3b68.svg)
 
 ### 2.2 Schema Evolution SQL
 
@@ -141,36 +118,7 @@ SELECT * FROM iceberg.db.orders$snapshots;
 
 ### 3.1 Lineage Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Lineage Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Based on the OpenLineage standard:                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Query Execution                                                        │   │
-│  │       │                                                                  │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Lineage Extractor│  ← Extract lineage from the execution plan        │   │
-│  │  │                 │                                                    │   │
-│  │  │ • Source Tables │                                                    │   │
-│  │  │ • Target Tables │                                                    │   │
-│  │  │ • Transformations│                                                   │   │
-│  │  │ • Column Lineage│                                                    │   │
-│  │  └────────┬────────┘                                                    │   │
-│  │           │                                                              │   │
-│  │           ▼                                                              │   │
-│  │  ┌─────────────────┐     ┌─────────────────┐                           │   │
-│  │  │ OpenLineage     │ ──► │ Lineage Backend │                           │   │
-│  │  │ Event           │     │ (Marquez/Datahub)│                          │   │
-│  │  └─────────────────┘     └─────────────────┘                           │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Lineage Architecture](/img/diagrams/generated/data-governance-03-7b247bdda4.svg)
 
 ### 3.2 Lineage Event Model
 
@@ -287,30 +235,7 @@ SELECT * FROM system.lineage.path(
 
 ### 4.1 Data Quality Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Quality Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Quality check types:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Check Type        │ Example                     │ Trigger timing       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Completeness      │ NOT NULL, required fields   │ On write / scheduled │   │
-│  │  Uniqueness        │ Primary key unique, business key unique│ On write / scheduled │   │
-│  │  Validity          │ Enum values, format validation│ On write / scheduled │   │
-│  │  Consistency       │ Cross-table consistency, referential integrity│ Scheduled            │   │
-│  │  Timeliness        │ Data freshness              │ Scheduled            │   │
-│  │  Accuracy          │ Business rule validation    │ Scheduled            │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Execution flow:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Rule Definition → Scheduler → Executor → Result Store → Alert         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Quality Architecture](/img/diagrams/generated/data-governance-06-3f5ae9fe04.svg)
 
 ### 4.2 Quality Rule Definition
 
@@ -531,25 +456,7 @@ interface AlertChannelRegistry {
 
 ### 5.1 Classification Tag System
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Classification                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Classification dimensions:                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Dimension         │ Tag examples                │ Purpose              │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Sensitivity level │ PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED       │   │
-│  │  PII type          │ PII_NAME, PII_EMAIL, PII_PHONE, PII_SSN          │   │
-│  │  Data domain       │ FINANCE, HR, SALES, MARKETING                    │   │
-│  │  Compliance requirement│ GDPR, HIPAA, PCI_DSS, SOX                        │   │
-│  │  Data quality      │ GOLDEN, SILVER, BRONZE                           │   │
-│  │  Lifecycle         │ ACTIVE, ARCHIVED, DEPRECATED                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Classification](/img/diagrams/generated/data-governance-10-7df05ba21e.svg)
 
 ### 5.2 Tag Management SQL
 

@@ -23,21 +23,7 @@ description: "Diagnose and recover from coordinator failover"
 
 ## Decision Tree
 
-```
-Coordinator appears down?
-  │
-  ├─► Is /v1/health returning HTTP 200 on any coordinator?
-  │     │
-  │     ├─► YES on coordinator-2 or 3 ──► Check if a LEADER exists → Step 2
-  │     │
-  │     └─► NO on all coordinators ──► Full cluster outage → escalate immediately
-  │
-  └─► Is this a scheduled maintenance failover?
-        │
-        ├─► YES ──► Begin graceful failover → Step 1 (planned variant)
-        │
-        └─► NO  ──► Unplanned failure → Step 1 (emergency variant)
-```
+![Coordinator appears down?](/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
 
 ---
 

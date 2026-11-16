@@ -109,14 +109,7 @@ messages and unknown enum values fail closed.
 
 ### 2.1 Result Data Flow
 
-```
-Native task / output buffers
-  → Native FlightResultServer
-    → Arrow RecordBatch / IPC stream
-      → authenticated result endpoint
-        → client consumes stream to EOF
-          → output acknowledgement / Native task release
-```
+![Native task / output buffers](/img/diagrams/generated/jni-runtime-01-79e6ac152c.svg)
 
 Java schedules and issues JNI control commands; `NativeRuntime` has no
 `nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
@@ -130,22 +123,7 @@ IPv4 service cannot receive its Flight traffic through an IPv6-only listener.
 
 ### 2.2 Memory Ownership Hierarchy
 
-```
-C++ side:
-  VeloxMemoryGovernor (singleton) → MemoryManager (singleton)
-    → QueryCtx (per-task) → task MemoryPool (per-task)
-      → RowVector buffers (per-batch, allocated from task pool)
-
-Interop side:
-  ArrowArray / ArrowSchema exported under the task MemoryPool
-    → release callback retains original buffers and required layout buffers
-      → importing consumer owns the transferred release obligation
-
-Client side:
-  client-owned allocator / stream / vectors
-    → consume and close stream and vectors
-      → close allocator after its dependent vectors
-```
+![C++ side:](/img/diagrams/generated/jni-runtime-02-885ba8ec78.svg)
 
 ### 2.3 Arrow C Data Interface Ownership Rules
 

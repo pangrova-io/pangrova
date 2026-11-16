@@ -240,42 +240,7 @@ Shard routing: `shardIndex = hash(CacheKey) % numShards`; each shard is locked i
 
 ## 5. Multi-Level Cache Manager
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Multi-Level Cache Architecture                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Data flow:                                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Read Request                                                           │   │
-│  │       │                                                                  │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────┐  Hit                                                   │   │
-│  │  │  RAM Cache  │ ────────────────────────────────────► Return Data     │   │
-│  │  │    (L1)     │                                                        │   │
-│  │  └──────┬──────┘                                                        │   │
-│  │         │ Miss                                                          │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────┐  Hit                                                   │   │
-│  │  │  SSD Cache  │ ────► Promote to RAM ────────────────► Return Data    │   │
-│  │  │    (L2)     │                                                        │   │
-│  │  └──────┬──────┘                                                        │   │
-│  │         │ Miss                                                          │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────┐                                                        │   │
-│  │  │   Remote    │ ────► Write to SSD ────► Write to RAM ► Return Data   │   │
-│  │  │  Storage    │       (async)            (sync)                        │   │
-│  │  └─────────────┘                                                        │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Eviction flow:                                                                  │
-│  RAM full → evict to SSD (demote)                                              │
-│  SSD full → evict directly (no write-back to Remote)                           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Multi-Level Cache Architecture](/img/diagrams/generated/caching-02-15a1bc7e95.svg)
 
 `CacheManager` coordinates the two-tier RAM and SSD caches, managing data flow between tiers.
 
@@ -381,56 +346,7 @@ struct CacheManagerConfig {
 
 ## 6. Smart Prefetch Design
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Adaptive Prefetch Architecture                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                  │
-│  • Hide IO latency: preload data before it is needed                            │
-│  • Adaptive: dynamically adjust the prefetch strategy based on access patterns  │
-│  • Resource-aware: adjust prefetch volume based on memory pressure and network bandwidth │
-│                                                                                  │
-│  Prefetch strategies:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Strategy          │ Trigger condition     │ Prefetch scope             │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Sequential        │ Sequential-scan detection │ Next N Row Groups        │   │
-│  │  Column-based      │ Column access frequency │ Subsequent data of hot columns │   │
-│  │  Query-aware       │ Query plan analysis   │ All columns referenced in the plan │   │
-│  │  Coalescing        │ Adjacent request detection │ Merge small requests into large ones │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Prefetch flow:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  TableScan Operator                                                     │   │
-│  │       │                                                                  │   │
-│  │       │ 1. Analyze the Split list                                        │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Prefetch Planner│                                                    │   │
-│  │  │                 │                                                    │   │
-│  │  │ • Identify hot columns │                                             │   │
-│  │  │ • Compute prefetch window │                                          │   │
-│  │  │ • Generate prefetch plan │                                           │   │
-│  │  └────────┬────────┘                                                    │   │
-│  │           │                                                              │   │
-│  │           │ 2. Submit prefetch tasks                                    │   │
-│  │           ▼                                                              │   │
-│  │  ┌─────────────────┐     ┌─────────────────┐                           │   │
-│  │  │ Prefetch Queue  │ ──► │ Prefetch Worker │ ──► Cache                 │   │
-│  │  │ (priority queue) │     │ (background pool)│                           │   │
-│  │  └─────────────────┘     └─────────────────┘                           │   │
-│  │                                                                          │   │
-│  │       │ 3. Execute the current Split concurrently                       │   │
-│  │       ▼                                                                  │   │
-│  │  Process Current Split (data already in Cache)                          │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Adaptive Prefetch Architecture](/img/diagrams/generated/caching-04-d7bc161bf5.svg)
 
 ```cpp
 // PrefetchManager — core interface (implementation omitted for brevity)
@@ -478,30 +394,7 @@ Adaptive prefetch dynamically adjusts the prefetch strategy based on runtime acc
 
 **Adaptive decision model**:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Adaptive Prefetch Decision Model                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Input signals:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Signal              │ Source                │ Weight                    │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  prefetchHitRate     │ PrefetchStats         │ 0.4 (core metric)        │   │
-│  │  cacheHitRate        │ CacheStats            │ 0.2                      │   │
-│  │  memoryPressure      │ ResourceManager       │ 0.2 (inverse: high pressure → reduce) │   │
-│  │  sequentialRatio     │ AccessPattern         │ 0.2 (sequential-scan ratio) │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Decision outputs:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  prefetchWindowSize  │ Dynamically adjust the prefetch window (1-32 Row Groups) │   │
-│  │  maxPrefetchBytes    │ Dynamically adjust the prefetch byte cap          │   │
-│  │  prefetchEnabled     │ Fully disable prefetch in extreme cases           │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Adaptive Prefetch Decision Model](/img/diagrams/generated/caching-06-4c6b7143d1.svg)
 
 **Adjustment rules** (evaluated every 30 seconds):
 
@@ -522,40 +415,7 @@ Adaptive prefetch dynamically adjusts the prefetch strategy based on runtime acc
 
 ## 7. Cache and Connector Integration
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Cache Integration with Connector                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Integration points:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Native Connector (DataSourceReader)                                    │   │
-│  │       │                                                                  │   │
-│  │       │ 1. Build CacheKey (fileId + offset + length)                     │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │  CachedReader   │  ← Wraps the original Reader, adds caching transparently │   │
-│  │  │                 │                                                    │   │
-│  │  │  read() {       │                                                    │   │
-│  │  │    key = buildKey(file, offset, len);                               │   │
-│  │  │    data = cacheManager.read(key, () -> rawReader.read());           │   │
-│  │  │    return data;                                                      │   │
-│  │  │  }              │                                                    │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  CacheKey construction rules:                                                    │
-│  • fileId = s3://bucket/path/file.parquet#etag=xxx                             │
-│  • offset = Row Group start offset                                              │
-│  • length = Row Group length                                                    │
-│  • snapshotId = the Iceberg snapshot ID bound to the current query              │
-│  • deleteFileSetHash = hash of the delete files set associated with this data file │
-│  • Granularity: Row Group level (typically 64MB-128MB)                          │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cache Integration with Connector](/img/diagrams/generated/caching-07-868054852f.svg)
 
 ```cpp
 // CachedDataSourceReader.h - cache-backed data source reader
@@ -663,15 +523,7 @@ Query-B (snapshot 102) → CacheKey{file1, 0, 64MB, 102, "def"} → Cache Entry 
 
 `MaintenanceScheduler.expireSnapshotsAsync()` is the trigger source for snapshot expiry. After MaintenanceScheduler completes snapshot expiration, it must notify the Cache layer to clean up the corresponding cache entries. Interaction flow (design target — `CacheEvictionNotifier` and the Worker-side `POST /v1/cache/expire-snapshots` endpoint are not yet implemented; until they land, snapshot-bound entries are reclaimed by the eviction policy):
 
-```
-MaintenanceScheduler.expireSnapshotsAsync(tableName)
-  → TableMaintenance.expireSnapshotsAsync()
-    → Iceberg Table.expireSnapshots().commit()
-      → Returns List<Long> expiredSnapshotIds
-  → CacheEvictionNotifier.notifySnapshotExpired(tableName, expiredSnapshotIds)
-    → Coordinator broadcasts to all Workers (planned HTTP POST /v1/cache/expire-snapshots)
-      → Each Worker's CacheManager marks matching entries as stale
-```
+![MaintenanceScheduler.expireSnapshotsAsync(tableName)](/img/diagrams/generated/caching-11-28f515a1bf.svg)
 
 `CacheEvictionNotifier` is the planned bridge interface between MaintenanceScheduler and CacheManager:
 
@@ -718,21 +570,7 @@ When new delete files are added (e.g., after a DELETE or MERGE operation), the `
 
 Pangrova guarantees **snapshot isolation at the cache level**: concurrent readers and writers to the same table never interfere with each other.
 
-```
-Timeline:
-─────────────────────────────────────────────────────────────────────
-  t0: Writer begins INSERT into table T
-  t1: Reader starts query Q1, binds to snapshot S1
-  t2: Writer commits → new snapshot S2 created
-  t3: Reader Q1 continues reading with snapshot S1 (unaffected)
-  t4: New reader Q2 starts, binds to snapshot S2
-─────────────────────────────────────────────────────────────────────
-
-Cache state:
-  Q1 → CacheKey{..., snapshotId=S1, ...} → reads from / populates S1 entries
-  Q2 → CacheKey{..., snapshotId=S2, ...} → reads from / populates S2 entries
-  No conflict: different snapshotId → different cache entries
-```
+![Timeline:](/img/diagrams/generated/caching-14-76a0b9d9b5.svg)
 
 **Guarantees**:
 
@@ -784,47 +622,7 @@ try {
 
 ## 10. Distributed Cache Extension (Optional)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Distributed Cache Extension                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Scenario: multiple Workers share a cache, avoiding redundant loading           │
-│                                                                                  │
-│  Architecture:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Worker-1              Worker-2              Worker-3                   │   │
-│  │  ┌─────────┐          ┌─────────┐          ┌─────────┐                 │   │
-│  │  │Local    │          │Local    │          │Local    │                 │   │
-│  │  │Cache    │          │Cache    │          │Cache    │                 │   │
-│  │  │(RAM+SSD)│          │(RAM+SSD)│          │(RAM+SSD)│                 │   │
-│  │  └────┬────┘          └────┬────┘          └────┬────┘                 │   │
-│  │       │                    │                    │                       │   │
-│  │       └────────────────────┼────────────────────┘                       │   │
-│  │                            │                                            │   │
-│  │                    ┌───────▼───────┐                                   │   │
-│  │                    │ Cache Router  │                                   │   │
-│  │                    │ (consistent hash) │                                 │   │
-│  │                    └───────┬───────┘                                   │   │
-│  │                            │                                            │   │
-│  │       ┌────────────────────┼────────────────────┐                      │   │
-│  │       ▼                    ▼                    ▼                      │   │
-│  │  ┌─────────┐          ┌─────────┐          ┌─────────┐                │   │
-│  │  │Remote   │          │Remote   │          │Remote   │                │   │
-│  │  │Cache-1  │          │Cache-2  │          │Cache-3  │                │   │
-│  │  │(Redis)  │          │(Redis)  │          │(Redis)  │                │   │
-│  │  └─────────┘          └─────────┘          └─────────┘                │   │
-│  │                                                                        │   │
-│  └────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Implementation approach:                                                        │
-│  • Implement the Cache SPI interface                                            │
-│  • Use Redis/Memcached as the backend                                           │
-│  • Consistent-hash routing, supporting dynamic node scaling                     │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Distributed Cache Extension](/img/diagrams/generated/caching-16-8e83a14fdb.svg)
 
 ```cpp
 // RemoteCache.h - distributed cache implementation (optional extension)
@@ -959,38 +757,7 @@ public class CacheMetrics {
 
 ## 12. Cache Best Practices
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Cache Best Practices                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  1. Capacity planning:                                                           │
-│     • RAM Cache: 10-20% of Worker memory (rest for compute)                      │
-│     • SSD Cache: 1-2x the hot dataset size                                       │
-│     • Monitor hit ratio; consider scaling up below 80%                           │
-│                                                                                  │
-│  2. Eviction strategy selection:                                                 │
-│     • Interactive queries: LRU (strong temporal locality)                        │
-│     • ETL batch: FIFO (mostly sequential scans)                                  │
-│     • Mixed workloads: Adaptive (auto switching)                                 │
-│                                                                                  │
-│  3. Prefetch tuning:                                                             │
-│     • Sequential scan: enlarge prefetch window (8-16 Row Groups)                 │
-│     • Random access: shrink prefetch window to avoid waste                       │
-│     • Monitor prefetch hit ratio; adjust strategy below 70%                      │
-│                                                                                  │
-│  4. SSD configuration:                                                           │
-│     • Use NVMe SSD, avoid SATA SSD                                               │
-│     • Enable Direct I/O to avoid double caching                                  │
-│     • numShards = CPU core count to reduce lock contention                       │
-│                                                                                  │
-│  5. Monitoring & alerting:                                                       │
-│     • Hit ratio < 70%: alert, check cache size                                   │
-│     • Eviction rate > 10%/s: alert, cache thrashing                              │
-│     • SSD latency > 10ms: alert, check disk health                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cache Best Practices](/img/diagrams/generated/caching-20-1d5ba21905.svg)
 
 ## 13. Extension Points Summary
 
@@ -1056,26 +823,7 @@ While §1–§13 cover the **data cache** (Worker-side, caching file data blocks
 
 ### 15.1 Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     Coordinator                               │
-│                                                               │
-│  SQL ──▶ Normalizer ──▶ CacheKey ──▶ L1 Lookup (JVM)        │
-│                                         │                     │
-│                              hit ◄──────┤                     │
-│                                         │ miss                │
-│                                         ▼                     │
-│                                    L2 Lookup (Redis)          │
-│                              hit ◄──────┤                     │
-│                                         │ miss                │
-│                                         ▼                     │
-│                                    Full Optimization          │
-│                                    (Calcite Pipeline)         │
-│                                         │                     │
-│                                         ▼                     │
-│                                    Cache Put (L1 + L2)        │
-└──────────────────────────────────────────────────────────────┘
-```
+![Coordinator](/img/diagrams/generated/caching-21-222deac28a.svg)
 
 **Design Rationale**: BI dashboards and reporting tools execute the same parameterized SQL patterns thousands of times per hour. Each execution pays the full 50–200ms Calcite optimization cost (ANTLR4 parsing → Calcite validation → HepPlanner → VolcanoPlanner → Substrait conversion). For queries completing in < 500ms, optimization overhead is 10–40% of total latency.
 
@@ -1203,28 +951,7 @@ This section provides concrete algorithm specifications for the adaptive prefetc
 
 ### 16.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Concrete Prefetch Algorithm Stack                    │
-│                                                                  │
-│  OperatorPrefetchContext                                         │
-│    ├─ TableScan → SequentialPrefetch(window=4)                   │
-│    ├─ HashJoinProbe → ColumnBasedPrefetch(probeKeys)             │
-│    └─ Aggregation → QueryAwarePrefetch(inputPlan)                │
-│              │                                                   │
-│              ▼                                                   │
-│  CancellablePrefetchManager                                      │
-│    ├─ submitPrefetch(taskId, requests)                            │
-│    └─ cancelPrefetch(taskId) ← query abort/completion            │
-│              │                                                   │
-│              ▼                                                   │
-│  SSDFirstPrefetchPolicy                                          │
-│    └─ prefetch → SSD (not RAM) → promoted on actual read         │
-│                                                                  │
-│  SequentialRatioTracker (sliding window, N=100)                  │
-│    └─ feeds AdaptivePrefetchController (§6.1)                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Concrete Prefetch Algorithm Stack](/img/diagrams/generated/caching-25-db136eccde.svg)
 
 **Problem**: The adaptive prefetch controller (§6.1) lacks concrete implementation details for `sequentialRatio` computation, prefetch-to-SSD interaction, and cancellation. Prefetched data written to RAM cache may evict hot entries.
 

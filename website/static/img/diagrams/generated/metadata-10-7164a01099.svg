@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="904" height="2014" viewBox="0 0 904 2014" role="img">
+<rect width="904" height="2014" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="902.5" height="2012.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * Schema change compatibility validator</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve"> * This is the authoritative implementation of schema evolution validation rules.</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve"> * data-governance.md §2.3 delegates to this component for compatibility checks.</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve"> * This component acts as a pre-interceptor for MetadataService.alterTable().</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve"> * Safe changes (allowed):</text>
+<path d="M117.80000000000001 190.0 L117.80000000000001 201.0 L128.8 195.5 z" fill="#D97706"/>
+<path d="M268.2 190.0 L268.2 201.0 L279.2 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve"> *   int   bigint, float   double,</text>
+<path d="M211.79999999999998 209.0 L211.79999999999998 220.0 L222.79999999999998 214.5 z" fill="#D97706"/>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve"> *   decimal(p1,s)   decimal(p2,s) where p2 &gt; p1,</text>
+<path d="M193.0 228.0 L193.0 239.0 L204.0 233.5 z" fill="#D97706"/>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve"> *   varchar(n1)   varchar(n2) where n2 &gt; n1,</text>
+<path d="M202.4 247.0 L202.4 258.0 L213.4 252.5 z" fill="#D97706"/>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve"> *   non-nullable   nullable</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve"> * Unsafe changes (rejected):</text>
+<path d="M146.0 304.0 L146.0 315.0 L157.0 309.5 z" fill="#D97706"/>
+<path d="M277.59999999999997 304.0 L277.59999999999997 315.0 L288.59999999999997 309.5 z" fill="#D97706"/>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve"> *   bigint   int, double   float,</text>
+<path d="M164.79999999999998 323.0 L164.79999999999998 334.0 L175.79999999999998 328.5 z" fill="#D97706"/>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve"> *   nullable   non-nullable,</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve"> *   any narrowing type change</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">public class SchemaEvolutionValidator {</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">    private static final Map&lt;String, Set&lt;String&gt;&gt; SAFE_PROMOTIONS = Map.of(</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">        "INT", Set.of("BIGINT"),</text>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">        "FLOAT", Set.of("DOUBLE"),</text>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">        "DECIMAL", Set.of("DECIMAL"),  // precision increase</text>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">        "VARCHAR", Set.of("VARCHAR")   // length increase</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">    );</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">    public ValidationResult validate(TableMetadata current, List&lt;SchemaChange&gt; changes) {</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">        List&lt;String&gt; warnings = new ArrayList&lt;&gt;();</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">        Map&lt;String, ColumnMetadata&gt; columnMap = current.columns().stream()</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">            .collect(Collectors.toMap(ColumnMetadata::name, Function.identity()));</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">        for (SchemaChange change : changes) {</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">            validateSingleChange(change, columnMap, errors, warnings);</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">        return new ValidationResult(errors.isEmpty(), errors, warnings);</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">    private void validateSingleChange(SchemaChange change,</text>
+<text x="34.0" y="845.7" fill="#1F2937" xml:space="preserve">                                       Map&lt;String, ColumnMetadata&gt; columns,</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">                                       List&lt;String&gt; errors,</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">                                       List&lt;String&gt; warnings) {</text>
+<text x="34.0" y="902.7" fill="#1F2937" xml:space="preserve">        switch (change) {</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">            case SchemaChange.AddColumn add -&gt;</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">                warnings.add("Adding column: " + add.name());</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">            case SchemaChange.DropColumn drop -&gt; {</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">                if (!columns.containsKey(drop.name())) {</text>
+<text x="34.0" y="1016.7" fill="#1F2937" xml:space="preserve">                    errors.add("Column not found: " + drop.name());</text>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">                } else {</text>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve">                    warnings.add("Dropping column: " + drop.name());</text>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve">                }</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">            case SchemaChange.RenameColumn rename -&gt; {</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">                if (!columns.containsKey(rename.oldName())) {</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">                    errors.add("Column not found: " + rename.oldName());</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">                }</text>
+<text x="34.0" y="1206.7" fill="#1F2937" xml:space="preserve">                if (columns.containsKey(rename.newName())) {</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">                    errors.add("Column already exists: " + rename.newName());</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">                }</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1301.7" fill="#1F2937" xml:space="preserve">            case SchemaChange.ChangeType typeChange -&gt; {</text>
+<text x="34.0" y="1320.7" fill="#1F2937" xml:space="preserve">                ColumnMetadata col = columns.get(typeChange.name());</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">                if (col == null) {</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">                    errors.add("Column not found: " + typeChange.name());</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">                } else if (!isPromotionSafe(col.type(), typeChange.newType())) {</text>
+<text x="34.0" y="1396.7" fill="#1F2937" xml:space="preserve">                    errors.add("Incompatible type change: " + typeChange.name() +</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">                        " from " + col.type() + " to " + typeChange.newType());</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">                }</text>
+<text x="34.0" y="1453.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">            case SchemaChange.ChangeNullability nullChange -&gt; {</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">                ColumnMetadata col = columns.get(nullChange.name());</text>
+<text x="34.0" y="1529.7" fill="#1F2937" xml:space="preserve">                if (col == null) {</text>
+<text x="34.0" y="1548.7" fill="#1F2937" xml:space="preserve">                    errors.add("Column not found: " + nullChange.name());</text>
+<text x="34.0" y="1567.7" fill="#1F2937" xml:space="preserve">                } else if (col.nullable() &amp;&amp; !nullChange.nullable()) {</text>
+<text x="34.0" y="1586.7" fill="#1F2937" xml:space="preserve">                    errors.add("Cannot change nullable to non-nullable: " +</text>
+<text x="34.0" y="1605.7" fill="#1F2937" xml:space="preserve">                        nullChange.name());</text>
+<text x="34.0" y="1624.7" fill="#1F2937" xml:space="preserve">                }</text>
+<text x="34.0" y="1643.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1662.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1681.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1719.7" fill="#1F2937" xml:space="preserve">    private boolean isPromotionSafe(ColumnType from, ColumnType to) {</text>
+<text x="34.0" y="1738.7" fill="#1F2937" xml:space="preserve">        if (from.equals(to)) return true;</text>
+<text x="34.0" y="1757.7" fill="#1F2937" xml:space="preserve">        Set&lt;String&gt; allowed = SAFE_PROMOTIONS.get(from.baseType());</text>
+<text x="34.0" y="1776.7" fill="#1F2937" xml:space="preserve">        if (allowed == null || !allowed.contains(to.baseType())) return false;</text>
+<text x="34.0" y="1795.7" fill="#1F2937" xml:space="preserve">        // DECIMAL/VARCHAR: precision/length must increase</text>
+<text x="34.0" y="1814.7" fill="#1F2937" xml:space="preserve">        if ("DECIMAL".equals(from.baseType())) {</text>
+<text x="34.0" y="1833.7" fill="#1F2937" xml:space="preserve">            return to.precision() &gt;= from.precision() &amp;&amp; to.scale() == from.scale();</text>
+<text x="34.0" y="1852.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1871.7" fill="#1F2937" xml:space="preserve">        if ("VARCHAR".equals(from.baseType())) {</text>
+<text x="34.0" y="1890.7" fill="#1F2937" xml:space="preserve">            return to.length() &gt;= from.length();</text>
+<text x="34.0" y="1909.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1928.7" fill="#1F2937" xml:space="preserve">        return true;</text>
+<text x="34.0" y="1947.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1966.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

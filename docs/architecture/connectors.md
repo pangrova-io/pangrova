@@ -17,42 +17,7 @@ sidebar_label: "Connector Design"
 
 ### 1.1 Overall Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          Connector Plugin Architecture                       │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  ┌───────────────────────────────────────────────────────────────────────┐   │
-│  │                        Plugin Manager                                  │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │    │
-│  │  │  Plugin Loader  │  │ ClassLoader Mgr │  │ Dependency Mgr  │       │    │
-│  │  │ • SPI Discovery │  │ • Isolation     │  │ • Version Check │       │    │
-│  │  │ • JAR Scanning  │  │ • Parent First  │  │ • Conflict Res  │       │    │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │    │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                         │
-│                                    ▼                                         │
-│  ┌───────────────────────────────────────────────────────────────────────┐   │
-│  │                      Connector SPI Layer                               │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │    │
-│  │  │ Connector   │  │ Connector   │  │ Connector   │  │ Connector   │  │    │
-│  │  │ Factory     │  │ Metadata    │  │ SplitMgr    │  │ PageSource  │  │    │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  │    │
-│  │  ┌─────────────┐  ┌─────────────┐                                    │    │
-│  │  │ Connector   │  │ Connector   │          │  │
-│  │  │ PageSink    │  │ Transaction │  Index & Statistics capabilities   │    │
-│  │  └─────────────┘  └─────────────┘  are provided via ConnectorMetadata│    │
-│  │                                     (applyFilter, getTableStatistics)│    │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                         │
-│          ┌─────────────────────────┼─────────────────────────┐               │
-│          ▼                         ▼                         ▼               │
-│  ┌───────────────┐        ┌───────────────┐        ┌───────────────┐         │
-│  │   Iceberg     │        │    Paimon     │        │ Hudi(planned)│          │
-│  │  Connector    │        │  Connector    │        │  Connector    │         │
-│  │ ClassLoader-1 │        │ ClassLoader-2 │        │ ClassLoader-3 │         │
-│  └───────────────┘        └───────────────┘        └───────────────┘         │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+![Connector Plugin Architecture](/img/diagrams/generated/connectors-01-7ad796f0cc.svg)
 
 ### 1.2 Core SPI Interfaces
 
@@ -99,122 +64,7 @@ Factory compatibility/role negotiation and generic Plugin Runtime extraction rem
 separate work. The design diagrams below are conceptual; their version/conflict-management
 boxes do not constitute evidence that those target capabilities are implemented.
 
-```java
-// ConnectorFactory - connector factory
-public interface ConnectorFactory {
-    String getName();
-    Connector create(String catalogName, Map<String, String> config, ConnectorContext context);
-}
-
-// Connector - main connector interface
-public interface Connector {
-    ConnectorMetadata getMetadata(ConnectorSession session);
-    ConnectorSplitManager getSplitManager();
-    ConnectorPageSourceProvider getPageSourceProvider();
-    default ConnectorPageSinkProvider getPageSinkProvider() {
-        throw new UnsupportedOperationException("Write not supported");
-    }
-    default ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly) {
-        return ConnectorTransactionHandle.empty();
-    }
-    default void commit(ConnectorTransactionHandle transaction) {}
-    default void rollback(ConnectorTransactionHandle transaction) {}
-    default void shutdown() {}
-}
-
-// ConnectorMetadata - metadata interface
-public interface ConnectorMetadata {
-    // Schema operations
-    List<String> listSchemaNames(ConnectorSession session);
-    void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties);
-    void dropSchema(ConnectorSession session, String schemaName);
-
-    // Table operations
-    List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName);
-    ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);
-    ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table);
-    Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table);
-
-    // DDL operations
-    void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting);
-    void dropTable(ConnectorSession session, ConnectorTableHandle table);
-    void renameTable(ConnectorSession session, ConnectorTableHandle table, SchemaTableName newTableName);
-
-    // Statistics
-    TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table);
-
-    // Predicate pushdown
-    default Optional<ConstraintApplicationResult<ConnectorTableHandle>>
-            applyFilter(ConnectorSession session, ConnectorTableHandle table, Constraint constraint) {
-        return Optional.empty();
-    }
-
-    // Projection pushdown
-    default Optional<ProjectionApplicationResult<ConnectorTableHandle>>
-            applyProjection(ConnectorSession session, ConnectorTableHandle table,
-                            List<ConnectorExpression> projections, Map<String, ColumnHandle> assignments) {
-        return Optional.empty();
-    }
-}
-
-// ── ConnectorMetadata Sub-Interface Proposal (ISP Compliance) ──
-//
-//
-// The monolithic ConnectorMetadata (14+ methods, 5 responsibility areas) violates
-// Interface Segregation Principle. Read-only connectors must implement DDL methods
-// they don't support. Proposed decomposition for future migration:
-//
-//   ConnectorSchemaProvider:     listSchemaNames, createSchema, dropSchema
-//   ConnectorTableProvider:      listTables, getTableHandle, getTableMetadata, getColumnHandles
-//   ConnectorDdlHandler:         createTable, dropTable, renameTable          (optional)
-//   ConnectorStatisticsProvider: getTableStatistics                           (optional)
-//   ConnectorPushdownHandler:    applyFilter, applyProjection                 (optional)
-//
-// Connector interface would expose:
-//   getSchemaProvider():     ConnectorSchemaProvider       (required)
-//   getTableProvider():      ConnectorTableProvider        (required)
-//   getDdlHandler():         Optional<ConnectorDdlHandler>
-//   getStatisticsProvider(): Optional<ConnectorStatisticsProvider>
-//   getPushdownHandler():    Optional<ConnectorPushdownHandler>
-//
-// Migration: ConnectorMetadata remains as a convenience base class implementing
-// all sub-interfaces with default UnsupportedOperationException for optional methods.
-// New connectors can implement only the required sub-interfaces.
-
-// ConnectorSplitManager - split manager
-public interface ConnectorSplitManager {
-    ConnectorSplitSource getSplits(
-            ConnectorTransactionHandle transaction,
-            ConnectorSession session,
-            ConnectorTableHandle table,
-            DynamicFilter dynamicFilter,
-            Constraint constraint);
-}
-
-// ConnectorPageSourceProvider - data reading
-public interface ConnectorPageSourceProvider {
-    ConnectorPageSource createPageSource(
-            ConnectorTransactionHandle transaction,
-            ConnectorSession session,
-            ConnectorSplit split,
-            ConnectorTableHandle table,
-            List<ColumnHandle> columns,
-            DynamicFilter dynamicFilter);
-}
-
-// ConnectorPageSinkProvider - data writing
-public interface ConnectorPageSinkProvider {
-    ConnectorPageSink createPageSink(
-            ConnectorTransactionHandle transaction,
-            ConnectorSession session,
-            ConnectorOutputTableHandle outputTableHandle);
-
-    ConnectorPageSink createPageSink(
-            ConnectorTransactionHandle transaction,
-            ConnectorSession session,
-            ConnectorInsertTableHandle insertTableHandle);
-}
-```
+![// ConnectorFactory - connector factory](/img/diagrams/generated/connectors-02-a5448245bc.svg)
 
 For planning, a named table lookup calls the connector's `getTableHandle` and
 `getTableMetadata` for that table only. Calcite table-name enumeration calls
@@ -230,34 +80,7 @@ state so an external drop or recreation is visible immediately.
 
 ### 2.1 ClassLoader Hierarchy
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                        ClassLoader Hierarchy                                 │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                    ┌─────────────────────────┐                               │
-│                    │   Bootstrap ClassLoader │                               │
-│                    │   (JDK Core Classes)    │                               │
-│                    └───────────┬─────────────┘                               │
-│                                │                                             │
-│                    ┌───────────▼─────────────┐                               │
-│                    │   Pangrova Core Loader    │                               │
-│                    │ • pangrova-connector-api   │                               │
-│                    │ • pangrova-common         │                               │
-│                    │ • pangrova-protocol       │                               │
-│                    │ • Shared Dependencies   │                               │
-│                    └───────────┬─────────────┘                               │
-│                                │                                             │
-│          ┌─────────────────────┼─────────────────────┐                       │
-│          │                     │                     │                       │
-│  ┌───────▼───────┐    ┌───────▼───────┐    ┌───────▼───────┐                 │
-│  │   Iceberg     │    │    Paimon     │    │ Hudi(planned)│                  │
-│  │ ClassLoader   │    │  ClassLoader  │    │  ClassLoader  │                 │
-│  │ • iceberg-*   │    │ • paimon-*    │    │ • planned deps│                 │
-│  │ • parquet-*   │    │ • flink-*     │    │ • spark-*     │                 │
-│  │ (isolated)    │    │ (isolated)    │    │ (future)      │                 │
-│  └───────────────┘    └───────────────┘    └───────────────┘                 │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+![ClassLoader Hierarchy](/img/diagrams/generated/connectors-03-38480fcbc0.svg)
 
 ### 2.2 PluginClassLoader Implementation
 
@@ -350,64 +173,11 @@ still pins its own immutable metadata and source identity through the query life
 
 ### 3.1 Design Goals
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                         Protocol Abstraction Goals                                │
-├───────────────────────────────────────────────────────────────────────────────────┤
-│  Core goal: the Substrait Plan must be decoupled from the concrete storage format │
-│                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐      │
-│  │                    Storage-Agnostic Design                               │     │
-│  │  Currently supported:          Future extensions:                        │     │
-│  │  • Iceberg                     • Hudi                                    │     │
-│  │  • Paimon                      • Delta Lake                              │     │
-│  │  • Parquet/ORC (raw)           • Custom Formats                          │     │
-│  │                                                                          │     │
-│  │  All storage formats share the same Substrait extension protocol         │     │
-│  │  The Native layer is agnostic to which lakehouse format is used          │     │
-│  └──────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                   │
-│  Design principles:                                                               │
-│  1. Abstraction over concretion: the protocol layer defines only "what", not "how"│
-│  2. Reserved extension points: format-specific metadata via the properties map    │
-│  3. Version compatibility: maintain backward compatibility as the protocol evolves│
-│  4. Minimal-information principle: Native layer needs only minimal execution info │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
+![Protocol Abstraction Goals](/img/diagrams/generated/connectors-05-e4151d28e6.svg)
 
 ### 3.2 Protocol Layer Architecture
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                         Protocol Layer Architecture                               │
-├───────────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────────────┐      │
-│  │  Layer 1: Substrait Core (standard protocol)                             │     │
-│  │  • Standard Rel types: ReadRel, FilterRel, ProjectRel, AggregateRel, etc.  │   │
-│  │  • Standard Expression: ScalarFunction, FieldReference, Literal, etc.      │   │
-│  │  • Standard Type: i32, i64, fp64, string, struct, list, map, etc.          │   │
-│  │  This layer fully follows the Substrait standard, with no modifications    │   │
-│  └──────────────────────────────────────────────────────────────────────────┘     │
-│                                       │                                           │
-│                                       ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐      │
-│  │  Layer 2: Pangrova Extension (common extensions)                            │    │
-│  │  • PangrovaReadExtension: common data-read extension                        │    │
-│  │  • PangrovaWriteExtension: common data-write extension                      │    │
-│  │  • PangrovaShuffleExtension: distributed Shuffle extension                  │    │
-│  │  This layer defines Pangrova-specific, storage-agnostic extensions          │    │
-│  └──────────────────────────────────────────────────────────────────────────┘     │
-│                                       │                                           │
-│                                       ▼                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐      │
-│  │  Layer 3: Storage Adapter (storage adaptation)                           │     │
-│  │  • IcebergAdapter: Iceberg-specific metadata mapping                      │    │
-│  │  • PaimonAdapter: Paimon-specific metadata mapping                        │    │
-│  │  • HudiAdapter: planned Hudi-specific metadata mapping                    │    │
-│  │  Implemented in Java Connector; maps format info to common extensions      │   │
-│  └──────────────────────────────────────────────────────────────────────────┘     │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
+![Protocol Layer Architecture](/img/diagrams/generated/connectors-06-2512adf421.svg)
 
 ### 3.3 Responsibility Boundary Between PangrovaReadExtension and DataSplit
 
@@ -419,23 +189,7 @@ Pangrova's read protocol is split into two layers:
 | JNI transport layer | `DataSplit` | canonical v2 `task.proto` (single authority) | Snapshot-pinned generic execution input for one source range, executed directly by Native | Java SplitManager → canonical TaskRequest → Native task parser |
 
 Conversion flow:
-```
-PangrovaReadExtension (table-level, Planner phase)
-    │
-    │  Java SplitManager: expand into multiple file-level Splits
-    │  - Resolve snapshot/commit → obtain file list
-    │  - Partition pruning → filter out unneeded files
-    │  - Schema Evolution → compute column_mappings
-    │  - Delete File association → populate delete_files
-    ▼
-repeated DataSplit (snapshot-pinned execution inputs)
-    │
-    │  Identity/range stay generic; connector_detail packs FileSplitDetail
-    │  Serialized directly into canonical TaskRequest.splits
-    │  Passed to Native via nativeCreateTaskExecutor(byte[])
-    ▼
-C++ task parser validates DataSplit and its exact FileSplitDetail type URL
-```
+![PangrovaReadExtension (table-level, Planner phase)](/img/diagrams/generated/connectors-07-599361ec6d.svg)
 
 PangrovaReadExtension is an intermediate Planner representation and is not
 passed directly to Native. Native receives only canonical `DataSplit` values;
@@ -482,128 +236,11 @@ enum ReadMode {
 
 The conversion from PangrovaReadExtension (Planner layer) → SplitInfo (execution layer) is performed by the Java SplitManager:
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                 PangrovaReadExtension → SplitInfo Conversion Mapping                │
-├───────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                   │
-│  Iceberg:                                                                         │
-│  ─────────────────────────────────────────────────────────────────────────────    │
-│  PangrovaReadExtension                    SplitInfo                                 │
-│  ──────────────────                     ─────────                                 │
-│  version_id (snapshot_id)          →    iceberg_info.snapshot_id                  │
-│  read_mode = SNAPSHOT              →    iceberg_info.read_mode = SNAPSHOT         │
-│  read_mode = TIME_TRAVEL           →    Java resolves timestamp → snapshot_id     │
-│                                         iceberg_info.read_mode = TIME_TRAVEL      │
-│  read_mode = INCREMENTAL           →    iceberg_info.read_mode = INCREMENTAL      │
-│  from_version_id / to_version_id   →    iceberg_info.from/to_snapshot_id          │
-│  (Java: expand incremental files)  →    one SplitInfo per file                    │
-│  Schema Evolution                  →    file_schema + column_mappings             │
-│  Delete Files                      →    iceberg_info.delete_files                 │
-│                                                                                   │
-├───────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                   │
-│  Paimon:                                                                          │
-│  ─────────────────────────────────────────────────────────────────────────────    │
-│  PangrovaReadExtension                    SplitInfo                                 │
-│  ──────────────────                     ─────────                                 │
-│  version_id (commit_id)            →    paimon_info.snapshot_id                   │
-│  read_mode = SNAPSHOT              →    paimon_info.read_mode = APPEND            │
-│                                         or PRIMARY_KEY (depends on table type)    │
-│  read_mode = CHANGELOG             →    paimon_info.read_mode = CHANGELOG         │
-│  read_mode = INCREMENTAL           →    paimon_info.read_mode = INCREMENTAL       │
-│  from_version_id / to_version_id   →    paimon_info.from/to_snapshot_id           │
-│  properties["merge.engine"]        →    paimon_info.merge_engine                  │
-│  properties["changelog.producer"]  →    paimon_info.changelog_producer            │
-│  Bucket info                       →    paimon_info.bucket_id                     │
-│  LSM Level files                   →    paimon_info.lsm_levels                    │
-│  Schema Evolution                  →    file_schema + column_mappings             │
-│                                                                                   │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
+![PangrovaReadExtension → SplitInfo Conversion Mapping](/img/diagrams/generated/connectors-09-0523c1826f.svg)
 
 ### 3.5 Java SplitManager Conversion Interface
 
-```java
-/**
- * SplitConverter — converts an PangrovaReadExtension into a list of SplitInfo
- * Each Connector implements its own SplitConverter
- */
-public interface SplitConverter {
-    String getSourceType();
-
-    /**
-     * Expand a table-level read description into a list of file-level SplitInfo
-     *
-     * Responsibilities:
-     * 1. Resolve version → obtain file list
-     * 2. Partition pruning → filter out unneeded files
-     * 3. Schema Evolution → compute column_mappings
-     * 4. Delete File association → populate connector_info
-     */
-    List<SplitInfo> convert(PangrovaReadExtension extension, ConnectorSession session);
-}
-
-/**
- * Iceberg SplitConverter
- */
-public class IcebergSplitConverter implements SplitConverter {
-
-    @Override
-    public String getSourceType() { return "iceberg"; }
-
-    @Override
-    public List<SplitInfo> convert(PangrovaReadExtension extension, ConnectorSession session) {
-        long snapshotId = Long.parseLong(extension.getVersionId());
-        Table table = catalog.loadTable(tableIdentifier);
-
-        TableScan scan = table.newScan().useSnapshot(snapshotId);
-
-        // Incremental Read
-        if (extension.getReadMode() == ReadMode.READ_MODE_INCREMENTAL) {
-            long fromSnapshot = Long.parseLong(extension.getFromVersionId());
-            long toSnapshot = Long.parseLong(extension.getToVersionId());
-            scan = table.newIncrementalAppendScan()
-                .fromSnapshotExclusive(fromSnapshot)
-                .toSnapshot(toSnapshot);
-        }
-
-        List<SplitInfo> splits = new ArrayList<>();
-        for (FileScanTask task : scan.planFiles()) {
-            SplitInfo.Builder builder = SplitInfo.newBuilder()
-                .setSplitId(generateSplitId())
-                .setConnectorId("iceberg")
-                .setFilePath(task.file().path().toString())
-                .setStartOffset(task.start())
-                .setLength(task.length())
-                .setFileFormat(toFileFormat(task.file().format()));
-
-            // Schema Evolution: compute file_schema → query_schema mapping
-            if (schemaChanged(task.file().schemaId(), extension.getSchemaVersion())) {
-                builder.setFileSchema(toArrowSchemaBytes(task.file().schema()));
-                builder.addAllColumnMappings(computeColumnMappings(
-                    task.file().schema(), extension.getArrowSchema()));
-            }
-
-            // Iceberg-specific info
-            IcebergSplitInfo.Builder icebergBuilder = IcebergSplitInfo.newBuilder()
-                .setSnapshotId(snapshotId)
-                .setReadMode(toIcebergReadMode(extension.getReadMode()))
-                .setDataSequenceNumber(task.file().dataSequenceNumber())
-                .setSpecId(task.file().specId());
-
-            // Delete Files
-            for (DeleteFile deleteFile : task.deletes()) {
-                icebergBuilder.addDeleteFiles(toDeleteFileInfo(deleteFile));
-            }
-
-            builder.setIcebergInfo(icebergBuilder.build());
-            splits.add(builder.build());
-        }
-        return splits;
-    }
-}
-```
+![/**](/img/diagrams/generated/connectors-10-09efff5393.svg)
 
 ---
 
@@ -611,21 +248,7 @@ public class IcebergSplitConverter implements SplitConverter {
 
 ### 4.1 Module Structure
 
-```text
-pangrova-connector/pangrova-connector-iceberg/
-├── src/main/java/org/pangrova/connector/iceberg/
-│   ├── IcebergConnectorFactory.java     # ServiceLoader factory
-│   ├── IcebergConnector.java            # connector entry point
-│   ├── IcebergMetadata.java             # metadata implementation
-│   ├── IcebergSplitManager.java         # split discovery
-│   ├── handle/                          # catalog/table handles
-│   ├── read/                            # page source and expression conversion
-│   ├── write/                           # page sink and write support
-│   └── type/                            # type mapping
-├── src/main/resources/META-INF/services/
-│   └── org.pangrova.connector.api.plugin.ConnectorFactory
-└── pom.xml
-```
+![pangrova-connector/pangrova-connector-iceberg/](/img/diagrams/generated/connectors-11-0c220e0261.svg)
 
 ### 4.2 Core Implementation
 
@@ -780,157 +403,19 @@ production caller reaches must not be described as supported.
 
 ### 6.1 Federation Query Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                         Federation Query Architecture                            │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Cross-source Join: Iceberg table JOIN Paimon table                            │
-│  • Unified query entry: users need not care about physical data location         │
-│  • Smart pushdown: push computation to the source when possible                  │
-│  • Performance optimization: reduce cross-source data transfer                   │
-│                                                                                  │
-│  Architecture overview:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │                           Coordinator                                    │    │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │      │
-│  │  │                    Federation Planner                            │   │     │
-│  │  │                                                                  │   │     │
-│  │  │  SQL: SELECT * FROM iceberg.orders o                            │   │      │
-│  │  │       JOIN paimon.customers c ON o.cust_id = c.id               │   │      │
-│  │  │                                                                  │   │     │
-│  │  │  1. Parse & Analyze → identify cross-Catalog references         │   │      │
-│  │  │  2. Optimize → cross-source Join order optimization             │   │      │
-│  │  │  3. Pushdown → push Filter/Project to each source when possible │   │      │
-│  │  │  4. Plan → generate the federated execution plan                │   │      │
-│  │  └─────────────────────────────────────────────────────────────────┘   │      │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  Execution plan example:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │                                                                          │    │
-│  │  Stage 0: Scan iceberg.orders (Native, Velox)                           │     │
-│  │           Filter: date > '2024-01-01' (pushed down)                     │     │
-│  │                    ↓ Shuffle (cust_id)                                  │     │
-│  │                                                                          │    │
-│  │  Stage 1: Scan paimon.customers (Native, Velox)                         │     │
-│  │           Filter: status = 'active' (pushed down)                       │     │
-│  │                    ↓ Shuffle (id)                                       │     │
-│  │                                                                          │    │
-│  │  Stage 2: HashJoin(orders, customers) on cust_id = id                   │     │
-│  │                                                                          │    │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-```
+![Federation Query Architecture](/img/diagrams/generated/connectors-14-174ddd2c7d.svg)
 
 ### 6.2 Connector Type Classification
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                         Connector Type Classification                            │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Type 1: Native Connector (high performance)                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Sources: Iceberg, Paimon (current); Hudi, Delta Lake (planned)       │     │
-│  │  • Execution layer: C++ Velox                                           │     │
-│  │  • Features: vectorized reads, SIMD optimization, zero-copy             │     │
-│  │  • Use cases: large-scale scans, complex computation                    │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  Type 2: API Connector (external services)                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Sources: Elasticsearch, MongoDB, Redis, Kafka                        │     │
-│  │  • Execution layer: Java                                                │     │
-│  │  • Features: external API calls, streaming reads                        │     │
-│  │  • Use cases: real-time data, search, cache queries                     │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-```
+![Connector Type Classification](/img/diagrams/generated/connectors-15-b18cd8e136.svg)
 
 ### 6.3 Cross-Source Join Optimization
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                      Cross-Source Join Optimization                              │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Optimization strategy:                                                          │
-│                                                                                  │
-│  1. Join order optimization                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Estimate each table's size from statistics                            │    │
-│  │  • Prefer the smaller table as the Build Side                            │    │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  2. Predicate pushdown                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Push Filter down to each source                                       │    │
-│  │  • Convert Join conditions to Filter (Semi-Join optimization)            │    │
-│  │  • Native sources: generate a Substrait Filter Expression                │    │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  3. Data locality                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Process same-Catalog tables in the same Stage when possible           │    │
-│  │  • Reduce cross-source Shuffle                                           │    │
-│  │  • Broadcast small tables to avoid Shuffle                               │    │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  4. Dynamic filtering (cross-source)                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  • Build a Bloom Filter from the small table                             │    │
-│  │  • Push it down to the large-table scan to filter early                  │    │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cross-Source Join Optimization](/img/diagrams/generated/connectors-16-74332bf683.svg)
 
 ### 6.4 Federation Query Execution Flow
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                      Federation Query Execution Flow                             │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  SQL: SELECT o.*, c.name                                                         │
-│       FROM iceberg.orders o                                                      │
-│       JOIN paimon.customers c ON o.customer_id = c.id                            │
-│       WHERE o.date > '2024-01-01' AND c.status = 'active'                        │
-│                                                                                  │
-│  Execution flow:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  Step 1: Planning                                                        │    │
-│  │  • Identify sources: iceberg (Native), paimon (Native)                  │     │
-│  │  • Statistics: orders (10M rows), customers (100K)                      │     │
-│  │  • Join order: customers (Build Side) → orders                          │     │
-│  │  • Predicate pushdown: date > '2024-01-01' → iceberg                    │     │
-│  │              status = 'active' → paimon                                 │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  Step 2: Stage 0 - Scan paimon.customers (Native Velox)                 │     │
-│  │  • Substrait Plan with Filter: status = 'active'                        │     │
-│  │  • Result: 50K rows → Shuffle by id                                     │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  Step 3: Stage 1 - Scan iceberg.orders (Native Velox)                   │     │
-│  │  • Substrait Plan with Filter: date > '2024-01-01'                      │     │
-│  │  • Result: 5M rows → Shuffle by customer_id                             │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐     │
-│  │  Step 4: Stage 2 - Join                                                  │    │
-│  │  • HashJoin(orders, customers) on customer_id = id                      │     │
-│  │  • Execution engine: Native Velox (vectorized)                          │     │
-│  └─────────────────────────────────────────────────────────────────────────┘     │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-```
+![Federation Query Execution Flow](/img/diagrams/generated/connectors-17-3e8b960cef.svg)
 
 ---
 

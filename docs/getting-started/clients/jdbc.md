@@ -214,13 +214,7 @@ The Coordinator itself exempts health from authentication; this preserves client
 credential consistency for authenticating proxies, not a backend-login guarantee.
 This health check is not proof of query drain or physical socket closure.
 
-```
-DriverManager.getConnection(url, props)
-  → PangrovaDriver.connect()
-    → JdbcUrlParser.parse(url)  // validate host, port, catalog
-    → PangrovaRestClient.builder().build()
-    → PangrovaConnection(restClient, catalog)
-```
+![DriverManager.getConnection(url, props)](/img/diagrams/generated/jdbc-08-934736fcd1.svg)
 
 The connection is lightweight — it holds a reference to the shared `PangrovaRestClient` and the catalog name. Closing a connection does not shut down the shared HTTP client.
 

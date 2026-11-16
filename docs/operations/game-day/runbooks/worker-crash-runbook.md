@@ -18,22 +18,7 @@ description: "Diagnose and recover from worker process crashes"
 
 ## Decision Tree
 
-```
-Worker down?
-  │
-  ├─► Is only one worker affected, or multiple?
-  │     │
-  │     ├─► ONE worker ──► Single-node failure → proceed with Step 1
-  │     │
-  │     └─► MULTIPLE workers ──► Infrastructure event or coordinator issue
-  │           → Escalate to on-call lead before proceeding
-  │
-  └─► Did the worker crash or was it intentionally stopped?
-        │
-        ├─► CRASHED ──► Collect artifacts before restarting → Step 1
-        │
-        └─► STOPPED ──► Skip artifact collection; proceed to Step 4
-```
+![Worker down?](/img/diagrams/generated/worker-crash-runbook-01-a12eb391fa.svg)
 
 ---
 

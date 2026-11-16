@@ -253,34 +253,7 @@ docker compose down
 
 When Pangrova is packaged as a binary distribution, the directory structure is:
 
-```
-pangrova-{version}/
-├── bin/                    ← Startup, stop, and operations scripts
-│   ├── pangrova.sh           ← Unified entry point (subcommand delegation)
-│   ├── pangrova-coordinator.sh
-│   ├── pangrova-worker.sh
-│   ├── pangrova-standalone.sh
-│   ├── pangrova-stop.sh
-│   ├── pangrova-cli.sh       ← Interactive SQL client
-│   ├── pangrova-catalog.sh   ← Catalog management utility
-│   ├── pangrova-health-check.sh
-│   ├── pangrova-cluster-status.sh
-│   └── pangrova-rolling-upgrade.sh
-├── config/                 ← Configuration templates (copy before editing)
-│   ├── coordinator.yml     ← Coordinator configuration
-│   ├── worker.yml          ← Worker configuration
-│   ├── standalone.yml      ← Standalone mode configuration
-│   ├── pangrova-env.sh       ← Environment variable overrides
-│   ├── logback.xml         ← Logging configuration
-│   ├── jvm-coordinator.config  ← Coordinator JVM options
-│   ├── jvm-worker.config       ← Worker JVM options
-│   └── catalog/            ← Catalog configuration (one file per data source)
-│       ├── iceberg-example.yml
-│       └── paimon-example.yml
-├── lib/                    ← JAR files (classpath)
-├── logs/                   ← Log files and PID files
-└── data/                   ← Local data (spill, cache)
-```
+![pangrova-{version}/](/img/diagrams/generated/quickstart-23-f2bcbe9fac.svg)
 
 | Directory | Purpose |
 |-----------|---------|

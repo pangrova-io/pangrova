@@ -98,48 +98,7 @@ suite is skipped and does not count as REST catalog validation.
 
 ### 3.1 Fuzzer Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Fuzzer Architecture                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core idea:                                                                       │
-│  • Randomly generate input data and query plans                                 │
-│  • Compare Velox execution results against a reference implementation (e.g. DuckDB) │
-│  • Automatically discover boundary conditions, NULL handling, type coercion, etc. │
-│                                                                                  │
-│  Fuzzer Types:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Expression      │  Test scalar functions, type coercion, NULL handling      │   │
-│  │  │ Fuzzer          │  Generate random expression trees, verify results         │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Aggregation     │  Test aggregate functions, GROUP BY, HAVING               │   │
-│  │  │ Fuzzer          │  Generate random aggregation queries, verify results      │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Join            │  Test various Join types and Join conditions              │   │
-│  │  │ Fuzzer          │  Generate random Join queries, verify Join results        │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Window          │  Test window functions, PARTITION BY, ORDER BY            │   │
-│  │  │ Fuzzer          │  Generate random window queries, verify window results    │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Memory          │  Test memory pressure, Spill, OOM handling                │   │
-│  │  │ Fuzzer          │  Simulate low-memory scenarios, verify Spill correctness  │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Fuzzer Architecture](/img/diagrams/generated/testing-02-125d73529a.svg)
 
 
 ### 3.2 Expression Fuzzer
@@ -446,54 +405,7 @@ private:
 
 ## 4. Reference Implementation Comparison
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Reference Implementation Comparison                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Comparison strategy:                                                            │
-│  • Use DuckDB as the reference implementation (good SQL-standard compatibility) │
-│  • Compare result-set contents (ignore ordering unless ORDER BY is present)     │
-│  • Compare data types and precision                                             │
-│  • Compare NULL handling behavior                                               │
-│                                                                                  │
-│  Comparison flow:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Random Query Generator                                                 │   │
-│  │         │                                                                │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────┐     ┌─────────────┐                                   │   │
-│  │  │   Pangrova    │     │   DuckDB    │                                   │   │
-│  │  │  (Velox)    │     │ (Reference) │                                   │   │
-│  │  └──────┬──────┘     └──────┬──────┘                                   │   │
-│  │         │                   │                                           │   │
-│  │         ▼                   ▼                                           │   │
-│  │  ┌─────────────┐     ┌─────────────┐                                   │   │
-│  │  │   Result    │     │   Result    │                                   │   │
-│  │  │   Set A     │     │   Set B     │                                   │   │
-│  │  └──────┬──────┘     └──────┬──────┘                                   │   │
-│  │         │                   │                                           │   │
-│  │         └─────────┬─────────┘                                          │   │
-│  │                   ▼                                                     │   │
-│  │            ┌─────────────┐                                             │   │
-│  │            │  Comparator │                                             │   │
-│  │            │             │                                             │   │
-│  │            │ • Row Count │                                             │   │
-│  │            │ • Content   │                                             │   │
-│  │            │ • Types     │                                             │   │
-│  │            │ • NULLs     │                                             │   │
-│  │            └──────┬──────┘                                             │   │
-│  │                   │                                                     │   │
-│  │            ┌──────▼──────┐                                             │   │
-│  │            │   Match?    │                                             │   │
-│  │            │  Yes / No   │                                             │   │
-│  │            └─────────────┘                                             │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Reference Implementation Comparison](/img/diagrams/generated/testing-07-28a702fedb.svg)
 
 ```cpp
 // ReferenceEngine.h - reference implementation engine
@@ -553,30 +465,7 @@ private:
 
 ## 5. Performance Testing Framework
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Performance Testing Framework                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test dimensions:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Dimension        │ Metric                  │ Baseline                  │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Throughput       │ rows/sec, bytes/sec     │ TPC-H/TPC-DS             │   │
-│  │  Latency          │ p50, p95, p99           │ Historical baseline       │   │
-│  │  Memory           │ peak, average           │ Configured limit          │   │
-│  │  CPU              │ utilization, cycles     │ Theoretical optimum       │   │
-│  │  I/O              │ read/write bytes        │ Storage bandwidth         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Benchmark suites:                                                               │
-│  • TPC-H (standard OLAP benchmark)                                              │
-│  • TPC-DS (complex OLAP benchmark)                                              │
-│  • Custom micro-benchmarks (single-operator performance)                        │
-│  • Regression benchmarks (comparison against historical versions)               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Performance Testing Framework](/img/diagrams/generated/testing-09-ec8d291802.svg)
 
 ```java
 // PerformanceBenchmark.java - performance benchmark
@@ -792,40 +681,7 @@ generation, use
 
 ## 9. CI/CD Integration
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           CI/CD Testing Pipeline                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Pipeline stages:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐  │   │
-│  │  │  Build  │ → │  Unit   │ → │  Integ  │ → │ Fuzzing │ → │  Perf   │  │   │
-│  │  │         │   │  Test   │   │  Test   │   │  (Daily)│   │ (Weekly)│  │   │
-│  │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘  │   │
-│  │       │             │             │             │             │       │   │
-│  │       │             │             │             │             │       │   │
-│  │       ▼             ▼             ▼             ▼             ▼       │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
-│  │  │                    Quality Gate                                  │ │   │
-│  │  │  • Unit Test Coverage > 80%                                     │ │   │
-│  │  │  • No Fuzzer Failures                                           │ │   │
-│  │  │  • Performance Regression < 5%                                  │ │   │
-│  │  │  • No Critical/High Security Issues                             │ │   │
-│  │  └─────────────────────────────────────────────────────────────────┘ │   │
-│  │                                                                       │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Trigger conditions:                                                             │
-│  • Every PR: Build + Unit + Integration                                         │
-│  • Daily: Fuzzing (4 hours)                                                     │
-│  • Weekly: Performance Benchmark                                                │
-│  • Monthly: Chaos Testing                                                       │
-│  • Before release: Full E2E + Chaos + Performance                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![CI/CD Testing Pipeline](/img/diagrams/generated/testing-13-b122378b69.svg)
 
 ```yaml
 # .github/workflows/test.yml - example CI test configuration
@@ -893,62 +749,11 @@ jobs:
 
 ## 10. Testing Best Practices
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Testing Best Practices                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  1. Testing pyramid:                                                             │
-│     • 70% Unit Tests (fast, isolated)                                           │
-│     • 20% Integration Tests (module interactions)                               │
-│     • 10% E2E Tests (end-to-end verification)                                   │
-│                                                                                  │
-│  2. Fuzzer usage principles:                                                     │
-│     • Every new operator must have a corresponding Fuzzer test                  │
-│     • Bugs found by the Fuzzer must have regression tests added                 │
-│     • Regularly run long Fuzzing sessions (4+ hours)                            │
-│                                                                                  │
-│  3. Performance testing principles:                                              │
-│     • Establish a performance baseline and compare before every release         │
-│     • Any performance regression > 5% must be investigated                      │
-│     • Critical paths must have micro-benchmarks                                 │
-│                                                                                  │
-│  4. Test data principles:                                                        │
-│     • Use deterministic seeds to ensure reproducibility                         │
-│     • Cover boundary conditions: NULL, empty, extreme values, special characters│
-│     • Use realistic data distributions (TPC-H/TPC-DS)                           │
-│                                                                                  │
-│  5. Fault testing principles:                                                    │
-│     • Every fault-tolerance mechanism must have a corresponding fault test      │
-│     • After fault injection verify: correctness + recovery time                 │
-│     • Run chaos tests regularly to uncover hidden issues                        │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Testing Best Practices](/img/diagrams/generated/testing-15-4794d0e6ce.svg)
 
 ## 11. Testing Module Structure
 
-```
-pangrova-testing/
-├── pangrova-testing-kit/                  # Test-only fixtures shared across modules
-│   ├── src/main/java/org/pangrova/testing/testkit/
-│   │   ├── ...                        # cluster, transport, TLS, result, lineage, function fakes
-│   └── src/test/java/                 # Fixture self-tests
-│
-├── pangrova-testing-integration-tests/        # End-to-end, smoke and chaos suites (one artifact)
-│   ├── src/main/java/org/pangrova/testing/integration/
-│   │   ├── e2e/                       # E2E framework: config, generators, runner, setup
-│   │   └── chaos/                     # Fault injection and linearizability checkers
-│   ├── src/test/java/org/pangrova/testing/integration/
-│   │   ├── e2e/                       # E2E scenarios (@E2ETest, @Tag("e2e"))
-│   │   ├── smoke/                     # Activation smoke suite (@SmokeTest, @Tag("smoke"))
-│   │   └── chaos/                     # Chaos scenarios (@Tag("chaos"))
-│   └── src/test/resources/            # logback, TPC-H/TPC-DS references, TLS fixtures
-│
-├── pangrova-testing-fuzzer/              # Operator fuzzer with an independent C++ toolchain
-├── pangrova-testing-benchmark/           # JMH benchmarks and TPC-H/TPC-DS harnesses
-└── pom.xml
-```
+![pangrova-testing/](/img/diagrams/generated/testing-16-156170721d.svg)
 
 Suite selection is preserved after the merge: E2E runs through `-Pe2e`/`full-regression`,
 the smoke suite through `-Dgroups=smoke`, and the chaos suite through `-Dgroups=chaos`
@@ -960,63 +765,11 @@ or its class names. No suite is selected by module identity any more.
 
 ### 12.1 TPC-H Benchmark Targets
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         TPC-H Performance Targets                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test environment: 3 Workers, 32 cores / 128GB RAM / NVMe SSD per node          │
-│  Data scale: SF=100 (~100GB of raw data)                                        │
-│                                                                                  │
-│  Query performance targets:                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Query    │ Type              │ Target latency│ Baseline (Trino)         │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Q1       │ Scan + Aggregate  │ < 5s        │ On par or better         │   │
-│  │  Q3       │ 3-table Join + Aggregate│ < 10s       │ On par or better         │   │
-│  │  Q5       │ 6-table Join      │ < 15s       │ On par or better         │   │
-│  │  Q6       │ Pure scan + filter│ < 2s        │ 2x better (Native I/O)   │   │
-│  │  Q9       │ Complex Join + Aggregate│ < 30s       │ On par or better         │   │
-│  │  Q18      │ Large aggregate + TopN│ < 20s       │ On par or better         │   │
-│  │  Q21      │ Complex subquery  │ < 25s       │ On par or better         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Throughput targets:                                                             │
-│  • Scan throughput: > 500 MB/s/node (Parquet, compressed)                       │
-│  • Aggregation throughput: > 100M rows/s/node                                   │
-│  • Join throughput: > 50M rows/s/node (Hash Join)                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![TPC-H Performance Targets](/img/diagrams/generated/testing-17-a992681317.svg)
 
 ### 12.2 TPC-DS Benchmark Targets
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         TPC-DS Performance Targets                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test environment: 5 Workers, 64 cores / 256GB RAM / NVMe SSD per node          │
-│  Data scale: SF=1000 (~1TB of raw data)                                         │
-│                                                                                  │
-│  Query-category targets:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category          │ Query count│ Target p50  │ Target p95  │ Note      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Simple Scan       │ 15        │ < 5s        │ < 10s       │ Single-table scan│   │
-│  │  Simple Join       │ 20        │ < 15s       │ < 30s       │ 2-3 table Join│   │
-│  │  Complex Join      │ 30        │ < 60s       │ < 120s      │ Multi-table Join│   │
-│  │  Subquery          │ 20        │ < 45s       │ < 90s       │ Subquery  │   │
-│  │  Window Function   │ 14        │ < 30s       │ < 60s       │ Window functions│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Overall targets:                                                                │
-│  • All 99 queries pass                                                          │
-│  • Total execution time < 2 hours (Power Run)                                   │
-│  • No OOM or timeout failures                                                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![TPC-DS Performance Targets](/img/diagrams/generated/testing-18-780e06b5b1.svg)
 
 ### 12.3 Performance Benchmark Execution Specification
 
@@ -1038,33 +791,7 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 
 #### 12.3.2 Execution Procedure
 
-```
-1. Environment Setup
-   → Provision cluster (Terraform / K8s)
-   → Generate data: dbgen SF=100 / dsdgen SF=1000
-   → Load into Iceberg tables
-   → Run ANALYZE TABLE on all tables
-
-2. Warm-up Phase
-   → Execute each query once (results discarded)
-   → Ensure data cache is populated
-
-3. Power Run (single-stream)
-   → Execute all queries sequentially (Q1..Q22 for TPC-H, Q1..Q99 for TPC-DS)
-   → Record wall-clock time per query
-   → Record peak memory per query
-
-4. Throughput Run (multi-stream, optional)
-   → TPC-H: 4 concurrent streams
-   → TPC-DS: 8 concurrent streams
-   → Record total elapsed time
-
-5. Collect Results
-   → Per-query latency (p50, p95, p99 over 3 runs)
-   → Peak memory usage
-   → Spill bytes (if any)
-   → Total Power Run time
-```
+![1. Environment Setup](/img/diagrams/generated/testing-19-cc5c0946e2.svg)
 
 #### 12.3.3 Pass/Fail Criteria
 
@@ -1116,15 +843,7 @@ when measurements are missing, uncalibrated, or scale-mismatched.
 
 #### 12.3.6 Regression Detection Rules
 
-```
-For each query Q:
-  regression_ratio = (current_p50 - baseline_p50) / baseline_p50
-
-  if regression_ratio > 0.20:  → FAIL (block merge/release)
-  if regression_ratio > 0.10:  → WARN (require investigation, add to report)
-  if regression_ratio > 0.05:  → INFO (log, no action required)
-  if regression_ratio < -0.10: → NOTE (performance improvement, update baseline candidate)
-```
+![For each query Q:](/img/diagrams/generated/testing-20-96bf89dbf0.svg)
 
 Regression is evaluated on p50 latency from 3 consecutive runs. If variance across runs exceeds 15%, the result is marked `UNSTABLE` and requires re-run.
 
@@ -1198,61 +917,11 @@ This section defines the end-to-end integration test scenarios that verify cross
 
 #### IT-01: Single-table scan end-to-end
 
-```
-Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client
-
-Preconditions:
-  - 1 Coordinator + 1 Worker
-  - Iceberg table (Parquet, 100K rows)
-
-Test steps:
-  1. Client submits SELECT * FROM iceberg.db.orders WHERE amount > 100 LIMIT 10
-  2. Coordinator: Parse → Optimize → Fragment (single Stage) → Schedule to Worker
-  3. Worker: JNI → Velox Scan → Filter → Project → Arrow C Data → Flight → Client
-  4. Client verifies result row count ≤ 10, all amount > 100
-
-Verification points:
-  - [02] Substrait Plan is serialized/deserialized correctly
-  - [03] Native Parquet Reader reads correctly + filter pushdown
-  - [04] ConnectorSplitManager generates correct Splits
-  - [07] CatalogRegistry resolves table metadata correctly
-
-Pass criteria:
-  - Results match the DuckDB reference implementation
-  - No memory leaks (Native ASAN clean)
-```
+![Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client](/img/diagrams/generated/testing-22-a63ebf982b.svg)
 
 #### IT-02: Distributed Join + Shuffle
 
-```
-Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness
-
-Preconditions:
-  - 1 Coordinator + 3 Workers
-  - Iceberg tables: orders (1M rows), customers (100K rows)
-
-Test steps:
-  1. Client submits:
-     SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.customer_id = c.id
-     GROUP BY c.name
-  2. Coordinator builds a 3-Stage DAG:
-     Stage 2: Scan orders → Partial Agg → Exchange(REPARTITION)
-     Stage 1: Scan customers → Exchange(REPARTITION)
-     Stage 0: HashJoin → Final Agg → Output
-  3. Workers perform Shuffle (Arrow Flight)
-  4. Output Worker aggregates results and returns them to the Client
-
-Verification points:
-  - [02] Stage DAG is partitioned correctly, Exchange types are correct
-  - [01] Shuffle data is transferred correctly via Arrow Flight
-  - [06] Memory is fairly allocated across Tasks
-  - [03] Native HashJoin + Agg results are correct
-
-Pass criteria:
-  - Results match the DuckDB reference implementation
-  - No Shuffle data loss or duplication
-```
+![Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness](/img/diagrams/generated/testing-23-49a1b1af7a.svg)
 
 #### IT-03: Output Task result return
 
@@ -1413,32 +1082,7 @@ Pass criteria:
 
 ### 13.3 Integration Test Infrastructure
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Integration Test Infrastructure                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  TestContainers environment:                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Container          │ Purpose                 │ Scenarios               │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  MinIO              │ S3-compatible storage   │ IT-01 ~ IT-08           │   │
-│  │  ZooKeeper          │ Service registration, leader election│ IT-04, IT-05            │   │
-│  │  PostgreSQL         │ Query state, Catalog persistence│ IT-04, IT-08            │   │
-│  │  Redis              │ Metadata cache          │ IT-10                   │   │
-│  │  Kafka              │ CDC messages            │ IT-07                   │   │
-│  │  Pangrova Coordinator │ Control plane           │ All                     │   │
-│  │  Pangrova Worker      │ Data plane              │ All                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Test frameworks:                                                                │
-│  • JUnit 5 + TestContainers                                                     │
-│  • DuckDB as the reference implementation (result comparison)                   │
-│  • Fault injection: Toxiproxy (network partition, latency injection)            │
-│  • Memory checking: Native ASAN/LSAN                                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Integration Test Infrastructure](/img/diagrams/generated/testing-30-acd2d636b4.svg)
 
 ### 13.4 CI Integration
 

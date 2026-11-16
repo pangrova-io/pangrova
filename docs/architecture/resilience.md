@@ -86,31 +86,7 @@ not by the exception itself.
 
 ### 3.1 Propagation Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Java ↔ Native Exception Propagation                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Propagation flow:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Layer                                                              │   │
-│  │       │ JNI Call                                                        │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Native Layer (C++)                                              │   │   │
-│  │  │  1. Catch C++ Exception                                          │   │   │
-│  │  │  2. Convert to NativeError (Protobuf)                           │   │   │
-│  │  │  3. Store error in TaskState, mark task FAILED                  │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │       │ Java Pull                                                       │   │
-│  │       ▼                                                                  │   │
-│  │  4. nativeGetNextBatch() returns < 0 (error code)                       │   │
-│  │  5. Java calls nativeGetTaskStatus() to fetch NativeError details       │   │
-│  │  6. Convert to PangrovaException, attach Java-layer context (TraceId, QueryId) │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Java ↔ Native Exception Propagation](/img/diagrams/generated/resilience-03-be25b46658.svg)
 
 ### 3.2 Native Error Protocol
 
@@ -190,37 +166,7 @@ mapping, not a second error-code taxonomy.
 
 ### 4.1 Circuit Breaker State Machine
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Circuit Breaker State Machine                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  State transitions:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │     ┌──────────┐  failure rate>thr.  ┌──────────┐                       │   │
-│  │     │  CLOSED  │ ─────────────────► │   OPEN   │                       │   │
-│  │     │ (normal) │                     │ (tripped)│                       │   │
-│  │     └────┬─────┘                     └────┬─────┘                       │   │
-│  │          │                                │                              │   │
-│  │          │ success                        │ after timeout                │   │
-│  │          │                                ▼                              │   │
-│  │          │                          ┌──────────┐                        │   │
-│  │          └────────────────────────  │HALF_OPEN │                        │   │
-│  │                    success           │ (probing)│                        │   │
-│  │                                      └────┬─────┘                        │   │
-│  │                                           │ failure                      │   │
-│  │                                           └──────► OPEN                 │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Circuit breaker dimensions:                                                     │
-│  • Worker level: trip when a single Worker fails                                 │
-│  • Connector level: trip when a data source fails                                │
-│  • External-service level: trip when Catalog/Metastore fails                     │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Circuit Breaker State Machine](/img/diagrams/generated/resilience-05-15078b6f11.svg)
 
 ### 4.2 Circuit Breaker Implementation
 
@@ -301,24 +247,7 @@ public class CircuitBreakerConfig {
 
 ### 5.1 Degradation Scenarios
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Degradation Strategy                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Degradation scenarios:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Scenario            │ Degradation strategy      │ User impact          │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Insufficient Worker │ Limit concurrency, queue  │ Increased latency    │   │
-│  │  Memory pressure     │ Reject large, allow small │ Large queries fail   │   │
-│  │  Catalog unavailable │ Use cached metadata       │ Possible data staleness │ │
-│  │  Partial Worker fail │ Reschedule to healthy WKr │ Increased latency    │   │
-│  │  High storage latency│ Increase t/o, cut concurr.│ Increased latency    │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Degradation Strategy](/img/diagrams/generated/resilience-08-75fec7bb63.svg)
 
 ### 5.2 Degradation Manager
 
@@ -723,28 +652,7 @@ This section adds a `RECOMPUTE` shuffle recovery mode that skips S3 persistence 
 
 ### 13.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Shuffle Recovery Mode Selection                     │
-│                                                                  │
-│  Query Plan                                                      │
-│       │                                                          │
-│       ▼                                                          │
-│  ShuffleRecoverySelector                                         │
-│       │                                                          │
-│       ├─ estimatedDuration < 30s? ──────▶ RECOMPUTE              │
-│       │    (skip S3, rely on stage retry)                        │
-│       │                                                          │
-│       ├─ shuffleSize > 1GB? ────────────▶ MEMORY_AND_REMOTE     │
-│       │    (S3 persistence worthwhile)                           │
-│       │                                                          │
-│       └─ cost-based comparison ─────────▶ cheaper mode           │
-│                                                                  │
-│  RECOMPUTE mode:                                                 │
-│    On failure → StageLineageTracker.getRecomputeChain()          │
-│    → re-execute upstream stages from source data                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Shuffle Recovery Mode Selection](/img/diagrams/generated/resilience-16-050798a329.svg)
 
 **Problem**: All queries pay S3 upload overhead regardless of duration. For a 5-second query, async S3 write adds unnecessary I/O and latency. Without `MEMORY_AND_REMOTE`, there is no recovery for lost shuffle data other than query failure.
 
@@ -820,28 +728,7 @@ This section designs operator-level checkpointing for the two most expensive ope
 
 ### 14.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Operator-Level Checkpoint                            │
-│                                                                  │
-│  CheckpointTriggerPolicy                                         │
-│    query running > 10 min?                                       │
-│    operator state > 1GB?                                         │
-│    time since last checkpoint > 5 min?                           │
-│         │ YES                                                    │
-│         ▼                                                        │
-│  CheckpointableOperator.checkpoint(writer)                       │
-│         │                                                        │
-│         ▼                                                        │
-│  NVMe SSD (local, fast write ~1–5 GB/s)                         │
-│    ├─ HashBuild: hash table partitions (Arrow IPC)               │
-│    └─ Sort: sorted run files + metadata                          │
-│                                                                  │
-│  On failure:                                                     │
-│    CheckpointableOperator.restore(reader)                        │
-│    → resume from last checkpoint, skip re-building state         │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Operator-Level Checkpoint](/img/diagrams/generated/resilience-19-56a488ac1b.svg)
 
 **Problem**: Query checkpoint (§7) captures stage/task state but not operator internal state (hash tables, sort buffers). On failure, the entire stage re-executes from scratch. For a 2-hour ETL query building a 50GB hash table, failure at 1h50m requires rebuilding the hash table from zero.
 

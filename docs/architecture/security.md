@@ -127,27 +127,7 @@ to both structured logging and the JDBC audit store.
 
 ### 2.1 Authentication Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Authentication Flow                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Client                                                                          │
-│    │ Credentials (Username/Password, Token, OAuth2 Token)                      │
-│    ▼                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Authentication Manager                                │   │
-│  │                                                                          │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │   │
-│  │  │   LDAP      │  │ Bypass/Dev  │  │   OAuth2    │  │   Custom    │   │   │
-│  │  │ Authenticator│ │ Authenticator│ │ Authenticator│ │ Authenticator│   │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │   │
-│  │                                                                          │   │
-│  │  Auth success → generate SessionToken → bind UserIdentity              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Authentication Flow](/img/diagrams/generated/security-01-96202d5d21.svg)
 
 ### 2.2 Authentication SPI
 
@@ -240,104 +220,11 @@ public class OAuth2Authenticator implements Authenticator {
 
 ### 3.1 RBAC + ABAC Hybrid Model
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Authorization Model                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  RBAC (Role-Based Access Control):                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  User → Role → Permission                                                │   │
-│  │                                                                          │   │
-│  │  Example:                                                                │   │
-│  │  alice → data_analyst → SELECT on warehouse.*                           │   │
-│  │  bob → data_engineer → SELECT, INSERT, CREATE on warehouse.*            │   │
-│  │  admin → admin_role → ALL PRIVILEGES                                    │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  ABAC (Attribute-Based Access Control):                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Attribute-based dynamic policies                                        │   │
-│  │                                                                          │   │
-│  │  Example:                                                                │   │
-│  │  • user.department == 'finance' → can access finance.* tables          │   │
-│  │  • user.level >= 3 → can view the salary column                        │   │
-│  │  • request.time in business_hours → access allowed                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Authorization Model](/img/diagrams/generated/security-03-440113038e.svg)
 
 ### 3.2 Permission Model
 
-```java
-/**
- * Privilege types
- */
-public enum Privilege {
-    // Table-level privileges
-    SELECT, INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER,
-    // Schema-level privileges
-    CREATE_TABLE, CREATE_VIEW, DROP_SCHEMA,
-    // Catalog-level privileges
-    CREATE_SCHEMA, DROP_CATALOG,
-    // System-level privileges
-    EXECUTE_QUERY, KILL_QUERY, VIEW_QUERY, SET_SESSION
-}
-
-/**
- * Permission checker
- *
- * Unified interception point design:
- * AccessControl has a single call entry point in the query lifecycle: MetadataService.resolveTable().
- *
- * Call chain:
- *   Query Parse → Semantic Analysis → MetadataService.resolveTable()
- *     → AccessControl.checkCanAccessCatalog()
- *     → AccessControl.checkCanSelectFromTable() / checkCanSelectFromColumns()
- *     → AccessControl.getRowFilter() → injected into Calcite RelNode
- *     → AccessControl.getColumnMask() → injected into Calcite RelNode
- *   → Query Optimization → Execution (AccessControl no longer called)
- *
- * AccessControl MUST NOT be re-invoked on the Worker side during Query Execution (query-execution.md).
- * Reason: Workers only execute the Substrait Plan dispatched by the Coordinator, and the Plan already
- * contains the RLS filter conditions and Column Mask expressions. Re-checking on the Worker side would cause:
- *   1. Performance overhead (every Task querying the PostgreSQL permission tables)
- *   2. Consistency risk (permission changes during query execution causing some Tasks to fail)
- *   3. Responsibility confusion (Workers should focus only on data processing, not permissions)
- *
- * Exception: The Coordinator's DDL operations (CREATE/DROP/ALTER) call AccessControl directly,
- * without going through MetadataService.resolveTable().
- *
- * See also: metadata.md §3.1 MetadataService
- */
-
-public interface AccessControl {
-
-    /** Check Catalog access permission */
-    void checkCanAccessCatalog(UserIdentity user, String catalog);
-
-    /** Check Schema access permission */
-    void checkCanAccessSchema(UserIdentity user, CatalogSchemaName schema);
-
-    /** Check table permissions */
-    void checkCanSelectFromTable(UserIdentity user, CatalogSchemaTableName table);
-    void checkCanInsertIntoTable(UserIdentity user, CatalogSchemaTableName table);
-    void checkCanDeleteFromTable(UserIdentity user, CatalogSchemaTableName table);
-    void checkCanDropTable(UserIdentity user, CatalogSchemaTableName table);
-
-    /** Check column permissions */
-    void checkCanSelectFromColumns(UserIdentity user, CatalogSchemaTableName table,
-                                   Set<String> columns);
-
-    /** Get row-level filter condition */
-    Optional<Expression> getRowFilter(UserIdentity user, CatalogSchemaTableName table);
-
-    /** Get column masking rule */
-    Optional<Expression> getColumnMask(UserIdentity user, CatalogSchemaTableName table,
-                                       String column);
-}
-```
+![/**](/img/diagrams/generated/security-04-837df60f50.svg)
 
 ### 3.3 Permission Storage
 
@@ -423,34 +310,7 @@ and an already running data-plane query.
 
 ### 4.1 RLS Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Row-Level Security                                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Principle: automatically inject row filter conditions during the query optimization phase │
-│                                                                                  │
-│  Original query:                                                                 │
-│  SELECT * FROM orders WHERE amount > 1000                                       │
-│                                                                                  │
-│  RLS policy (user.region = row.region):                                          │
-│  User alice belongs to region='US'                                               │
-│                                                                                  │
-│  Rewritten query:                                                                │
-│  SELECT * FROM orders WHERE amount > 1000 AND region = 'US'                     │
-│                                                                                  │
-│  Execution flow:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. SQL Parse → AST                                                      │   │
-│  │  2. Semantic Analysis → identify involved tables                        │   │
-│  │  3. RLS Check → query the row_policies table                            │   │
-│  │  4. Filter Injection → add filter condition on TableScan                │   │
-│  │  5. Optimize → normal optimization flow                                 │   │
-│  │  6. Execute → user sees only rows matching the policy                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Row-Level Security](/img/diagrams/generated/security-06-1100cc4200.svg)
 
 ### 4.2 RLS Policy Definition
 
@@ -651,83 +511,11 @@ authority within the existing transaction gate.
 
 ### 5.1 Masking Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Column Masking                                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Principle: replace expressions of sensitive columns during the query optimization phase   │
-│                                                                                  │
-│  Original query:                                                                 │
-│  SELECT name, email, phone, salary FROM employees                               │
-│                                                                                  │
-│  Masking policies:                                                               │
-│  • email: partially hidden → j***@example.com                                   │
-│  • phone: show last four → ****1234                                             │
-│  • salary: NULL for unauthorized users                                          │
-│                                                                                  │
-│  Rewritten query (for a regular user):                                           │
-│  SELECT name,                                                                    │
-│         CONCAT(SUBSTR(email,1,1), '***@', SUBSTR(email, INSTR(email,'@')+1)),   │
-│         CONCAT('****', RIGHT(phone, 4)),                                        │
-│         NULL as salary                                                          │
-│  FROM employees                                                                  │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Column Masking](/img/diagrams/generated/security-11-2a0e31a098.svg)
 
 ### 5.2 Masking Policy Definition
 
-```sql
--- Column masking policy table
-CREATE TABLE column_masks (
-    mask_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    mask_name VARCHAR(255) NOT NULL,
-    catalog_name VARCHAR(255) NOT NULL,
-    schema_name VARCHAR(255) NOT NULL,
-    table_name VARCHAR(255) NOT NULL,
-    column_name VARCHAR(255) NOT NULL,
-
-    -- Masking expression (SQL fragment; {column} represents the original column)
-    mask_expression TEXT NOT NULL,
-
-    -- Applicability scope (non-applicable roles can see the original value)
-    apply_to_roles TEXT,                      -- JSON array, null = all except exempt
-    exempt_roles TEXT,                        -- JSON array of exempt roles
-
-    enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_mask (catalog_name, schema_name, table_name, column_name, mask_name)
-);
-
--- Built-in masking functions
--- mask_email(email) → j***@example.com
--- mask_phone(phone) → ****1234
--- mask_card(card_number) → ****-****-****-1234
--- mask_name(name) → Z*
--- mask_null() → NULL
--- mask_hash(value) → SHA256 hash
--- mask_range(number, precision) → 10000-20000
-
--- Example policies
-INSERT INTO column_masks (mask_name, catalog_name, schema_name, table_name, column_name,
-                          mask_expression, exempt_roles)
-VALUES
-('email_mask', 'iceberg', 'hr', 'employees', 'email',
- "mask_email({column})", '["admin", "hr_manager"]'),
-
-('phone_mask', 'iceberg', 'hr', 'employees', 'phone',
- "mask_phone({column})", '["admin"]'),
-
-('salary_mask', 'iceberg', 'hr', 'employees', 'salary',
- "CASE WHEN user_attribute('level') >= 3 THEN {column} ELSE NULL END", '["admin"]'),
-
-('ssn_mask', 'iceberg', 'hr', 'employees', 'ssn',
- "CONCAT('***-**-', RIGHT({column}, 4))", '["admin"]'),
-
-('card_mask', 'iceberg', 'finance', 'payments', 'card_number',
- "mask_card({column})", '["admin", "finance_admin"]');
-```
+![-- Column masking policy table](/img/diagrams/generated/security-12-6f7ef8d09f.svg)
 
 ### 5.3 Masking Implementation
 
@@ -845,40 +633,7 @@ Consumer contracts:
 
 ### 6.1 Audit Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Audit Architecture                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Audit scope:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category          │ Events                                              │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Authentication    │ LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT, TOKEN_REFRESH│   │
-│  │  Authorization     │ ACCESS_DENIED, PRIVILEGE_CHECK                     │   │
-│  │  Query             │ QUERY_SUBMITTED, QUERY_COMPLETED, QUERY_FAILED,   │   │
-│  │                    │ QUERY_CANCELLED                                    │   │
-│  │  Data Access       │ TABLE_READ, TABLE_WRITE, TABLE_DELETE             │   │
-│  │  DDL               │ TABLE_CREATE, TABLE_DROP, TABLE_ALTER,            │   │
-│  │                    │ SCHEMA_CREATE, SCHEMA_DROP, VIEW_CREATE, VIEW_DROP│   │
-│  │  Admin             │ USER_CREATE, USER_DROP, USER_ALTER,               │   │
-│  │                    │ ROLE_CREATE, ROLE_DROP, ROLE_GRANT, ROLE_REVOKE,  │   │
-│  │                    │ POLICY_CREATE, POLICY_DROP, POLICY_ALTER,         │   │
-│  │                    │ CONFIG_CHANGE                                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Audit flow:                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operation → AuditInterceptor → AuditEvent → AuditLogger → Storage     │   │
-│  │                                                                          │   │
-│  │  Storage Options:                                                        │   │
-│  │  • PostgreSQL (structured queries)                                       │   │
-│  │  • Elasticsearch (full-text search)                                     │   │
-│  │  • Kafka → HDFS (large-scale archival)                                  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Audit Architecture](/img/diagrams/generated/security-15-db00b7d998.svg)
 
 ### 6.2 Audit Event Model
 
@@ -1068,23 +823,7 @@ ORDER BY query_count DESC;
 
 ### 7.1 Encryption Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Encryption Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Encryption layers:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Layer                │ Method            │ Implementation                │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Transport encryption │ TLS 1.3           │ All network communication     │   │
-│  │  Storage encryption   │ AES-256-GCM       │ S3 SSE / HDFS encryption zone │   │
-│  │  Column-level         │ AES-256-GCM       │ Sensitive columns encrypted   │   │
-│  │  Key management       │ KMS               │ AWS KMS / HashiCorp Vault     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Encryption Architecture](/img/diagrams/generated/security-19-868622e297.svg)
 
 ### 7.2 Transport Encryption Configuration
 
@@ -1134,44 +873,7 @@ Long-running queries (such as large table scans or complex JOINs) may encounter 
 
 **Design principle**: bind the token at query submission; a valid token is not required during the query lifecycle.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                     Query-Level Token Lifecycle                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Token handling flow:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Client submits a query (POST /v1/query/submit)                             │   │
-│  │     → Coordinator validates the token (authentication)                   │   │
-│  │     → Extract UserIdentity (principal, groups, attributes)               │   │
-│  │     → Bind UserIdentity to QueryContext (original token not retained)     │   │
-│  │                                                                          │   │
-│  │  2. During query execution                                               │   │
-│  │     → All permission checks use QueryContext.userIdentity, not the token  │   │
-│  │     → Worker-to-Worker uses an internal Service Token (not user token)    │   │
-│  │     → Even if the user token expires, the query keeps executing           │   │
-│  │                                                                          │   │
-│  │  3. Client fetches results (Arrow Flight DoGet)                          │   │
-│  │     → Output Worker validates the Flight Ticket (query_id), not user token │   │
-│  │     → Flight Ticket validity = query lifecycle + client_idle_timeout      │   │
-│  │                                                                          │   │
-│  │  4. Client queries state (GET /v1/query/{queryId}/state)                 │   │
-│  │     → A valid token or Session Token is required                         │   │
-│  │     → If expired, the Client SDK auto-refreshes and retries               │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Token refresh strategy:                                                         │
-│  • The Client SDK proactively refreshes before expiry (TTL * 0.8)               │
-│  • A failed refresh does not affect submitted queries (bound to UserIdentity)   │
-│  • A failed refresh affects new submissions and state queries (token required)  │
-│                                                                                  │
-│  Internal Service Token:                                                         │
-│  • Coordinator → Worker communication uses a Service Token (not user token)     │
-│  • The Service Token is issued by the Coordinator, TTL = 24h, auto-rotated       │
-│  • Workers validate the Service Token signature, not the user identity          │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query-Level Token Lifecycle](/img/diagrams/generated/security-21-2679a0634f.svg)
 
 ```java
 /**

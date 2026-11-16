@@ -21,53 +21,7 @@ sidebar_label: "Resource Management"
 
 
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Memory Hierarchy Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Worker Total Memory: 64GB                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌────────────────────────────────────────────────────────────────────┐ │   │
-│  │  │                    Root Memory Arbitrator (Java)                       │ │   │
-│  │  │                    Total Budget: 60GB                               │ │   │
-│  │  │                                                                     │ │   │
-│  │  │  Responsibilities:                                                  │ │   │
-│  │  │  • Global memory budget management                                  │ │   │
-│  │  │  • Cross-query memory arbitration                                   │ │   │
-│  │  │  • Spill trigger decisions                                          │ │   │
-│  │  │  • Native memory quota allocation                                   │ │   │
-│  │  └────────────────────────────────────────────────────────────────────┘ │   │
-│  │                              │                                          │   │
-│  │         ┌────────────────────┼────────────────────┐                    │   │
-│  │         ▼                    ▼                    ▼                    │   │
-│  │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │   │
-│  │  │ Query Pool  │     │ Query Pool  │     │ System Pool │              │   │
-│  │  │  Query-1    │     │  Query-2    │     │  Reserved   │              │   │
-│  │  │   25GB      │     │   25GB      │     │    10GB     │              │   │
-│  │  └──────┬──────┘     └──────┬──────┘     └─────────────┘              │   │
-│  │         │                   │                                          │   │
-│  │    ┌────┴────┐         ┌────┴────┐                                    │   │
-│  │    ▼         ▼         ▼         ▼                                    │   │
-│  │ ┌──────┐ ┌──────┐   ┌──────┐ ┌──────┐                                │   │
-│  │ │Task-1│ │Task-2│   │Task-1│ │Task-2│   (Task Pools)                 │   │
-│  │ │ 10GB │ │ 10GB │   │ 10GB │ │ 10GB │                                │   │
-│  │ └──┬───┘ └──────┘   └──────┘ └──────┘                                │   │
-│  │    │                                                                   │   │
-│  │    │  ┌─────────────────────────────────────────────────────────┐    │   │
-│  │    └─►│              Native Memory Pool (C++)                    │    │   │
-│  │       │  • Velox MemoryPool (compute buffers)                   │    │   │
-│  │       │  • Arrow MemoryPool (data buffers)                      │    │   │
-│  │       │  • Spill Buffer (spill buffers)                         │    │   │
-│  │       └─────────────────────────────────────────────────────────┘    │   │
-│  │                                                                       │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Reserved (4GB): JVM Heap, Metadata Cache, System Overhead                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Memory Hierarchy Architecture](/img/diagrams/generated/resource-management-01-e62b0f0306.svg)
 
 
 ## 3. Java-Layer Resource Manager
@@ -360,43 +314,7 @@ private:
 
 ## 6. Spill Manager
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Spill Manager Architecture                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Spill trigger conditions:                                                       │
-│  1. Memory pressure reaches MEDIUM (70%) → begin Spilling low-priority data     │
-│  2. Memory pressure reaches HIGH (85%) → aggressively Spill all spillable data  │
-│  3. A single operator exceeds its memory limit → operator-level Spill           │
-│                                                                                  │
-│  Spillable components:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Component          │ Spill priority│ Spill strategy                     │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Hash Join Build    │ High         │ Spill by partition, keep hot partitions│   │
-│  │  Aggregation        │ High         │ Spill by Group partition           │   │
-│  │  Sort               │ Medium       │ External sort, multi-way merge     │   │
-│  │  Shuffle Buffer     │ Medium       │ Spill by target partition          │   │
-│  │  Scan Buffer        │ Low          │ Reduce read-ahead, read on demand  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Spill storage hierarchy:                                                        │
-│                 │
-│  1. NVMe SSD (local) → fastest, preferred                                       │
-│  2. HDD (local) → fallback                                                      │
-│  3. S3/HDFS (remote) → cross-Worker fault-tolerance scenarios                   │
-│                                                                                  │
-│  Current scope: single-tier local spill (SpillConfig.spillDir).                  │
-│  Multi-tier storage is a future enhancement. When implemented,                   │
-│  SpillConfig.spillDir will be extended to a list of paths with tier              │
-│  annotations. Tier selection: try paths in order; if current tier's              │
-│  free space < spillFileTargetSize, fall through to next tier.                    │
-│  S3/HDFS remote spill triggers only for cross-Worker fault tolerance             │
-│  (stage-level retry with OPT-012).                                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Spill Manager Architecture](/img/diagrams/generated/resource-management-05-97349245d1.svg)
 
 ### 6.1 Spill Trigger Decision Algorithm
 
@@ -404,42 +322,7 @@ Spill triggering is performed cooperatively by the Java-layer `MemoryArbitrator`
 
 **Decision flow**:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Spill Trigger Decision Flow                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Trigger source 1: Java MemoryArbitrator global memory pressure                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  MemoryPressure = MEDIUM (70-85%):                                       │   │
-│  │    1. Collect the SpillCandidate list for all Tasks                      │   │
-│  │    2. Sort by (spillPriority ASC, reclaimableBytes DESC)                 │   │
-│  │    3. Starting from low-priority Tasks, trigger Spill one by one         │   │
-│  │    4. After each Spill, check whether pressure drops to LOW; if so, stop │   │
-│  │                                                                          │   │
-│  │  MemoryPressure = HIGH (85-95%):                                         │   │
-│  │    1. Trigger Spill in parallel for all spillable Tasks                  │   │
-│  │    2. Do not distinguish priority; Spill everything                      │   │
-│  │    3. Still HIGH after Spill → cancel the lowest-priority query (BACKGROUND queue first)│   │
-│  │                                                                          │   │
-│  │  MemoryPressure = CRITICAL (>95%):                                       │   │
-│  │    1. Reject all new queries                                             │   │
-│  │    2. Cancel all BACKGROUND queries                                      │   │
-│  │    3. Cancel the BATCH query with the largest memory footprint           │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Trigger source 2: Native Velox MemoryArbitrator operator-level memory overrun   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operator requests memory → exceeds Task Pool limit:                     │   │
-│  │    1. The Velox MemoryArbitrator tries to reclaim from other Operators in the same Task│   │
-│  │    2. Insufficient reclamation → select a Spillable Operator (by reclaimableBytes DESC)│   │
-│  │    3. Trigger Operator.spill(targetBytes)                                │   │
-│  │    4. Retry allocation after Spill                                       │   │
-│  │    5. Still insufficient → throw VeloxRuntimeError → Task FAILED        │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Spill Trigger Decision Flow](/img/diagrams/generated/resource-management-06-69293c2067.svg)
 
 **SpillCandidate selection algorithm**:
 

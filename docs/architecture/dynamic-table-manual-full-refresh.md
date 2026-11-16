@@ -15,16 +15,7 @@ only restates the Dynamic Table-specific SQL and scheduling surface.
 
 ![Dynamic table refresh: trigger, plan, execute, publish, and record with explicit attempt state](/img/diagrams/refresh-flow.svg)
 
-```
-CREATE / ALTER ... REFRESH
-  └─ KernelDynamicTableService
-        └─ MaterializationService (pangrova-materialization)
-              ├─ reserve a refresh attempt       (durable, idempotent command)
-              ├─ compile the stored definition   (query cluster, captured session defaults)
-              ├─ native CTAS into the generation  (__pangrova_materializations.__pg_mat_<32 hex>)
-              ├─ verify commit evidence           (snapshot id, fingerprint, manifest hash)
-              └─ CAS publish the new head         (object revision)
-```
+![CREATE / ALTER ... REFRESH](/img/diagrams/generated/dynamic-table-manual-full-refresh-01-da09093c6a.svg)
 
 Every statement goes through the kernel; no DDL or refresh path writes a
 physical generation directly, and no coordinator process holds the published
