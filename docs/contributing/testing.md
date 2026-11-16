@@ -10,39 +10,9 @@ sidebar_label: "Testing Framework"
 
 ## 1. Testing Framework Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Testing Framework Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core Principles:                                                                       │
-│  • Layered strategy: real environment at all levels; no Test Double / Stub / Mock               │
-│  • No mock frameworks: Mockito/PowerMock/EasyMock and similar are prohibited            │
-│  • Real environment: unit/integration tests use reproducible real dependencies (TestContainers/embedded services)        │
-│  • End-to-end verification: test the complete data flow, not isolated components                                     │
-│                                                                                  │
-│  Design Goals:                                                                       │
-│  • Correctness: discover boundary conditions and exceptions via fuzzers                               │
-│  • Performance baseline: establish a baseline to prevent regressions                                         │
-│  • Regression testing: automated tests to quickly detect regressions                                       │
-│  • Production verification: simulate production to verify stability                                       │
-│                                                                                  │
-│  Test Levels:                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level           │ Scope         │ Tooling           │ Frequency       │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Unit Test       │ Single fn/cls │ JUnit/GoogleTest  │ Every commit    │   │
-│  │  (real deps)     │ No Stub/Mock  │ + TestContainers  │                 │   │
-│  │   see §2)        │               │ / Embedded Service│                 │   │
-│  │  Integration     │ Inter-module  │ TestContainers    │ Every commit    │   │
-│  │  Fuzzing         │ Boundary case │ Custom Fuzzer     │ Daily/weekly    │   │
-│  │  Performance     │ Perf benchmark│ JMH/Benchmark     │ Weekly          │   │
-│  │  E2E             │ End-to-end    │ Custom Framework  │ Every release   │   │
-│  │  Chaos           │ Fault inject  │ Custom + Chaos    │ Monthly         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Testing levels: unit, module integration, end-to-end, native and sanitizer, benchmark and chaos suites, all using real dependencies](/img/diagrams/testing-levels.svg)
+
+**Policy:** use a layered real-environment strategy; mocks, stubs, and test doubles are prohibited; verify complete data flow rather than isolated components.
 
 ## 2. Layered Testing Policy
 

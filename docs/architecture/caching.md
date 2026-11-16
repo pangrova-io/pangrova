@@ -12,56 +12,9 @@ sidebar_label: "Caching (Target)"
 
 ## 1. Cache Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Cache Layer Architecture                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                  │
-│  • Storage-compute separation acceleration: mitigate IO latency of remote storage (S3/HDFS) │
-│  • Multi-tier cache: RAM → SSD → Remote Storage, degrading level by level         │
-│  • Independently scalable: the cache layer is decoupled from the execution engine, supporting multiple cache implementations │
-│  • Smart prefetch: adaptive column prefetch to hide IO latency                   │
-│                                                                                  │
-│  Performance comparison (referencing Velox data):                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Storage Tier      │ Throughput    │ Latency      │ Relative perf      │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  RAM Cache         │ 8 GB/s        │ < 1ms        │ 1x (baseline)      │   │
-│  │  SSD Cache         │ 2-3 GB/s      │ 1-5ms        │ 3-4x slower        │   │
-│  │  Remote (S3/HDFS)  │ 500-700 MB/s  │ 10-100ms     │ 10-15x slower      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Architecture layering:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │                    Cache Client (unified interface)              │   │   │
-│  │  │  • Transparent access: callers need not be aware of the data source │   │   │
-│  │  │  • Async prefetch: preload hot data in the background            │   │   │
-│  │  │  • Stats reporting: hit ratio, latency, and other metrics        │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │                              │                                          │   │
-│  │                              ▼                                          │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │                    Cache Manager (scheduling layer)              │   │   │
-│  │  │  • Multi-tier cache coordination                                 │   │   │
-│  │  │  • Eviction policy management                                    │   │   │
-│  │  │  • Prefetch scheduling                                           │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │                              │                                          │   │
-│  │         ┌────────────────────┼────────────────────┐                    │   │
-│  │         ▼                    ▼                    ▼                    │   │
-│  │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │   │
-│  │  │  RAM Cache  │     │  SSD Cache  │     │Remote Store │              │   │
-│  │  │  (L1)       │     │  (L2)       │     │  (L3)       │              │   │
-│  │  │  hot data   │     │  warm data  │     │  cold data  │              │   │
-│  │  └─────────────┘     └─────────────┘     └─────────────┘              │   │
-│  │                                                                        │   │
-│  └────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cache architecture: metadata L1 and generation-checked L2 caches, Native async cache, proposed RAM/SSD manager, and remote object storage](/img/diagrams/caching-layers.svg)
+
+**Design goals:** reduce remote I/O, keep cache state derived and rebuildable, and separate implemented caches from the proposed unified multi-tier manager.
 
 ## 2. Cache SPI Design (Extensible Interface)
 

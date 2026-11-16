@@ -43,4 +43,4 @@ The following are known incomplete areas; they are not end-to-end support claims
 
 See the [AI architecture](../architecture/ai-native.md) for target designs.
 Propose priorities or concrete work through
-[GitHub issues](https://github.com/pangrova-io/pangrova/issues).
+GitHub issues.

@@ -17,15 +17,7 @@ planning, metadata, and final catalog commits; C++ owns vectorized relational ex
 including DML. Known CDC and other migration gaps are described in
 [Current Capability Status](../getting-started/capability-status.md).
 
-```text
-SQL
- │  ANTLR4 parser (custom SQL extensions)
- ▼
-Calcite optimizer (rule- + cost-based)
- │  Substrait plan (cross-language)
- ▼
-Velox engine (C++ native, vectorized)
-```
+![Planning stack: SQL and API, ANTLR parser, Calcite optimizer, Substrait plan, and Velox execution](/img/diagrams/planning-stack.svg)
 
 This section is the design reference for the engine. It is organized as a progressive path — start
 with the **System Overview**, then drill into the subsystem that matters for your task.

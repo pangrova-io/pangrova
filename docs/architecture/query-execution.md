@@ -40,52 +40,7 @@ Coordinator implementation; extracting this value does not complete Query Core.
 
 ## 1. End-to-End Query Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           End-to-End Query Flow                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Client                                                                          │
-│    │ SQL: SELECT * FROM iceberg.db.orders WHERE date > '2024-01-01'             │
-│    ▼                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                         Coordinator                                      │    │
-│  │                                                                          │    │
-│  │  2. SQL Parser (ANTLR4) → AST                                           │    │
-│  │  3. Semantic Analyzer → bind Catalog/Schema/Table, type checking        │    │
-│  │  4. Calcite Optimizer → logical optimization + physical optimization    │    │
-│  │  5. Plan Fragmenter → generate distributed exec plan, split into Stages │    │
-│  │  6. Substrait Converter → Calcite RelNode → Substrait Plan              │    │
-│  │  7. Split Manager → call Connector SPI, generate Splits                 │    │
-│  │  8. Task Scheduler → assign Splits to Workers                           │    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ HTTP: TaskDescriptor (Substrait + Splits)     │
-│                                 ▼                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                        Output Worker (Result)                            │    │
-│  │                                                                          │    │
-│  │  10. Task Manager → receive task, validate, enqueue                     │    │
-│  │      │ JNI Call                                                         │    │
-│  │      ▼                                                                  │    │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Native Layer (C++)                                              │   │    │
-│  │  │  11. Substrait Parser → Protobuf → Velox PlanNode               │   │    │
-│  │  │  12. Velox Task → create Task, build Pipeline, register Splits │   │    │
-│  │  │  13. Pipeline Execution → vectorized execution (Batch 8192 rows)│   │    │
-│  │  │  14. Native I/O → Parquet/ORC Reader, S3/HDFS FileSystem        │   │    │
-│  │  └─────────────────────────────────────────────────────────────────┘   │    │
-│  │      │ Arrow RecordBatch (via Arrow C Data Interface)                   │    │
-│  │      ▼                                                                  │    │
-│  │  15. Result Buffer → cache results, await pull or send via Arrow Flight│    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ Arrow Flight: DoGet                            │
-│                                 ▼                                                │
-│  Client receives results from Output Worker                                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 

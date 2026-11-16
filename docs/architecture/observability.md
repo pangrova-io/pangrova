@@ -39,47 +39,7 @@ HTTP parent propagation under an enabled provider; SDK/filter/JNI tests cover
 those individual boundaries. The full SDK/provider/transport module split is
 still pending.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Observability Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                         Application Layer                              │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │   Coordinator   │  │     Worker      │  │    Connector    │       │  │
-│  │  │ @Traced @Metered│  │ @Traced @Metered│  │ @Traced @Metered│       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    Observability SPI Layer                             │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │ TracingProvider │  │ MetricsProvider │  │ LoggingProvider │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    OpenTelemetry SDK                                   │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  Trace Exporter │  │ Metric Exporter │  │   Log Exporter  │       │  │
-│  │  │  (OTLP/Jaeger)  │  │ (OTLP/Prom)     │  │  (OTLP/Loki)    │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              ▼                    ▼                    ▼                    │
-│  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐      │
-│  │      Jaeger       │  │    Prometheus     │  │       Loki        │      │
-│  │ (Distributed      │  │ (Metrics Storage) │  │ (Log Aggregation) │      │
-│  │  Tracing)         │  │                   │  │                   │      │
-│  └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘      │
-│            └──────────────────────┼──────────────────────┘                  │
-│                                   ▼                                         │
-│                        ┌───────────────────┐                               │
-│                        │      Grafana      │                               │
-│                        │   (Visualization) │                               │
-│                        └───────────────────┘                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Observability pipeline: instrumented components, metrics/tracing/logging/profiling providers, sampling, OTLP export, NoOp mode, and collector backends](/img/diagrams/observability-pipeline.svg)
 
 ### Current artifact and ownership boundaries
 

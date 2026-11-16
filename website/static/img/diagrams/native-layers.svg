@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="t d">
+<title id="t">Native execution layers</title>
+<desc id="d">Java control plane, connector contracts, Protobuf task bindings, and C++/Velox execution.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="900" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Native execution layers</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Control-plane decisions are serialized once; Native execution owns relational work.</text>
+<rect x="60" y="140" width="1080" height="250" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="172" font-size="19" font-weight="700" fill="#7C3AED">CONTROL PLANE — JAVA</text>
+<rect x="90" y="195" width="230" height="86" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="195" width="5" height="86" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="223" font-size="16.5" font-weight="700" fill="#111827">SQL parser</text>
+<text x="110" y="247" font-size="13.5" fill="#64748B">ANTLR</text>
+<line x1="320" y1="238" x2="350" y2="238" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="350" y="195" width="230" height="86" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="350" y="195" width="5" height="86" rx="2.5" fill="#7C3AED"/>
+<text x="370" y="223" font-size="16.5" font-weight="700" fill="#111827">Calcite planner</text>
+<text x="370" y="247" font-size="13.5" fill="#64748B">rules · cost</text>
+<line x1="580" y1="238" x2="610" y2="238" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="610" y="195" width="230" height="86" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="610" y="195" width="5" height="86" rx="2.5" fill="#7C3AED"/>
+<text x="630" y="223" font-size="16.5" font-weight="700" fill="#111827">Substrait</text>
+<text x="630" y="247" font-size="13.5" fill="#64748B">canonical plan</text>
+<line x1="840" y1="238" x2="870" y2="238" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="870" y="195" width="230" height="86" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="870" y="195" width="5" height="86" rx="2.5" fill="#7C3AED"/>
+<text x="890" y="223" font-size="16.5" font-weight="700" fill="#111827">Split planning</text>
+<text x="890" y="247" font-size="13.5" fill="#64748B">connector bindings</text>
+<rect x="90" y="305" width="1020" height="62" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="305" width="5" height="62" rx="2.5" fill="#0D9488"/>
+<text x="110" y="333" font-size="16.5" font-weight="700" fill="#111827">Connector SPI — metadata, splits, page sinks, statistics</text>
+<line x1="600" y1="390" x2="600" y2="440" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="610.0" y="419.0" font-size="14" font-weight="600" fill="#7C3AED">TaskRequest v2 + Substrait + bindings</text>
+<rect x="60" y="440" width="1080" height="360" rx="18" fill="#FFFCF5" stroke="#D97706" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="472" font-size="19" font-weight="700" fill="#D97706">DATA PLANE — C++ / VELOX</text>
+<rect x="90" y="495" width="480" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="495" width="5" height="120" rx="2.5" fill="#0D9488"/>
+<text x="110" y="523" font-size="16.5" font-weight="700" fill="#111827">Native connector SPI</text>
+<text x="110" y="547" font-size="13.5" fill="#64748B">DataSource factory</text>
+<text x="110" y="568" font-size="13.5" fill="#64748B">DataSource reader</text>
+<text x="110" y="589" font-size="13.5" fill="#64748B">Native writer · spiller</text>
+<rect x="650" y="495" width="460" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="650" y="495" width="5" height="120" rx="2.5" fill="#D97706"/>
+<text x="670" y="523" font-size="16.5" font-weight="700" fill="#111827">Vectorized operators</text>
+<text x="670" y="547" font-size="13.5" fill="#64748B">scan · filter · project</text>
+<text x="670" y="568" font-size="13.5" fill="#64748B">join · aggregate · sort</text>
+<text x="670" y="589" font-size="13.5" fill="#64748B">retrieve · shuffle · fill · output</text>
+<line x1="550" y1="555" x2="650" y2="555" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrowAmber)"/>
+<text x="600" y="543" font-size="11.5" font-weight="600" fill="#D97706" text-anchor="middle">Arrow batches</text>
+<rect x="90" y="645" width="1020" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="645" width="5" height="90" rx="2.5" fill="#D97706"/>
+<text x="110" y="673" font-size="16.5" font-weight="700" fill="#111827">Result and exchange</text>
+<text x="110" y="697" font-size="13.5" fill="#64748B">Native Flight shuffle · Arrow Flight result stream</text>
+<text x="110" y="718" font-size="13.5" fill="#64748B">Canonical lifecycle and error reports return to the Worker JVM</text>
+<line x1="600" y1="800" x2="600" y2="840" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="610.0" y="824.0" font-size="14" font-weight="600" fill="#7C3AED">JNI status / terminal report</text>
+<line x1="60" y1="890" x2="100" y2="890" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="895" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="890" x2="280" y2="890" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="895" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

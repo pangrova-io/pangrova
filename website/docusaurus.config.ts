@@ -71,7 +71,6 @@ const config: Config = {
         docs: {
           path: '../docs',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/pangrova-io/pangrova/tree/main/',
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
           numberPrefixParser: false,
@@ -85,7 +84,6 @@ const config: Config = {
             title: 'Pangrova Blog',
             copyright: `Copyright ${new Date().getFullYear()} The Pangrova Authors`,
           },
-          editUrl: 'https://github.com/pangrova-io/pangrova/tree/main/website/',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -128,13 +126,9 @@ const config: Config = {
           label: 'Documentation',
         },
         {to: '/blog/', label: 'Blog', position: 'left'},
+
         {
-          href: 'https://github.com/pangrova-io/pangrova/discussions',
-          label: 'Community',
-          position: 'left',
-        },
-        {
-          href: 'https://github.com/pangrova-io/pangrova',
+          href: 'https://github.com/pangrova-io',
           label: 'GitHub',
           position: 'right',
         },
@@ -154,9 +148,8 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            {label: 'GitHub Discussions', href: 'https://github.com/pangrova-io/pangrova/discussions'},
-            {label: 'Contributing', href: 'https://github.com/pangrova-io/pangrova/blob/main/CONTRIBUTING.md'},
-            {label: 'Code of Conduct', href: 'https://github.com/pangrova-io/pangrova/blob/main/CODE_OF_CONDUCT.md'},
+            {label: 'GitHub organization', href: 'https://github.com/pangrova-io'},
+            {label: 'Documentation', to: '/docs/'},
           ],
         },
         {
@@ -165,17 +158,9 @@ const config: Config = {
             {label: 'Quickstart', to: '/docs/getting-started/quickstart/'},
             {label: 'Capability status', to: '/docs/getting-started/capability-status/'},
             {label: 'Roadmap', to: '/docs/getting-started/roadmap/'},
-            {label: 'Releases', href: 'https://github.com/pangrova-io/pangrova/releases'},
           ],
         },
-        {
-          title: 'More',
-          items: [
-            {label: 'Blog', to: '/blog/'},
-            {label: 'Changelog', href: 'https://github.com/pangrova-io/pangrova/blob/main/CHANGELOG.md'},
-            {label: 'License', href: 'https://github.com/pangrova-io/pangrova/blob/main/LICENSE'},
-          ],
-        },
+
       ],
       copyright: `Copyright © ${new Date().getFullYear()} The Pangrova Authors. Apache 2.0 Licensed.`,
     },

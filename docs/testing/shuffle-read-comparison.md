@@ -54,7 +54,7 @@ frame, totaling 4,454,625 protobuf response bytes. Process peak RSS for the thre
 JVMs was 697,466,880, 722,599,936, and 828,014,592 bytes, respectively; these
 figures include both readers plus the co-located service and fixture and cannot be
 attributed to a single implementation. The raw 192 samples are in the
-[per-read data](https://github.com/pangrova-io/pangrova/blob/main/pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-shuffle-read.csv).
+per-read data.
 
 An independent Maven build was running on the same machine at the time. In the
 second JVM, both implementations showed higher latency than in the other two

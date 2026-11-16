@@ -127,24 +127,7 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ## 1. Unified Batch-Streaming Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Streaming Architecture                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Capability matrix:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Note                        │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  CDC Ingestion      │ Capture database changes in real time│ Debezium/Flink CDC  │   │
-│  │  Incremental Query  │ Incremental reads based on Changelog│ Iceberg/Paimon native│   │
-│  │  Streaming Ingestion│ Low-latency writes          │ Mini-batch writes   │   │
-│  │  Watermark          │ Event-time semantics        │ Table-level Watermark│   │
-│  │  Upsert             │ Primary key update          │ MOR/COW modes       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Streaming and CDC pipeline: source, CdcSourceReader, format decoding, pipeline buffering, checkpoint state, two-phase commit, connector page-sink writes, and catalog publication](/img/diagrams/streaming-pipeline.svg)
 
 ---
 

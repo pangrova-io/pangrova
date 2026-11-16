@@ -119,25 +119,7 @@ to both structured logging and the JDBC audit store.
 
 ## 1. Security Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Security Architecture                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Security layers:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Layer              │ Responsibility              │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Authentication     │ Identity verification       │ LDAP/OAuth2/Custom  │   │
-│  │  Authorization      │ Permission control          │ RBAC + ABAC         │   │
-│  │  Row-Level Security │ Row-level filtering         │ Dynamic predicate   │   │
-│  │  Column Masking     │ Column-level masking        │ Expression rewrite  │   │
-│  │  Encryption         │ Data encryption             │ TLS + storage enc.  │   │
-│  │  Audit              │ Audit logging               │ End-to-end tracing  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Security decision flow: request, authentication, authorization, policy evaluation, execution binding, audit, and PostgreSQL privilege administration](/img/diagrams/security-flow.svg)
 
 ---
 

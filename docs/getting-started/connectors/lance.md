@@ -5,7 +5,7 @@ description: "Managed Lance Dataset connector: warehouse configuration, reads, w
 
 # Lance
 
-The Lance connector exposes managed [Lance](https://lancedb.github.io/lance/) datasets as
+The Lance connector exposes managed [Lance](https://lance.org/) datasets as
 Pangrova tables. Lance files and manifests live in a connector-owned warehouse, while table
 identity, tenant scope, revisions, and publication evidence live in Pangrova's shared metadata
 authority. The connector never opens its own JDBC connection.

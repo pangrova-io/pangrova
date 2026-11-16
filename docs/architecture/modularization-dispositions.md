@@ -1279,7 +1279,7 @@ digests are
 `6cfa0b80749bcb0d322948d394bbd9aebe36f843f5c7071c903a19bc00f0682f` and
 `75d88126094cc2e5ee8165fc9a81cfce2dd1f4e2144682382f7b2c5b7c46f929`.
 
-[Reproduction commands and per-round distribution](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · [Raw query records, RSS, and digest](https://github.com/pangrova-io/pangrova/tree/main/pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-sql-process)
+[Reproduction commands and per-round distribution](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · Raw query records, RSS, and digest
 
 ### Two-Worker Resource, Reclamation, and Shuffle Backpressure Supplement
 
@@ -1348,7 +1348,7 @@ The four SQL rounds, two JNI rounds, and storage-layer comparison each used
 independent processes. The concurrent Linux Native build and partially overlapping
 other isolated SQL processes affect timing. These resource samples delineate per-path
 cost and release behavior. Historical query latency, remote Shuffle throughput, and
-this batch's data retain their original sampling scopes. [Raw CSV](https://github.com/pangrova-io/pangrova/tree/main/pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-sql-resources) · [Reproduction commands](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · [Remote Shuffle throughput](../testing/shuffle-read-comparison.md)
+this batch's data retain their original sampling scopes. Raw CSV · [Reproduction commands](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · [Remote Shuffle throughput](../testing/shuffle-read-comparison.md)
 
 ## 2026-11-14 macOS Distribution Role Artifact Verification
 

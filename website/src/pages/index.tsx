@@ -132,28 +132,28 @@ const ecosystem = [
 
 const community = [
   {
-    title: 'GitHub Discussions',
-    description: 'Ask questions, share designs, and discuss roadmap items with the community.',
-    href: 'https://github.com/pangrova-io/pangrova/discussions',
-    label: 'Join the discussion',
+    title: 'GitHub organization',
+    description: 'Follow the project organization and repository update announcements.',
+    href: 'https://github.com/pangrova-io',
+    label: 'Open GitHub',
   },
   {
-    title: 'Issue tracker',
-    description: 'Report reproducible bugs and request features with the repository templates.',
-    href: 'https://github.com/pangrova-io/pangrova/issues',
-    label: 'Open an issue',
+    title: 'Documentation',
+    description: 'Start with the quickstart, capability status, and architecture overview.',
+    href: '/docs/',
+    label: 'Read the docs',
   },
   {
-    title: 'Contributing guide',
-    description: 'Follow the development workflow, coding standards, and validation requirements.',
-    href: 'https://github.com/pangrova-io/pangrova/blob/main/CONTRIBUTING.md',
-    label: 'Start contributing',
+    title: 'Roadmap',
+    description: 'Review development priorities and open engineering items.',
+    href: '/docs/getting-started/roadmap/',
+    label: 'View the roadmap',
   },
   {
-    title: 'Code of Conduct',
-    description: 'Read the expectations that keep collaboration respectful and productive.',
-    href: 'https://github.com/pangrova-io/pangrova/blob/main/CODE_OF_CONDUCT.md',
-    label: 'Read the code of conduct',
+    title: 'Capability status',
+    description: 'Check implemented paths, wiring gaps, and qualification limits.',
+    href: '/docs/getting-started/capability-status/',
+    label: 'Check capabilities',
   },
 ];
 
@@ -200,7 +200,7 @@ function Hero() {
             </Link>
             <Link
               className={clsx('button button--outline button--lg', styles.secondaryButton)}
-              href="https://github.com/pangrova-io/pangrova">
+              href="https://github.com/pangrova-io">
               View on GitHub
             </Link>
           </div>
