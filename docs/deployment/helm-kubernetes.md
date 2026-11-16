@@ -274,29 +274,7 @@ authenticated Coordinator configuration and related production overrides.
 
 ### Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Control Plane Namespace (pangrova)                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ Coordinator  │  │ Coordinator  │  │ Shared Worker│     │
-│  │   Pod #1     │  │   Pod #2     │  │    Pool      │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-└─────────────────────────────────────────────────────────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐
-│ Tenant-Alpha NS │  │ Tenant-Beta NS  │
-│ ┌─────────────┐ │  │ ┌─────────────┐ │
-│ │ Worker Pool │ │  │ │ Worker Pool │ │
-│ │ (isolated)  │ │  │ │ (isolated)  │ │
-│ └─────────────┘ │  │ └─────────────┘ │
-│ ResourceQuota   │  │ ResourceQuota   │
-│ NetworkPolicy   │  │ NetworkPolicy   │
-│ LimitRange      │  │ LimitRange      │
-│ HPA             │  │ HPA             │
-└─────────────────┘  └─────────────────┘
-     ✗ No cross-tenant traffic ✗
-```
+![Kubernetes deployment topology: ingress, control-plane namespace with Coordinator workloads, Worker namespace, and external PostgreSQL, object storage, and observability dependencies](/img/diagrams/helm-topology.svg)
 
 ### Enable Multi-Tenancy
 

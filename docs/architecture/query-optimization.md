@@ -15,23 +15,7 @@ sidebar_label: "Query Optimization"
 
 ## 1. Query Optimization Capabilities Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Optimization Capabilities                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Capability matrix:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability           │ Note                        │ Implementation    │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Materialized View    │ Precompute acceleration     │ Incremental refresh + query rewrite│  │
-│  │  Query Result Cache   │ Result cache                │ Semantic fingerprint + TTL│   │
-│  │  Query Throttling     │ Query throttling            │ Token bucket + priority│   │
-│  │  Query Routing        │ Smart routing               │ Load-aware + affinity│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query optimization surfaces: implemented Calcite rules and runtime filters, target caches and cross-stage pruning, and admission, routing, and materialized-view controls](/img/diagrams/optimization-surfaces.svg)
 
 ---
 

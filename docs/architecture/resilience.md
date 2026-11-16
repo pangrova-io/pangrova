@@ -15,24 +15,7 @@ sidebar_label: "Resilience"
 
 ## 1. Resilience Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         System Resilience Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Resilience capabilities:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Description                 │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Error Handling     │ Unified error codes & prop. │ Layered error model │   │
-│  │  Circuit Breaker    │ Fault isolation & recovery  │ State machine       │   │
-│  │  Degradation        │ Graceful degradation        │ Multi-level         │   │
-│  │  Backpressure       │ Backpressure prop. & flow   │ Watermark control   │   │
-│  │  Retry              │ Smart retry & idempotency   │ Exponential backoff │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Failure handling and recovery: classify the failure, contain it with circuit breakers and retry budgets, recover or degrade, and report the exact client outcome](/img/diagrams/resilience-flow.svg)
 
 ---
 

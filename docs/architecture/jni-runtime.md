@@ -37,15 +37,7 @@ they must not introduce feature-specific task envelopes or a second proto tree.
 
 The single serialization boundary between Java and Native is the JNI bridge in `pangrova-worker`:
 
-```
-Java Layer                          JNI Runtime                    C++ Layer
-─────────────────────────────────────────────────────────────────────────────
-TaskRequestBuilder.build()    →   nativeCreateTaskExecutor()  →  TaskRequestParser
-  (Java proto serialization)        (byte[] transfer)             (Native proto deserialization)
-
-StatusSerializer              ←   nativeGetTaskStatus()       ←  TaskExecutor.state()
-  (Native proto serialization)      (byte[] transfer)             (C++ state)
-```
+![JNI ownership boundary: Java task lifecycle, connector callbacks, and result transport cross a canonical Protobuf bridge into C++/Velox execution and Native shuffle](/img/diagrams/jni-ownership.svg)
 
 **Critical rule:** the byte stream produced by generated Java classes must be
 parsed by C++ classes generated from the exact same canonical descriptor. There

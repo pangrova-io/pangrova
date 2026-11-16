@@ -384,6 +384,14 @@ def main() -> None:
     caching_layers()
     observability_pipeline()
     testing_levels()
+    resilience_flow()
+    memory_arbitration()
+    tenant_isolation()
+    governance_pipeline()
+    optimization_surfaces()
+    helm_topology()
+    jni_ownership()
+    refresh_flow()
     print("generated diagrams in", OUT)
 
 
@@ -563,6 +571,174 @@ def testing_levels() -> None:
     lines.append('<text x="600" y="826" font-size="14" fill="#64748B" text-anchor="middle">Container and Native suites require their real prerequisites; unavailable prerequisites are reported, never silently skipped.</text>')
     lines.extend(svg_close())
     OUT.joinpath("testing-levels.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+
+def simple_flow(filename: str, title: str, subtitle: str, steps, note: str | None = None) -> None:
+    h = 140 + len(steps) * 118 + 80
+    lines = svg_open(h, title, subtitle)
+    title_block(lines, title, subtitle)
+    x, w = 120, 960
+    y = 140
+    for i, (heading, sub, color) in enumerate(steps):
+        card(lines, x, y, w, 84, heading, [sub], color)
+        if i < len(steps) - 1:
+            arrow(lines, x + w / 2, y + 84, x + w / 2, y + 118, "")
+        y += 118
+    if note:
+        lines.append(f'<text x="600" y="{y + 20}" font-size="14" fill="#64748B" text-anchor="middle">{esc(note)}</text>')
+    legend(lines, h - 24)
+    lines.extend(svg_close())
+    OUT.joinpath(filename).write_text("\n".join(lines), encoding="utf-8")
+
+
+def resilience_flow() -> None:
+    simple_flow("resilience-flow.svg",
+        "Failure handling and recovery",
+        "Classify the failure, apply a bounded response, and surface the exact client outcome.",
+        [
+            ("Failure", "Task error · Worker loss · Coordinator loss · storage or network interruption", "#2563EB"),
+            ("Classify", "Error category · retryability · attempt and generation ownership", "#7C3AED"),
+            ("Contain", "Circuit breaker · bounded retry budget · cancellation · drain", "#D97706"),
+            ("Recover or degrade", "Retry dispatch · stage rebuild · fenced takeover · explicit unsupported result", "#0D9488"),
+            ("Report and audit", "Client error mapping · terminal state · audit and lineage records", "#7C3AED"),
+        ],
+        "Static analysis and retries cannot turn an unverified recovery path into a qualified guarantee.")
+
+
+def memory_arbitration() -> None:
+    h = 980
+    lines = svg_open(h, "Memory arbitration", "Node pools, task budgets, shuffle and cache reservations, and spilling.")
+    title_block(lines, "Memory arbitration", "Every allocation is admitted against the process budget; pressure triggers spill or rejection.")
+    node(lines, 80, 140, 1040, 76, "Worker process", ["One NodePool and one MemoryArbitrator per Worker JVM"], "#2563EB")
+    panel(lines, 60, 250, 1080, 230, "RESERVATIONS", "#7C3AED", "#FBFBFE")
+    node(lines, 90, 300, 320, 150, "Task execution", ["Per-attempt native budget", "Operator and spill accounting"], "#7C3AED")
+    node(lines, 440, 300, 320, 150, "Shuffle and exchange", ["In-memory batches", "Disk service reservations"], "#D97706")
+    node(lines, 790, 300, 310, 150, "Native cache", ["RAM / SSD cache budget", "Worker-local eviction"], "#0D9488")
+    arrow(lines, 600, 480, 600, 520, "", "#7C3AED")
+    panel(lines, 60, 520, 1080, 210, "PRESSURE RESPONSE", "#D97706", "#FFFCF5")
+    node(lines, 90, 575, 320, 120, "Admission", ["Reject over-budget tasks", "Respect tenant quotas"], "#7C3AED")
+    node(lines, 440, 575, 320, 120, "Spill", ["Task spill directory", "Language-specific file ownership"], "#D97706")
+    node(lines, 790, 575, 310, 120, "Backpressure", ["Bounded queues", "Cancellation and drain"], "#D97706")
+    node(lines, 80, 790, 1040, 90, "NativeMemoryGovernor and allocator", ["C++ allocation paths report through the governor; the JVM does not infer native usage"], "#0D9488")
+    arrow(lines, 600, 730, 600, 790, "", "#0D9488")
+    lines.append('<text x="600" y="930" font-size="14" fill="#64748B" text-anchor="middle">A second accounting layer must not be introduced merely to explain memory; the owning allocator remains authoritative.</text>')
+    legend(lines, 960)
+    lines.extend(svg_close())
+    OUT.joinpath("memory-arbitration.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+def tenant_isolation() -> None:
+    simple_flow("tenant-isolation.svg",
+        "Tenant isolation",
+        "Identity, admission, placement, resource quotas, and audit use the same current tenant.",
+        [
+            ("Identity", "Authenticated principal · exact ACTIVE tenant · session context", "#2563EB"),
+            ("Admission", "Tenant concurrency and resource limits · capability checks", "#7C3AED"),
+            ("Placement", "Shared pools or dedicated Worker pools · no cross-pool fallback", "#0D9488"),
+            ("Execution", "Resource grants · row policies and column masks · governed providers", "#D97706"),
+            ("Audit", "Tenant-attributed query history · security events · lineage", "#7C3AED"),
+        ],
+        "An explicitly shared deployment uses only Workers without a dedicated pool assignment; unknown tenants are rejected.")
+
+
+def governance_pipeline() -> None:
+    h = 960
+    lines = svg_open(h, "Data governance pipeline", "Lineage, quality rules, classification, and durable governance records.")
+    title_block(lines, "Data governance pipeline", "Governance consumes execution facts and persists decisions beside the data authority.")
+    node(lines, 80, 140, 1040, 76, "Sources", ["Query events and lineage · table columns and tags · quality rule definitions"], "#2563EB")
+    arrow(lines, 600, 216, 600, 256, "", "#7C3AED")
+    panel(lines, 60, 256, 1080, 220, "GOVERNANCE RUNTIME", "#7C3AED", "#FBFBFE")
+    node(lines, 90, 308, 320, 140, "Lineage", ["Logical START and terminal events", "LOG or OpenLineage HTTP backend"], "#7C3AED")
+    node(lines, 440, 308, 320, 140, "Quality", ["Rule evaluation at write gates", "Severity, table UUID, and row count"], "#D97706")
+    node(lines, 790, 308, 310, 140, "Classification", ["Column tag bindings", "PII type and masking policy"], "#0D9488")
+    arrow(lines, 600, 476, 600, 516, "", "#7C3AED")
+    panel(lines, 60, 516, 1080, 210, "DURABLE RECORDS", "#0D9488", "#F7FEFC")
+    node(lines, 90, 570, 320, 120, "PostgreSQL", ["Tag and policy bindings", "Audit and mutation receipts"], "#0D9488")
+    node(lines, 440, 570, 320, 120, "Lineage backend", ["OpenLineage HTTP", "Configured outbox requirement"], "#0D9488")
+    node(lines, 790, 570, 310, 120, "Query audit", ["Terminal state and failure flag", "Tenant and submitter"], "#0D9488")
+    lines.append('<text x="600" y="800" font-size="14" fill="#64748B" text-anchor="middle">Missing authority, unsupported SQL, or an unavailable backend fails closed; governance never silently fabricates success.</text>')
+    legend(lines, 930)
+    lines.extend(svg_close())
+    OUT.joinpath("governance-pipeline.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+def optimization_surfaces() -> None:
+    h = 930
+    lines = svg_open(h, "Query optimization surfaces", "Planner rules, materialized-view rewrite, caches, admission, routing, statistics, and runtime filters.")
+    title_block(lines, "Query optimization surfaces", "Only behaviour with production wiring and tests is described as available.")
+    panel(lines, 60, 140, 520, 300, "IMPLEMENTED", "#7C3AED", "#FBFBFE")
+    node(lines, 90, 195, 460, 90, "Calcite rules and cost model", ["Statistics-aware relational transformations"], "#7C3AED")
+    node(lines, 90, 305, 460, 90, "Runtime filters", ["Same-task hash join filters and bounded literal rules"], "#D97706")
+    panel(lines, 620, 140, 520, 300, "TARGET DESIGN", "#94A3B8", "#FFFFFF", dashed=True)
+    node(lines, 650, 195, 460, 90, "Result cache and semantic cache", ["Evidence and invalidation design only"], "#94A3B8")
+    node(lines, 650, 305, 460, 90, "Automatic cross-stage pruning", ["Build-side key-domain publisher"], "#94A3B8")
+    arrow(lines, 600, 440, 600, 500, "", "#7C3AED")
+    panel(lines, 60, 500, 1080, 210, "CONTROL SURFACES", "#0D9488", "#F7FEFC")
+    node(lines, 90, 555, 320, 120, "Admission and throttling", ["Concurrency, resource, and tenant limits"], "#7C3AED")
+    node(lines, 440, 555, 320, 120, "Routing and placement", ["Worker capabilities and locality"], "#0D9488")
+    node(lines, 790, 555, 310, 120, "Materialized views", ["Rewrite from persisted definitions; lifecycle open"], "#7C3AED")
+    lines.append('<text x="600" y="790" font-size="14" fill="#64748B" text-anchor="middle">A rule, cache, or rewrite class is not evidence of a supported plan shape; verify the bound plan and execution path.</text>')
+    legend(lines, 900)
+    lines.extend(svg_close())
+    OUT.joinpath("optimization-surfaces.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+def helm_topology() -> None:
+    h = 960
+    lines = svg_open(h, "Kubernetes deployment topology", "Ingress, Coordinator and Worker workloads, and external state.")
+    title_block(lines, "Kubernetes deployment topology", "Namespaces, Services, and persistent dependencies are deployment-owned.")
+    node(lines, 380, 140, 440, 76, "Ingress / load balancer", ["HTTPS :8080"], "#2563EB")
+    arrow(lines, 600, 216, 600, 256, "", "#7C3AED")
+    panel(lines, 60, 256, 1080, 250, "CONTROL-PLANE NAMESPACE", "#7C3AED", "#FBFBFE")
+    node(lines, 190, 310, 380, 150, "Coordinator StatefulSet", ["Leader and follower replicas", "Lease and fencing", "Final catalog commit"], "#7C3AED")
+    node(lines, 630, 310, 380, 150, "Coordinator Service", ["Stable client endpoint", "Readiness-gated routing"], "#0D9488")
+    arrow(lines, 600, 506, 600, 546, "", "#7C3AED")
+    panel(lines, 60, 546, 1080, 210, "WORKER NAMESPACE", "#D97706", "#FFFCF5")
+    node(lines, 120, 600, 300, 120, "Worker pool", ["Autoscaled JVM + Native pods", "Advertised Flight endpoints"], "#D97706")
+    node(lines, 450, 600, 300, 120, "Shuffle / TLS", ["Mutual TLS transport", "Object storage credentials"], "#0D9488")
+    node(lines, 780, 600, 300, 120, "Secrets / KMS", ["Mounted files", "No plaintext credentials"], "#7C3AED")
+    arrow(lines, 600, 756, 600, 796, "", "#0D9488")
+    node(lines, 190, 796, 820, 84, "External state", ["PostgreSQL · object storage · optional ZooKeeper · OTel backend"], "#0D9488")
+    legend(lines, 930)
+    lines.extend(svg_close())
+    OUT.joinpath("helm-topology.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+def jni_ownership() -> None:
+    h = 900
+    lines = svg_open(h, "JNI ownership boundary", "Java control, JNI bridging, C++ execution, memory ownership, and errors.")
+    title_block(lines, "JNI ownership boundary", "Handles and buffers have one owner; errors and lifecycle cross the bridge explicitly.")
+    panel(lines, 60, 140, 1080, 200, "JAVA LAYER", "#7C3AED", "#FBFBFE")
+    node(lines, 90, 195, 320, 110, "Task lifecycle", ["Admission · cancellation · drain", "Handle registry"], "#7C3AED")
+    node(lines, 440, 195, 320, 110, "Connector callbacks", ["Page sinks and governed providers", "Resource callbacks"], "#0D9488")
+    node(lines, 790, 195, 310, 110, "Result transport", ["Arrow Flight results", "Terminal reporting"], "#D97706")
+    arrow(lines, 600, 340, 600, 380, "canonical v2 Protobuf / Arrow", "#7C3AED")
+    panel(lines, 60, 380, 1080, 200, "JNI BRIDGE", "#0D9488", "#F7FEFC")
+    node(lines, 90, 435, 470, 110, "Execution binding", ["Task request parsing", "Handle and incarnation validation"], "#0D9488")
+    node(lines, 600, 435, 500, 110, "Error and lifecycle projection", ["Typed error mapping", "Owner-released receipts"], "#7C3AED")
+    arrow(lines, 600, 580, 600, 620, "", "#D97706")
+    panel(lines, 60, 620, 1080, 200, "C++ LAYER", "#D97706", "#FFFCF5")
+    node(lines, 90, 675, 320, 110, "Velox execution", ["Operators and memory governor", "Task-scoped allocations"], "#D97706")
+    node(lines, 440, 675, 320, 110, "Native shuffle / Flight", ["Arrow batches and tickets", "Process-shared services"], "#D97706")
+    node(lines, 790, 675, 310, 110, "Spill and storage", ["Anonymous disk segments", "Owner-controlled cleanup"], "#0D9488")
+    lines.append('<text x="600" y="870" font-size="14" fill="#64748B" text-anchor="middle">The Java heap never becomes the authority for native memory; a borrowed buffer is valid only for its documented callback window.</text>')
+    lines.extend(svg_close())
+    OUT.joinpath("jni-ownership.svg").write_text("\n".join(lines), encoding="utf-8")
+
+
+def refresh_flow() -> None:
+    simple_flow("refresh-flow.svg",
+        "Dynamic table refresh",
+        "Scheduling, planning, execution, and publication with explicit attempt state.",
+        [
+            ("Trigger", "Scheduled tick, manual command, or explicit refresh request", "#2563EB"),
+            ("Plan", "Definition, source snapshot, refresh mode, and resource budget", "#7C3AED"),
+            ("Execute", "Worker fragments produce output artifacts", "#D97706"),
+            ("Publish", "Fenced generation publication and durable receipt", "#0D9488"),
+            ("Record", "Attempt state, checkpoint, audit, and lineage", "#7C3AED"),
+        ],
+        "Continuous-query materialization remains unsupported; automatic refresh scheduling is a capability boundary, not a default promise.")
 
 if __name__ == "__main__":
     main()

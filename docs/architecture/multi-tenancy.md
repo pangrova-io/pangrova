@@ -15,25 +15,7 @@ sidebar_label: "Multi-Tenancy"
 
 ## 1. Multi-Tenancy Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Multi-Tenancy Architecture                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Isolation Levels:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level              │ Isolation Method            │ Use Case            │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Namespace          │ Catalog/Schema isolation    │ Lightweight tenancy │   │
-│  │  Resource Pool      │ Resource pool isolation     │ Resource guarantee  │   │
-│  │  Worker Group       │ Physical node isolation     │ Strong isolation    │   │
-│  │  Cluster            │ Dedicated cluster           │ Full isolation      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Recommended: Namespace + Resource Pool (balances isolation and utilization)   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Tenant isolation: identity, admission, placement, execution, and audit all use the same current ACTIVE tenant](/img/diagrams/tenant-isolation.svg)
 
 ---
 

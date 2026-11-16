@@ -15,30 +15,7 @@ sidebar_label: "Resource Management"
 
 ## 1. Resource Management Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Unified Resource Management Architecture                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Unified control: the Java layer manages JVM Heap + Off-Heap; Native memory has an upper limit set by Java + independently managed by Native│
-│  • Graceful degradation: automatically trigger Spill under memory pressure to avoid OOM│
-│  • Fair scheduling: fair resource allocation across queries, supporting priority and preemption│
-│  • Observability: monitor resource usage in real time, supporting alerts and auto-scaling│
-│                                                                                  │
-│  Resource types:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Resource Type    │ Layer   │ Limit method    │ Spill handling         │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  JVM Heap         │ Java    │ -Xmx            │ GC → OOM               │   │
-│  │  JVM Off-Heap     │ Java    │ -XX:MaxDirect   │ Spill → OOM            │   │
-│  │  Native Memory    │ Native  │ MemoryPool      │ Spill → reject allocation│   │
-│  │  CPU (Threads)    │ Both    │ ThreadPool      │ Queue                  │   │
-│  │  Disk (Spill)     │ Native  │ Quota           │ Clean up → reject      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Memory arbitration: NodePool and MemoryArbitrator reservations for tasks, shuffle, and native cache, with admission, spilling, and backpressure](/img/diagrams/memory-arbitration.svg)
 
 ## 2. Memory Management Hierarchy
 

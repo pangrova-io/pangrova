@@ -64,25 +64,7 @@ management, durable execution wiring or candidate-write validation.
 
 ## 1. Data Governance Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Governance Architecture                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Governance capabilities:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Responsibilities            │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Schema Evolution   │ Schema change management    │ Iceberg/Paimon native│   │
-│  │  Data Lineage       │ Data lineage tracking       │ OpenLineage integration│   │
-│  │  Data Quality       │ Data quality validation     │ Rule engine + alerts│   │
-│  │  Data Classification│ Data classification         │ Tag system          │   │
-│  │  Metadata Management│ Unified metadata management │ See metadata.md │
-│  │  Catalog Federation │ External Catalog federation │ See [07 §3.8](./metadata.md) FederatedCatalog SPI │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data governance pipeline: query and table facts feed lineage, quality, and classification; durable records live in PostgreSQL, the lineage backend, and query audit](/img/diagrams/governance-pipeline.svg)
 
 ---
 
