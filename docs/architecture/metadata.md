@@ -1,5 +1,6 @@
 ---
 title: "Metadata Management"
+description: "Catalog federation, tiered cache, metadata model, persistence, and event flows"
 sidebar_label: "Metadata Management"
 ---
 

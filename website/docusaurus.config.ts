@@ -18,6 +18,8 @@ const config: Config = {
   projectName: 'pangrova',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
+  onDuplicateRoutes: 'throw',
 
   headTags: [
     {

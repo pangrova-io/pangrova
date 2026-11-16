@@ -1,5 +1,6 @@
 ---
 title: "Resilience"
+description: "Error taxonomy, circuit breakers, degradation, retries, and client error mapping"
 sidebar_label: "Resilience"
 ---
 

@@ -77,7 +77,7 @@ const features: {
     icon: 'database',
     title: 'Open lakehouse formats',
     description:
-      'Query Apache Iceberg and Apache Paimon tables in place. The versioned Connector SPI adds new formats and data sources without forking the engine.',
+      'Query Apache Iceberg and Apache Paimon tables in place, or use the managed Lance connector. The versioned Connector SPI adds new formats and data sources without forking the engine.',
     link: '/docs/architecture/connectors/',
     linkLabel: 'Connector design',
   },
@@ -191,7 +191,8 @@ function Hero() {
           <p className={styles.heroSubtitle}>
             {siteConfig.title} is a distributed SQL engine for lakehouse analytics and AI
             retrieval. It combines Apache Calcite planning with C++20 / Velox execution,
-            Arrow Flight exchange, and connectors for Apache Iceberg and Apache Paimon.
+            Arrow Flight exchange, and connectors for Apache Iceberg, Apache Paimon, and
+            managed Lance datasets.
           </p>
           <div className={styles.buttons}>
             <Link className="button button--primary button--lg" to="/docs/getting-started/quickstart/">

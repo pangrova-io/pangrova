@@ -107,7 +107,7 @@ Reference files may be kept in `${PANGROVA_CONF_DIR}/catalog/`. Register the des
 All catalog files share the same two-level structure:
 
 ```yaml
-connector: <connector-type>   # "iceberg" or "paimon"
+connector: <connector-type>   # "iceberg", "paimon", or "lance"
 properties:
   <key>: <value>
   # ... connector-specific properties
@@ -204,6 +204,29 @@ All other properties are passed through to Paimon Options (supporting S3, HDFS, 
 
 This endpoint must implement the Paimon REST protocol. An Iceberg REST endpoint,
 including Gravitino's Iceberg REST service, is not interchangeable with it.
+
+### Lance Connector (`connector: lance`)
+
+The Lance connector serves managed Lance datasets. The warehouse holds dataset objects and
+manifests; catalog identity, tenants, revisions, and publication evidence remain in the shared
+metadata authority. The connector rejects `jdbc.url`, `jdbc.user`, and `jdbc.password`
+properties and never opens its own database connection.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `warehouse` | string | Yes | Absolute local path, canonical `file:///` URI, or `s3://bucket/prefix` |
+
+The warehouse path must be normalized and unencoded. `file:/`, relative paths, `%` escapes,
+query strings, fragments, and user-info are rejected. Reads require the Native Lance FFI;
+`CREATE TABLE`, `INSERT`, `INSERT OVERWRITE`, abort, and time travel are supported, while
+`UPDATE`/`DELETE`/`MERGE`, column DDL, views, system tables, and maintenance are not.
+See [Lance](../getting-started/connectors/lance.md) for the full capability matrix.
+
+```yaml
+connector: lance
+properties:
+  warehouse: "s3://analytics-lance/warehouse"
+```
 
 ### Example: Iceberg on S3 (hadoop mode)
 

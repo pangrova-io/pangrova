@@ -1,5 +1,6 @@
 ---
 title: "Caching Target Architecture"
+description: "Target caching architecture plus the implemented metadata cache providers and configuration"
 sidebar_label: "Caching (Target)"
 ---
 

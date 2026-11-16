@@ -1,5 +1,5 @@
 ---
-title: "Operations"
+title: "Operations Configuration"
 description: "Operations module flag and maintenance execution model"
 ---
 

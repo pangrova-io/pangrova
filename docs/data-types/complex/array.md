@@ -34,6 +34,17 @@ INSERT INTO tags VALUES (2, ARRAY[]);
 `ARRAY[]` requires a typed context such as an `ARRAY(VARCHAR)` insert column;
 an untyped empty array has no element type to infer.
 
+**Connector mappings:**
+
+| Connector | Write mapping | Read mapping |
+|-----------|---------------|--------------|
+| Apache Iceberg | Iceberg `LIST` with the declared element type | `ARRAY` with preserved element type |
+| Apache Paimon | Paimon `ARRAY` | `ARRAY` with preserved element type |
+| Lance | Not declared by the managed connector | Not declared |
+
+Element nullability follows the declared element type. A `NULL` array is distinct from an
+empty array; `labels[1]` on an empty array returns `NULL`.
+
 **Access:**
 
 ```sql

@@ -101,6 +101,14 @@ Coordinator:
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
 | `pangrova.index.basePath` | — (required when indexing is enabled) | Index artifact directory; no default |
 
+## External Shuffle Service
+
+`bin/pangrova-shuffle.sh` reads a separate strict YAML file (default
+`$PANGROVA_CONF_DIR/shuffle.yml`) with `server`, `database`, `object-storage`, `security`,
+and optional `limits` sections. It does not merge `coordinator.yml` or `worker.yml` and does
+not accept the `PANGROVA_*` dot-path overrides. Unknown keys fail startup. See
+[External Shuffle Service](shuffle-service.md) for every key, default, and validation rule.
+
 ## Environment Variables
 
 Launch scripts (`bin/`):

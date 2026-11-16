@@ -42,9 +42,11 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Connectors',
+          link: {type: 'doc', id: 'getting-started/connectors/index'},
           items: [
             {type: 'doc', id: 'getting-started/connectors/iceberg', label: 'Iceberg'},
             {type: 'doc', id: 'getting-started/connectors/paimon', label: 'Paimon'},
+            {type: 'doc', id: 'getting-started/connectors/lance', label: 'Lance'},
           ],
         },
         {
@@ -88,8 +90,8 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'sql-reference/functions/map', label: 'Map'},
             {type: 'doc', id: 'sql-reference/functions/struct', label: 'Struct'},
             {type: 'doc', id: 'sql-reference/functions/table-functions', label: 'Table Functions'},
-            {type: 'doc', id: 'sql-reference/functions/spatial', label: 'Spatial'},
-            {type: 'doc', id: 'sql-reference/functions/vector', label: 'Vector'},
+            {type: 'doc', id: 'sql-reference/functions/spatial', label: 'Spatial Functions'},
+            {type: 'doc', id: 'sql-reference/functions/vector', label: 'Vector Functions'},
             {type: 'doc', id: 'sql-reference/functions/vector-search', label: 'Vector Search'},
             {type: 'doc', id: 'sql-reference/functions/ai-functions', label: 'AI Functions'},
           ],
@@ -99,6 +101,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Data Types',
+      link: {type: 'doc', id: 'data-types/index'},
       items: [
         {
           type: 'category',
@@ -170,6 +173,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Indexing',
+      link: {type: 'doc', id: 'indexing/index'},
       items: [
         {type: 'doc', id: 'indexing/index-ddl', label: 'Index DDL'},
         {
@@ -193,8 +197,8 @@ const sidebars: SidebarsConfig = {
         },
         {type: 'doc', id: 'indexing/full-text', label: 'Full-Text'},
         {type: 'doc', id: 'indexing/containment', label: 'Containment'},
-        {type: 'doc', id: 'indexing/spatial', label: 'Spatial'},
-        {type: 'doc', id: 'indexing/vector', label: 'Vector'},
+        {type: 'doc', id: 'indexing/spatial', label: 'Spatial (R_TREE)'},
+        {type: 'doc', id: 'indexing/vector', label: 'Vector Index'},
       ],
     },
     {
@@ -209,12 +213,14 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'configuration/security', label: 'Security'},
         {type: 'doc', id: 'configuration/observability', label: 'Observability'},
         {type: 'doc', id: 'configuration/operations', label: 'Operations'},
+        {type: 'doc', id: 'configuration/shuffle-service', label: 'External Shuffle Service'},
         {type: 'doc', id: 'configuration/reference', label: 'Key Reference'},
       ],
     },
     {
       type: 'category',
       label: 'Deployment',
+      link: {type: 'doc', id: 'deployment/index'},
       items: [
         {type: 'doc', id: 'deployment/planning', label: 'Planning'},
         {type: 'doc', id: 'deployment/docker', label: 'Docker'},
@@ -281,6 +287,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'architecture/jni-runtime', label: 'JNI Runtime'},
             {type: 'doc', id: 'architecture/dynamic-filtering', label: 'Dynamic Filter Lifecycle'},
             {type: 'doc', id: 'architecture/domain-modularization-adr', label: 'Domain Modularization ADR'},
+            {type: 'doc', id: 'architecture/modularization-dispositions', label: 'Module Refactor Ledger'},
           ],
         },
       ],

@@ -99,3 +99,7 @@ Environment variables understood by the launch scripts in `bin/`:
 
 Any `PANGROVA_*` variable not listed above is interpreted as a configuration
 override per the rules above (e.g. `PANGROVA_COORDINATOR_PORT`).
+
+The external shuffle service is a separate process with its own strict YAML schema; it does
+not merge the Coordinator or Worker files and does not use the `PANGROVA_*` dot-path
+overrides. See [External Shuffle Service](shuffle-service.md).

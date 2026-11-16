@@ -1,5 +1,6 @@
 ---
 title: "Data Governance"
+description: "Schema evolution, lineage, quality rules, classification, and enforcement boundaries"
 sidebar_label: "Data Governance"
 ---
 

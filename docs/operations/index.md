@@ -1,5 +1,6 @@
 ---
 title: "Operations"
+description: "Operational entry points, day-2 tasks, runbooks, and game-day scenarios"
 sidebar_position: 1
 ---
 

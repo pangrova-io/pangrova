@@ -1,5 +1,5 @@
 ---
-title: "Spatial"
+title: "Spatial Functions"
 description: "ST_ geospatial predicates and constructor functions"
 ---
 

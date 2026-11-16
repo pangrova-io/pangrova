@@ -1,5 +1,6 @@
 ---
-title: "Observability"
+title: "Observability Architecture"
+description: "OpenTelemetry metrics, tracing, logging, and Native-layer instrumentation"
 sidebar_label: "Observability"
 ---
 

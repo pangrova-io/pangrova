@@ -1,5 +1,6 @@
 ---
 title: "Query Execution"
+description: "End-to-end query flow, Calcite integration, exchange protocol, and write path"
 sidebar_label: "Query Execution"
 ---
 

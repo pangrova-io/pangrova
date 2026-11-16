@@ -1,5 +1,6 @@
 ---
 title: "Multi-Tenancy"
+description: "Tenant model, resource isolation, quota management, and admission boundaries"
 sidebar_label: "Multi-Tenancy"
 ---
 

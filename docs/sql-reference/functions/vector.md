@@ -1,5 +1,5 @@
 ---
-title: "Vector"
+title: "Vector Functions"
 description: "L2_DISTANCE, COSINE_DISTANCE, INNER_PRODUCT similarity functions"
 ---
 

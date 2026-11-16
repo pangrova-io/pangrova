@@ -1,5 +1,6 @@
 ---
 title: "Query Optimization"
+description: "Materialized views, caches, throttling, routing, statistics, and runtime filters"
 sidebar_label: "Query Optimization"
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "Observability"
+title: "Observability Configuration"
 description: "OpenTelemetry configuration keys"
 ---
 

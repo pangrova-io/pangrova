@@ -1,5 +1,6 @@
 ---
-title: "Security"
+title: "Security Architecture"
+description: "Authentication, authorization, row/column policies, masking, audit, and encryption"
 sidebar_label: "Security"
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: "Resource Management"
+description: "Unified memory arbitration, spilling, resource queues, and quota enforcement"
 sidebar_label: "Resource Management"
 ---
 

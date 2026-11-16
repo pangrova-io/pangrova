@@ -1,5 +1,6 @@
 ---
 title: "Connector Design"
+description: "Connector SPI, plugin isolation, Substrait mapping, and Iceberg/Paimon/Lance boundaries"
 sidebar_label: "Connector Design"
 ---
 
@@ -680,6 +681,17 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 ```
 
 ---
+
+### 4.3 Managed Lance connector
+
+`pangrova-connector-lance` serves managed Lance datasets from a connector-owned warehouse
+(local `file:///` or `s3://`). It records catalog identity, tenant scope, table UUID,
+revision, schema fingerprint, and publication evidence in the shared metadata authority and
+never opens a JDBC connection. Reads are snapshot-pinned and verified against the Native
+manifest; writes use the Native publication barrier with abort and format/base-version
+fencing. `UPDATE`, `DELETE`, `MERGE`, column DDL, views, system tables, and maintenance are
+not declared. Configuration and the full capability matrix are in
+[Lance](../getting-started/connectors/lance.md).
 
 ## 5. Extension Point Design
 

@@ -1,5 +1,6 @@
 ---
 title: "Distributed Architecture"
+description: "Coordinator high availability, Worker architecture, fault tolerance, and service discovery"
 sidebar_label: "Distributed Architecture"
 ---
 

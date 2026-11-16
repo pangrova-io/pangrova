@@ -1,5 +1,6 @@
 ---
 title: "Testing Framework"
+description: "Test layers, real-dependency policy, fuzzers, benchmarks, chaos tests, and performance baselines"
 sidebar_label: "Testing Framework"
 ---
 

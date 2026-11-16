@@ -1,5 +1,5 @@
 ---
-title: "Vector"
+title: "Vector Index"
 description: "Native durable VECTOR indexes: HNSW, IVF-PQ, and DiskANN"
 ---
 

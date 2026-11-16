@@ -10,8 +10,9 @@ Pangrova is an **open-source distributed SQL query engine for open lakehouses**.
 It queries existing lake tables for relational analytics and data processing,
 with SQL primitives for vector search, full-text retrieval, and AI model invocation.
 
-Built-in connectors currently support **Apache Iceberg and Apache Paimon**. The pluggable
-**Connector SPI** provides the extension point for additional table formats and data sources.
+Built-in connectors currently support **Apache Iceberg**, **Apache Paimon**, and managed
+**Lance** datasets. The pluggable **Connector SPI** provides the extension point for
+additional table formats and data sources.
 
 The engine combines **Apache Calcite** for SQL planning and optimization, **Velox** for C++20
 vectorized execution, and **Apache Arrow** for columnar interoperability and Flight transport.
@@ -65,6 +66,7 @@ or qualification work.
 <div class="docs-card-grid">
   <a class="docs-card" href="getting-started/quickstart/"><strong>Quickstart</strong><span>Build from source, launch a standalone cluster, and run the first query.</span></a>
   <a class="docs-card" href="getting-started/capability-status/"><strong>Capability status</strong><span>Implemented paths, default wiring gaps, and qualification limits.</span></a>
+  <a class="docs-card" href="getting-started/connectors/lance/"><strong>Lance connector</strong><span>Managed datasets, warehouse rules, snapshots, writes, and limits.</span></a>
   <a class="docs-card" href="architecture/overview/"><strong>Architecture</strong><span>Component ownership, execution boundaries, and protocol mapping.</span></a>
   <a class="docs-card" href="sql-reference/"><strong>SQL reference</strong><span>Supported syntax, execution constraints, and connector requirements.</span></a>
   <a class="docs-card" href="data-types/numeric/boolean/"><strong>Data types</strong><span>Numeric, string, temporal, complex, AI-native, spatial, and binary types.</span></a>

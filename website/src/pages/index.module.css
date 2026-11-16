@@ -35,6 +35,7 @@
   position: relative;
   z-index: 1;
   max-width: 900px;
+  min-width: 0;
   margin: 0 auto;
   text-align: center;
 }
@@ -275,6 +276,13 @@
   align-items: start;
 }
 
+.split > *,
+.featureGrid > *,
+.ecosystemGrid > *,
+.communityGrid > * {
+  min-width: 0;
+}
+
 .steps {
   list-style: none;
   padding: 0;
@@ -307,6 +315,8 @@
 }
 
 .codeCard {
+  min-width: 0;
+  max-width: 100%;
   padding: 1.1rem;
   border-radius: 16px;
   border: 1px solid var(--ifm-color-emphasis-200);
@@ -315,10 +325,17 @@
   overflow: hidden;
 }
 
+.codeCard pre,
+.sqlCard pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 /* SQL showcase */
 
 .sqlCard {
   max-width: 900px;
+  min-width: 0;
   margin: 0 auto;
   padding: 1.2rem;
   border-radius: 16px;

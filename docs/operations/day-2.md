@@ -1,5 +1,6 @@
 ---
 title: "Day-2 Operations"
+description: "Rolling upgrade, online DDL, disaster recovery, autoscaling, and operational procedures"
 sidebar_label: "Day-2 Operations"
 ---
 

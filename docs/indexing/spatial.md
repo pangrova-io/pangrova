@@ -1,5 +1,5 @@
 ---
-title: "Spatial"
+title: "Spatial Index (R_TREE)"
 description: "R-Tree index for bounding-box and geospatial predicates"
 ---
 

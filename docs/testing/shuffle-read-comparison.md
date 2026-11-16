@@ -1,3 +1,8 @@
+---
+title: "Remote Shuffle Partition Read Measurement"
+description: "Measured latency, throughput, and memory for the remote shuffle partition reader"
+---
+
 # Pangrova Remote Shuffle Partition Read Measurement
 
 Measured on 2026-11-14 on macOS 13.7.8, Apple M2, 8 cores, 16 GiB memory, and

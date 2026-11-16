@@ -43,6 +43,13 @@
 div[class^='announcementBar'] {
   font-size: 0.86rem;
   font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+html,
+body {
+  overflow-x: clip;
 }
 
 /* Documentation cards (used by the introduction page) */
@@ -103,6 +110,14 @@ div[class^='announcementBar'] {
 .markdown table {
   display: table;
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
 
 /* Code blocks */

@@ -15,8 +15,8 @@
 
 Pangrova is an open-source distributed SQL engine for lakehouse analytics and AI
 retrieval. It combines Apache Calcite planning with C++20 / Velox vectorized
-execution over JNI, Arrow Flight data exchange, and connectors for Apache Iceberg
-and Apache Paimon.
+execution over JNI, Arrow Flight data exchange, and connectors for Apache Iceberg,
+Apache Paimon, and managed Lance datasets.
 
 Pangrova queries lakehouse tables in place: the Java Coordinator parses, plans,
 authorizes, and schedules work, while Workers execute relational operators in
@@ -31,8 +31,8 @@ execution, and governance path.
 
 ## Highlights
 
-- **Open lakehouse access** — query existing Iceberg and Paimon tables without
-  migrating them into a proprietary warehouse.
+- **Open lakehouse access** — query existing Iceberg and Paimon tables, and managed
+  Lance datasets, without migrating them into a proprietary warehouse.
 - **Native execution** — Calcite plans the query; C++/Velox executes relational
   work; Arrow Flight carries columnar data and results.
 - **Analytics and AI in one engine** — relational SQL, vector and full-text
