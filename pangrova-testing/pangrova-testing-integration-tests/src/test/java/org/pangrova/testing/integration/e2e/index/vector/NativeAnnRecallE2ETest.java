@@ -111,7 +111,7 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
         // Four off-row queries prevent self-match-only acceptance. Every expected
         // top-K comes from this exact snapshot and the same L2/filter semantics.
         for (int query = 0; query < 4; query++) {
-            float[] point = midpoint(stored.get(query * 97).coordinates(), stored.get(query * 137 + 1).coordinates());
+            float[] point = queryWithUniqueBoundary(stored, query * 97, query * 137 + 1);
             var evidence = executeObserved(searchSql(fqn, point, ""));
             double requiredRecall = assertAnn(published, evidence);
             assertThat(evidence.tasks().stream().flatMap(task -> task.request().getOperatorBindingsList().stream())
@@ -124,7 +124,8 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
         assertThat(coldRaw).allSatisfy(object -> assertThat(java.nio.file.Files.isRegularFile(cachedObject(object)))
                 .as("real query materialized the previously absent immutable object").isTrue());
 
-        float[] filteredPoint = midpoint(stored.get(4).coordinates(), stored.get(8).coordinates());
+        List<StoredVector> cat0 = stored.stream().filter(row -> row.category().equals("cat_0")).toList();
+        float[] filteredPoint = queryWithUniqueBoundary(cat0, 4, 8);
         var filtered = executeObserved(searchSql(fqn, filteredPoint, " WHERE category = 'cat_0'"));
         assertFilteredAnn(published, filtered);
         var filteredSnapshots = filtered.tasks().stream().flatMap(task -> task.request().getSplitsList().stream())
@@ -316,6 +317,26 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
             coordinates.add(Float.toString(value));
         }
         return "ARRAY[" + String.join(",", coordinates) + "]";
+    }
+
+    private static float[] queryWithUniqueBoundary(List<StoredVector> candidates, int first, int second) {
+        for (int shift = 0; shift < candidates.size(); shift++) {
+            float[] point = midpoint(
+                    candidates.get((first + shift) % candidates.size()).coordinates(),
+                    candidates.get((second + shift) % candidates.size()).coordinates());
+            if (hasUniqueBoundary(candidates, point)) {
+                return point;
+            }
+        }
+        throw new IllegalStateException("No query point with a unique Recall@K boundary");
+    }
+
+    private static boolean hasUniqueBoundary(List<StoredVector> stored, float[] point) {
+        List<BigDecimal> squared = stored.stream()
+                .map(row -> exactSquaredL2(row.coordinates(), point))
+                .sorted()
+                .toList();
+        return squared.size() > K && squared.get(K - 1).compareTo(squared.get(K)) < 0;
     }
 
     private static void assertDistanceAndRecall(List<StoredVector> stored, float[] point,
