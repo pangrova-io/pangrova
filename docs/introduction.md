@@ -60,20 +60,22 @@ by a qualified performance baseline. Complete Feature Store, training-dataset se
 qualified dynamic-table refresh, and materialized-view lifecycle support remain development
 or qualification work.
 
-## Where to Go Next
+## Explore the documentation
 
-| Section | Description |
-|---------|-------------|
-| [Current Capability Status](getting-started/capability-status.md) | Current wiring, known gaps, and qualification limits |
-| [Project Positioning](getting-started/project-positioning.md) | Core problems, advantages, target customers, competitive context, and maturity boundaries |
-| [Quickstart](getting-started/quickstart.md) | Build Pangrova, launch a standalone cluster, and evaluate a first query after configuring dependencies |
-| [SQL Reference](sql-reference/index.md) | Supported SQL syntax, execution constraints, and connector requirements |
-| [Data Types](data-types/numeric/boolean.md) | All supported types: numeric, string, date/time, complex, AI-native, semi-structured, spatial, binary |
-| [Indexing](indexing/index-ddl.md) | Index DDL and per-type guides for skipping, lookup, full-text, containment, spatial, and vector indexes |
-| [Configuration](configuration/index.md) | Configuration model and per-component key reference |
-| [Deployment](deployment/planning.md) | Docker, Helm/Kubernetes, distributed bare-metal deployment, and production checklist |
-| [Architecture](architecture/index.md) | In-depth design documentation for every subsystem |
-| [Operations](operations/index.md) | Day-2 operations, game days, and runbooks |
+<div class="docs-card-grid">
+  <a class="docs-card" href="getting-started/quickstart/"><strong>Quickstart</strong><span>Build from source, launch a standalone cluster, and run the first query.</span></a>
+  <a class="docs-card" href="getting-started/capability-status/"><strong>Capability status</strong><span>Implemented paths, default wiring gaps, and qualification limits.</span></a>
+  <a class="docs-card" href="architecture/overview/"><strong>Architecture</strong><span>Component ownership, execution boundaries, and protocol mapping.</span></a>
+  <a class="docs-card" href="sql-reference/"><strong>SQL reference</strong><span>Supported syntax, execution constraints, and connector requirements.</span></a>
+  <a class="docs-card" href="data-types/numeric/boolean/"><strong>Data types</strong><span>Numeric, string, temporal, complex, AI-native, spatial, and binary types.</span></a>
+  <a class="docs-card" href="indexing/index-ddl/"><strong>Indexing</strong><span>Index DDL plus skipping, lookup, full-text, containment, spatial, and vector guides.</span></a>
+  <a class="docs-card" href="configuration/"><strong>Configuration</strong><span>Typed configuration model and the per-component key reference.</span></a>
+  <a class="docs-card" href="deployment/planning/"><strong>Deployment</strong><span>Docker, Helm/Kubernetes, distributed deployment, and the production checklist.</span></a>
+  <a class="docs-card" href="operations/"><strong>Operations</strong><span>Day-2 operations, game days, and failure-recovery runbooks.</span></a>
+  <a class="docs-card" href="contributing/developer-guide/"><strong>Developer guide</strong><span>Local setup, module development, and connector development.</span></a>
+  <a class="docs-card" href="getting-started/roadmap/"><strong>Roadmap</strong><span>Development priorities and open engineering items.</span></a>
+  <a class="docs-card" href="getting-started/project-positioning/"><strong>Positioning</strong><span>Core problems, target customers, advantages, and maturity boundaries.</span></a>
+</div>
 
 ## Clients
 

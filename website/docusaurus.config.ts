@@ -7,7 +7,7 @@ const siteBaseUrl = process.env.PANGROVA_SITE_BASE_URL ?? '/pangrova/';
 
 const config: Config = {
   title: 'Pangrova',
-  tagline: 'The Distributed SQL Query Engine Built for Lakehouse',
+  tagline: 'Distributed SQL for open lakehouses',
   favicon: 'img/favicon.ico',
 
   url: siteUrl,
@@ -18,6 +18,17 @@ const config: Config = {
   projectName: 'pangrova',
 
   onBrokenLinks: 'throw',
+
+  headTags: [
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'keywords',
+        content:
+          'Pangrova, distributed SQL, lakehouse, Apache Iceberg, Apache Paimon, Apache Calcite, Velox, Arrow Flight, vector search',
+      },
+    },
+  ],
 
   i18n: {
     defaultLocale: 'en',
@@ -83,11 +94,29 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/logo.png',
+    docs: {
+      sidebar: {
+        hideable: true,
+        autoCollapseCategories: false,
+      },
+    },
+    announcementBar: {
+      id: 'active_development',
+      content:
+        'Pangrova is under active development. Review the <a href="/docs/getting-started/capability-status/">current capability status</a> before evaluating a workload.',
+      backgroundColor: '#171336',
+      textColor: '#ddd6fe',
+      isCloseable: true,
+    },
+    tableOfContents: {
+      minHeadingLevel: 2,
+      maxHeadingLevel: 4,
+    },
     navbar: {
       title: 'Pangrova',
       logo: {
         alt: 'Pangrova Logo',
-        src: 'img/logo.png',
+        src: 'img/logo-transparent.png',
       },
       items: [
         {
@@ -96,7 +125,12 @@ const config: Config = {
           position: 'left',
           label: 'Documentation',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
+        {to: '/blog/', label: 'Blog', position: 'left'},
+        {
+          href: 'https://github.com/pangrova-io/pangrova/discussions',
+          label: 'Community',
+          position: 'left',
+        },
         {
           href: 'https://github.com/pangrova-io/pangrova',
           label: 'GitHub',
@@ -110,9 +144,9 @@ const config: Config = {
         {
           title: 'Documentation',
           items: [
-            {label: 'Getting Started', to: '/docs/getting-started/quickstart'},
-            {label: 'SQL Reference', to: '/docs/sql-reference/queries'},
-            {label: 'Architecture', to: '/docs/architecture/overview'},
+            {label: 'Getting Started', to: '/docs/getting-started/quickstart/'},
+            {label: 'SQL Reference', to: '/docs/sql-reference/queries/'},
+            {label: 'Architecture', to: '/docs/architecture/overview/'},
           ],
         },
         {
@@ -124,11 +158,20 @@ const config: Config = {
           ],
         },
         {
+          title: 'Resources',
+          items: [
+            {label: 'Quickstart', to: '/docs/getting-started/quickstart/'},
+            {label: 'Capability status', to: '/docs/getting-started/capability-status/'},
+            {label: 'Roadmap', to: '/docs/getting-started/roadmap/'},
+            {label: 'Releases', href: 'https://github.com/pangrova-io/pangrova/releases'},
+          ],
+        },
+        {
           title: 'More',
           items: [
-            {label: 'Blog', to: '/blog'},
+            {label: 'Blog', to: '/blog/'},
             {label: 'Changelog', href: 'https://github.com/pangrova-io/pangrova/blob/main/CHANGELOG.md'},
-            {label: 'Releases', href: 'https://github.com/pangrova-io/pangrova/releases'},
+            {label: 'License', href: 'https://github.com/pangrova-io/pangrova/blob/main/LICENSE'},
           ],
         },
       ],
