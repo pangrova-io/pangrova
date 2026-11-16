@@ -135,7 +135,8 @@ catalogs, daemon mode, and troubleshooting.
 | [Developer guide](docs/contributing/developer-guide.md) | Local setup, module development, and connector development |
 
 Documentation source lives in [`docs/`](docs/); the Docusaurus site sources are in
-[`website/`](website/).
+[`website/`](website/). The official website is published at
+[https://pangrova-b9a20lmw2et.qoder.website](https://pangrova-b9a20lmw2et.qoder.website).
 
 ## Repository layout
 

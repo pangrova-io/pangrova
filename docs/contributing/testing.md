@@ -1100,7 +1100,7 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 | Criterion | Threshold | Action on Failure |
 |-----------|-----------|-------------------|
 | Query correctness | 100% queries return correct results (vs DuckDB reference) | Block release |
-| Single query regression | Latency increase > 10% vs baseline | Investigate, block if > 20% |
+| Single query regression | Latency increase > 10% vs baseline | Investigate; `tpch-regression-check.sh` fails beyond the checked-in 15% threshold |
 | Total Power Run regression | Total time increase > 5% vs baseline | Investigate, block if > 10% |
 | OOM failure | 0 OOM across all queries | Block release |
 | Spill correctness | Spill results match non-spill results | Block release |
@@ -1111,49 +1111,37 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 
 #### 12.3.4 Baseline Management
 
-- Baseline is recorded from the latest release tag (e.g., `v1.2.0`)
-- Baseline is stored in `pangrova-testing-benchmark/baselines/{version}.json`
-- Format: `{ "tpch_sf100": { "Q1": { "p50_ms": 4200, "p95_ms": 4800 }, ... } }`
-- Baseline is updated only on release, never on feature branches
+- The versioned baseline lives in
+  `pangrova-testing/pangrova-testing-benchmark/baseline/tpch-performance-baseline.json`
+- It records the scale factor, environment, regression threshold, and per-query
+  `baselineP50Ms`/`baselineP99Ms`
+- `tpch-regression-check.sh` compares a results file against this baseline and
+  rejects missing, uncalibrated, or scale-mismatched measurements
+- Update the baseline only for an intentional performance change or a release,
+  never on an ordinary feature branch
 
 #### 12.3.5 CI Integration
 
-```yaml
-# .github/workflows/benchmark.yml
-name: Performance Benchmark
+The scheduled benchmark is `.github/workflows/nightly-tpc-benchmark.yml`. It runs
+daily on `[self-hosted, benchmark, linux, x86_64]` under an exclusive hardware
+lease and also supports `workflow_dispatch` inputs for workload, scale factor,
+streams, and profile.
 
-on:
-  schedule:
-    - cron: '0 2 * * 0'  # Weekly Sunday 02:00 UTC
-  workflow_dispatch:       # Manual trigger
+The workflow:
 
-jobs:
-  tpch-benchmark:
-    runs-on: [self-hosted, benchmark]
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Cluster
-        run: ./bin/benchmark/setup-cluster.sh --workers=3 --profile=tpch
-      - name: Generate TPC-H Data
-        run: ./bin/benchmark/generate-tpch.sh --sf=100
-      - name: Run TPC-H Power Run
-        run: ./bin/benchmark/run-tpch.sh --runs=3 --output=results/tpch.json
-      - name: Regression Check
-        run: |
-          ./bin/benchmark/check-regression.sh \
-            --baseline=baselines/latest.json \
-            --current=results/tpch.json \
-            --threshold=0.05
-      - name: Upload Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-results
-          path: results/
-      - name: Teardown
-        if: always()
-        run: ./bin/benchmark/teardown-cluster.sh
-```
+1. Validates the dedicated-host configuration in `TPC_CONFIG_DIR`.
+2. Builds the canonical same-source production image and verifies its source label.
+3. Runs each selected suite with
+   `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py`, which
+   records results under `tpc-results/`.
+4. Stops any cluster recorded in a `cluster-state.json` even when the job was
+   interrupted.
+5. Uploads result JSON/JSONL artifacts.
+
+Run the regression comparison against the checked-in baseline with
+`pangrova-testing/pangrova-testing-benchmark/scripts/tpch-regression-check.sh
+<results-json>`. The script fails when a query exceeds the baseline threshold or
+when measurements are missing, uncalibrated, or scale-mismatched.
 
 #### 12.3.6 Regression Detection Rules
 

@@ -31,68 +31,68 @@
             {
               "file": "pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDriver.java",
               "line": "138",
-              "message": "圈复杂度： 9 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 9 (maximum: 8)."
             },
             {
               "file": "pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcSharedHttpOwner.java",
               "line": "24",
-              "message": "圈复杂度： 10 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 10 (maximum: 8)."
             },
             {
               "file": "pangrova-client/pangrova-client-rest/src/main/java/org/pangrova/client/rest/PangrovaRestClientConfig.java",
               "line": "69",
-              "message": "圈复杂度： 10 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 10 (maximum: 8)."
             }
           ],
           "ParameterNumber": [
             {
               "file": "pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergCommitNotifier.java",
               "line": "68",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergTaskToSplit.java",
               "line": "41",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/PaimonCommitNotifier.java",
               "line": "42",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             }
           ],
           "MethodLength": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "155",
-              "message": "方法 start 97 行（最多： 50 行）。"
+              "message": "Method start is 97 lines (maximum: 50)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "103",
-              "message": "方法 buildQueryDispatcher 62 行（最多： 50 行）。"
+              "message": "Method buildQueryDispatcher is 62 lines (maximum: 50)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "174",
-              "message": "方法 buildStatementDispatcher 72 行（最多： 50 行）。"
+              "message": "Method buildStatementDispatcher is 72 lines (maximum: 50)."
             }
           ],
           "FileLength": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
               "line": "1",
-              "message": "文件 583 行 （最多：500 行）。"
+              "message": "File is 583 lines (maximum: 500)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
               "line": "1",
-              "message": "文件 569 行 （最多：500 行）。"
+              "message": "File is 569 lines (maximum: 500)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
               "line": "1",
-              "message": "文件 502 行 （最多：500 行）。"
+              "message": "File is 502 lines (maximum: 500)."
             }
           ]
         },
@@ -112,68 +112,68 @@
             {
               "file": "pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDriver.java",
               "line": "138",
-              "message": "圈复杂度： 9 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 9 (maximum: 8)."
             },
             {
               "file": "pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcSharedHttpOwner.java",
               "line": "24",
-              "message": "圈复杂度： 10 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 10 (maximum: 8)."
             },
             {
               "file": "pangrova-client/pangrova-client-rest/src/main/java/org/pangrova/client/rest/PangrovaRestClientConfig.java",
               "line": "69",
-              "message": "圈复杂度： 10 （最多： 8 ）。"
+              "message": "Cyclomatic complexity: 10 (maximum: 8)."
             }
           ],
           "ParameterNumber": [
             {
               "file": "pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergCommitNotifier.java",
               "line": "68",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergTaskToSplit.java",
               "line": "41",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/PaimonCommitNotifier.java",
               "line": "42",
-              "message": "参数共： 8个，最多：7个。"
+              "message": "Parameters: 8 (maximum: 7)."
             }
           ],
           "MethodLength": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "155",
-              "message": "方法 start 97 行（最多： 50 行）。"
+              "message": "Method start is 97 lines (maximum: 50)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "103",
-              "message": "方法 buildQueryDispatcher 62 行（最多： 50 行）。"
+              "message": "Method buildQueryDispatcher is 62 lines (maximum: 50)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "174",
-              "message": "方法 buildStatementDispatcher 72 行（最多： 50 行）。"
+              "message": "Method buildStatementDispatcher is 72 lines (maximum: 50)."
             }
           ],
           "FileLength": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
               "line": "1",
-              "message": "文件 583 行 （最多：500 行）。"
+              "message": "File is 583 lines (maximum: 500)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
               "line": "1",
-              "message": "文件 569 行 （最多：500 行）。"
+              "message": "File is 569 lines (maximum: 500)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
               "line": "1",
-              "message": "文件 502 行 （最多：500 行）。"
+              "message": "File is 502 lines (maximum: 500)."
             }
           ]
         },
@@ -191,34 +191,34 @@
             {
               "file": "pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceSnapshotResolver.java",
               "line": "27",
-              "message": "圈复杂度： 17 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 17 (maximum: 15)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/write/PaimonPhysicalWriteAllocations.java",
               "line": "83",
-              "message": "圈复杂度： 19 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 19 (maximum: 15)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
               "line": "17",
-              "message": "圈复杂度： 17 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 17 (maximum: 15)."
             }
           ],
           "ParameterNumber": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
               "line": "186",
-              "message": "参数共： 12个，最多：10个。"
+              "message": "Parameters: 12 (maximum: 10)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "133",
-              "message": "参数共： 11个，最多：10个。"
+              "message": "Parameters: 11 (maximum: 10)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "72",
-              "message": "参数共： 13个，最多：10个。"
+              "message": "Parameters: 13 (maximum: 10)."
             }
           ]
         },
@@ -236,34 +236,34 @@
             {
               "file": "pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceSnapshotResolver.java",
               "line": "27",
-              "message": "圈复杂度： 17 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 17 (maximum: 15)."
             },
             {
               "file": "pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/write/PaimonPhysicalWriteAllocations.java",
               "line": "83",
-              "message": "圈复杂度： 19 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 19 (maximum: 15)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
               "line": "17",
-              "message": "圈复杂度： 17 （最多： 15 ）。"
+              "message": "Cyclomatic complexity: 17 (maximum: 15)."
             }
           ],
           "ParameterNumber": [
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
               "line": "186",
-              "message": "参数共： 12个，最多：10个。"
+              "message": "Parameters: 12 (maximum: 10)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "133",
-              "message": "参数共： 11个，最多：10个。"
+              "message": "Parameters: 11 (maximum: 10)."
             },
             {
               "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "72",
-              "message": "参数共： 13个，最多：10个。"
+              "message": "Parameters: 13 (maximum: 10)."
             }
           ]
         },

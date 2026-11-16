@@ -26,8 +26,9 @@ root README embeds `static/img/architecture-overview.png`; its editable source i
 `static/img/architecture-overview.svg`. Retain `static/.nojekyll`, which is a
 GitHub Pages deployment marker.
 
-Pull requests validate the site without deployment. Pushes to `main` publish the
-validated `build/` artifact through GitHub Pages; a manual run on `main` can also
-publish. Configure the repository's Pages source as GitHub Actions. No local
-`gh-pages` branch deployment is needed. The canonical URL is
-https://pangrova-io.github.io/pangrova/.
+Pull requests validate the site without deployment. The public site is published
+at https://pangrova-b9a20lmw2et.qoder.website. The GitHub Pages workflow remains
+available when the repository enables Pages with GitHub Actions as the source; it
+builds with the `/pangrova/` base path, while the Qoder publication builds with
+`PANGROVA_SITE_BASE_URL=/` and `PANGROVA_SITE_URL=<public site URL>`. No local
+`gh-pages` branch deployment is needed.

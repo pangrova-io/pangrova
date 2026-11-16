@@ -2,13 +2,17 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const siteUrl = process.env.PANGROVA_SITE_URL ?? 'https://pangrova-io.github.io';
+const siteBaseUrl = process.env.PANGROVA_SITE_BASE_URL ?? '/pangrova/';
+
 const config: Config = {
   title: 'Pangrova',
   tagline: 'The Distributed SQL Query Engine Built for Lakehouse',
   favicon: 'img/favicon.ico',
 
-  url: 'https://pangrova-io.github.io',
-  baseUrl: '/pangrova/',
+  url: siteUrl,
+  baseUrl: siteBaseUrl,
+  trailingSlash: true,
 
   organizationName: 'pangrova-io',
   projectName: 'pangrova',
