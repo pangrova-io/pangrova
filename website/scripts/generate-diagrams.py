@@ -392,6 +392,8 @@ def main() -> None:
     helm_topology()
     jni_ownership()
     refresh_flow()
+    upgrade_flow()
+    developer_workflow()
     print("generated diagrams in", OUT)
 
 
@@ -739,6 +741,35 @@ def refresh_flow() -> None:
             ("Record", "Attempt state, checkpoint, audit, and lineage", "#7C3AED"),
         ],
         "Continuous-query materialization remains unsupported; automatic refresh scheduling is a capability boundary, not a default promise.")
+
+
+
+def upgrade_flow() -> None:
+    simple_flow("upgrade-flow.svg",
+        "Rolling upgrade and rollback",
+        "Drain, replace one node at a time, validate, and keep a reversible plan.",
+        [
+            ("Plan", "Version compatibility · protocol epoch · storage migrations · rollback point", "#2563EB"),
+            ("Drain", "Stop new admission · wait for tasks and readers · preserve leases", "#7C3AED"),
+            ("Replace", "Upgrade binary and configuration · restart the role", "#D97706"),
+            ("Validate", "Readiness · worker registration · protocol handshake · smoke query", "#0D9488"),
+            ("Resume or roll back", "Reopen admission after validation; restore the previous release on failure", "#7C3AED"),
+        ],
+        "A running process is not a completed upgrade. Record the validation evidence for the exact release and topology.")
+
+
+def developer_workflow() -> None:
+    simple_flow("developer-workflow.svg",
+        "Development workflow",
+        "Build, test the owning module, run the required integration chain, and submit a reviewable change.",
+        [
+            ("Prepare", "JDK 17 · Maven 3.9+ · Python 3.10+ · native toolchain and dependencies", "#2563EB"),
+            ("Build", "Pinned Iceberg SDK · native library · Java reactor", "#7C3AED"),
+            ("Focused checks", "Owning module tests · compile diagnostics · relevant repository gates", "#0D9488"),
+            ("Integration chain", "Native/JNI · protocol · connector · distributed behavior when the path crosses them", "#D97706"),
+            ("Submit", "Small root-cause change · updated tests and docs · evidence in the pull request", "#7C3AED"),
+        ],
+        "The closest check runs first; broad regression remains the final gate for shared contracts and release-quality changes.")
 
 if __name__ == "__main__":
     main()

@@ -85,6 +85,8 @@ The examples of APIs, SQL syntax and infrastructure workflows below describe the
 
 ### 2.2 Upgrade Flow
 
+![Rolling upgrade and rollback: plan, drain, replace, validate, resume or roll back](/img/diagrams/upgrade-flow.svg)
+
 ```java
 /**
  * Rolling upgrade controller

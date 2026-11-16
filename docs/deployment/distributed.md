@@ -16,32 +16,7 @@ failure-test evidence before accepting a deployment.
 
 ## Architecture Overview
 
-```
-                    ┌─────────────────────────────┐
-                    │     Load Balancer (LB)       │
-                    │   (HAProxy / ALB / SLB)      │
-                    └─────────────┬───────────────┘
-                                  │ :8080 (HTTPS)
-                    ┌─────────────┴───────────────┐
-              ┌─────┴─────┐               ┌───────┴───┐
-              │Coordinator│               │Coordinator│
-              │  (Leader)  │               │ (Follower) │
-              └─────┬─────┘               └───────┬───┘
-                    │         PostgreSQL           │
-                    └──────────┬───────────────────┘
-                               │ HA lease + metadata
-              ┌────────────────┼────────────────────┐
-        ┌─────┴─────┐   ┌─────┴─────┐   ┌──────────┴──┐
-        │  Worker-0  │   │  Worker-1  │   │   Worker-2   │
-        └─────┬─────┘   └─────┬─────┘   └──────┬───────┘
-              │                │                  │
-              └────────────────┼──────────────────┘
-                               │ S3/OSS/MinIO
-                    ┌──────────┴───────────┐
-                    │    Object Storage     │
-                    │  (Data Lake Files)    │
-                    └──────────────────────┘
-```
+![Deployment topology: load balancer, leader and follower Coordinators, PostgreSQL leases, Workers, and object storage](/img/diagrams/distributed-topology.svg)
 
 **Example topology for evaluation**: 2 Coordinators + 3 Workers + PostgreSQL + object storage. A single database remains an availability dependency; this is not a qualified minimum production configuration.
 

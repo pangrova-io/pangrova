@@ -13,6 +13,8 @@ only restates the Dynamic Table-specific SQL and scheduling surface.
 
 ## Production path
 
+![Dynamic table refresh: trigger, plan, execute, publish, and record with explicit attempt state](/img/diagrams/refresh-flow.svg)
+
 ```
 CREATE / ALTER ... REFRESH
   └─ KernelDynamicTableService
