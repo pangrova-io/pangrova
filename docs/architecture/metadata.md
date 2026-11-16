@@ -1592,8 +1592,10 @@ are the executable PostgreSQL specification.
 | Deployment-fenced projection + invalidation + receipt | `MetadataProjectionTransactions` | `PostgresMetadataProjectionTransactions` |
 | Source progress, diagnostics and completion receipts | `MetadataSyncRepository` | `PostgresMetadataSyncRepository` |
 
-投影事务契约由 `pangrova-persistence-workflow-api` 拥有，PostgreSQL 协调者位于
-`pangrova-persistence-workflow-postgresql`；Catalog Persistence 保留部署、投影读取和同步端口。
+The projection transaction contract is owned by `pangrova-persistence-workflow-api`,
+with the PostgreSQL coordinator in `pangrova-persistence-workflow-postgresql`;
+Catalog Persistence retains the deployment, projection-read, and synchronization
+ports.
 
 The former composite MetadataStore interface and PostgresMetadataStore implementation have
 been removed. Deployment-only consumers do not implement or borrow projection methods.

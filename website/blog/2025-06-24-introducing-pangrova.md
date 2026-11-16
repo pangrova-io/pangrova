@@ -403,7 +403,7 @@ that teams can extend and operate the engine themselves.
 - Check [current capability status](/docs/getting-started/capability-status) before
   relying on a feature in production.
 - Review the [roadmap](/docs/getting-started/roadmap) and propose concrete work
-  through [GitHub issues](https://github.com/pangrova/pangrova/issues).
+  through [GitHub issues](https://github.com/pangrova-io/pangrova/issues).
 
 Pangrova is developed in the open. If your team has a real lakehouse workload that
 combines relational analytics, retrieval, and governance, we would like to validate

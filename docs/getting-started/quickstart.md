@@ -25,7 +25,7 @@ its duration and resource needs depend on the platform and available caches.
 ## Build from Source
 
 ```bash
-git clone https://github.com/pangrova/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 .pangrova/scripts/build-iceberg-sdk-candidate.sh
 ./pangrova-worker-native/bin/build-native.sh

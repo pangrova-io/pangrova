@@ -609,7 +609,7 @@ their physical row and locator.
 
 The authoritative Native/JNI build order, mandatory Lance FFI dependency,
 Release packaging, full CTest, ASan and Java/E2E validation gates are in
-[the repository build pipeline](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/build-pipeline.md).
+[the repository build pipeline](https://github.com/pangrova-io/pangrova/blob/main/.pangrova/rules/build-pipeline.md).
 Native resources use the packager's canonical OS/architecture path, including
 `META-INF/native/osx/aarch64/libpangrova_native.dylib`; Maven copies that staged
 resource rather than independently mapping the raw CMake output into test

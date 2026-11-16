@@ -57,7 +57,7 @@ and Gradle 8.14.4 installed. The native prerequisite check reports the additiona
 platform toolchain requirements without installing OS packages.
 
 ```bash
-git clone https://github.com/pangrova/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 
 # Check native tools, then build the pinned Java connector dependency.
@@ -876,7 +876,7 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 > **Module Structure (§2.1)**: Provider code lives under `src/main/java/org/pangrova/connector/{format}/` with `read/`, `write/`, `handle/`, and `type/` subpackages. SPI contracts live in `pangrova-connector/pangrova-connector-api`, not in provider modules.
 
 
-> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
+> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova-io/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
 
 
 > **Connector Example (§3.2)**: `ConnectorFactory` exposes `getName()`, `apiVersion()`, `roles()`, `validateConfiguration(...)`, and `create(...)`; it has no `getConfigProperties()` method. See [connectors.md §1](../architecture/connectors.md).

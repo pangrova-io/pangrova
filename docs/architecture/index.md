@@ -118,8 +118,8 @@ These design references are grouped under the **Operations** and **Contributing*
 4. **Write publication.** Workers produce fragments for one fenced connector catalog commit.
    Recovery ambiguity and incomplete paths remain explicit in [Distributed Write](distributed-writes.md);
    this design does not establish complete distributed-write qualification.
-5. **Extensibility via SPIs.** Stable contracts live in the owning `-api`/`-spi`
-   artifact (for example `pangrova-connector-api`, `pangrova-observability-api`). Plugin-capable contracts may be discovered via `ServiceLoader`; not every
+5. **Extensibility via SPIs.** Stable contracts live in the owning `-api` artifact
+   (for example `pangrova-connector-api`, `pangrova-observability-api`). Plugin-capable contracts may be discovered via `ServiceLoader`; not every
    SPI uses service loading. Core SPIs include
    `ConnectorFactory`, `ConnectorMetadata`, `ConnectorSplitManager`, `ConnectorPageSourceProvider`,
    `ConnectorPageSinkProvider`, `TableMaintenance`,

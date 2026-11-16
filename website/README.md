@@ -22,11 +22,12 @@ by `sidebars.ts`; documentation format is described in
 [the documentation guide](../docs/contributing/documentation.md).
 
 `static/img/` is the shared image source for this site and the root README. The
-root README maintains the current execution diagram as Mermaid source.
-Retain `static/.nojekyll`, which is a GitHub Pages deployment marker.
+root README embeds `static/img/architecture-overview.png`; its editable source is
+`static/img/architecture-overview.svg`. Retain `static/.nojekyll`, which is a
+GitHub Pages deployment marker.
 
 Pull requests validate the site without deployment. Pushes to `main` publish the
 validated `build/` artifact through GitHub Pages; a manual run on `main` can also
 publish. Configure the repository's Pages source as GitHub Actions. No local
 `gh-pages` branch deployment is needed. The canonical URL is
-https://pangrova.github.io/pangrova/.
+https://pangrova-io.github.io/pangrova/.

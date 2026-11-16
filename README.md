@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="website/static/img/logo.png" alt="Pangrova" width="360" />
+  <img src="website/static/img/logo.png" alt="Pangrova" width="320" />
 </p>
 
 <h1 align="center">Pangrova</h1>
@@ -8,15 +8,21 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0" /></a>
-  <a href="https://github.com/pangrova/pangrova/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pangrova/pangrova/ci.yml?branch=main" alt="CI" /></a>
+  <a href="https://github.com/pangrova-io/pangrova/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pangrova-io/pangrova/ci.yml?branch=main" alt="CI" /></a>
   <img src="https://img.shields.io/badge/Java-17-orange.svg" alt="Java 17" />
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue.svg" alt="C++20" />
 </p>
 
 Pangrova is an open-source distributed SQL engine for lakehouse analytics and AI
 retrieval. It combines Apache Calcite planning with C++20 / Velox vectorized
-execution, Arrow Flight data exchange, and connectors for Apache Iceberg and
-Apache Paimon.
+execution over JNI, Arrow Flight data exchange, and connectors for Apache Iceberg
+and Apache Paimon.
+
+Pangrova queries lakehouse tables in place: the Java Coordinator parses, plans,
+authorizes, and schedules work, while Workers execute relational operators in
+C++ and publish catalog commits through the Coordinator. Relational SQL, vector
+and full-text retrieval, and governed model invocation share one planning,
+execution, and governance path.
 
 > **Status:** Under active development. Capabilities vary by execution path and
 > connector, and production qualification is ongoing. Read the
@@ -45,42 +51,15 @@ SPI does not by itself establish end-to-end support.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    clients["Clients: CLI / JDBC / REST"]
-    coordinator["Coordinator · Java<br/>Parse · authorize · plan · schedule<br/>Catalog metadata and commit coordination"]
-    state[("JDBC control state / catalog metadata")]
-    subgraph workers["Worker processes"]
-        direction LR
-        subgraph wa["Worker A"]
-            jvmA["Java task lifecycle / connector callbacks"]
-            nativeA["JNI → C++ / Velox<br/>Scan · compute · write"]
-            jvmA --> nativeA
-        end
-        subgraph wb["Worker B"]
-            jvmB["Java task lifecycle / connector callbacks"]
-            nativeB["JNI → C++ / Velox<br/>Scan · compute · write"]
-            jvmB --> nativeB
-        end
-        nativeA <-->|"Arrow Flight exchange"| nativeB
-    end
-    lake[("Lakehouse data<br/>Iceberg / Paimon · object storage / files")]
-    clients -->|"HTTP: SQL / status / cancel"| coordinator
-    coordinator <-->|"Durable control metadata"| state
-    coordinator -->|"HTTP: dispatch / control"| jvmA
-    coordinator -->|"HTTP: dispatch / control"| jvmB
-    jvmA -->|"Status / commit metadata"| coordinator
-    jvmB -->|"Status / commit metadata"| coordinator
-    nativeA <-->|"Data reads / writes"| lake
-    nativeB <-->|"Data reads / writes"| lake
-    nativeB -->|"Arrow Flight: results from output Worker"| clients
-```
+<p align="center">
+  <img src="website/static/img/architecture-overview.png" alt="Pangrova architecture: clients, Coordinator, Workers, control state, and lakehouse storage" width="100%" />
+</p>
 
-The Coordinator owns planning, authorization, metadata, admission, scheduling,
-and final catalog commit. Workers execute relational work through JNI, exchange
-data with each other, and stream results from an Output Worker directly to
-clients. Connector callbacks support Worker writes; the Coordinator publishes the
-final catalog commit from commit metadata.
+The Coordinator owns parsing, authorization, planning, admission, scheduling, and
+final catalog commit. Workers execute relational work through JNI, exchange data
+with each other over Arrow Flight, and stream results from an Output Worker
+directly to clients. Connector callbacks support Worker writes; the Coordinator
+publishes the final fenced catalog commit from returned commit metadata.
 
 For the full execution model, see the
 [architecture overview](docs/architecture/overview.md).
@@ -89,42 +68,57 @@ For the full execution model, see the
 
 ### Requirements
 
-- JDK 17
-- Maven 3.9+
-- Python 3.10+
-- Gradle 8.14.4 (used to build the pinned Iceberg SDK)
-- CMake, Ninja, and a C++20 compiler
-- Linux (x86_64/aarch64) or macOS (aarch64)
-- Docker (container-based tests)
+| Requirement | Version / notes |
+|---|---|
+| JDK | 17 |
+| Maven | 3.9+ |
+| Python | 3.10+ (contract generation) |
+| Gradle | 8.14.4 (builds the pinned Iceberg SDK) |
+| Native toolchain | CMake, Ninja, and a C++20 compiler |
+| Operating system | Linux (x86_64/aarch64) or macOS (aarch64) |
+| Docker | Required for container-based tests |
 
-### Build and run
+### Build from source
 
 ```bash
-git clone https://github.com/pangrova/pangrova.git
+git clone git@github.com:pangrova-io/pangrova.git
 cd pangrova
 
 # Build the pinned Iceberg SDK, then the Native library and Java modules.
 .pangrova/scripts/build-iceberg-sdk-candidate.sh
 ./pangrova-worker-native/bin/build-native.sh
 mvn clean package -DskipTests
-
-# Start a standalone Coordinator + Worker.
-./bin/pangrova-standalone.sh
 ```
 
-In another terminal, connect with the CLI:
+The first native build compiles external dependencies and can take substantial
+time.
+
+### Run a standalone instance
+
+Standalone mode runs the Coordinator and a Worker in one JVM:
 
 ```bash
-./bin/pangrova-cli.sh --host localhost --port 8080
+bin/pangrova-standalone.sh
+```
+
+The Coordinator listens on port `8080` by default. Verify it in another terminal:
+
+```bash
+bin/pangrova-health-check.sh localhost:8080
+```
+
+### Run your first query
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080
 ```
 
 ```sql
 SELECT 1 + 1 AS result;
 ```
 
-The first native build compiles external dependencies and can take substantial
-time. See the [quickstart](docs/getting-started/quickstart.md) for configuration,
-catalogs, and troubleshooting.
+See the [quickstart](docs/getting-started/quickstart.md) for configuration,
+catalogs, daemon mode, and troubleshooting.
 
 ## Documentation
 
@@ -143,12 +137,34 @@ catalogs, and troubleshooting.
 Documentation source lives in [`docs/`](docs/); the Docusaurus site sources are in
 [`website/`](website/).
 
-## Contributing
+## Repository layout
 
-Use [issues](https://github.com/pangrova/pangrova/issues) for bugs and feature
-requests. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow,
-and [AGENTS.md](AGENTS.md) for repository policy. The canonical rules live in
-[`.pangrova/rules/`](.pangrova/rules/).
+| Area | Source roots |
+|---|---|
+| Protocols and shared types | `pangrova-protocol`, `pangrova-types`, `pangrova-batch`, `pangrova-common` |
+| Parsing and planning | `pangrova-parser`, `pangrova-planner` |
+| Coordination and metadata | `pangrova-coordination`, `pangrova-metadata`, `pangrova-cache` |
+| Execution | `pangrova-worker`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
+| Connectors | `pangrova-connector` (API, runtime, and Iceberg/Paimon/Lance providers) |
+| Services | `pangrova-security`, `pangrova-governance`, `pangrova-scheduler`, `pangrova-streaming`, `pangrova-indexing`, `pangrova-observability` |
+| Server and clients | `pangrova-server`, `pangrova-client`, `pangrova-standalone` |
+| Validation | `pangrova-testing` and module-local test sources |
+
+## Development
+
+Use JDK 17 and Maven 3.9+. The closest check is the owning module suite:
+
+```bash
+mvn -q -pl <module> -am test
+```
+
+For a full reactor compile and the broader validation matrix, see the
+[developer guide](docs/contributing/developer-guide.md) and the
+[repository rules](.pangrova/rules/). Native, protocol, JNI, and execution-path
+changes require the Java and native integration chain.
+
+Never edit generated protocol sources. Read [AGENTS.md](AGENTS.md) for repository
+policy and [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
 
 ## License
 

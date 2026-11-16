@@ -1,312 +1,501 @@
 ---
-title: "质量门禁审计与精简依据"
-description: "逐项核对门禁的实际行为、重复约束、误报风险和验证成本，说明保留、放宽及删除的依据。"
+title: "Quality Gate Audit and Streamlining Rationale"
+description: "Item-by-item review of actual gate behavior, duplicate constraints, false-positive risk, and validation cost, with the rationale for keeping, relaxing, or deleting each gate."
 ---
 
-# 质量门禁审计与精简依据
+# Quality Gate Audit and Streamlining Rationale
 
-## 2026-10-23：结构数字改为可见诊断
+## 2026-10-23: Structural Numbers Become Visible Diagnostics
 
-用户要求按实际风险去掉多余门禁。对新物化内核的核对表明，集中校验不可变
-attempt/generation 身份会触发构造器参数和圈复杂度门槛；事务仓库的行数还包含
-大量声明式 SQL。只为了数字拆成转发类或通用参数袋不能证明职责更合理。
+Users asked to remove redundant gates according to actual risk. Reviewing the new
+materialization kernel showed that centralized validation of immutable
+attempt/generation identity triggers constructor-parameter and cyclomatic
+complexity thresholds; transaction repository line counts also include a large
+amount of declarative SQL. Splitting code into forwarding classes or generic
+parameter bags just for the numbers would not prove better responsibilities.
 
-保留 FileLength=800、MethodLength=100、CyclomaticComplexity=15 和
-ParameterNumber=10 的实际解析检查及 XML 报告，将这四项严重级别设为 warning。
-Maven 明确只阻断 error。嵌套、非法导入、危险代码模式、模块方向、SpotBugs、
-功能及故障测试保持原有阻断语义；覆盖率仍是可选诊断。
+The actual parser checks and XML reports for FileLength=800, MethodLength=100,
+CyclomaticComplexity=15, and ParameterNumber=10 are retained, and these four
+severities are set to warning. Maven explicitly blocks only on error. Nesting,
+illegal imports, dangerous code patterns, module direction, SpotBugs, and
+functional and failure tests keep their original blocking semantics; coverage
+remains an optional diagnostic.
 
-这是本项目的风险决策，不宣称数字门槛存在统一业界标准。
-[Checkstyle 官方圈复杂度说明](https://checkstyle.org/checks/metrics/cyclomaticcomplexity.html)
-将指标用于衡量测试路径复杂度，也允许在拆分损害可读性/封装时例外；
-[FileLength](https://checkstyle.org/checks/sizes/filelength.html)建议按具体职责拆分长类。
-实际职责和分支测试仍需评审。此前本页的“硬上限”描述仅为历史决策记录，
-当前以本节及 canonical rules 为准。
+This is a project risk decision and does not claim a uniform industry standard for
+numeric thresholds. The [official Checkstyle cyclomatic complexity
+description](https://checkstyle.org/checks/metrics/cyclomaticcomplexity.html) uses
+the metric to measure test-path complexity and also permits exceptions when
+splitting harms readability or encapsulation;
+[FileLength](https://checkstyle.org/checks/sizes/filelength.html) recommends
+splitting long classes by specific responsibility. Actual responsibilities and
+branch tests still require review. The earlier "hard limit" description on this
+page is only a historical decision record; the current section and the canonical
+rules govern.
 
-真实 Maven/Checkstyle 夹具分别验证：指标超限仍产生 warning；非法 JDK 导入及
-过深嵌套产生 error 并导致构建失败；删除错误夹具后，保留超限夹具的构建成功。
-政策测试同时检查严重级别及 Maven 阻断阈值。没有增加按文件名的指标豁免。
+Real Maven/Checkstyle fixtures separately verify that metric overruns still
+produce warnings; illegal JDK imports and excessive nesting produce errors and
+fail the build; and after removing the error fixture, the build with the overrun
+fixture succeeds. Policy tests also check severities and the Maven blocking
+threshold. No per-file metric exemptions were added.
 
-### JDBC 参数位置的精确排除
+### Precise Exclusion of JDBC Parameter Positions
 
-`JdbcMaterializationRepository` 的 SQL 含超过十个占位符，MagicNumber 将绑定位置
-11–26 当成业务数值。将它们改成 `INDEX_ELEVEN` 一类常量不能解释 SQL。
-采用 [Checkstyle 官方 XPath 过滤能力](https://checkstyle.org/filters/suppressionxpathsinglefilter.html)，
-仅排除此适配器的 `statement.set*` 第一实参，以及三个现有 JDBC helper 的第二实参
-中的直接整数索引。绑定值、其他表达式及其他类仍受原检查约束。
+The SQL in `JdbcMaterializationRepository` contains more than ten placeholders,
+and MagicNumber treats binding positions 11–26 as business values. Renaming them
+to constants such as `INDEX_ELEVEN` cannot explain the SQL. Using the
+[official Checkstyle XPath filter
+capability](https://checkstyle.org/filters/suppressionxpathsinglefilter.html), only
+the first argument of this adapter's `statement.set*` calls and direct integer
+indexes in the second argument of three existing JDBC helpers are excluded.
+Binding values, other expressions, and other classes remain subject to the
+original checks.
 
-真实 Maven 夹具确认索引 23–26 可通过，而同一方法的绑定值 `777`、业务预算
-`5000` 仍阻断；其他类中的索引也未被排除。该排除不改变 SQL 或运行时验证。
+Real Maven fixtures confirm that indexes 23–26 pass while the same method's
+binding value `777` and business budget `5000` are still blocked; indexes in other
+classes are not excluded either. The exclusion does not change SQL or runtime
+validation.
 
 
-## 2026-10-18 复核与实际整改
+## 2026-10-18 Review and Actual Remediation
 
-本轮沿着“规则入口 → 脚本实现 → Maven/CMake → workflow 调用 → 产物消费者”
-核对实际约束。主要浪费来自重复执行和触发范围过宽，以及只检查作者填字、没有验证
-行为的流程门禁。没有根据 token 成本放宽安全、协议、所有权或真实执行要求。
-下方 2026-10-04 的数据保留为历史快照；与当前行为不同的结论以本节和实际配置为准。
+This round reviewed the actual constraints along "rule entry → script
+implementation → Maven/CMake → workflow invocation → artifact consumers". The main
+waste came from duplicate execution, overly broad trigger scope, and process gates
+that only checked author-typed text without validating behavior. No security,
+protocol, ownership, or real-execution requirements were relaxed to save tokens.
+The 2026-10-04 data below is retained as a historical snapshot; conclusions that
+differ from current behavior are governed by this section and the actual
+configuration.
 
-### 发现、证据与修改
+### Findings, Evidence, and Changes
 
-| 方向 | 发现及其影响 | 已实施的修改 |
+| Area | Finding and impact | Change implemented |
 |---|---|---|
-| 规则入口 | AGENTS 将五份验证文档并列为要求；workflow 又重复 development 生命周期；setup 被描述为每次前置检查 | 按任务路由到所需规则，相关规则读一次；development 统一验证策略；workflow 只保留兼容指引；setup 仅在布局变化或 CI 中检查 |
-| 规范标准 | 强制分支前缀、英文提交、禁止评论引用设计/任务号都不能证明代码正确；第三方弃用警告被要求立即全仓迁移 | 改为清晰表达与有用来源，移除语言/前缀硬限制；第三方迁移按任务范围处理，抑制必须窄且有理由；不改变公共代码命名和模块隔离检查 |
-| 规范矛盾 | C++ protobuf 规范仍写旧包名，而架构要求 canonical v2；Java 并发修改也被笼统要求 ASan | 包名统一为 canonical v2；本地 ASan 针对 native 内存/所有权/JNI/并发风险，Java 并发使用相应 Java 测试 |
-| CI 范围 | 旧 scope 只选择性能作业。文档 PR 仍构建四平台 Native、两个 sanitizer、两个 JDK、生产镜像和全量回归 | scope 同时选择 runtime/native/performance 和平台矩阵。文档、规则、普通门禁工具 PR 保留轻量检查；运行时/测试 PR 保留正确性链，未知输入保守执行 |
-| Native 构建 | 普通 Java 叶模块变更也重建四个平台和两个独立 C++ sanitizer 套件；这些套件未消费变化的 Java 输入 | JNI/protocol/SPI/Native/packaging/build 及未知输入保留四平台与 ASan/UBSan；其他 Java PR 保留 Linux Native 和真实生产镜像 E2E，省去三个额外平台及两个未变输入的 sanitizer 构建。受保护分支 push 与发布仍全部执行 |
-| Maven 生命周期 | 每个 JDK 先 `clean verify -DskipTests`，随后又 `verify`；独立 ArchUnit job 重新编译并重复运行已在常规套件中的测试 | 每个 JDK 一次 verify；ArchUnit 装配/可达性测试继续由 daily/full suites 发现；生产独立进程测试需要的完整 reactor install 保留 |
-| 测试重复 | full-regression reactor 已含 E2E 和 activation smoke，却又重跑完整 E2E 和单独 smoke；两份 daily JaCoCo 也不参与门禁 | 生产 full-regression 一次执行 E2E/smoke；移除后续重复 E2E/smoke、daily coverage instrumentation、独立 ArchUnit job 与 Codecov 上传；`-Pcoverage` 仅保留为按需诊断 |
-| 源码门禁重复 | SPI annotation、E2E truthfulness、proto descriptor 在两个 JDK 中各跑一次；proto 还先 prepare 再内部 prepare | 移到单一 lint job；descriptor 在 runtime 变化时执行一次；廉价 SPI/E2E 模式检查继续运行 |
-| 计划审批文字 | 作者写一句 approval 或打标签即可通过；同时真正的 golden 测试已在 daily/full Maven 中运行 | 删除 approval 脚本与重复 job；保留 golden 文件存在及实际计划相等断言，正常代码评审解释 golden diff。TPC-H 21 / TPC-DS 31 个参数化用例本轮实际通过 |
-| 分布式清单 | 检查 PR 某段有一个勾选或 N/A 理由，不核对 fencing、恢复或幂等性的实际行为 | 删除正文格式脚本和 job，PR 模板改为变更/验证/相关风险；保留分布式风险评审参考及对应行为、装配、集成测试 |
-| Fuzzer 真实性 | FuzzerRunner 只创建 ReferenceEngine，各 fuzzer 的 `run` 只调用 DuckDB `reference_.execute(sql)`，没有 Pangrova 执行及结果比较。CMake 也只链接自身和 DuckDB，却依赖整个 Native job | 移除 PR engine gate 和每日自动运行；保留明确标注为参考 SQL 生成器的手动自检。没有把其通过解释为 Pangrova 查询正确性证据，也没有删除已有工具源码 |
-| Stub 扫描成本 | 对每个生产文件八次 grep，并通过 find 遍历构建/依赖树；成功日志还声称所有生产方法均已实现 | 用 Git 枚举 tracked+未忽略 untracked 源码，一次合并匹配；保留既有例外分类，补正/负例；修复零匹配计数生成双零的缺陷。成功仅表示未检出相应模式；字节码可达性和执行测试仍独立负责 |
-| Hook | `core.hooksPath`/fsmonitor 未配置，Git hooks 目录只有 `.sample`；仓库 hooks/ 另跟踪 13 份 Git 原生样板，setup 没有安装 hook | 删除仓库内重复样板，保留用户 `.git/hooks` 和 Git 配置；不新增 pre-commit/pre-push/commit-msg 强制流程。节省的是检索噪声，不能宣称解除了不存在的拦截 |
-| 环境路径 | 全仓扫描发现既有事故记录写入个人 home 的绝对路径；这个发现可以直接修正，无需关闭整项门禁 | 仅将事故记录来源路径归一化为 `~/Library/Logs/DiagnosticReports/`，保留文件名、栈、PID、UUID 等诊断证据；全仓检查随后通过 |
-| 发布漏洞 | release.yml 只依赖 Native packaging，Java 使用 skipTests；“发布必须全量回归”的文字未真正接线 | 在 tag 上复用同一个 CI workflow，并让发布依赖 validation。发布与验证 artifact 使用不同前缀防止同一次 run 冲突。发布重新构建制品仍必须成功 |
-| 发布可用性 | macos-13 runner 已退役，action-gh-release v1 被当前 actionlint 判为运行时过旧 | Intel/ARM runner 明确为 macos-15-intel / macos-15；发布 action 更新至 v3。依据见 [GitHub runner 公告](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/) 和 [发布 action](https://github.com/softprops/action-gh-release/releases/tag/v3.0.3) |
+| Rule entry | AGENTS listed five validation documents as requirements; workflows duplicated the development lifecycle; setup was described as a per-task prerequisite | Route to the needed rules per task and read each relevant rule once; development unifies validation policy; workflows keep only compatibility guidance; setup is checked only on layout changes or in CI |
+| Coding standards | Mandatory branch prefixes, English commits, and bans on referencing designs/task numbers in comments cannot prove code correctness; third-party deprecation warnings were required to be migrated repository-wide immediately | Changed to clear expression and useful provenance; removed language/prefix hard limits; third-party migration is scoped per task, and suppression must be narrow and justified; public-code naming and module-isolation checks unchanged |
+| Standard contradictions | The C++ protobuf standard still named the old package while architecture required canonical v2; Java concurrency changes were also broadly required to run ASan | Package name unified to canonical v2; local ASan targets native memory/ownership/JNI/concurrency risk, while Java concurrency uses the corresponding Java tests |
+| CI scope | The old scope selected only performance jobs. Documentation PRs still built four-platform Native, two sanitizers, two JDKs, production images, and full regression | scope selects runtime/native/performance and the platform matrix. Documentation, rules, and ordinary tooling PRs keep lightweight checks; runtime/test PRs keep the correctness chain; unknown inputs run conservatively |
+| Native build | Ordinary Java leaf-module changes also rebuilt four platforms and two independent C++ sanitizer suites; those suites did not consume the changed Java inputs | JNI/protocol/SPI/Native/packaging/build and unknown inputs keep four platforms plus ASan/UBSan; other Java PRs keep Linux Native and real production-image E2E, omitting three extra platforms and two sanitizer builds whose inputs did not change. Protected-branch pushes and releases still run everything |
+| Maven lifecycle | Every JDK ran `clean verify -DskipTests` and then `verify`; a separate ArchUnit job recompiled and repeated tests already in the regular suite | One verify per JDK; ArchUnit assembly/reachability tests continue to be discovered by daily/full suites; the full reactor install needed by standalone process tests is retained |
+| Test duplication | The full-regression reactor already included E2E and activation smoke, yet full E2E and a separate smoke run were repeated; two daily JaCoCo runs were not gate inputs | Production full-regression runs E2E/smoke once; subsequent duplicate E2E/smoke, daily coverage instrumentation, the separate ArchUnit job, and the Codecov upload were removed; `-Pcoverage` remains only as an on-demand diagnostic |
+| Source-gate duplication | SPI annotation, E2E truthfulness, and proto descriptor ran once per JDK; proto also prepared before an internal prepare | Moved to a single lint job; the descriptor runs once when runtime changes; cheap SPI/E2E pattern checks continue to run |
+| Plan approval text | An author could pass with one approval sentence or a label; meanwhile the real golden tests already ran in daily/full Maven | Removed the approval script and duplicate job; retained golden-file existence and actual plan equality assertions, with normal code review explaining golden diffs. The TPC-H 21 / TPC-DS 31 parameterized cases actually passed this round |
+| Distributed checklist | Checked only that some PR section had a checkbox or an N/A reason, without verifying fencing, recovery, or idempotency behavior | Removed the body-format script and job; the PR template now covers change/validation/relevant risk; the distributed risk-review reference and the corresponding behavior, assembly, and integration tests remain |
+| Fuzzer truthfulness | FuzzerRunner created only a ReferenceEngine, and each fuzzer's `run` merely called DuckDB `reference_.execute(sql)`, with no Pangrova execution or result comparison. CMake also linked only itself and DuckDB, yet depended on the entire Native job | Removed the PR engine gate and daily automatic run; kept a manual self-check explicitly labeled as a reference SQL generator. Did not interpret its pass as evidence of Pangrova query correctness, nor delete the tool source |
+| Stub scan cost | Eight greps per production file plus a find traversal of build/dependency trees; the success log also claimed all production methods were implemented | Enumerate tracked plus non-ignored untracked source via Git and match once in a merged pass; kept existing exception categories, added positive/negative cases; fixed a defect where zero matches produced a double-zero count. Success means only that the patterns were not detected; bytecode reachability and execution tests remain separately responsible |
+| Hooks | `core.hooksPath`/fsmonitor were not configured, the Git hooks directory contained only `.sample` files; the repository hooks/ directory additionally tracked 13 native Git boilerplate files, and setup installed no hook | Deleted the duplicate boilerplate inside the repository, kept the user `.git/hooks` and Git configuration; added no mandatory pre-commit/pre-push/commit-msg flow. The saving is search noise; it cannot be claimed that a nonexistent interception was removed |
+| Environment paths | A repository-wide scan found an existing incident record containing an absolute path to a personal home directory; this finding could be fixed directly without disabling the whole gate | Normalized only the incident-record source path to `~/Library/Logs/DiagnosticReports/`, retaining filename, stack, PID, UUID, and other diagnostic evidence; the repository-wide check then passed |
+| Release gap | release.yml depended only on Native packaging, and Java used skipTests; the text "releases require full regression" was not actually wired | Reused the same CI workflow on tags and made the release depend on validation. Release and validation artifacts use different prefixes to prevent conflicts in the same run. Rebuilding artifacts for release must still succeed |
+| Release availability | The macos-13 runner was retired, and action-gh-release v1 was flagged by current actionlint as too old at runtime | Intel/ARM runners are explicitly macos-15-intel / macos-15; the release action was updated to v3. See the [GitHub runner announcement](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/) and [release action](https://github.com/softprops/action-gh-release/releases/tag/v3.0.3) |
 
-### 精简后的执行与上下文边界
+### Execution and Context Boundaries After Streamlining
 
-- 文档/规则/普通门禁工具 PR 启动 scope、lint、doc-consistency、Validation result
-  四个轻量作业；不再启动 Native、JVM 全仓、sanitizer 或生产镜像构建。
-- Java runtime/test 变化继续执行受影响的正确性链。Worker/JNI、协议、SPI、构建依赖
-  或未知输入按保守策略保留全平台；本轮不推断任意 Java 修改都与 native ABI 无关。
-- protected-branch push 和 release tag 不依赖 PR path 判断，明确选择完整正确性链。
-  这是维护集成基线与发布保障的有意保留；文档合并到受保护分支后仍会执行完整 CI。
-- 测试/verify 已包含编译，全回归已覆盖的 E2E/smoke 不另加必跑命令。仅在输入变化、
-  测试未执行或失败定位时重跑。长日志保留在报告中，任务上下文只给命令、结果、阻塞和必要样本。
-- 普通 Java PR 省去的是额外架构和独立 sanitizer 的重复构建；生产镜像仍使用同一
-  源码 revision，并验证镜像 ID、JNI classifier、runtime manifest 和 source commit。
-- 不声称节省固定百分比的 token。本轮消除的是可定位的重复读取、输出和执行来源；
-  没有对真实多轮任务做 token 前后对照测量。
+- Documentation/rule/ordinary-gate-tool PRs start four lightweight jobs: scope,
+  lint, doc-consistency, and Validation result; they no longer start Native, the
+  full JVM reactor, sanitizers, or production-image builds.
+- Java runtime/test changes continue to run the affected correctness chain.
+  Worker/JNI, protocol, SPI, build dependencies, or unknown inputs keep the full
+  platform set under a conservative policy; this round does not infer that
+  arbitrary Java changes are unrelated to the native ABI.
+- Protected-branch pushes and release tags do not depend on PR path detection and
+  explicitly select the full correctness chain. This is a deliberate retention for
+  maintaining the integration baseline and release assurance; after documentation
+  merges into a protected branch, full CI still runs.
+- test/verify already includes compilation, and E2E/smoke already covered by full
+  regression does not get an additional mandatory command. Rerun only when inputs
+  change, tests did not execute, or failure localization requires it. Long logs are
+  kept in reports; task context contains only commands, results, blockers, and
+  necessary samples.
+- Ordinary Java PRs save duplicate builds of extra architectures and independent
+  sanitizers; production images still use the same source revision and verify the
+  image ID, JNI classifier, runtime manifest, and source commit.
+- No fixed percentage of token savings is claimed. This round removed locatable
+  duplicate reads, output, and execution sources; no before/after token
+  measurement of real multi-turn tasks was performed.
 
-### 反向保护与验证结果
+### Reverse Protection and Validation Results
 
-新增稳定的 `Validation result` 汇总结果，避免条件 job 的 skip 被误当成成功。
-被选择的作业失败、取消、意外跳过、缺失 scope 或不一致的 native/performance
-前置条件都会失败；只有明确未选择的检查可以跳过。production-regression 的依赖条件
-也明确区分“纯 Java 不需要独立 sanitizer”与“应跑 sanitizer 但未成功”。相关
-GitHub skip/needs 语义依据 [官方 workflow 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)。
+A stable `Validation result` aggregate was added so that skipped conditional jobs
+are not mistaken for success. A selected job that fails, is canceled, is skipped
+unexpectedly, is missing scope, or has inconsistent native/performance
+prerequisites fails; only checks explicitly not selected may be skipped. The
+production-regression dependency conditions also distinguish "pure Java does not
+need an independent sanitizer" from "a sanitizer should run but did not succeed".
+The relevant GitHub skip/needs semantics are documented in the [official workflow
+documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
 
-本轮已实际执行：
+This round actually ran:
 
-- Python 门控策略/异常 fixture/stub 检测 37 项通过，包括删除、跨目录重命名、带空格路径、
-  缺失 base、未知输入、完整事件选择、失败/取消/跳过，以及 tracked/untracked/ignored 源码边界。
-- JDK 17 下 planner focused reactor：TPC-H 21、TPC-DS 31，共 52 项通过，失败/错误/跳过均为 0。
-- Checkstyle 真实解析器：9 个允许边界/API fixtures 通过，14 个越界/内部导入 fixtures 被拒绝。
-  SpotBugs 过滤器 API 的正例与反例验证也通过；未放宽现有结构阈值或安全过滤边界。
-- Flight header patch 工具 4 项测试通过；SPI annotation 142 个公共类型通过，历史缺口 0；
-  文档类名引用 179 项通过；E2E truthfulness、门控 shell 语法、canonical layout 均通过。
-  环境路径全仓检查在归一化一处既有事故记录路径后通过，没有为其增加白名单。
-- actionlint v1.7.12 校验修改的 CI/release/manual-generator workflows 通过；各 workflow
-  YAML 均可解析。Stub 全仓实际扫描通过，本机一次运行约 5 秒；不能直接拿历史并发
-  审计的 65 秒快照计算通用加速比。
-- 本轮没有启动 hosted CI、完整 Native/ASan/UBSan、生产镜像或发布；这些结果仍需真实
-  runner 执行，静态检查不能替代部署验收。现有无关文档/网站工作区修改予以保留。
+- 37 Python gate-policy/exception-fixture/stub-detection checks passed, including
+  deletion, cross-directory rename, paths with spaces, missing base, unknown
+  input, full event selection, failure/cancellation/skip, and
+  tracked/untracked/ignored source boundaries.
+- Planner focused reactor under JDK 17: TPC-H 21 and TPC-DS 31, 52 total passed,
+  with zero failures/errors/skips.
+- Real Checkstyle parser: 9 allowed boundary/API fixtures passed and 14
+  out-of-bounds/internal-import fixtures were rejected. Positive and negative
+  validation of the SpotBugs filter API also passed; no existing structural
+  threshold or security filter boundary was relaxed.
+- Four tests for the Flight header patch tool passed; SPI annotation passed for
+  142 public types with a historical gap of 0; documentation class-name references
+  passed for 179 items; E2E truthfulness, gate shell syntax, and canonical layout
+  all passed. The repository-wide environment-path check passed after normalizing
+  one existing incident-record path, without adding a whitelist for it.
+- actionlint v1.7.12 validated the modified CI/release/manual-generator workflows;
+  every workflow YAML parses. The repository-wide stub scan actually passed and
+  took about 5 seconds on this machine; the 65-second snapshot from an earlier
+  concurrent audit cannot be used to compute a general speedup.
+- This round did not start hosted CI, full Native/ASan/UBSan, production images, or
+  releases; those results still require real runners, and static checks cannot
+  replace deployment acceptance. Existing unrelated documentation/website
+  worktree changes were preserved.
 
-### 仍需区分的风险
+### Risks That Still Need to Be Distinguished
 
-本地无法从工作流文件知道 GitHub 当前 branch protection / ruleset 必需检查配置。
-仓库管理员需要将其对齐到 `Validation result`，移除退役 job 的必需状态；本轮没有擅自
-修改远端仓库设置。否则旧状态可能永久等待，或新汇总状态尚未被设为必需。
+Local workflow files cannot reveal the current GitHub branch protection / ruleset
+required-check configuration. Repository administrators must align it with
+`Validation result` and remove required statuses for retired jobs; this round did
+not modify remote repository settings without authorization. Otherwise old
+statuses may wait forever, or the new aggregate status may not yet be required.
 
-保留 Checkstyle/SpotBugs/FindSecBugs、canonical descriptor、JNI 生命周期、真实
-worker/process 边界以及发布全量正确性验证。覆盖率报告不作为门禁；`-Pcoverage`
-仅用于按需诊断。
-文本 SPI provider/stub/doc 引用扫描都只是诊断证据，不能代替实际装配和执行。
-本轮不因“规则看起来严格”继续调整命名、复杂度或性能阈值；那些变化需要独立误报或
-可重复测量依据，避免把精简流程变成绕过真实缺陷。
+Checkstyle/SpotBugs/FindSecBugs, the canonical descriptor, JNI lifecycle, real
+worker/process boundaries, and full release correctness validation are retained.
+Coverage reports are not a gate; `-Pcoverage` is only an on-demand diagnostic.
+Textual SPI provider/stub/doc reference scans are diagnostic evidence only and
+cannot replace actual assembly and execution.
+This round does not keep adjusting naming, complexity, or performance thresholds
+merely because "the rules look strict"; such changes need independent
+false-positive or repeatable measurement evidence, so that streamlining does not
+become a way to bypass real defects.
 
-## 2026-10-04 历史审计快照
+## 2026-10-04 Historical Audit Snapshot
 
-本次审计的结论是：验证范围应按影响边界选择，结构度量由 Checkstyle 统一执行，历史过程约束不应成为永久代码限制。协议、JNI、安全、资源生命周期、真实执行证据和生产回归继续保留。较少的结构告警不等于较少的真实缺陷，也不等于完整 CI 已通过。
+The conclusion of this audit: validation scope should be selected by impact
+boundary, structural metrics should be enforced uniformly by Checkstyle, and
+historical process constraints should not become permanent code restrictions.
+Protocol, JNI, security, resource lifecycle, real execution evidence, and
+production regression remain. Fewer structural warnings do not mean fewer real
+defects, nor that full CI has passed.
 
-## 审计范围与证据
+## Audit Scope and Evidence
 
-审计日期：2026-10-04。检查了 `AGENTS.md`、七份 `.pangrova/rules/` 规则、门禁脚本、实际 CI 调用、父 POM、Checkstyle/SpotBugs 配置、对应的源码与字节码检查测试，以及开发和测试文档。
+Audit date: 2026-10-04. Reviewed `AGENTS.md`, seven `.pangrova/rules/` rules, gate
+scripts, actual CI invocations, the parent POM, Checkstyle/SpotBugs configuration,
+the corresponding source and bytecode-check tests, and the development and testing
+documentation.
 
-2026-10-16 增量审计补充了覆盖率、重复 Java 构建及独立 ArchUnit job 的清理；下文原始分布和时长仍是 2026-10-04 的快照。
+The 2026-10-16 incremental audit added the cleanup of coverage, duplicate Java
+builds, and the separate ArchUnit job; the original distribution and durations
+below remain a 2026-10-04 snapshot.
 
-2026-10-19 复核发现生产回归仍显式启用 `-Pcoverage`，虽无百分比阈值，却强制对完整 reactor 插桩并生成报告。生产 CI 已移除此 profile；`-Pcoverage` 仅保留为按需诊断工具。功能、协议、Native、真实 E2E 与静态安全门禁继续按其实际边界验收。
-结构比较使用仓库锁定的 Checkstyle 10.12.7、Maven Checkstyle Plugin 3.3.1 和 JDK 17，不使用手写方法长度估算。分别扫描当前工作区及提交基线 `e92532a77fcd813009e659a62e7691f08e972899`。提交基线通过 `git cat-file --batch` 导出至临时目录，没有 stash、切换分支或修改共享源码。
+The 2026-10-19 review found that production regression still explicitly enabled
+`-Pcoverage`; although there was no percentage threshold, it forced instrumentation
+and report generation for the full reactor. Production CI has removed this
+profile; `-Pcoverage` remains only as an on-demand diagnostic tool. Functional,
+protocol, Native, real E2E, and static security gates continue to be accepted
+against their actual boundaries.
+Structural comparison uses the repository-pinned Checkstyle 10.12.7, Maven
+Checkstyle Plugin 3.3.1, and JDK 17, not handwritten method-length estimates. The
+current worktree and commit baseline `e92532a77fcd813009e659a62e7691f08e972899`
+were scanned separately. The commit baseline was exported with `git cat-file
+--batch` to a temporary directory, without stashing, switching branches, or
+modifying shared source.
 
-当前工作区含大量既有修改，因此两组结果分别报告。扫描仅包含各模块的 `src/main/java`，排除 `target` 中的生成代码；保留与实际配置相同的 `switchBlockAsSingleDecisionPoint=true` 和嵌套深度设置。当前工作区额外比较了应用现有豁免与不应用豁免两种结果。基线比较使用该提交自己的豁免文件。新加入的 `NestedForDepth=3` 在边界测试中单独验证；下表的前后比较不将新增循环检查混入原有指标。
+The current worktree contains many existing modifications, so the two result sets
+are reported separately. The scan includes only each module's `src/main/java` and
+excludes generated code under `target`; it keeps the same
+`switchBlockAsSingleDecisionPoint=true` and nesting settings as the actual
+configuration. The current worktree additionally compared results with and without
+the existing suppressions applied. The baseline comparison used that commit's own
+suppression file. The newly added `NestedForDepth=3` was validated separately in
+boundary tests; the before/after comparison in the table below does not mix the new
+loop check into the original metrics.
 
-原始摘要、示例位置和脚本观察结果保存在 [审计数据](quality-gate-audit-data.json)。这些是一次审计快照，不能当作未来提交的通用性能基线。
+Raw summaries, example locations, and script observations are stored in the
+[audit data](quality-gate-audit-data.json). These are a single audit snapshot and
+must not be treated as a general performance baseline for future commits.
 
-## 结构分布与阈值依据
+## Structural Distribution and Threshold Rationale
 
-| 指标 | 当前工作区 | 提交基线 |
+| Metric | Current worktree | Commit baseline |
 |---|---:|---:|
-| 生产 Java 文件 | 3,087 | 2,977 |
-| 文件行数 P50 | 61 | 61 |
-| 文件行数 P90 | 237 | 237 |
-| 文件行数 P95 | 337 | 338 |
-| 文件行数 P99 | 488 | 490 |
-| 超过 500 行 | 11 | 13 |
-| 超过 800 行 | 0 | 2 |
-| 最长文件 | 779 | 1,057 |
+| Production Java files | 3,087 | 2,977 |
+| File lines P50 | 61 | 61 |
+| File lines P90 | 237 | 237 |
+| File lines P95 | 337 | 338 |
+| File lines P99 | 488 | 490 |
+| Over 500 lines | 11 | 13 |
+| Over 800 lines | 0 | 2 |
+| Longest file | 779 | 1,057 |
 
-800 行是少数较大且职责完整文件的硬上限，不是日常目标。绝大多数文件仍应保持现有的短小结构。不能仅凭行数断言这 11 个文件都是误报，也不能因放宽后通过而免除职责审查。
+800 lines is a hard limit for a small number of larger files with complete
+responsibilities, not a daily target. The vast majority of files should keep the
+existing short structure. Line count alone cannot assert that these 11 files are
+false positives, nor does passing after relaxation exempt them from responsibility
+review.
 
-### 同一源码、不同阈值的真实解析结果
+### Real Parser Results for the Same Source at Different Thresholds
 
-| 门禁 | 原阈值 → 新阈值 | 工作区原始告警，前 → 后 | 工作区应用豁免，前 → 后 | 基线应用豁免，前 → 后 |
+| Gate | Original threshold → new threshold | Worktree raw warnings, before → after | Worktree with suppressions, before → after | Baseline with suppressions, before → after |
 |---|---|---:|---:|---:|
 | FileLength | 500 → 800 | 11 → 0 | 6 → 0 | 8 → 2 |
 | MethodLength | 50 → 100 | 14 → 0 | 12 → 0 | 15 → 0 |
 | CyclomaticComplexity | 8 → 15 | 238 → 22 | 198 → 17 | 137 → 15 |
 | ParameterNumber | 7 → 10 | 36 → 13 | 28 → 10 | 28 → 10 |
-| 合计 | — | 299 → 35 | 244 → 27 | 188 → 27 |
+| Total | — | 299 → 35 | 244 → 27 | 188 → 27 |
 
-主要压力来自复杂度 8，而不是文件长度。旧阈值会拦截复杂度为 9 的 JDBC 驱动逻辑、复杂度为 10 的资源所有权和客户端配置代码；也会拦截 97 行的启动装配方法。是否值得拆分，必须结合职责、错误处理和资源生命周期判断。
+The main pressure came from complexity 8, not file length. The old threshold would
+block JDBC driver logic with complexity 9, resource ownership and client
+configuration code with complexity 10, and a 97-line startup assembly method.
+Whether splitting is worthwhile must be judged against responsibility, error
+handling, and resource lifecycle.
 
-新阈值仍会拦截复杂度 17 的快照/模型解析、复杂度 19 的写入资源分配，以及 11–13 参数的装配方法。保留这些告警供对应改动审查，未为它们增加豁免，也未把这些工作区既有实现纳入本次重构。
+The new thresholds still block snapshot/model parsing with complexity 17,
+write-resource allocation with complexity 19, and assembly methods with 11–13
+parameters. These warnings are retained for review of the corresponding changes;
+no exemptions were added, and the existing implementations in this worktree were
+not included in this refactor.
 
-Checkstyle 将圈复杂度定义为决策点加一，包含布尔运算和循环；原正则扫描仅计算部分 `if/switch/catch`，两者不能互称同一个指标。[官方说明](https://checkstyle.sourceforge.io/checks/metrics/cyclomaticcomplexity.html)允许将 15 作为现实代码的检查上限，但这不证明每个复杂度 15 的方法都易读。文件 800、方法 100、参数 10 是结合本仓库分布选择的项目政策，不是官方统一推荐值。方法长度的计数规则见 [MethodLength](https://checkstyle.sourceforge.io/checks/sizes/methodlength.html)。
+Checkstyle defines cyclomatic complexity as decision points plus one, including
+boolean operations and loops; the old regex scan counted only some
+`if/switch/catch`, so the two are not the same metric. The [official
+description](https://checkstyle.sourceforge.io/checks/metrics/cyclomaticcomplexity.html)
+permits 15 as a practical check limit for real code, but that does not prove every
+method with complexity 15 is easy to read. File 800, method 100, and parameters 10
+are project policies chosen from this repository's distribution, not official
+recommendations. Method-length counting rules are in
+[MethodLength](https://checkstyle.sourceforge.io/checks/sizes/methodlength.html).
 
-### 可读性保护
+### Readability Protections
 
-- 维持单一职责、明确控制流和能表达业务动作的名称。
-- `if` 和 `try` 的原有深度参数保持为 3、2。删除正则缩进估算后，循环深度交由同一 Java 解析器的 `NestedForDepth=3` 检查；混合控制流的可读性仍需评审。
-- 构造器超过 6 个依赖需要审查职责，但不再强制引入任意 `Dependencies` 包装对象；方法和构造器的参数硬上限统一为 10。
-- 接口超过 12 个方法提示按消费者职责审查。取消枚举 30 个值的任意上限，因为领域集合的大小不能证明设计失当。
-- 允许准确描述职责的 Adapter、Observer、Visitor 等名字；禁止框架类型泄漏、模块方向错误和运行时完全限定类名冲突的约束继续保留。
-- 不通过转发类、泛化上下文袋、缩写、压缩多条语句或隐藏分支来达标。
-- 结构指标不能证明正确性；行为、错误路径、资源清理和并发测试仍负责其各自边界。
+- Maintain single responsibility, clear control flow, and names that express
+  business actions.
+- The existing depth parameters for `if` and `try` remain 3 and 2. After removing
+  regex indentation estimation, loop depth is checked by the same Java parser via
+  `NestedForDepth=3`; readability of mixed control flow still requires review.
+- Constructors with more than 6 dependencies require responsibility review, but an
+  arbitrary `Dependencies` wrapper object is no longer mandatory; the hard limit
+  for method and constructor parameters is uniformly 10.
+- Interfaces with more than 12 methods prompt a review by consumer responsibility.
+  The arbitrary 30-value limit for enums is removed because the size of a domain
+  set cannot prove poor design.
+- Names such as Adapter, Observer, and Visitor that accurately describe
+  responsibilities are allowed; constraints against framework type leakage, wrong
+  module direction, and runtime fully-qualified class-name conflicts remain.
+- Do not meet the numbers through forwarding classes, generalized context bags,
+  abbreviations, compressed statements, or hidden branches.
+- Structural metrics cannot prove correctness; behavior, error paths, resource
+  cleanup, and concurrency tests remain responsible for their own boundaries.
 
-## 门禁逐项决策
+## Item-by-Item Gate Decisions
 
-| 限制或检查 | 实际机制与问题 | 决策与保护措施 |
+| Restriction or check | Actual mechanism and problem | Decision and protection |
 |---|---|---|
-| 每次修改必须全量回归 | workflow/testing/build-pipeline 多处绝对要求，与 development 的按影响范围验证冲突；甚至 native 目录的文档也被要求重建 | 合并到 development 的验证政策。生产 CI/发布回归保留；运行时跨边界改动验证相关链路，重大执行改动本地全链验证 |
-| 每次 Java 修改先 compile 再 test | Maven test/verify 本身执行前置编译生命周期 | 删除强制重复步骤，保留编译诊断入口 |
-| 所有 native 目录修改都跑 ASan | 把目录位置与内存/所有权风险等同 | 内存、所有权、JNI、并发修改仍要求 ASan；文档及工具修改跑其自身检查 |
-| 所有历史失败都必须当场修复 | 使局部任务扩展成全仓修复，并要求操作共享脏工作区来证明基线 | 修改引起的失败必须修复；无关失败用日志、基线导出或隔离复现记录，不宣称未运行/阻塞的检查通过 |
-| 每个类/方法/错误分支一份测试 | 把实现结构与测试行为覆盖等同，纯重构也被要求新增测试 | 改为行为与风险覆盖；相关正常、边界、错误、并发和清理路径保留；现有覆盖可验证纯重构 |
-| 核心逻辑必须属性测试 | 无论是否存在有价值的不变量都要求 jqwik | 按不变量是否强于枚举样例选择；不取消业务回归测试 |
-| 所有集成测试必须起容器 | 本地组件装配也被要求引入 PostgreSQL/Ollama/native | 需要对应外部服务时使用真实容器；不把 in-process integration 伪称为分布式 E2E |
-| Docker 不可用必须修主机 | 本地前置条件失败可能阻断任何可独立验证的任务 | 诊断并报告具体阻塞，禁止禁用测试或声称通过；无关主机整改不强制扩大任务 |
-| Checkstyle 和 SpotBugs 重复执行 | CI 先单独运行二者，再经 static-analysis 重跑 | 合并为一次 profile 执行；编译前置条件由 verify 满足 |
-| CleanCodeMetricsPropertyTest | 906 行的第二套正则解析器；跳过不可读文件、仅识别部分方法/分支、存在大量简单类名豁免；指标还与 Checkstyle 不一致 | 删除重复实现，由 Checkstyle 统一执行结构检查；新增真实解析器的允许/拒绝边界测试 |
-| 历史重命名清单 | 每次测试抽样搜索旧重构方案中的名称，永久禁止某些今天仍可能合理的类名 | 删除一次性重命名账本及其扫描；保留当前类型身份、框架隔离和缩写约束 |
-| 跨模块简单类名不得重复 | Java 类型身份是完全限定名，简单名重复可能属于不同领域；旧随机抽样还可能漏报 | 动态发现现有 Maven 叶模块，读取源码 package 声明并遍历完全限定名唯一性，取代固定模块清单和随机配对；保留命名约束改为穷举检查，读取失败不再静默跳过。校正规则 C1 的模块范围：observability 允许 Flight 适配器，protocol 允许 Arrow；取消简单类名豁免，不扩大框架禁令 |
-| 包文件数量 8/15/25 门槛 | 同时维护 11 个历史拆分包、28 个豁免包和 3 个钉死数量的包；当前 452 个声明包中有 27 个超过 15、11 个超过 25。AST statement 有 57 个类型，connector 有 47 个类型；数量本身不能证明职责不内聚 | 删除三个数量测试及历史清单，不以新增豁免放行。按能力、消费者和依赖方向审查拆包；保留包命名检查并改为动态发现、实际 package 声明穷举，读取失败报错；模块方向和依赖检查保持 |
-| 模式后缀禁止 | 名称与职责脱钩，可能迫使准确的 Observer/Visitor 改成泛化名称 | 放开真实模式名称；继续要求职责明确、公共契约不暴露不必要实现细节 |
-| 固定 BOM 使用检查 | 脚本只维护八个历史依赖的 artifactId/import 清单，不校验版本属性；递归 find 对每项重复扫描，本次 120 秒超时 | 删除脚本及 CI 调用，纠正规则描述；父 POM 版本管理和依赖评审保留，不再要求无需求的旧库一直被使用 |
-| 文档 60 天年龄检查 | 仅查 git 提交时间，不比较关联源码，更不证明文档事实正确；本次 25 份文档都“新鲜” | 删除脚本及 CI 调用；行为文档同步与类型引用检查保留 |
-| ADR trailer grep | 仓库没有它扫描的 docs/architecture/adr 目录，也没有参与的 trailer；实际立即返回 0 | 删除空门禁及 CI 调用；架构决策仍通过 canonical rules 和文档评审维护 |
-| 分布式清单按模块目录触发 | 文档、普通测试也触发；原脚本清空 PR_BODY、使用 macOS 不兼容截取且漏掉删除；CI 直接插入 PR 正文会被引号破坏 | 改为生产/config/build 变化触发，运行时 Markdown 资源与名为 docs 的源码包仍触发；修复环境输入、段落截取、删除检测及两处 CI 正文传参；允许有理由的 N/A，拒绝裸 N/A 及其他段落的勾选冒充证据 |
-| P0 证据必须粘贴全部 grep | 重复日志增加上下文，逐行同类解释未必增加审查价值 | 保留同类缺陷搜索；提交命令、命中数、代表样本、分类和完整输出链接 |
-| 所有 PR 跑额外 TPC-H/JMH | 不区分文档和运行时修改；短采样性能波动未经稳定复测不能直接认定阈值过紧 | 仅对生产、依赖、benchmark 和相关工具变化触发；未知输入保守触发；10%/15% 等既有回归阈值不改，生产正确性链不删 |
-| 旧工具规则入口 | .claude/.qoder 只含到 canonical rules 的两个符号链接，setup 会自动重建 | 删除两目录和重建逻辑；仅保留 AGENTS.md + .pangrova，setup 改为只读布局验证 |
+| Every change requires full regression | Workflow/testing/build-pipeline demanded this in several absolute places, conflicting with development's impact-scoped validation; even documentation under a native directory was required to rebuild | Merged into development's validation policy. Production CI/release regression retained; runtime cross-boundary changes validate the relevant chain, and major execution changes are validated locally end to end |
+| Every Java change compiles before test | Maven test/verify itself runs the preceding compile lifecycle | Removed the mandatory duplicate step and kept compile as a diagnostic entry |
+| Every native-directory change runs ASan | Equated directory location with memory/ownership risk | Memory, ownership, JNI, and concurrency changes still require ASan; documentation and tool changes run their own checks |
+| All historical failures must be fixed on the spot | Turned a local task into repository-wide repair and required operating on a shared dirty worktree to prove a baseline | Failures caused by the change must be fixed; unrelated failures are recorded with logs, baseline export, or isolated reproduction, without claiming unrun/blocked checks passed |
+| One test per class/method/error branch | Equated implementation structure with behavioral test coverage and required new tests even for pure refactoring | Changed to behavior and risk coverage; relevant normal, boundary, error, concurrency, and cleanup paths retained; existing coverage can validate pure refactoring |
+| Core logic must use property tests | Required jqwik regardless of whether a valuable invariant existed | Choose based on whether invariants are stronger than enumerated examples; do not cancel business regression tests |
+| All integration tests must start containers | Local component assembly was also required to introduce PostgreSQL/Ollama/native | Use real containers when the corresponding external service is needed; do not misrepresent in-process integration as distributed E2E |
+| Docker unavailable means fixing the host | A local prerequisite failure could block any independently verifiable task | Diagnose and report the specific blocker; do not disable tests or claim success; unrelated host remediation is not forced into the task |
+| Checkstyle and SpotBugs run twice | CI first ran each separately and then reran them through static-analysis | Merged into one profile execution; compile prerequisites are satisfied by verify |
+| CleanCodeMetricsPropertyTest | A second regex parser of 906 lines; skipped unreadable files, recognized only some methods/branches, had many simple-name exemptions; metrics also disagreed with Checkstyle | Deleted the duplicate implementation and let Checkstyle enforce structural checks uniformly; added allow/reject boundary tests for the real parser |
+| Historical rename list | Each test sampled old refactor names and permanently banned class names that might still be reasonable today | Deleted the one-time rename ledger and its scan; retained current type identity, framework isolation, and abbreviation constraints |
+| Simple class names must be unique across modules | Java type identity is the fully-qualified name, and duplicate simple names may belong to different domains; the old random sampling could also miss violations | Dynamically discover existing Maven leaf modules, read source package declarations, and exhaustively traverse fully-qualified-name uniqueness, replacing the fixed module list and random pairing; the retained naming constraint became exhaustive, and read failures no longer skip silently. Corrected rule C1's module scope: observability may contain Flight adapters, protocol may contain Arrow; removed simple-name exemptions without broadening framework bans |
+| Package file-count thresholds 8/15/25 | Simultaneously maintained 11 historical split packages, 28 exempt packages, and 3 pinned-count packages; 27 of the current 452 declared packages exceeded 15 and 11 exceeded 25. AST statement had 57 types and connector had 47; the count itself cannot prove cohesion | Deleted the three count tests and the historical list instead of admitting them through new exemptions. Review package splits by capability, consumer, and dependency direction; kept package naming checks and made them dynamic and exhaustive over actual package declarations, failing on read errors; module direction and dependency checks remain |
+| Pattern-suffix ban | Names became decoupled from responsibilities and could force accurate Observer/Visitor names into generic ones | Allowed real pattern names; still require clear responsibilities and no unnecessary implementation details in public contracts |
+| Fixed BOM usage check | The script maintained only an artifactId/import list of eight historical dependencies and did not validate version properties; recursive find rescanned each item and timed out at 120 seconds this time | Deleted the script and CI invocation and corrected the rule description; parent POM version management and dependency review remain, without requiring an unneeded old library to be used forever |
+| Documentation 60-day age check | Checked only Git commit time, did not compare associated source, and certainly did not prove documentation facts; all 25 documents were "fresh" this time | Deleted the script and CI invocation; behavior-document synchronization and type-reference checks remain |
+| ADR trailer grep | The repository had no docs/architecture/adr directory for it to scan and no participating trailer; it returned 0 immediately | Deleted the empty gate and CI invocation; architecture decisions continue through canonical rules and documentation review |
+| Distributed checklist triggered by module directories | Documentation and ordinary tests also triggered it; the old script cleared PR_BODY, used macOS-incompatible truncation, and missed deletions; CI inserting PR body text could be broken by quotes | Changed to trigger on production/config/build changes, while runtime Markdown resources and source packages named docs still trigger; fixed environment input, section extraction, deletion detection, and two CI body-passing paths; allowed justified N/A and rejected bare N/A or checkmarks in other sections posing as evidence |
+| P0 evidence must paste all greps | Duplicate logs add context, and line-by-line same-category explanations do not necessarily add review value | Retained same-category defect searches; submit commands, hit counts, representative samples, classification, and full-output links |
+| All PRs run extra TPC-H/JMH | Did not distinguish documentation from runtime changes; short-sampled performance variance without stable reruns cannot justify concluding a threshold is too tight | Trigger only for production, dependency, benchmark, and related tool changes; unknown inputs trigger conservatively; existing 10%/15% regression thresholds unchanged and the production correctness chain not deleted |
+| Legacy tool rule entry | .claude/.qoder contained only two symlinks to canonical rules, and setup recreated them automatically | Deleted both directories and the recreation logic; only AGENTS.md + .pangrova remain, and setup becomes a read-only layout validation |
 
-## 保留门禁及其实际边界
+## Retained Gates and Their Actual Boundaries
 
-| 检查 | 本次观察 | 为什么保留，以及不能证明什么 |
+| Check | Observation this time | Why retained and what it cannot prove |
 |---|---|---|
-| SPI annotations | 139 个公共类型有注解，基线缺口 0；约 5 秒 | 明确契约稳定性是有效政策。注解本身不证明提供者已装配 |
-| SPI stability 诊断 | 22 个类型通过；约 12 秒；未作为独立 CI job 调用 | 保留可选本地诊断。文本 implements/extends、间接实现和 lambda 需要人工理解，不能当作运行时完备性证明 |
-| 文档类名引用 | 174 项通过；约 2 秒 | 便宜且能发现删除/重命名后的文档漂移；PascalCase 抽取与白名单仍是启发式，不证明整篇文档正确 |
-| Stub patterns | 本次通过；约 65 秒 | 防止未说明的未实现方法进入生产路径。它检查空 UnsupportedOperationException/日志模式及上下文，不分析实际调用图，不能据此声称“无死代码、所有方法都已实现” |
-| ArchUnit wiring/reachability | 检查字节码引用图、入口、注册和已有基线 | 与 stub 模式检查不同；保留二者的职责区分。静态可达不等于运行时必然执行，仍需集成/E2E |
-| 包命名及模块方向 | 当前命名、源码导入/模块映射及已有例外保持 | 移除数量配额不等于取消所有权约束；源码规则和基线并非完整的运行时隔离证明 |
-| PackageDependencyAcyclicityPropertyTest | 检查指定模块内的双向 import，并有数据模型例外 | 保留原门禁，但它不证明任意长度的环都不存在，也不覆盖所有新增模块；Maven/字节码边界检查与评审仍需互补 |
-| E2E truthfulness | 通过；约 0.08 秒 | 拒绝禁用、常量断言和单端点冒充多 worker 等已知模式；模式扫描不是所有测试质量的充分证明 |
-| 环境路径检查 | 5 个禁止样本、8 个允许样本通过；约 0.03 秒 | 防止机器路径写入活跃文件；本次仅测模式自检，未将其声称为完整仓库扫描通过 |
-| Proto descriptor | 本次核对实现，未以修改后的 descriptor 重新接受协议 | 比较 descriptor 字节和 canonical source 所有权，不是语义兼容分析；安全增加字段也会造成 drift，更新基线不证明 wire/API 兼容。官方区分 [wire-safe 与应用兼容](https://protobuf.dev/programming-guides/proto3/#updating) |
-| JNI symbol symmetry | 保留本地脚本和包装/加载验证要求 | 符号存在不证明所有权、类型和生命周期正确；与 JNI/E2E 测试互补 |
-| Diff coverage ≥60% | 2026-10-16/19 已退役：删除 `diff-coverage-check.sh`，生产回归不再启用 `-Pcoverage` | 不得据此声称覆盖率门禁仍存在；行为测试、协议、Native、真实 E2E 和静态安全门禁仍按各自边界执行 |
-| SpotBugs/FindSecBugs | profile、分析强度、过滤器保持 | 配置的 Medium 是检测优先级/置信度，不等于运行时严重性。没有误报样本和安全分类证据时不整体降级 |
-| Native/WERROR/sanitizers | 构建和相关风险场景保持 | 编译警告、内存与未定义行为直接影响 JVM/查询执行，不与格式清单合并删除 |
-| 生产同源构建和真实 E2E/smoke | 原有 production-regression 与 artifact provenance 保留 | 静态分析/工作流语法通过不能代替实际镜像、部署和 SQL→Native→结果的执行证据 |
+| SPI annotations | 139 public types annotated, baseline gap 0; about 5 seconds | Explicit contract stability is valid policy. Annotation itself does not prove a provider is wired |
+| SPI stability diagnostic | 22 types passed; about 12 seconds; not invoked as a separate CI job | Retained as an optional local diagnostic. Textual implements/extends, indirect implementation, and lambdas need human understanding and cannot serve as proof of runtime completeness |
+| Documentation class-name references | 174 items passed; about 2 seconds | Cheap and catches documentation drift after deletion/rename; PascalCase extraction and the whitelist remain heuristic and do not prove an entire document is correct |
+| Stub patterns | Passed this time; about 65 seconds | Prevents undocumented unimplemented methods from entering production paths. It checks empty UnsupportedOperationException/log patterns and context, does not analyze the actual call graph, and cannot claim "no dead code, all methods implemented" |
+| ArchUnit wiring/reachability | Checks bytecode reference graphs, entry points, registrations, and existing baselines | Distinct from stub pattern checks; the responsibility separation of both is retained. Static reachability does not equal guaranteed runtime execution and still needs integration/E2E |
+| Package naming and module direction | Current naming, source imports/module mapping, and existing exceptions retained | Removing count quotas does not cancel ownership constraints; source rules and baselines are not complete proof of runtime isolation |
+| PackageDependencyAcyclicityPropertyTest | Checks bidirectional imports within specified modules, with data-model exceptions | Retained as a gate, but it does not prove cycles of arbitrary length are absent and does not cover all newly added modules; Maven/bytecode boundary checks and review remain complementary |
+| E2E truthfulness | Passed; about 0.08 seconds | Rejects known patterns such as disabling, constant assertions, and a single endpoint posing as multiple workers; pattern scanning is not sufficient proof of all test quality |
+| Environment path check | 5 forbidden samples and 8 allowed samples passed; about 0.03 seconds | Prevents machine paths from entering active files; this time only the pattern self-check was run and was not claimed as a full repository scan |
+| Proto descriptor | Implemented the check this time; did not re-accept the protocol with the modified descriptor | Compares descriptor bytes and canonical source ownership, not semantic compatibility analysis; even safe field additions cause drift, and updating the baseline does not prove wire/API compatibility. The official guidance distinguishes [wire safety from application compatibility](https://protobuf.dev/programming-guides/proto3/#updating) |
+| JNI symbol symmetry | Retained the local script and wrapper/loading validation requirements | Symbol existence does not prove ownership, type, and lifecycle correctness; complements JNI/E2E tests |
+| Diff coverage ≥60% | Retired on 2026-10-16/19: deleted `diff-coverage-check.sh`, and production regression no longer enables `-Pcoverage` | Must not claim the coverage gate still exists; behavior tests, protocol, Native, real E2E, and static security gates still run against their own boundaries |
+| SpotBugs/FindSecBugs | Profile, analysis effort, and filters retained | The configured Medium is detection priority/confidence, not runtime severity. Do not downgrade globally without false-positive samples and security-classification evidence |
+| Native/WERROR/sanitizers | Builds and relevant risk scenarios retained | Compiler warnings, memory, and undefined behavior directly affect JVM/query execution and are not merged into a formatting checklist for deletion |
+| Production same-source build and real E2E/smoke | Original production-regression and artifact provenance retained | Static analysis/workflow syntax passing cannot replace evidence from actual images, deployment, and SQL→Native→results execution |
 
-保留脚本的观察时长是同机一次并发审计的墙钟时间，不是可移植基准，也不是 token 消耗估计。没有使用这些时长推断“节省了某个百分比的 token”。
+The observed durations of retained scripts are wall-clock times from one concurrent
+audit on the same machine, not a portable benchmark or a token-consumption
+estimate. These durations were not used to infer "some percentage of tokens was
+saved".
 
-## 验证记录与实际限制
+## Verification Record and Actual Limits
 
-- Checkstyle 边界 fixtures 使用真实锁定解析器，验证 800/100/15/10 的允许边界及超限拒绝；同时验证构造器、if/for/try 深度。解析器仍必须返回失败来拒绝负例。
-- 门禁回归覆盖文档/测试免触发、生产和 benchmark 触发、未知输入保守处理、删除生产文件、缺失 base、PR_BODY 环境输入、最后一个 Markdown 段落、N/A 理由及 canonical layout 不重建旧目录。
-- 穷举命名时复现了 FlightClientTracingInterceptor 误报；核对客户端/服务端拦截器实现、服务端装配和 C1 模块范围后修正测试，新增适配器允许及 SPI/common/protocol 拒绝的边界回归。没有增加简单类名豁免。
-- 包结构的三个数量门禁被有依据地移除，保留的命名检查仍穷举所有发现的包；测试项数因此减少，不把数量减少解释为缺陷或行为测试减少。
-- 结构比较四次工作区扫描、两次基线扫描均实际解析对应文件集合；存在告警的扫描正常返回失败，未把它们当作 CI 通过。
-- 首次完整模块测试因 subprocess 使用系统 Python 3.9 而失败；生成器要求 Python ≥3.10。后续改用已有 Python 3.12 重跑，未禁用或修改该测试；最终清理所属模块后重新构建，78 项测试及所需上游模块通过，零失败、错误和跳过。包命名检查穷举 454 个包（包含仅有 package-info 的包），类型命名检查穷举 3,029 个生产类型。
-- 广域 static-analysis 在已有未跟踪的 `ExecutorDrain.java` 上遇到三项 EmptyLineSeparator/LeftCurly/RightCurly 格式问题。该文件不属于本次门禁修改，未修改、删除或豁免。此项广域验证不能宣称通过。
-- 门禁策略回归 17 项通过，Checkstyle 14 个真实边界 fixtures 通过允许/拒绝验证；工作流 YAML、job 依赖、shell 语法和 canonical layout 验证通过。
-- 实际 hosted CI、生产镜像和全套 Native/ASan/E2E 没有在本次规则/工具修改中执行；其门禁仍由原有生产 CI 负责。本次结果不构成发布或部署验收。
+- Checkstyle boundary fixtures used the real pinned parser and validated the
+  allowed boundaries 800/100/15/10 and rejection beyond them; they also validated
+  constructor, if/for/try depth. The parser must still return failure to reject
+  negative cases.
+- Gate regression covered documentation/test non-triggering, production and
+  benchmark triggering, conservative handling of unknown input, deletion of a
+  production file, missing base, PR_BODY environment input, the last Markdown
+  section, N/A reasons, and canonical layout not rebuilding removed directories.
+- Exhaustive naming reproduced a FlightClientTracingInterceptor false positive;
+  after checking the client/server interceptor implementations, server assembly,
+  and C1 module scope, the test was corrected and boundary regressions were added
+  for allowed adapters and rejected SPI/common/protocol cases. No simple-name
+  exemptions were added.
+- The three package-structure count gates were removed with justification, and the
+  retained naming checks still enumerate all discovered packages; the number of
+  test items therefore decreased, without interpreting the reduction as a defect
+  or a reduction in behavior tests.
+- Structural comparison actually parsed the corresponding file sets across four
+  worktree scans and two baseline scans; scans with warnings returned failure as
+  expected and were not treated as CI passing.
+- The first full module test failed because a subprocess used system Python 3.9;
+  the generator requires Python ≥3.10. It was rerun with the existing Python 3.12
+  without disabling or modifying the test; after cleaning the owning module and
+  rebuilding, 78 tests and the required upstream modules passed with zero
+  failures, errors, and skips. The package naming check enumerated 454 packages
+  (including package-info-only packages), and the type naming check enumerated
+  3,029 production types.
+- The broad static-analysis run encountered three EmptyLineSeparator/LeftCurly/
+  RightCurly formatting issues in an existing untracked `ExecutorDrain.java`. That
+  file is outside this gate change and was not modified, deleted, or exempted. This
+  broad validation cannot be claimed as passed.
+- 17 gate-policy regressions passed, and 14 real Checkstyle boundary fixtures passed
+  allow/reject validation; workflow YAML, job dependencies, shell syntax, and
+  canonical layout validation passed.
+- Actual hosted CI, production images, and the full Native/ASan/E2E set were not
+  executed for this rules/tool change; those gates remain owned by the existing
+  production CI. These results do not constitute release or deployment acceptance.
 
-## 复核方法
+## Review Method
 
-2026-10-04 生产整改复证补充：Checkstyle 的 `com.sun.*` 全包禁令误挡
-`jdk.httpserver` 导出的公开 HTTP/HTTPS API。根据
-[JDK17 官方 API](https://docs.oracle.com/en/java/javase/17/docs/api/jdk.httpserver/com/sun/net/httpserver/package-summary.html)，
-现有 IllegalImport 仍拒绝 `sun.*`、`jdk.internal.*` 和其他 `com.sun.*`，
-只按确切包边界区分 `com.sun.net.httpserver` 与其公开 SPI。真实锁版本 Checkstyle
-红测拒绝了3种公开API；修正后9个允许、14个结构/内部API拒绝 fixture 实际通过，
-包括 static import 和相似包前缀负例。没有源码级 suppression 或全限定名绕过。
+The 2026-10-04 production-remediation recertification added: Checkstyle's
+`com.sun.*` whole-package ban incorrectly blocked the public HTTP/HTTPS API
+exported by `jdk.httpserver`. According to the
+[official JDK 17 API](https://docs.oracle.com/en/java/javase/17/docs/api/jdk.httpserver/com/sun/net/httpserver/package-summary.html),
+the existing IllegalImport still rejects `sun.*`, `jdk.internal.*`, and other
+`com.sun.*` packages, distinguishing `com.sun.net.httpserver` from its public SPI
+only by the exact package boundary. The real pinned Checkstyle red test rejected
+three public APIs; after the correction, 9 allowed and 14 structural/internal-API
+rejection fixtures actually passed, including static imports and similar-prefix
+negative cases. No source-level suppression or fully-qualified-name bypass was
+introduced.
 
-同轮 SpotBugs4.8.3 将 immutable `ByteString.writeTo(...):void` 误判为 setter。
-唯一 SHA256 getter 保留 `ByteString.copyFrom` 的输入所有权，不新增防御性重复复制；
-真实 canonical digest、导出 byte-array 修改隔离与只读 buffer 回归通过。
-误报分类仅匹配 `FunctionBindingDeclarations.declarationSha256()` 的零参数
-ByteString 返回签名、同名 ByteString 字段及 `MS_EXPOSE_REP`。真实 pinned
-Filter API 验证该新增 Match 的1正例与8个类型/方法/字段/类/规则变更负例。
-这不消除原 filter 的 protocol 包级 `EI_EXPOSE_REP` 排除局限，也不等于实际
-可变性漏洞已被修复；后续须单独复核这些既有广域排除。
+In the same round, SpotBugs 4.8.3 misclassified immutable
+`ByteString.writeTo(...):void` as a setter. The sole SHA256 getter retains input
+ownership of `ByteString.copyFrom` without adding defensive duplicate copies; the
+real canonical digest, exported byte-array mutation isolation, and read-only buffer
+regressions passed. The false-positive classification matches only the zero-argument
+ByteString return signature of `FunctionBindingDeclarations.declarationSha256()`,
+same-named ByteString fields, and `MS_EXPOSE_REP`. The real pinned Filter API
+validated this new Match with 1 positive case and 8 negatives for
+type/method/field/class/rule changes. This does not eliminate the original
+filter's package-level `EI_EXPOSE_REP` exclusion limitation for protocol, nor does
+it mean the actual mutability vulnerabilities have been fixed; these existing broad
+exclusions must be reviewed separately later.
 
-同轮keytool告警先经过真实输入边界复证：`ProcessBuilder(List)` 没有shell，
-但keytool自身仍会把以 `-` 开头的alias识别为操作选项。首字符约束修复前，实际
-拒绝测试失败；修复后4项真实证书/路径边界测试通过，CA/store/key权限和容器
-owner测试也通过。随后仅分类private `TestTlsAuthority.run(List):void` 的
-COMMAND_INJECTION，固定JDK绝对工具路径和操作flags，所有参数作为独立argv。
-真实pinned Filter API的1正例和7个类/方法/签名/bug变更负例均通过；所属模块89项
-测试和完整Checkstyle/SpotBugs通过。不存在新增包级command豁免。依据
-[JDK17 ProcessBuilder的参数契约](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/ProcessBuilder.html)
-与[FindSecBugs1.13.0实际command sinks](https://github.com/find-sec-bugs/find-sec-bugs/blob/version-1.13.0/findsecbugs-plugin/src/main/resources/injection-sinks/command.txt)，
-区分真实选项注入和只有参数污点传播的提示；这些源码依据不替代实际边界测试。
-ResultBatch的4项mutable representation告警没有新增排除，按真实所有权缺陷修复。
+In the same round, keytool warnings were first revalidated against real input
+boundaries: `ProcessBuilder(List)` has no shell, but keytool itself still treats an
+alias starting with `-` as an operation option. Before the first-character
+constraint fix, the real rejection test failed; after the fix, 4 real certificate/
+path boundary tests passed, and CA/store/key permission and container-owner tests
+also passed. Then only the COMMAND_INJECTION finding for the private
+`TestTlsAuthority.run(List):void` was classified, pinning the absolute JDK tool
+path and operation flags while passing all parameters as separate argv entries.
+The real pinned Filter API's 1 positive and 7 negatives for class/method/signature/
+bug changes all passed; the owning module's 89 tests and the full Checkstyle/
+SpotBugs run passed. No new package-level command exemption exists. Based on the
+[JDK 17 ProcessBuilder parameter contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/ProcessBuilder.html)
+and the [actual command sinks of FindSecBugs 1.13.0](https://github.com/find-sec-bugs/find-sec-bugs/blob/version-1.13.0/findsecbugs-plugin/src/main/resources/injection-sinks/command.txt),
+it distinguishes real option injection from hints that only propagate parameter
+taint; these source references do not replace actual boundary tests.
+The 4 mutable-representation warnings for ResultBatch were fixed as real ownership
+defects without new exclusions.
 
-REST后续9项发现中，6项metadata null边界和2项广域catch按真实契约修正。
-唯一PREDICTABLE_RANDOM精确分类是`RetryPolicy.delayForAttemptWithJitter(int):Duration`：
-actual caller仅将其用作重试等待，不生成认证token/nonce/identifier。先复现并修复
-zero-delay、max cap、非有限multiplier和Long.MAX_VALUE上界溢出，再保留有界jitter；
-不以SecureRandom性能开销或改调用形式绕过检测器。真实pinned Filter API验证该
-新增Match的1正例和7个owner/method/signature/bug变更负例通过，其他随机数使用
-仍接受完整安全检查。实际REST owning/consumer门禁仍须另行通过。
+Of the 9 subsequent REST findings, 6 metadata null boundaries and 2 broad catches
+were corrected against real contracts. The only PREDICTABLE_RANDOM classification
+is `RetryPolicy.delayForAttemptWithJitter(int):Duration`: its only caller uses it
+for retry delay and does not generate authentication tokens/nonces/identifiers.
+After first reproducing and fixing zero-delay, max cap, non-finite multiplier, and
+Long.MAX_VALUE upper-bound overflow, bounded jitter was retained; the detector is
+not bypassed via SecureRandom performance cost or a changed call form. The real
+pinned Filter API validated this new Match's 1 positive and 7 negatives for
+owner/method/signature/bug changes, and other random-number uses still receive the
+full security check. The actual REST owning/consumer gates must still pass
+separately.
 
-Paimon19个借用Catalog/Table/FileIO/registry服务句柄的告警只按完整构造/getter签名、
-字段名/服务类型及单个EI规则分类，不把借用服务称为不可变DTO。真实pinned Filter API
-对每项验证1正例、9个签名/字段/类型/bug变更负例。实际mutable split列表、schema
-映射和evolution列表按所有权缺陷修复，没有DTO数组/集合豁免；45项最近回归及
-Paimon369项严格回归均通过。此结果不证明Connector退出或Coordinator执行路由闭合。
+The 19 Paimon warnings about borrowed Catalog/Table/FileIO/registry service
+handles were classified only by complete constructor/getter signatures, field
+names/service types, and a single EI rule; borrowed services were not called
+immutable DTOs. The real pinned Filter API validated 1 positive and 9 signature/
+field/type/bug-change negatives per item. The actual mutable split lists, schema
+mappings, and evolution lists were fixed as ownership defects without DTO
+array/collection exemptions; the 45 most recent regressions and Paimon's 369
+strict regressions passed. This result does not prove Connector exit or
+Coordinator execution routing are closed.
 
-JDBC11个原样SQL重载委托仅分类完整Class/Method参数/返回签名与SQL_INJECTION_JDBC，
-不以SQL parser能够解析为安全依据。每条Match的1正例与7个变更负例已由同一pinned
-Filter API复验；完整filter仍不排除PreparedStatement.executeQuery拼接告警或Boolean-null
-告警。新增真实HTTP原文转交和模板绑定11项已通过；peer验证真实原文和拒绝响应，
-不冒充Coordinator或Native SQL执行，不能由filter测试推导端到端通过。
-Prepared任意Number/BigDecimal及时间子类的SQL注入已用公开setObject实测5项失败；
-修复采用封闭数值类型与标准类型化时间值，不新增该真实漏洞的排除规则。
-日志 `/tmp/pangrova-production-sdk64-jdbc-forward-filter-boundaries-r1.log`、
-`/tmp/pangrova-production-sdk64-jdbc-prepared-literal-red-r1.log`。
+The 11 JDBC pass-through SQL overload delegations were classified only by complete
+Class/Method parameter/return signatures and SQL_INJECTION_JDBC, not by treating
+"the SQL parser can parse it" as safe. Each Match's 1 positive and 7 change
+negatives were revalidated by the same pinned Filter API; the full filter still
+does not exclude PreparedStatement.executeQuery concatenation warnings or
+Boolean-null warnings. The 11 new real HTTP raw-forwarding and template-binding
+items passed; the peer verified the real raw text and rejection response, without
+posing as Coordinator or Native SQL execution, so filter tests cannot imply
+end-to-end success. SQL injection through arbitrary Number/BigDecimal and temporal
+subclasses in Prepared was reproduced as 5 failures with public setObject; the fix
+uses closed numeric types and standard typed temporal values, without adding an
+exclusion for this real vulnerability. Logs:
+`/tmp/pangrova-production-sdk64-jdbc-forward-filter-boundaries-r1.log`,
+`/tmp/pangrova-production-sdk64-jdbc-prepared-literal-red-r1.log`.
 
-PreparedStatement共享唯一实际执行owner后，原六项身份告警中的两项已因删除
-重复字段消失，而不是排除失效代码。剩余四个JDBC getter按准确Class、完整方法
-签名、字段名/类型及单个EI_EXPOSE_REP分类；返回的是生产该句柄的真实connection、
-statement和当前ResultSet，不可复制为另一资源owner。pinned Filter API的isolated及
-完整filter每项1正例/12负例通过，完整filter仍拒绝已删除的Prepared getter告警。
-日志 `/tmp/pangrova-production-sdk64-jdbc-identity-filter-boundaries-r1.log`。
-新增真实HTTP/Flight身份和关闭4项及完整client r13门禁通过：2437项测试，零失败、
-错误和跳过，完整Checkstyle/SpotBugs0，4分06秒，日志
-`/tmp/pangrova-production-sdk64-client-full-gates-r13.log`。不含正在整改的Paimon，
-也不证明线程安全、远端任务drain或全链路端到端验收。
+After PreparedStatement shared the single actual execution owner, two of the
+original six identity warnings disappeared because duplicate fields were deleted,
+not because excluded dead code started working. The remaining four JDBC getters
+are classified by exact Class, complete method signature, field name/type, and a
+single EI_EXPOSE_REP rule; they return the real connection, statement, and current
+ResultSet that produce the handle and cannot be copied to another resource owner.
+The pinned Filter API passed 1 positive/12 negatives for each isolated and full
+filter; the full filter still rejects the deleted Prepared getter warnings.
+Log: `/tmp/pangrova-production-sdk64-jdbc-identity-filter-boundaries-r1.log`.
+The 4 new real HTTP/Flight identity and close items plus the full client r13 gate
+passed: 2437 tests with zero failures, errors, and skips, full Checkstyle/SpotBugs
+0, 4 minutes 06 seconds, log
+`/tmp/pangrova-production-sdk64-client-full-gates-r13.log`. This excludes the
+Paimon work in progress and does not prove thread safety, remote-task drain, or
+full end-to-end acceptance.
 
-1. 导出 `git ls-tree -r --name-only <ref>` 中各模块的生产 Java 源码，用 `git cat-file --batch` 读取 blob；工作区集合使用 `rg --files -g '*.java'` 后筛选 `/src/main/java/`。
-2. 建立隔离 Maven 工程，使用父 POM 锁定的 Checkstyle plugin 和 engine。把每个模块 source root 配为 sourceDirectories，只启用 FileLength、MethodLength、ParameterNumber、CyclomaticComplexity、NestedIfDepth、NestedTryDepth。
-3. 在完全相同源文件集合上分别运行原始 500/50/8/7 与拟议 800/100/15/10；保留 switch 计数和嵌套参数。依次加入或移除相同 SuppressionFilter，解析 checkstyle-result.xml，确认 parsed_files 与输入文件数一致。
-4. 不通过修改业务源码、增加豁免或过滤失败报告来减少计数。分别记录提交基线与工作区，不把未提交的既有变更归因于本次政策。
-5. 用 `.pangrova/scripts/tests/checkstyle-boundaries-test.py` 复核现行门禁的实际允许/拒绝行为，用 `test_gate_policy.py` 复核触发范围与保留约束。
+1. Export each module's production Java source from `git ls-tree -r --name-only
+   <ref>` and read blobs with `git cat-file --batch`; for the worktree set, use
+   `rg --files -g '*.java'` and filter for `/src/main/java/`.
+2. Create an isolated Maven project using the Checkstyle plugin and engine pinned
+   by the parent POM. Configure each module source root as a sourceDirectory and
+   enable only FileLength, MethodLength, ParameterNumber, CyclomaticComplexity,
+   NestedIfDepth, and NestedTryDepth.
+3. Run the original 500/50/8/7 and proposed 800/100/15/10 thresholds on exactly
+   the same source file set; keep the switch counting and nesting parameters. Add
+   or remove the same SuppressionFilter in turn, parse checkstyle-result.xml, and
+   confirm parsed_files matches the input file count.
+4. Do not reduce counts by modifying business source, adding exemptions, or
+   filtering failure reports. Record the commit baseline and worktree separately
+   and do not attribute uncommitted existing changes to this policy.
+5. Use `.pangrova/scripts/tests/checkstyle-boundaries-test.py` to recheck the
+   current gate's actual allow/reject behavior, and `test_gate_policy.py` to
+   recheck trigger scope and retained constraints.
 
-官方参考：[Maven Checkstyle 的输入范围](https://maven.apache.org/plugins/maven-checkstyle-plugin/check-mojo.html)、[SpotBugs check 在 verify 阶段的行为](https://spotbugs.github.io/spotbugs-maven-plugin/check-mojo.html)、[循环嵌套检查](https://checkstyle.sourceforge.io/checks/coding/nestedfordepth.html)。这些资料用于解释工具语义，不用于替代仓库执行证据。
+Official references: [Maven Checkstyle input scope](https://maven.apache.org/plugins/maven-checkstyle-plugin/check-mojo.html),
+[SpotBugs check behavior in the verify phase](https://spotbugs.github.io/spotbugs-maven-plugin/check-mojo.html),
+[loop nesting check](https://checkstyle.sourceforge.io/checks/coding/nestedfordepth.html).
+These references explain tool semantics; they do not replace repository execution
+evidence.

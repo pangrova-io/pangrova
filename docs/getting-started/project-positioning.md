@@ -217,16 +217,20 @@ combinations are production ready.
 
 > Open-source distributed SQL query engine for open lakehouses, built with Calcite, Arrow, and Velox. Extensible connectors, native vectorized analytics, and SQL primitives for vector search and AI.
 
-### Chinese Introduction
+### Extended Introduction
 
-Pangrova 是面向开放湖仓架构的开源分布式 SQL 查询引擎。
-它以 Apache Calcite 进行 SQL 规划与优化，以 C++20 / Velox 执行向量化计算，
-通过 Apache Arrow 和 Arrow Flight 实现列式数据互操作与传输。
-当前内置 Apache Iceberg 和 Apache Paimon 连接器，并通过可插拔的 Connector SPI
-为更多表格式与数据源提供扩展入口。
-项目面向已有湖仓的数据平台团队，以及希望结合业务数据开展 AI 检索的开发者，
-提供关系分析、数据处理、向量检索、全文检索和模型调用的 SQL 能力与工程基础。
-具体查询组合、连接器限制及生产可用性以[当前能力状态](capability-status.md)和各功能文档为准。
+Pangrova is an open-source distributed SQL query engine for open lakehouse
+architectures. It uses Apache Calcite for SQL planning and optimization, C++20 /
+Velox for vectorized execution, and Apache Arrow and Arrow Flight for columnar
+interoperability and transport. Apache Iceberg and Apache Paimon connectors are
+built in, and the pluggable Connector SPI provides the extension point for more
+table formats and data sources. The project targets data platform teams that
+already operate a lakehouse, as well as developers who want to combine business
+data with AI retrieval. It provides SQL capabilities and engineering foundations
+for relational analytics, data processing, vector search, full-text search, and
+model invocation. Specific query combinations, connector limits, and production
+readiness are governed by the [current capability status](capability-status.md)
+and each feature document.
 
 ### Suggested Repository Topics
 

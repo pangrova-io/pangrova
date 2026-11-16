@@ -116,11 +116,11 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 
 | Old Name | New Name | Rationale |
 |---|---|---|
-| 原 `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
+| Former `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
 | StreamWriteSink (old name) | `CdcWriteSink` | Clarifies this writes CDC data, not arbitrary stream output |
 | StreamWriteResult (old name) | `CdcWriteResult` | Consistent with CdcWriteSink |
-| 原 `StreamingWriter` | 原 `IncrementalWriter`（均已退役） | Clarifies incremental batch buffering, not stream processing |
-| 原 `StreamingWriterConfig` | 原 `IncrementalWriterConfig`（均已退役） | Consistent with IncrementalWriter |
+| Former `StreamingWriter` | Former `IncrementalWriter` (both retired) | Clarifies incremental batch buffering, not stream processing |
+| Former `StreamingWriterConfig` | Former `IncrementalWriterConfig` (both retired) | Consistent with IncrementalWriter |
 
 Removed APIs: CheckpointCoordinator and the streaming-local CheckpointStore —
 Flink-style barrier checkpointing is not needed for CDC offset-based recovery.

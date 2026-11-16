@@ -989,16 +989,19 @@ function getStatisticsWithConfidence(table: Table):
 
 ## 9. Dynamic Partition Pruning & Runtime Filter (OPT-002)
 
-> **Status: target design.** Only static partition pruning is currently available.
-> The runtime-filter components below, including the target Native dynamic-filter
-> sink and Bloom-filter delivery, are proposed and are not current behavior.
+> **Status: partially implemented.** Same-task Native hash-join runtime filters
+> (exact domains and bounded Bloom filters, including aliased probe columns) and a
+> bounded literal INNER/SEMI membership rule are implemented, and typed initial
+> filter bindings can be injected into a running task. Automatic cross-stage
+> collection of build-side key domains remains target design: distributed probe
+> splits are still enumerated with `DynamicFilter.ALL`.
 
 
 
 
 ### 9.1 Architecture Description
 
-Static partition pruning (performed by Calcite optimization rules at planning time) is the only pruning mechanism currently available. No runtime filter propagation exists — the target Native dynamic-filter sink placeholder in the native reader pipeline (see [native-execution.md](./native-execution.md)) receives no filters because none are generated. This means star-schema queries scan all fact-table partitions even when a dimension filter could eliminate 90%+ of I/O.
+Static partition pruning performed by Calcite optimization rules at planning time is the only mechanism that reduces file I/O before execution. Same-task Native hash-join runtime filters can reduce probe scan output after the complete build hash table is available, and the HEP literal-join rule can add a bounded membership predicate, but neither prevents underlying file reads and neither is an automatic cross-stage publisher. Distributed star-schema queries therefore still enumerate probe splits with `DynamicFilter.ALL` and may scan all fact-table partitions even when a dimension filter could eliminate most I/O.
 
 OPT-002 introduces a two-phase runtime filter framework: filter generation on the build side of a join, and multi-level filter application on the probe side. The framework leverages the enhanced statistics from OPT-004 (§8) — specifically file-level column stats and histograms — to estimate filter selectivity and decide filter type.
 
