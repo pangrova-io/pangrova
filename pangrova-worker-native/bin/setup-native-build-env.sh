@@ -49,7 +49,23 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 # A caller's explicit build limit must reach both our builds and Velox's
 # dependency installer. CPU count alone does not describe available memory.
-NPROC="${CMAKE_BUILD_PARALLEL_LEVEL:-${BUILD_THREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}}"
+if [[ -n "${CMAKE_BUILD_PARALLEL_LEVEL:-}" || -n "${BUILD_THREADS:-}" ]]; then
+  NPROC="${CMAKE_BUILD_PARALLEL_LEVEL:-$BUILD_THREADS}"
+else
+  NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+  # Velox translation units are memory-hungry; an unbounded core count lets the
+  # compiler be OOM-killed on 7-16 GB runners. Budget roughly 4 GB per job.
+  if [[ "$OS" == "Darwin" ]]; then
+    memory_gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    memory_gb=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo 2>/dev/null || echo 0)
+  fi
+  if [[ "$memory_gb" -gt 0 ]]; then
+    memory_jobs=$(( memory_gb / 4 ))
+    [[ "$memory_jobs" -lt 1 ]] && memory_jobs=1
+    [[ "$NPROC" -gt "$memory_jobs" ]] && NPROC="$memory_jobs"
+  fi
+fi
 if [[ ! "$NPROC" =~ ^[1-9][0-9]*$ ]]; then
   printf 'ERROR: build parallelism must be a positive integer\n' >&2
   exit 1

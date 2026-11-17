@@ -15,7 +15,20 @@ VELOX_HOME="${VELOX_HOME:-$PANGROVA_HOME/velox}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 ASAN_PREFIX="${PANGROVA_ASAN_DEPS_PREFIX:-$PANGROVA_HOME/native-deps-asan}"
 ASAN_VELOX_BUILD_DIR="${PANGROVA_ASAN_VELOX_BUILD_DIR:-$VELOX_HOME/_build/asan-ci}"
-NPROC="${PANGROVA_ASAN_BUILD_JOBS:-2}"
+if [[ -n "${PANGROVA_ASAN_BUILD_JOBS:-}" ]]; then
+  NPROC="$PANGROVA_ASAN_BUILD_JOBS"
+else
+  NPROC=2
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    memory_gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    memory_gb=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo 2>/dev/null || echo 0)
+  fi
+  if [[ "$memory_gb" -gt 0 && $(( memory_gb / 6 )) -lt "$NPROC" ]]; then
+    NPROC=$(( memory_gb / 6 ))
+    [[ "$NPROC" -lt 1 ]] && NPROC=1
+  fi
+fi
 # ExternalProject CMake/Make builds do not inherit the outer Ninja job limit.
 export CMAKE_BUILD_PARALLEL_LEVEL="$NPROC"
 export NUM_THREADS="$NPROC"
