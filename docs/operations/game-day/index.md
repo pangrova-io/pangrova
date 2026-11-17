@@ -65,10 +65,10 @@ A game day is successful when:
 
 | Component | Target RTO | Measurement Tool |
 |-----------|-----------|-----------------|
-| Coordinator failover | < 30 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Worker crash recovery | < 60 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Metadata partition heal | < 120 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Query re-routing | < 10 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
+| Coordinator failover | < 30 seconds | `measure-recovery-time.sh` |
+| Worker crash recovery | < 60 seconds | `measure-recovery-time.sh` |
+| Metadata partition heal | < 120 seconds | `measure-recovery-time.sh` |
+| Query re-routing | < 10 seconds | `measure-recovery-time.sh` |
 
 ## Runbooks
 
@@ -85,7 +85,7 @@ Each scenario has a corresponding runbook for live incident response. Runbooks a
 
 ## Tools
 
-- **Recovery Time Measurement**: [`tools/measure-recovery-time.sh`](tools/measure-recovery-time.sh) — baseline, measure, report, and watch subcommands; computes p50/p95/p99 latency; RTO assessment
+- **Recovery Time Measurement**: `docs/operations/game-day/tools/measure-recovery-time.sh` in the repository — baseline, measure, report, and watch subcommands; computes p50/p95/p99 latency; RTO assessment
 - **Fault Injection**: Pangrova chaos testing framework (`pangrova-testing/pangrova-testing-integration-tests/`)
 - **Monitoring**: Grafana dashboards (staging environment)
 

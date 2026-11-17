@@ -103,7 +103,7 @@ const config: Config = {
     announcementBar: {
       id: 'active_development',
       content:
-        'Pangrova is under active development. Review the <a href="/docs/getting-started/capability-status/">current capability status</a> before evaluating a workload.',
+        `Pangrova is under active development. Review the <a href="${siteBaseUrl}docs/getting-started/capability-status/">current capability status</a> before evaluating a workload.`,
       backgroundColor: '#171336',
       textColor: '#ddd6fe',
       isCloseable: true,

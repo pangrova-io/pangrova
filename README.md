@@ -136,7 +136,7 @@ catalogs, daemon mode, and troubleshooting.
 
 Documentation source lives in [`docs/`](docs/); the Docusaurus site sources are in
 [`website/`](website/). The official website is published at
-[https://pangrova-b9a20lmw2et.qoder.website](https://pangrova-b9a20lmw2et.qoder.website).
+[https://pangrova-io.github.io/pangrova/](https://pangrova-io.github.io/pangrova/).
 
 ## Repository layout
 

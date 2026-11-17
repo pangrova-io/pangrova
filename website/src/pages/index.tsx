@@ -434,11 +434,11 @@ function Community() {
         </div>
         <div className={styles.communityGrid}>
           {community.map((item) => (
-            <a key={item.title} className={styles.communityCard} href={item.href}>
+            <Link key={item.title} className={styles.communityCard} to={item.href}>
               <h3>{item.title}</h3>
               <p>{item.description}</p>
               <span>{item.label} →</span>
-            </a>
+            </Link>
           ))}
         </div>
       </div>
