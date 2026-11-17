@@ -37,6 +37,21 @@ runs:
           /usr/local/share/dotnet ~/.gradle/caches || true
         df -h /
 
+    - name: Add swap headroom (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Velox translation units can exceed the runner's RAM. Swap turns a
+        # compiler OOM kill into a slow but successful build.
+        if [[ "$(free -m | awk '/^Swap:/ {print $2}')" -lt 2048 ]]; then
+          sudo fallocate -l 8G /swap-pangrova || \
+            sudo dd if=/dev/zero of=/swap-pangrova bs=1M count=8192 status=none
+          sudo chmod 600 /swap-pangrova
+          sudo mkswap /swap-pangrova >/dev/null
+          sudo swapon /swap-pangrova
+        fi
+        free -h
+
     - name: Install build tools (Linux)
       if: runner.os == 'Linux'
       shell: bash
