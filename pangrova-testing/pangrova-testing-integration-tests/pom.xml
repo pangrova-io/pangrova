@@ -519,6 +519,13 @@
                     <jvm>${java.home}/bin/java</jvm>
                     <!-- Exclude routing harness, native-only bootstrap, and performance benchmarks -->
                     <excludedGroups>${pangrova.e2e.excludedGroups}</excludedGroups>
+                    <!-- jqwik ignores tag filters, so E2E property tests are
+                         excluded by path in the daily build; full regression
+                         sets pangrova.e2e.excludedClasses to none. -->
+                    <excludes>
+                        <exclude>**/*IntegrationTest.java</exclude>
+                        <exclude>${pangrova.e2e.excludedClasses}</exclude>
+                    </excludes>
                     <argLine>
                         @{jacoco.agent.argLine}
                         -Xmx2g -Xms512m

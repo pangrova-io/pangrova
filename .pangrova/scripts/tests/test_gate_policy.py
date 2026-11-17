@@ -219,6 +219,16 @@ class StructuralPolicyTest(unittest.TestCase):
                 self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
                 self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
 
+    def test_daily_tests_exclude_end_to_end_suites(self):
+        pom = (ROOT / 'pom.xml').read_text()
+        self.assertIn('routing-integration,native-required,performance,e2e', pom)
+        self.assertIn('pangrova.e2e.excludedClasses', pom)
+        module = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/pom.xml').read_text()
+        self.assertIn('${pangrova.e2e.excludedClasses}', module)
+        base = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
+                       'org/pangrova/testing/integration/e2e/SqlE2ETestBase.java').read_text()
+        self.assertIn('@E2ETest', base)
+
     def test_production_regression_retains_same_source_image_identity(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(

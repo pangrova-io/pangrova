@@ -20,7 +20,12 @@ Validation scope is selected in `development.md`; build commands are in
 | Benchmark | `pangrova-testing-benchmark` | — | JMH |
 | C++ | `pangrova-worker-native/test`, `<Component>Test.cpp` | — | GoogleTest, CTest |
 
-Daily runs exclude `native-required`, `routing-integration` and `performance`.
+Daily runs exclude `native-required`, `routing-integration`, `performance` and
+`e2e`; the E2E classes require the immutable AI model fixture and the
+same-source production image that full regression provisions.
+`SqlE2ETestBase` carries `@E2ETest` so its subclasses inherit the tag, and the
+integration module excludes `**/e2e/**/*PropertyTest.java` by path because the
+jqwik engine ignores tag filters.
 `-Pfull-regression` includes them and excludes only `native-runtime-owner`, whose
 selections run in isolated JVMs (see `build-pipeline.md`). A Maven run that selects
 no applicable tests is not validation.

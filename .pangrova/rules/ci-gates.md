@@ -49,8 +49,9 @@ Native compiler warnings and sanitizer findings must be zero. `check-spi-stabili
 is an optional local diagnostic and does not replace wiring or loader tests.
 
 The production reactor already runs E2E and activation smoke; the pre-test install
-stays for independent-process consumers. Daily JDK 17/21 runs keep their filtered
-selection and are not full regression. No coverage instrumentation runs in CI.
+stays for independent-process consumers. Daily JDK 17/21 runs exclude the `e2e`
+group, which needs the AI model fixture and same-source image, and are not full
+regression. No coverage instrumentation runs in CI.
 
 ## Retired Checks
 

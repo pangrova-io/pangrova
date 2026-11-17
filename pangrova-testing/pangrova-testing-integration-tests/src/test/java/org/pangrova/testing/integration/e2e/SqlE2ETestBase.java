@@ -66,6 +66,7 @@ import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.TestCluster;
+import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
 import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
@@ -129,6 +130,7 @@ import org.pangrova.query.dispatch.StatementExecutionFactory;
  */
 @Tag("integration")
 @Testcontainers
+@E2ETest
 public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlE2ETestBase.class);
@@ -3035,7 +3037,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static void restoreSharedStatusDelivery() {
-        statusReportDelivery = statusReporter::report;
+        // Harness unit tests exercise this path without bootstrapping the shared
+        // environment; a null reporter has nothing to restore.
+        statusReportDelivery = statusReporter == null ? null : statusReporter::report;
     }
 
     protected static void reportToSharedCoordinator(
