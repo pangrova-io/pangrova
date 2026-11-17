@@ -1171,6 +1171,9 @@
                         </includes>
                         <excludes>
                             <exclude>**/*IntegrationTest.java</exclude>
+                            <!-- jqwik ignores tag filters; full regression overrides
+                                 this with "none" so E2E property tests run there. -->
+                            <exclude>${pangrova.e2e.excludedClasses}</exclude>
                         </excludes>
                         <argLine>@{jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
                         <!-- Single forked JVM reused across test classes.

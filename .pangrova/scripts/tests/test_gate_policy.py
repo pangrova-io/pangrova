@@ -223,8 +223,8 @@ class StructuralPolicyTest(unittest.TestCase):
         pom = (ROOT / 'pom.xml').read_text()
         self.assertIn('routing-integration,native-required,performance,e2e', pom)
         self.assertIn('pangrova.e2e.excludedClasses', pom)
-        module = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/pom.xml').read_text()
-        self.assertIn('${pangrova.e2e.excludedClasses}', module)
+        self.assertIn('<exclude>${pangrova.e2e.excludedClasses}</exclude>', pom)
+        self.assertIn('"none"', pom)
         base = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
                        'org/pangrova/testing/integration/e2e/SqlE2ETestBase.java').read_text()
         self.assertIn('@E2ETest', base)
