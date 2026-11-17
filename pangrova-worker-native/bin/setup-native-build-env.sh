@@ -99,6 +99,15 @@ check_prerequisites() {
     command -v brew >/dev/null 2>&1 \
       || die "Homebrew is required by Velox's macOS dependency setup. Install it from https://brew.sh/."
   fi
+  if [[ "$OS" == "Linux" ]]; then
+    # gRPC builds before Velox's setup-ubuntu.sh runs and needs system OpenSSL
+    # and zlib headers. Fail with the package name instead of after a long
+    # dependency build.
+    [[ -f /usr/include/openssl/ssl.h ]] \
+      || die "OpenSSL headers are required (for example: sudo apt-get install -y libssl-dev)"
+    [[ -f /usr/include/zlib.h ]] \
+      || die "zlib headers are required (for example: sudo apt-get install -y zlib1g-dev)"
+  fi
 }
 
 verify_build_tools() {

@@ -40,10 +40,12 @@ runs:
         sudo apt-get update
         # cmake/ninja/gcc for CMake; autotools and pkg-config for Velox and
         # Arrow dependency builds; patchelf for JNI archive checks; curl,
-        # unzip and xz for dependency archives.
+        # unzip and xz for dependency archives. OpenSSL and zlib headers are
+        # required by the gRPC build that runs before Velox's setup-ubuntu.sh.
         sudo apt-get install -y --no-install-recommends \
           build-essential cmake ninja-build autoconf automake libtool \
-          pkg-config curl ca-certificates xz-utils unzip zip patchelf
+          pkg-config curl ca-certificates xz-utils unzip zip patchelf \
+          libssl-dev zlib1g-dev
 
     - name: Install build tools (macOS)
       if: runner.os == 'macOS'
