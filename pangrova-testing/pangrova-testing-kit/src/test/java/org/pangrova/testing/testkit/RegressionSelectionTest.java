@@ -81,7 +81,15 @@ class RegressionSelectionTest {
     void dailyRunsRetainTheirExplicitResourceCategories() throws Exception {
         var project = read(ROOT.resolve("pom.xml"));
         assertThat(value(project, "/project/properties/pangrova.e2e.excludedGroups"))
-                .isEqualTo("routing-integration,native-required,performance");
+                .isEqualTo("routing-integration,native-required,performance,e2e");
+        // The jqwik engine ignores tag filters, so E2E property tests are excluded
+        // by path in the daily build and re-enabled by full regression.
+        assertThat(value(project, "/project/build/pluginManagement/plugins/"
+                + "plugin[artifactId='maven-surefire-plugin']/configuration/excludes/exclude[2]"))
+                .isEqualTo("${pangrova.e2e.excludedClasses}");
+        assertThat(value(project, "/project/properties/pangrova.e2e.excludedClasses"))
+                .isEqualTo("**/e2e/**/*PropertyTest.java");
+        assertThat(value(project, PROFILE + "/properties/pangrova.e2e.excludedClasses")).isEqualTo("none");
     }
 
     @Test
