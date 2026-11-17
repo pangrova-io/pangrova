@@ -68,7 +68,7 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           build-essential cmake ninja-build autoconf automake libtool \
           pkg-config curl ca-certificates xz-utils unzip zip patchelf \
-          libssl-dev zlib1g-dev
+          libssl-dev zlib1g-dev ccache
 
     - name: Install build tools (macOS)
       if: runner.os == 'macOS'

@@ -50,6 +50,14 @@ require_source_revision() {
 }
 
 command -v cmake >/dev/null 2>&1 || die "cmake not found"
+CMAKE_LAUNCHER_FLAGS=""
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="${CCACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ccache}"
+  export CCACHE_COMPRESS=1
+  export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
+  mkdir -p "$CCACHE_DIR"
+  CMAKE_LAUNCHER_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+fi
 # Reject a package-manager cmake shim that has no Modules directory, and keep
 # the working binary ahead of anything the Velox dependency setup adds.
 PANGROVA_CMAKE_BIN="$(command -v cmake)"
@@ -157,7 +165,7 @@ configure_asan_velox() {
   # Release + -O1/-g1 keeps the monolithic archive small enough for a hosted
   # runner while retaining symbolized ASan stacks.  Full -g makes libvelox.a
   # several gigabytes and exhausts the runner before Pangrova can link.
-  cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja \
+  cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$ASAN_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
     -DPANGROVA_FUNCTION_SELECTION_DECLARATION="$ASAN_SCRIPT_DIR/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json" \
     -DPANGROVA_FUNCTION_SDK_PATCH_FILE="$ASAN_SCRIPT_DIR/../patches/velox-function-metadata-snapshot.patch" \

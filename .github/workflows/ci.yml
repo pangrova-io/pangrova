@@ -73,6 +73,14 @@ jobs:
           restore-keys: |
             pangrova-native-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache compiler results
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
+          restore-keys: |
+            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install and verify the native toolchain
         uses: ./.github/actions/setup-native-build
 
@@ -90,6 +98,10 @@ jobs:
 
       - name: CMake build
         run: cmake --build build --target all
+        working-directory: pangrova-worker-native
+
+      - name: Report compiler cache usage
+        run: ccache --show-stats || true
         working-directory: pangrova-worker-native
 
       - name: Enforce native layout and JNI boundary
@@ -434,6 +446,14 @@ jobs:
             ~/.pangrova/velox/_build/asan-ci/_deps
             ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
           key: pangrova-native-asan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
+
+      - name: Cache compiler results
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
+          restore-keys: |
+            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install and verify the native toolchain
         uses: ./.github/actions/setup-native-build

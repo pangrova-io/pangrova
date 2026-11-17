@@ -202,6 +202,8 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('/usr/include/openssl/ssl.h', bootstrap)
         self.assertIn('/usr/include/zlib.h', bootstrap)
         self.assertIn('PANGROVA_CMAKE_BIN', bootstrap)
+        self.assertIn('CMAKE_LAUNCHER_FLAGS', bootstrap)
+        self.assertIn('ccache', action)
         asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
         self.assertIn('PANGROVA_CMAKE_BIN', asan)
         self.assertIn('20 GB', action)
@@ -210,6 +212,7 @@ class StructuralPolicyTest(unittest.TestCase):
             # A whole Velox tree exceeds the 10 GB repository cache limit and a
             # cold build exceeds the runner disk; cache only the install prefixes.
             self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
+            self.assertIn('~/.cache/ccache', workflow, workflow_name)
             self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
         for workflow_name in ('ci.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()

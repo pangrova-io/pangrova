@@ -144,7 +144,17 @@ verify_build_tools() {
   else
     die "Unsupported OS: $OS"
   fi
-  command -v ccache >/dev/null 2>&1 || step "ccache not installed (optional)"
+  if command -v ccache >/dev/null 2>&1; then
+    export CCACHE_DIR="${CCACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ccache}"
+    export CCACHE_COMPRESS=1
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
+    mkdir -p "$CCACHE_DIR"
+    CMAKE_LAUNCHER_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    step "ccache enabled at $CCACHE_DIR (max $CCACHE_MAXSIZE)"
+  else
+    CMAKE_LAUNCHER_FLAGS=""
+    step "ccache not installed (optional)"
+  fi
 }
 
 configure_compiler() {
@@ -483,7 +493,7 @@ build_velox() {
     velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$PANGROVA_HOME/homebrew/opt/flex/include")
     velox_prefix_path+=";$PANGROVA_HOME/homebrew"
   fi
-  cmake -B _build/release -GNinja \
+  cmake -B _build/release -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
     -DPANGROVA_FUNCTION_SELECTION_DECLARATION="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json" \
     -DPANGROVA_FUNCTION_SDK_PATCH_FILE="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-function-metadata-snapshot.patch" \

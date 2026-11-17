@@ -79,6 +79,9 @@ organizations with the same dependency stack usually add one or more of:
 - Published per-platform Native artifacts consumed by Java jobs, keeping C++
   compilation out of the test path.
 - `ccache` or remote build caching keyed by compiler, flags and source hash.
+  The repository enables `ccache` when it is installed and caches the compiler
+  results between runs, which keeps repeated CI builds practical without caching
+  the multi-gigabyte object tree itself.
 - Larger runners with more disk for cold builds.
 
 These reduce cost but add artifact publication and trust requirements. The
