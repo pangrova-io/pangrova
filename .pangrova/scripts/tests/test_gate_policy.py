@@ -196,6 +196,11 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('autoconf', action)
         self.assertIn('llvm', action)
         self.assertIn('Free runner disk space', action)
+        self.assertIn('libssl-dev', action)
+        self.assertIn('zlib1g-dev', action)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn('/usr/include/openssl/ssl.h', bootstrap)
+        self.assertIn('/usr/include/zlib.h', bootstrap)
         self.assertIn('20 GB', action)
         for workflow_name in ('ci.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
