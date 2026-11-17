@@ -461,6 +461,10 @@ jobs:
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
 
+      - name: Verify the sanitizer dependency contract
+        if: matrix.sanitizer.name == 'asan'
+        run: ./pangrova-worker-native/bin/setup-native-asan-env.sh --check-tools
+
       - name: Build instrumented Velox, Protobuf, Abseil, RE2, gRPC and Flight
         if: matrix.sanitizer.name == 'asan'
         run: |

@@ -41,6 +41,14 @@ ASAN_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+CHECK_TOOLS=0
+case "${1:-}" in
+  "") ;;
+  --check-tools) CHECK_TOOLS=1 ;;
+  *) printf 'Usage: %s [--check-tools]\n' "$0" >&2; exit 2 ;;
+esac
+[[ "$#" -le 1 ]] || { printf 'Usage: %s [--check-tools]\n' "$0" >&2; exit 2; }
+
 require_source_revision() {
   local source="$1" revision="$2" actual expected
   actual="$(git -C "$source" rev-parse --verify HEAD)" || die "Dependency checkout missing: $source"
@@ -77,6 +85,10 @@ require_source_revision "$ABSEIL_SOURCE" "${ABSEIL_VERSION:-20240116.2}"
 require_source_revision "$PROTOBUF_SOURCE" "${PROTOBUF_VERSION:-v25.3}"
 require_source_revision "$RE2_SOURCE" "${RE2_VERSION:-2024-07-02}"
 require_source_revision "$GRPC_SOURCE" "${GRPC_VERSION:-v1.65.0}"
+if [[ "$CHECK_TOOLS" == 1 ]]; then
+  printf 'ASan dependency toolchain and sources verified\n'
+  exit 0
+fi
 bash "$(dirname "${BASH_SOURCE[0]}")/apply-velox-patches.sh" apply "$VELOX_HOME"
 
 mkdir -p "$ASAN_PREFIX"

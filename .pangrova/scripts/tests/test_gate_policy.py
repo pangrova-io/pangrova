@@ -206,6 +206,9 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('ccache', action)
         asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
         self.assertIn('PANGROVA_CMAKE_BIN', asan)
+        self.assertIn('--check-tools', asan)
+        self.assertIn('setup-native-asan-env.sh --check-tools',
+                      (ROOT / '.github/workflows/ci.yml').read_text())
         self.assertIn('20 GB', action)
         for workflow_name in ('ci.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
