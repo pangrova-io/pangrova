@@ -201,6 +201,9 @@ class StructuralPolicyTest(unittest.TestCase):
         bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
         self.assertIn('/usr/include/openssl/ssl.h', bootstrap)
         self.assertIn('/usr/include/zlib.h', bootstrap)
+        self.assertIn('PANGROVA_CMAKE_BIN', bootstrap)
+        asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
+        self.assertIn('PANGROVA_CMAKE_BIN', asan)
         self.assertIn('20 GB', action)
         for workflow_name in ('ci.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()

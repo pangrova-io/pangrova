@@ -37,6 +37,12 @@ require_source_revision() {
 }
 
 command -v cmake >/dev/null 2>&1 || die "cmake not found"
+# Reject a package-manager cmake shim that has no Modules directory, and keep
+# the working binary ahead of anything the Velox dependency setup adds.
+PANGROVA_CMAKE_BIN="$(command -v cmake)"
+"$PANGROVA_CMAKE_BIN" --version >/dev/null 2>&1 \
+  || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
+export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
 [[ -f "$ABSEIL_SOURCE/CMakeLists.txt" ]] || \
   die "Abseil source missing; run setup-native-build-env.sh first"

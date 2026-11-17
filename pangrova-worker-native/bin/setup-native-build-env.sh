@@ -94,6 +94,12 @@ check_prerequisites() {
   for cmd in cmake ninja git cargo rustc; do
     command -v "$cmd" >/dev/null 2>&1 || die "$cmd not found. Install it first."
   done
+  # A package-manager-installed cmake can be a shim without its Modules
+  # directory. Validate and remember the working binary; the setup scripts may
+  # later put such a shim earlier on PATH.
+  PANGROVA_CMAKE_BIN="$(command -v cmake)"
+  "$PANGROVA_CMAKE_BIN" --version >/dev/null 2>&1 \
+    || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
   if [[ "$OS" == "Darwin" ]]; then
     xcode-select -p >/dev/null 2>&1 || die "Xcode CLT required. Run: xcode-select --install"
     command -v brew >/dev/null 2>&1 \
@@ -423,6 +429,7 @@ build_velox() {
   fi
 
   ensure_folly_compiler_abi
+  export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
 
   # ===========================================================================
   # Velox CMake configuration
