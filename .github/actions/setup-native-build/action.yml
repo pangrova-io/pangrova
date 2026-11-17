@@ -30,7 +30,11 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        sudo rm -rf ~/Library/Android/sdk /usr/local/share/dotnet ~/.gradle/caches || true
+        # Simulator runtimes and Android toolchains are several GB and are not
+        # used by a C++ build; a cold Velox tree needs the space instead.
+        sudo rm -rf ~/Library/Android/sdk ~/Library/Developer/CoreSimulator \
+          /Library/Developer/CoreSimulator ~/Library/Developer/Xcode/DerivedData \
+          /usr/local/share/dotnet ~/.gradle/caches || true
         df -h /
 
     - name: Install build tools (Linux)
