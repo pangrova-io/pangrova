@@ -67,7 +67,8 @@ jobs:
         with:
           path: |
             ~/.pangrova/native-deps
-            ~/.pangrova/velox
+            ~/.pangrova/velox/deps-install
+            ~/.pangrova/velox/archive-cache
           key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
           restore-keys: |
             pangrova-native-${{ runner.os }}-${{ runner.arch }}-
@@ -416,7 +417,8 @@ jobs:
         with:
           path: |
             ~/.pangrova/native-deps
-            ~/.pangrova/velox
+            ~/.pangrova/velox/deps-install
+            ~/.pangrova/velox/archive-cache
           key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
           restore-keys: |
             pangrova-native-${{ runner.os }}-${{ runner.arch }}-

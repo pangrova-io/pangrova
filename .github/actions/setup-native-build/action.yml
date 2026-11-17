@@ -15,6 +15,24 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Free runner disk space (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # A standard Ubuntu runner has about 14 GB free; a cold dependency plus
+        # Velox build needs roughly 30 GB. Remove preinstalled toolchains this
+        # build never uses before downloading anything.
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup           /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+        sudo docker image prune --all --force >/dev/null 2>&1 || true
+        df -h /
+
+    - name: Free runner disk space (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        sudo rm -rf ~/Library/Android/sdk /usr/local/share/dotnet ~/.gradle/caches || true
+        df -h /
+
     - name: Install build tools (Linux)
       if: runner.os == 'Linux'
       shell: bash
@@ -77,12 +95,12 @@ runs:
     - name: Verify free disk for a cold Velox build
       shell: bash
       run: |
-        # A cold dependency + Velox build plus its archives needs roughly 10 GB.
+        # A cold dependency + Velox build plus its archives needs roughly 30 GB.
         available_kb=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
         available_gb=$((available_kb / 1024 / 1024))
         echo "Free disk on the runner: ${available_gb} GB"
-        if [[ "$available_gb" -lt 5 ]]; then
-          echo "ERROR: a native dependency build needs at least 5 GB free" >&2
+        if [[ "$available_gb" -lt 20 ]]; then
+          echo "ERROR: a cold native dependency and Velox build needs at least 20 GB free" >&2
           exit 1
         fi
 

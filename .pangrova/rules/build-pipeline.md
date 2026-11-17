@@ -22,6 +22,14 @@ autotools, bison, flex, ccache, llvm) and then runs `--check-tools`, so a missin
 tool fails fast with its name. Velox and Rust pins resolve upstream
 (`v2026.04.17.00`, Rust 1.98.1); bump both together with the script.
 
+A cold dependency and Velox tree is about 30 GB, so CI frees preinstalled
+toolchains on standard runners before building and caches only
+`~/.pangrova/native-deps`, `~/.pangrova/velox/deps-install` and
+`~/.pangrova/velox/archive-cache`. The whole `~/.pangrova/velox` tree must not be
+cached: it exceeds the repository cache limit, and a restored cache must never
+contain partial dependency checkouts (the setup script verifies each pinned
+revision).
+
 On a clean machine, publish the patched Iceberg JDBC catalog candidate before Maven.
 It needs JDK 17 and Gradle 8.14.4 (`GRADLE_BIN` if not on `PATH`), verifies archive
 and patch checksums, and must not be replaced by the unpatched upstream 1.11.0:

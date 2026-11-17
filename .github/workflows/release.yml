@@ -78,7 +78,8 @@ jobs:
         with:
           path: |
             ~/.pangrova/native-deps
-            ~/.pangrova/velox
+            ~/.pangrova/velox/deps-install
+            ~/.pangrova/velox/archive-cache
           key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
       - name: Setup native build environment (macOS)

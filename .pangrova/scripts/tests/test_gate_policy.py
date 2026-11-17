@@ -195,6 +195,14 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('rustup', action)
         self.assertIn('autoconf', action)
         self.assertIn('llvm', action)
+        self.assertIn('Free runner disk space', action)
+        self.assertIn('20 GB', action)
+        for workflow_name in ('ci.yml', 'release.yml'):
+            workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
+            # A whole Velox tree exceeds the 10 GB repository cache limit and a
+            # cold build exceeds the runner disk; cache only the install prefixes.
+            self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
+            self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
         for workflow_name in ('ci.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
