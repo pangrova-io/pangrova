@@ -59,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * should produce a non-null Calcite {@link SqlNode} without throwing "unsupported" exceptions.</p>
  */
 @Tag("Feature: full-pipeline-audit-fix")
-@Tag("Property 2: AST → SqlNode 映射完整性")
+@Tag("Property 2: AST → SqlNode mapping completeness")
 class AstToSqlNodeConverterPropertyTest {
 
     private final AstToSqlNodeConverter converter = new AstToSqlNodeConverter();

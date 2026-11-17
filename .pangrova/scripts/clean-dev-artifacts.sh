@@ -95,6 +95,13 @@ remove_find -name '__pycache__' -type d
 # Retired non-published documentation location.
 remove_path docs/internal
 
+# A module directory holding nothing but target/ is output left by a deleted module.
+while IFS= read -r -d '' output; do
+  module="${output%/target}"
+  [ -f "$module/pom.xml" ] && continue
+  [ "$(ls -A "$module")" = "target" ] && remove_path "$module"
+done < <(find . -mindepth 2 -maxdepth 3 -path './pangrova-*' -type d -name target -print0 2>/dev/null)
+
 if [ "$ALL" -eq 1 ]; then
   remove_build_outputs
   remove_path pangrova-worker-native/deps-download

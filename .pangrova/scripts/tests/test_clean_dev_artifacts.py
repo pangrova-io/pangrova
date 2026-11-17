@@ -32,6 +32,23 @@ class CleanDevArtifactsTest(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertFalse(native.exists())
 
+    def test_default_removes_only_output_of_deleted_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            retired = root / "pangrova-family/pangrova-family-core"
+            (retired / "target/classes").mkdir(parents=True)
+            active = root / "pangrova-family/pangrova-family-api"
+            (active / "target/classes").mkdir(parents=True)
+            (active / "pom.xml").touch()
+            cargo = root / "pangrova-worker-native/lance-ffi"
+            (cargo / "target/release").mkdir(parents=True)
+            (cargo / "Cargo.toml").touch()
+            subprocess.run(["bash", str(SCRIPT), "--quiet"], cwd=root, check=True)
+            self.assertFalse(retired.exists())
+            self.assertTrue((active / "target/classes").is_dir())
+            self.assertTrue((cargo / "target/release").is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()

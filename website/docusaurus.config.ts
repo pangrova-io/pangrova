@@ -51,7 +51,7 @@ const config: Config = {
   themes: [
     '@docusaurus/theme-mermaid',
     [
-      require.resolve('@easyops-cn/docusaurus-search-local'),
+      '@easyops-cn/docusaurus-search-local',
       {
         hashed: true,
         language: ['en'],

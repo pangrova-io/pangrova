@@ -86,7 +86,6 @@ Roadmap material lives in the [public roadmap](../getting-started/roadmap.md).
 | [JNI Runtime](./jni-runtime.md) | Protocol boundary contract, memory ownership, known issues |
 | [Dynamic Filter Lifecycle](./dynamic-filtering.md) | Dynamic filter state machine and lifecycle |
 | [Domain Modularization ADR](./domain-modularization-adr.md) | Accepted domain contract, implementation, and assembly decisions |
-| [Module Refactor Ledger](./modularization-dispositions.md) | Verified class ownership, production calls, transactions, and remaining acceptance items |
 | [Configuration Reference](../configuration/reference.md) | Full configuration-key reference |
 
 ### Operations & Contributing

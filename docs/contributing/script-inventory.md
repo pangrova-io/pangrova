@@ -5,27 +5,19 @@ description: "Retention and consolidation review of repository Shell and Python 
 
 # Script Inventory
 
-Review date: 2026-11-08. Scope: all 138 tracked `.sh` / `.py` files in the current
-checkout (50 Shell, 88 Python), including imported modules, sourced templates,
-manual tools and tests. The original 2026-10-24 review covered 127 files; four
-unused/redundant Shell entry points were removed, and later feature work added
-files outside that snapshot. Entries below retain the original per-file review.
-
-Every entry was classified using file contents, imports, repository references,
-CI/build wiring and test discovery. Reference evidence is not a runtime execution
-proof. All files received syntax checks; relevant tooling suites were run, not
-all deployments, native builds, performance campaigns or fault injections.
-See [repository guide](repository-guide.md) for replacement commands and merge criteria.
+This page classifies every tracked `.sh` and `.py` file outside `website/` by its
+consumer: CI or build wiring, another script, test discovery, or documentation.
+Reference evidence is not runtime execution proof. See the
+[repository guide](repository-guide.md) for replacement commands and merge criteria.
 
 **Keep** means a distinct consumer or responsibility exists. **Manual** means an
 intentional operator/diagnostic entry point, not an automatically enforced CI gate.
 **Merge candidate** retains the current public entry point until its shared
-implementation can be verified. **Removed** records a completed consolidation.
+implementation can be verified.
 
 ## Repository tooling
 
-Module baseline tooling was added after the original inventory snapshot. Run
-`.pangrova/scripts/generate-module-baseline.py` to regenerate source facts and
+Run `.pangrova/scripts/generate-module-baseline.py` to regenerate source facts and
 `.pangrova/scripts/check-module-manifest.sh` to check freshness and ownership.
 Both require Python and JDK 17 (`JAVA_HOME`, or `java` on `PATH`). The generator
 source-launches Testing Kit's `JavaSourceReferences.java`, so no prior Maven build
@@ -41,11 +33,6 @@ POM scope. Profile-only, plugin and external dependencies require the effective 
 model for the build being audited. The package graph includes resource JARs as
 nodes without Java packages. Graph export leaves the tracked baseline untouched.
 
-Run `.pangrova/scripts/export-class-inventory.py --base <commit> --output target/architecture/class-dispositions.tsv`
-to compare production Java top-level and member type identities in that commit with the working tree, including
-new untracked sources. The JDK parser reports named member types and additional top-level types in the same file. Same-name candidates require review against callers, wiring and
-resource ownership. Review those candidates against the real declarations and lifecycle.
-
 | File | Decision | Purpose | Consumer or discovery evidence |
 |---|---|---|---|
 | `.pangrova/scripts/build-iceberg-sdk-candidate.sh` | Keep | Build and verify the pinned patched Iceberg SDK in Maven Local. | `.github/actions/setup-iceberg-sdk/action.yml`; `.pangrova/scripts/ci_change_scope.py` |
@@ -53,22 +40,36 @@ resource ownership. Review those candidates against the real declarations and li
 | `.pangrova/scripts/clean-dev-artifacts.sh` | Keep | Remove ephemeral Java/Python/test caches; `--all` also removes build outputs; never touches runtime state or user plans. | `AGENTS.md`; `.pangrova/rules/development.md` |
 | `.pangrova/scripts/check-doc-class-refs.sh` | Keep | Verify class names referenced in docs/architecture/*.md actually exist in the codebase. Catches documentation drift where docs reference renamed or deleted classes. Heuristic: extracts backtick-quoted PascalCase identifiers from architectur | `.github/workflows/ci.yml`; `.pangrova/rules/ci-gates.md` |
 | `.pangrova/scripts/check-e2e-truthfulness.sh` | Keep | Reject known misleading E2E patterns; heuristic rather than runtime proof. | `.github/workflows/ci.yml`; `pangrova-testing/pangrova-testing-kit/src/test/java/org/pangrova/testing/testkit/E2eTruthfulnessGateTest.java` |
-| `.pangrova/scripts/check-environment-specific-info.sh` | Keep | Reject contributor-machine paths from active repository files. Standard deployment paths, generated artifacts, and version-control metadata are intentionally outside this gate. Usage: check-environment-specific-info.sh              scan the | `.github/workflows/ci.yml`; `docs/contributing/quality-gate-audit-data.json` |
+| `.pangrova/scripts/check-environment-specific-info.sh` | Keep | Reject contributor-machine paths from active repository files. Standard deployment paths, generated artifacts, and version-control metadata are intentionally outside this gate. Usage: check-environment-specific-info.sh              scan the | `.github/workflows/ci.yml` |
+| `.pangrova/scripts/check-module-manifest.sh` | Keep | Verify that the committed module baseline matches the reactor and every artifact has an ownership entry. | `.github/workflows/ci.yml`; `.pangrova/rules/ci-gates.md` |
+| `.pangrova/scripts/check-native-boundaries.sh` | Keep | Enforce the Native source layout, JNI boundary and recorded capability seams. | `.github/workflows/ci.yml` (Native job); `.pangrova/rules/architecture.md` |
+| `.pangrova/scripts/check-native-includes.py` | Keep | Resolve literal source-local C/C++ includes, reject file cycles and report component edges. | `.pangrova/scripts/check-native-boundaries.sh`; `.pangrova/rules/architecture.md` |
 | `.pangrova/scripts/check-spi-annotations.sh` | Keep | Enforces that all public top-level interfaces and abstract classes under every manifest-declared -api/-spi contract artifact are annotated with one of: @Stable, @Experimental, or @Internal. This guards the contract surface: any new interface added with | `.github/workflows/ci.yml`; `.pangrova/scripts/.spi-annotation-baseline.txt` |
-| `.pangrova/scripts/check-spi-stability.sh` | Manual | Enforces that @Stable-annotated SPI interfaces have at least one implementation in the main source tree (production code). An SPI marked @Stable with zero implementors is aspirational — it promises contract stability but has never been prov | `.pangrova/rules/ci-gates.md`; `docs/contributing/quality-gate-audit-data.json` |
+| `.pangrova/scripts/check-spi-stability.sh` | Manual | Enforces that @Stable-annotated SPI interfaces have at least one implementation in the main source tree (production code). An SPI marked @Stable with zero implementors is aspirational — it promises contract stability but has never been prov | `.pangrova/rules/ci-gates.md` |
 | `.pangrova/scripts/ci_change_scope.py` | Keep | Select PR validation; pushes and release calls retain full correctness checks. | `.github/workflows/ci.yml`; `.pangrova/scripts/tests/test_gate_policy.py` |
 | `.pangrova/scripts/detect-dead-stubs.sh` | Keep | CI Dead-Stub Detection Script Scans production Java code for stub methods that: 1. Only log "not implemented" warnings 2. Only throw UnsupportedOperationException (bare or with generic message) Distinguishes TRUE STUBS from: - Guard clauses | `.github/workflows/ci.yml`; `.pangrova/scripts/tests/test_stub_detection.py` |
-| `.pangrova/scripts/jni-symbol-symmetry.sh` | Manual | Verify that the packaged pangrova_native library exports only JNI entry points and that every Java native declaration has exactly one exported short JNI name. | `.pangrova/rules/ci-gates.md` |
+| `.pangrova/scripts/generate-module-baseline.py` | Keep | Regenerate `.pangrova/module-baseline.yaml` and optional Graphviz dependency graphs. | `.pangrova/scripts/check-module-manifest.sh`; `.pangrova/rules/architecture.md` |
+| `.pangrova/scripts/jni-symbol-symmetry.sh` | Keep | Verify that the packaged pangrova_native library exports only JNI entry points and that every Java native declaration has exactly one exported short JNI name. | `.github/workflows/ci.yml` (Native job); `.pangrova/rules/ci-gates.md` |
 | `.pangrova/scripts/prepare-e2e-ai-image.py` | Keep | Build a real, immutable Ollama fixture before tests; tests never download models. | `.github/workflows/ci.yml`; `.pangrova/scripts/tests/test_ai_fixture.py` |
 | `.pangrova/scripts/prepare-lineage-test-image.py` | Keep | Prepare the pinned, unchanged Marquez application on a native Java 17 runtime for reference-backend HTTP tests. | `docs/architecture/query-lineage.md`; `.pangrova/scripts/tests/test_lineage_fixture.py` |
-| `.pangrova/scripts/proto-descriptor-diff.sh` | Keep | Proto descriptor diff gate (Task 28.2). Generates one FileDescriptorSet from the canonical process/JNI schemas in pangrova-protocol. Maven and CMake consume this same tree; a second "native" descriptor would recreate the ownership split thi | `.github/workflows/ci.yml`; `.pangrova/scripts/tests/proto-descriptor-diff-clean-repository-test.sh` |
+| `.pangrova/scripts/proto-descriptor-diff.sh` | Keep | Proto descriptor diff gate. Generates one FileDescriptorSet from the canonical process/JNI schemas in pangrova-protocol. Maven and CMake consume this same tree; a second "native" descriptor would recreate the ownership split thi | `.github/workflows/ci.yml`; `.pangrova/scripts/tests/proto-descriptor-diff-clean-repository-test.sh` |
 | `.pangrova/scripts/stage-production-regression-native.sh` | Keep | Stage the exact runtime JAR inventory and canonical JNI from one immutable production image. | `.github/workflows/ci.yml`; `.pangrova/scripts/ci_change_scope.py` |
-| `.pangrova/scripts/tests/checkstyle-boundaries-test.py` | Keep | Exercise real Checkstyle with allowed and rejected structural boundary fixtures. | `.github/workflows/ci.yml`; `docs/contributing/quality-gate-audit.md` |
+| `.pangrova/scripts/tests/checkstyle-boundaries-test.py` | Keep | Exercise real Checkstyle with allowed and rejected structural boundary fixtures. | `.github/workflows/ci.yml` |
 | `.pangrova/scripts/tests/proto-descriptor-diff-clean-repository-test.sh` | Manual | Manual cold-cache test of descriptor-tool bootstrapping; needs Maven/network. | Manual diagnostic entry point; not wired into default CI. |
 | `.pangrova/scripts/tests/spotbugs-immutable-filter-test.py` | Manual | Verify narrow evidence-backed classifications with the pinned SpotBugs Filter API. | Manual diagnostic entry point; not wired into default CI. |
 | `.pangrova/scripts/tests/test_ai_fixture.py` | Keep | Actual model artifact integrity and CI prerequisite ordering contracts. | `unittest discover` in CI / owning test directory. |
+| `.pangrova/scripts/tests/test_clean_dev_artifacts.py` | Keep | Cleanup preserves sources and removes only build output and retired-module leftovers. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_doc_class_refs.py` | Keep | Regression tests for the documentation class-reference gate. | `unittest discover` in `.github/workflows/ci.yml` |
 | `.pangrova/scripts/tests/test_gate_policy.py` | Keep | Regression tests for validation selection, preserved checks and release wiring. | `unittest discover` in CI / owning test directory. |
+| `.pangrova/scripts/tests/test_lance_ffi_provenance.py` | Keep | Exercise the Lance FFI provenance binding against real archive and header inputs. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_lineage_fixture.py` | Keep | Reject missing or substituted lineage reference-backend artifacts before image creation. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_module_manifest.py` | Keep | POM discovery, shared AST source facts and fail-closed manifest gates. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_native_include_graph.py` | Keep | Include cycles and forbidden Native component edges. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_native_sanitizer_probe.py` | Keep | RE2 sanitizer probe child environment and failure propagation. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_runtime_classpath.py` | Keep | Launchers select the actual role closure without scanning unrelated JARs. | `unittest discover` in `.github/workflows/ci.yml` |
+| `.pangrova/scripts/tests/test_spi_contract_gates.py` | Keep | Domain API artifacts are covered by both SPI contract gates. | `unittest discover` in `.github/workflows/ci.yml` |
 | `.pangrova/scripts/tests/test_stub_detection.py` | Keep | Preserve stub findings while avoiding ignored dependency/build tree scans. | `unittest discover` in CI / owning test directory. |
+| `.pangrova/scripts/tests/test_velox_atomic_link.py` | Keep | Apply the SDK portability patch and execute its platform selection. | `unittest discover` in `.github/workflows/ci.yml` |
 | `.pangrova/setup.sh` | Keep | Verify the canonical repository instructions without creating tool adapters. | `.github/workflows/ci.yml`; `.pangrova/scripts/ci_change_scope.py` |
 
 ## Process and operator commands
@@ -76,12 +77,14 @@ resource ownership. Review those candidates against the real declarations and li
 | File | Decision | Purpose | Consumer or discovery evidence |
 |---|---|---|---|
 | `bin/pangrova-catalog.sh` | Keep | Inspect local catalog templates and call catalog management APIs. | `bin/pangrova.sh`; `docs/getting-started/catalogs/catalog-management.md` |
+| `bin/pangrova-classpath.sh` | Keep | Shared, sourced launcher classpath resolution; never evaluates build output. | `bin/pangrova-coordinator.sh`; `bin/pangrova-standalone.sh`; `.pangrova/scripts/tests/test_runtime_classpath.py` |
 | `bin/pangrova-cli.sh` | Keep | Start the Java SQL client with client-specific arguments and classpath. | `README.md`; `bin/pangrova.sh` |
 | `bin/pangrova-cluster-status.sh` | Keep | Report Coordinator cluster status for operators. | `README.md`; `bin/pangrova.sh` |
 | `bin/pangrova-container-health.sh` | Keep | Container liveness probe with role and port selection. | `deploy/docker/Dockerfile` |
 | `bin/pangrova-coordinator.sh` | Merge candidate | Launch Coordinator with role-specific main class, JVM defaults and PID ownership. | `README.md`; `bin/pangrova.sh` |
 | `bin/pangrova-health-check.sh` | Keep | Interactive HTTP/HTTPS health probe, also used by rolling upgrades. | `README.md`; `bin/pangrova-rolling-upgrade.sh` |
 | `bin/pangrova-rolling-upgrade.sh` | Keep | Reference SSH-based rolling upgrade orchestration. | `bin/pangrova.sh`; `docs/configuration/operations.md` |
+| `bin/pangrova-shuffle.sh` | Keep | Start the durable shuffle service. | `deploy/helm/pangrova/templates/shuffle-statefulset.yaml`; `docs/configuration/reference.md` |
 | `bin/pangrova-standalone.sh` | Merge candidate | Launch the combined Coordinator/Worker JVM with standalone configuration. | `README.md`; `bin/pangrova.sh` |
 | `bin/pangrova-stop.sh` | Keep | Stop the explicitly selected role using its owned PID file. | `README.md`; `bin/pangrova-rolling-upgrade.sh` |
 | `bin/pangrova-worker.sh` | Merge candidate | Launch Worker with role-specific main class, direct-memory defaults and PID ownership. | `README.md`; `bin/pangrova.sh` |
@@ -93,6 +96,7 @@ resource ownership. Review those candidates against the real declarations and li
 |---|---|---|---|
 | `deploy/docker/build-static-curl.sh` | Keep | Build the pinned static curl dependency for the native Docker image. | `deploy/docker/Dockerfile.native-build` |
 | `deploy/docker/build-static-libunwind.sh` | Keep | Build the pinned libunwind archives as PIC for the production JNI library. Ubuntu's static libunwind is built with non-PIC LTO and cannot be linked into an AArch64 shared object (R_AARCH64_ADR_PREL_PG_HI21 on __stack_chk_guard). | `deploy/docker/Dockerfile.native-build` |
+| `deploy/docker/stage-role-classpaths.py` | Keep | Stage each packaged role's resolved runtime classpath in launch order. | `deploy/docker/Dockerfile`; `.pangrova/scripts/tests/test_runtime_classpath.py` |
 | `deploy/docker/verify-native-source.sh` | Keep | Compare source, not a caller-provided tag: Java and JNI must share one checkout. | `deploy/docker/Dockerfile` |
 | `deploy/helm/pangrova/tests/test-namespace-isolation.sh` | Manual | Pangrova Helm Chart — Namespace Isolation Verification Test This script deploys the Pangrova Helm chart with multi-tenancy enabled and verifies that: 1. Per-tenant namespaces are created 2. Resource quotas are applied per namespace 3. Netwo | `docs/deployment/helm-kubernetes.md` |
 | `docs/operations/game-day/tools/measure-recovery-time.sh` | Manual | measure-recovery-time.sh — Recovery time measurement tool for Pangrova game days. Measures the time between fault injection and service recovery by continuously probing an endpoint and recording success/failure timestamps. Usage: ./measure- | `docs/operations/game-day/index.md`; `docs/operations/game-day/scenarios/gd-001-coordinator-failover.md` |
@@ -139,8 +143,6 @@ resource ownership. Review those candidates against the real declarations and li
 |---|---|---|---|
 | `pangrova-testing/pangrova-testing-benchmark/scripts/calibrate_tpc_tail.py` | Keep | Explicitly calibrate genuine complete CLI tail evidence and its controlled context. | `pangrova-testing/pangrova-testing-benchmark/baseline/README.md`; `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_tpc_tail_calibration.py` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/csv-to-parquet.py` | Keep | Convert complete generator output into a validated, bounded-memory dataset. | `pangrova-testing/pangrova-testing-benchmark/scripts/generate_tpc_data.py`; `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_tpc_data.py` |
-| `pangrova-testing/pangrova-testing-benchmark/scripts/generate-monthly-report.sh` | Removed | Removed duplicate report orchestration; use tpch-regression-check.sh with explicit evidence. | No repository caller at review start; replacement documented in the guide. |
-| `pangrova-testing/pangrova-testing-benchmark/scripts/generate-tpc-data.sh` | Removed | Removed unused forwarding alias; call generate_tpc_data.py. | No repository caller at review start; replacement documented in the guide. |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/generate_tpc_data.py` | Keep | Generate TPC-derived engineering data with pinned tools and explicit failure ownership. | `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py`; `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_tpc_data.py` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/integration/test_persistent_transport.py` | Keep | Production client against local HTTP + real Flight transport fixtures; no engine calibration. | `.github/workflows/ci.yml` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh` | Keep | Compare complete matching JMH runs. Missing calibration is an error, never a pass. Returns separate pass, regression and invalid-input statuses. | `.github/workflows/ci.yml`; `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_jmh_regression.py` |
@@ -152,8 +154,9 @@ resource ownership. Review those candidates against the real declarations and li
 | `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_benchmark.py` | Keep | Run TPC query workloads via the batch CLI; no claim of certified TPC scores. | `pangrova-testing/pangrova-testing-benchmark/scripts/run-tpc-benchmark.sh`; `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py` | Keep | Dedicated-host job: verified datasets, owned cluster, complete windows and comparison. | `.github/workflows/nightly-tpc-benchmark.yml` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_suite.py` | Keep | Execute complete, explicitly stepped TPC-derived suites through persistent clients. | `pangrova-testing/pangrova-testing-benchmark/scripts/run-tpc-suite.sh`; `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py` |
-| `pangrova-testing/pangrova-testing-benchmark/scripts/start-benchmark-cluster.sh` | Removed | Removed unused forwarding alias; call tpc_cluster.py start. | No repository caller at review start; replacement documented in the guide. |
-| `pangrova-testing/pangrova-testing-benchmark/scripts/stop-benchmark-cluster.sh` | Removed | Removed unused forwarding alias; call tpc_cluster.py stop. | No repository caller at review start; replacement documented in the guide. |
+| `pangrova-testing/pangrova-testing-benchmark/scripts/sample_sql_role_resources.py` | Manual | Sample macOS role processes launched by `sql_process_comparison.py`. | `docs/testing/speculative-process-e2e.md` |
+| `pangrova-testing/pangrova-testing-benchmark/scripts/shuffle_retention_comparison.py` | Manual | Compare record-credit exhaustion across two shuffle buffer store implementations. | `docs/testing/speculative-process-e2e.md` |
+| `pangrova-testing/pangrova-testing-benchmark/scripts/sql_process_comparison.py` | Manual | Run one process-isolated SQL benchmark fork against an installed checkout. | `docs/testing/speculative-process-e2e.md` |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_jmh_regression.py` | Keep | Exercise the real shell/Python gate. Numbers are arithmetic oracles, not benchmarks. | `unittest discover` in CI / owning test directory. |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_tpc_cluster.py` | Keep | Lifecycle ownership tests using a small Docker command collaborator; no engine claims. | `unittest discover` in CI / owning test directory. |
 | `pangrova-testing/pangrova-testing-benchmark/scripts/tests/test_tpc_data.py` | Keep | Real Parquet conversion tests; generated fixtures are never performance evidence. | `unittest discover` in CI / owning test directory. |
@@ -188,6 +191,7 @@ resource ownership. Review those candidates against the real declarations and li
 | File | Decision | Purpose | Consumer or discovery evidence |
 |---|---|---|---|
 | `pangrova-worker-native/bin/apply-velox-patches.sh` | Keep | Apply/verify the sole pinned SDK ownership, selection and Arrow execution patch. | `deploy/docker/Dockerfile.native-build`; `pangrova-worker-native/bin/record-function-provenance.sh` |
+| `pangrova-worker-native/bin/build-darwin-asan-folly.py` | Manual | Build the Darwin ASan Folly dependency with pinned integer-source corrections. | `docs/development/darwin-function-sanitizer.md` |
 | `pangrova-worker-native/bin/build-darwin-asan-runtime.sh` | Manual | Builds a private compiler-rt 17.0.6 runtime. Never installs over the compiler. | `docs/development/darwin-arm64-asan-runtime.md` |
 | `pangrova-worker-native/bin/build-darwin-llvm-function-prefix.py` | Manual | Build a private LLVM 17 SDK with the upstream Mach-O sanitizer prefix fix. | `docs/development/darwin-function-sanitizer.md` |
 | `pangrova-worker-native/bin/build-lance-ffi.sh` | Keep | build-lance-ffi.sh — Build Lance C FFI static library for target platforms Produces liblance_c_ffi.a in lance-ffi target release directory The CMake build (FindLanceCFFI.cmake) auto-detects this location. Usage: ./bin/build-lance-ffi.sh     | `.github/workflows/ci.yml`; `.github/workflows/release.yml` |
@@ -210,4 +214,5 @@ resource ownership. Review those candidates against the real declarations and li
 | `pangrova-worker-native/test/CanonicalRe2PackageTest.py` | Keep | Exercise the real canonical RE2 gate with CMake-generated SDK caches. | `pangrova-worker-native/CMakeLists.txt` |
 | `pangrova-worker-native/test/PatchFlightTypesTest.py` | Keep | Regression tests for PatchFlightTypesTest. | `.github/workflows/ci.yml`; `pangrova-worker-native/CMakeLists.txt` |
 | `pangrova-worker-native/test/RunNativeTestsTest.py` | Keep | Regression tests for RunNativeTestsTest. | `pangrova-worker-native/CMakeLists.txt` |
+
 

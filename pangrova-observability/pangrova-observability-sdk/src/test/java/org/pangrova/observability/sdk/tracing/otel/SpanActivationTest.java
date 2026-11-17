@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
  *
  * <p>The regression case demonstrates the bug being fixed: when the entry span is NOT made current,
  * a nested span detaches into its own root trace — exactly the silent breakage where nested spans
- * "脱挂" and trace ids come back zero.
+ * become orphaned and trace ids come back zero.
  */
 class SpanActivationTest {
 

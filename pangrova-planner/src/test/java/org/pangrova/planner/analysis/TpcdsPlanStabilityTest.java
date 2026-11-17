@@ -38,12 +38,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Every selected query must have a reviewed golden file. Any plan change
  * must be explained and reviewed with the updated golden diff.
  *
- * <p>Coverage today: Q1-Q31 (Q1-Q30 are the first batch, Q31 demonstrates the
- * extension pattern). Remaining Q32-Q99 are tracked as a follow-up — adapting
- * each from the DuckDB reference (deps-download/duckdb/extension/tpcds/dsdgen/
- * queries/NN.sql) requires translating implicit joins to ANSI JOIN syntax and
- * LIMIT -&gt; FETCH FIRST. New queries are picked up automatically the moment
- * {@code qNN.sql} files land in the resources directory.
+ * <p>All 99 query files are present; {@link #queryFiles()} selects Q01-Q31.
+ * Enabling a later query requires raising that bound and reviewing its new
+ * golden plan.
  */
 @Tag("plan-stability")
 class TpcdsPlanStabilityTest {

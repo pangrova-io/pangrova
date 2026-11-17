@@ -1,130 +1,71 @@
 # CI Gates
 
-`.github/workflows/ci.yml` owns execution; `development.md` owns local validation.
-Do not run every gate locally or reread every rule for each task.
+`.github/workflows/ci.yml` owns execution and `.pangrova/scripts/ci_change_scope.py`
+owns PR classification and the Native platform matrix. Do not run every gate locally.
 
 ## Selection
 
-| Change/event | Checks |
+| Change or event | Checks |
 |---|---|
-| Documentation, canonical rules, website, ordinary gate tooling PR | Layout, tooling tests/syntax, environment paths, module manifest, SPI annotations, E2E truthfulness, doc references |
-| Java runtime/tests PR outside JNI/protocol/SPI owners | Above + Linux native, JDK 17/21 filtered tests, static analysis, same-source production full regression |
-| Native, Worker/JNI, protocol/SPI, packaging, build/config or unknown input PR | Above + all four native platforms and ASan/UBSan |
-| Production/dependency/benchmark inputs PR | Above + complete TPC workload/evidence/production-client transport contracts and JMH performance comparison |
-| Protected-branch push or release workflow call | Full correctness chain regardless of diff |
+| Docs, rules, website or ordinary gate tooling PR | Lightweight lint: layout, tooling tests and syntax, environment paths, module manifest, SPI annotations, E2E truthfulness, doc class references, dev artifacts |
+| Java runtime/test PR outside JNI, protocol and SPI owners | Above + Linux Native, JDK 17/21 daily tests, static analysis, same-source production full regression |
+| Native, Worker/JNI, protocol/SPI, packaging, build/config or unknown input PR | Above + all four Native platforms and ASan/UBSan |
+| Production, dependency or benchmark input PR | Above + TPC workload/evidence/transport contracts and JMH comparison |
+| Protected-branch push or release | Full correctness chain regardless of diff |
 
-`.pangrova/scripts/ci_change_scope.py` defines the PR classifier and native platform
-inventory. Runtime and test resources take precedence over Markdown/docs naming. Deleted and renamed
-sources are included; an invalid comparison base fails. Website build/deployment
-remains owned by `deploy-website.yml`. Native tooling conservatively keeps full
-CI unless explicitly classified; local validation still follows actual impact.
+Runtime and test resources take precedence over Markdown naming; deleted and renamed
+paths count; an invalid comparison base fails. Website build and deployment belong to
+`deploy-website.yml`.
 
-`Validation result` is the stable aggregate check. Selected jobs must succeed;
-failures, cancellations, missing scope and unexpectedly skipped jobs fail it.
-Documentation PRs may skip only unselected runtime/performance jobs. Repository
-branch protection must reference this check instead of retired individual jobs;
-workflow files cannot update hosted branch protection.
+`Validation result` is the single required aggregate check: selected jobs must
+succeed, and failures, cancellations, missing scope or unexpected skips fail it. Branch
+protection references this check. Releases call the same workflow at the tag and use
+artifact names distinct from validation artifacts.
 
-Release calls this same workflow at the tag and waits for validation before
-publishing. Release artifacts have distinct names from validation artifacts.
+## Ownership
 
-## Check Ownership
+| Check | Owner | Runs |
+|---|---|---|
+| Module ownership and dependencies | `check-module-manifest.sh`, `ModuleDependencyPropertyTest`, `ModuleBoundaryReferenceTest` | Lint (JDK 17); Maven tests |
+| Package cycles | `PackageDependencyAcyclicityPropertyTest`, `PackageDependencyGraphTest` | Maven tests |
+| SPI annotations | `check-spi-annotations.sh`; baseline entries only shrink | Lint |
+| E2E pattern sanity | `check-e2e-truthfulness.sh` (heuristic) | Lint |
+| Documentation class references | `check-doc-class-refs.sh` (heuristic) | Lint |
+| Dev artifact hygiene | `check-dev-artifacts.sh`; rejects caches and a recreated `docs/internal/` | Lint |
+| Contributor paths | `check-environment-specific-info.sh` | Lint |
+| Instruction layout | `.pangrova/setup.sh --check` | Lint |
+| Proto descriptors | `proto-descriptor-diff.sh` (exact drift, not compatibility proof) | Runtime CI |
+| Stub patterns | `detect-dead-stubs.sh` (heuristic) | Runtime CI |
+| Wiring and reachability | `SpiWiringVerificationTest`, `BootstrapReachabilityTest` | Maven tests |
+| Golden plans | `TpchPlanStabilityTest`, `TpcdsPlanStabilityTest`; review changed goldens | Maven tests |
+| Java structure and bugs | One `verify -Pstatic-analysis` (Checkstyle, SpotBugs/FindSecBugs) | Static analysis job |
+| Native build and tests | Warnings as errors, CTest, `check-native-boundaries.sh`, `jni-symbol-symmetry.sh` | Native jobs |
+| Native memory and UB | ASan, UBSan | Native/boundary/build PRs, pushes, releases |
+| Production execution | Same-source image identity, staged JNI manifest, `native-runtime,full-regression verify`, isolated owner suites | Runtime CI |
 
-| Check | Owner / trigger |
-|---|---|
-| Module ownership and dependency policy | `check-module-manifest.sh` (baseline freshness, artifact declared; unconditional lightweight lint with JDK 17) + `ModuleDependencyPropertyTest` (reactor, main/test AST references, current POMs, exports, providers, baseline) and `ModuleBoundaryReferenceTest` (equivalent reference forms cannot bypass policy); ordinary Maven tests for source/POM changes |
-| Main-source package cycles | `PackageDependencyAcyclicityPropertyTest` (default-reactor AST imports/qualified references, complete SCC check) + `PackageDependencyGraphTest` (discovery, parsing, cycle and diagnostic regressions); ordinary Maven tests, no separate CI job |
-| SPI stability annotation presence | `check-spi-annotations.sh`, once in lightweight lint |
-| Proto descriptor/source ownership | `proto-descriptor-diff.sh`, once for runtime CI; exact drift, not semantic compatibility proof |
-| E2E pattern sanity | `check-e2e-truthfulness.sh`, once in lightweight lint; does not prove all tests are meaningful |
-| Stub patterns | `detect-dead-stubs.sh`, runtime CI; heuristic, not reachability proof |
-| Wiring/reachability | `SpiWiringVerificationTest`, `BootstrapReachabilityTest`, daily/full Maven suites |
-| Golden query plans | `TpchPlanStabilityTest`, `TpcdsPlanStabilityTest`, daily/full Maven suites; changed goldens reviewed in normal PR review |
-| Documentation class references | `check-doc-class-refs.sh`, lightweight docs job; heuristic |
-| Development artifact hygiene | `check-dev-artifacts.sh`, once in lightweight lint; rejects tracked/staged caches and a recreated `docs/internal/` |
-| Java structure and bug patterns | One `verify -Pstatic-analysis`, Checkstyle + SpotBugs/FindSecBugs |
-| Native compilation/tests | Warnings-as-errors + CTest; Linux on runtime PRs, all classifiers for native/boundary/build inputs and protected pushes/releases |
-| Native include dependencies | `check-native-boundaries.sh` rejects file cycles and new directed edges inside cyclic component groups; resolved edges must be removed from the recorded set |
-| Native memory/undefined behavior | ASan + UBSan for native/boundary/build inputs and protected pushes/releases |
-| Production execution | Same-source Bake image, source/image identity, staged JNI/runtime manifest, `native-runtime,full-regression verify` |
+Thresholds: Checkstyle limits are in `code-standards.md`; errors fail and size
+warnings do not. SpotBugs blocks unsuppressed Medium-or-higher-confidence findings.
+Native compiler warnings and sanitizer findings must be zero. `check-spi-stability.sh`
+is an optional local diagnostic and does not replace wiring or loader tests.
 
-The production reactor already runs E2E and `ActivationSmokeE2ETest`; do not run
-both again without a changed input or diagnostic reason. The pre-test reactor
-install remains necessary for independent-process artifact consumers. Daily JDK
-17/21 tests retain their filtered selection and are not full regression. Do not
-add coverage instrumentation to the production or daily runs; `-Pcoverage` stays
-an optional local diagnostic, not a required check.
+The production reactor already runs E2E and activation smoke; the pre-test install
+stays for independent-process consumers. Daily JDK 17/21 runs keep their filtered
+selection and are not full regression. No coverage instrumentation runs in CI.
 
-## Local Commands and Thresholds
+## Retired Checks
 
-```bash
-mvn -q -pl <module> -am verify -Pstatic-analysis
-mvn -q -pl <module> -am verify -Pcoverage   # optional local diagnosis
-```
+Do not recreate removed gates, including fixed dependency-use lists, document-age
+alarms, ADR trailer and rename-ledger checks, package file quotas, regex structure
+scans, changed-line coverage thresholds (`diff-coverage-check.sh`), Codecov uploads,
+standalone ArchUnit jobs, PR checkbox enforcement, reference-only DuckDB fuzzing as a
+PR gate, and tracked Git hook samples. Setup installs no hooks and no commit-message
+gate.
 
-Checkstyle reports file 800, effective method lines 100, complexity 15 and
-parameters 10 as nonblocking review warnings. Errors still fail the Maven gate;
-if/for nesting 3 and try nesting 2 remain errors. SpotBugs blocks unsuppressed
-Medium-or-higher-confidence findings; confidence is not severity. Parent POM and
-`config/` are authoritative. Native tests and applicable E2E/smoke must pass;
-compiler warnings and sanitizer findings must be zero.
+## Performance
 
-Optional diagnostics: `check-spi-stability.sh` checks textual provider evidence;
-`jni-symbol-symmetry.sh` checks native exports. Neither replaces actual wiring,
-loader or ownership tests. SPI annotation baseline updates only remove resolved
-or renamed pre-existing gaps, never hide new unannotated public types.
-
-## Retired Checks and Hooks
-
-Do not recreate retired checks through a blanket local runner:
-
-- Fixed historical dependency-use lists, document age, unused ADR trailers.
-- Historical rename ledgers, package file quotas, duplicate regex structure scans.
-- Changed-line coverage gates, standalone ArchUnit jobs and Codecov uploads. Keep
-  real behavior tests and the optional `-Pcoverage` local report; do not recreate
-  the removed `diff-coverage-check.sh` CI threshold.
-- PR checkbox/N/A enforcement and self-authored plan-approval phrases. Review
-  distributed risks and golden diffs substantively; tests remain authoritative.
-- Reference-only DuckDB execution as a PR engine fuzzer. The SQL generator utility
-  remains manually runnable in `nightly-operator-fuzzer.yml`; it is not differential
-  Pangrova validation and has no automatic nightly schedule.
-- Inactive stock Git hook samples tracked under `hooks/`. Setup validates layout
-  and installs no hook. No mandatory commit-message/language/prefix hook is added.
-
-Audit evidence and remaining limits: `docs/contributing/quality-gate-audit.md`.
-
-## TPC scale performance ownership
-
-PR check ID `tpch-performance` verifies complete derived workloads, real Parquet
-conversion, evidence/comparison rejection paths and the persistent production
-REST client over HTTP/Flight transport fixtures. It does not interpret small SQL
-fixture maxima as P99 or send three-query summaries into the full tail comparator.
-
-`nightly-tpc-benchmark.yml` owns actual exclusive-host SF100/SF1000 engineering
-campaigns, three independent five-round windows and reviewed real baselines.
-Missing dedicated configuration, references, capacity, calibration or cleanup is
-an explicit failed outcome. The unchanged complete-22-query R7/P99 comparator
-remains the separate expensive tail experiment with its 1000-sample floor. No
-fixture or zero-valued baseline qualifies. See `docs/testing/tpc-benchmark-methodology.md`.
-
-## C++ Quality Gates
-
-| Gate | Command | Threshold |
-|------|---------|-----------|
-| Build (warnings-as-errors) | `cmake --build build --parallel` | 0 errors, 0 warnings |
-| GTest suite | `python3 pangrova-worker-native/bin/run-native-tests.py` | All discovered tests pass |
-| AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan`; Native runner with `--build-dir pangrova-worker-native/build-asan` | 0 findings |
-| UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan`; Native runner with `--build-dir pangrova-worker-native/build-ubsan` | 0 findings |
-| Native lib package | `package-native-lib.sh` | Successfully staged to Java resources |
-| JNI integration | `mvn -q -pl pangrova-worker -am test` | 100% pass |
-| Symbol visibility | Only `Java_*` and `JNI_On*` in `.dylib` exports | `nm -gU` verification |
-
-## Connectivity Gates
-
-| Gate | What it checks | When |
-|------|---------------|------|
-| Stub patterns | Reject unapproved unimplemented bodies; bytecode wiring tests check reachability | Every PR |
-| SPI completeness | Production-used contracts have wired providers; experimental SPIs may precede implementations | SPI/wiring changes |
-| JNI bridge symmetry | Every Java `native` decl has C++ counterpart | Native changes |
-| Proto symmetry | Proto changes regenerated on both Java + C++ sides | Proto changes |
-| Full-chain E2E | SQL → Plan → JNI → Native → Result works end-to-end | Production CI/release; affected local runtime changes |
+The `tpch-performance` PR check verifies complete derived workloads, real Parquet
+conversion, evidence/comparison rejection paths and the production REST client over
+HTTP and Flight fixtures; fixture maxima are never P99. `nightly-tpc-benchmark.yml`
+owns exclusive-host SF100/SF1000 campaigns with reviewed baselines; missing
+configuration, capacity or cleanup is a failed outcome. See
+`docs/testing/tpc-benchmark-methodology.md`.

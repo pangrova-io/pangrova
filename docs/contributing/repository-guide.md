@@ -102,16 +102,10 @@ The benchmark [methodology](../testing/tpc-benchmark-methodology.md) defines evi
 requirements. Keep JMH, complete-suite experiments and the 22-query tail experiment
 separate: they measure different things and enforce different contracts.
 
-## Consolidation decisions
+## Regression reports
 
-Removed the unused `generate-tpc-data.sh`, `start-benchmark-cluster.sh` and
-`stop-benchmark-cluster.sh` forwarding aliases. Use their Python implementations
-above. Repository callers already used those implementations; no benchmark logic
-was removed.
-
-Removed `generate-monthly-report.sh`. It duplicated comparison setup and selected a
-result by filename sorting. Request the existing comparison/report entry point
-with an explicit result and matching baseline instead (from the benchmark module):
+Produce a TPC-H regression report from an explicit result and its matching reviewed
+baseline (from the benchmark module):
 
 ```bash
 mkdir -p reports
@@ -119,18 +113,17 @@ HISTORY_DIR=results REPORT_OUTPUT=reports/tpch-regression.txt \
   scripts/tpch-regression-check.sh results/selected-run.json baseline/reviewed-baseline.json
 ```
 
-The comparator still rejects incomplete or uncalibrated evidence and returns its
-original exit status. Scheduling is an operator decision; this command does not
-create a scheduler or send a notification unless explicitly configured.
+The comparator rejects incomplete or uncalibrated evidence and returns its exit
+status. Scheduling and notification are operator decisions.
 
-The following similar scripts remain separate for concrete reasons:
+## Similar scripts kept separate
+
 
 - `pangrova-coordinator.sh`, `pangrova-worker.sh` and `pangrova-standalone.sh` share
   launcher mechanics but differ in main class, configuration and JVM defaults.
   A future shared launcher should preserve their public names and test argument
   forwarding, environment precedence, classpath resolution, signals and PID
-  ownership, followed by the affected startup/integration chain. This review did
-  not change startup behavior.
+  ownership, followed by the affected startup/integration chain.
 - `pangrova-cli.sh` has client-specific flags and classpath needs; it should not
   acquire server-role defaults through a blanket launcher merge.
 - Container liveness, interactive health, cluster status and recovery measurement
@@ -154,8 +147,5 @@ dependencies and generated caches. `.env.example` templates remain visible.
 Use `git status --short` and `git ls-files -ci --exclude-standard` before publishing;
 ignore rules do not remove content already committed to history.
 
-README and the website share `website/static/img/logo.png`. The architecture in the
-README is maintained as Mermaid source; obsolete target-architecture PNG/HTML
-artwork and the duplicate logo were removed. The redundant resource-directory
-placeholder was removed; the functional Maven root marker and Pages `.nojekyll`
-marker remain.
+README and the website share `website/static/img/logo.png` and the architecture
+image generated from `website/static/img/architecture-overview.svg`.

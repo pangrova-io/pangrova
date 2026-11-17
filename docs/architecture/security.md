@@ -24,7 +24,7 @@ verification uses real PostgreSQL and the production statement dispatcher.
 pipeline and actual Iceberg/Native reads. Its bearer authenticator is a test
 identity fixture; OAuth2/LDAP implementations have separate integration coverage. See [SQL privilege administration](#sql-privilege-administration).
 
-## Current module boundary (2026-11-02)
+## Current module boundary
 
 `pangrova-security` is now an aggregator. Its API artifact owns calling and plugin contracts under `.api`;
 Core owns orchestration, and authentication (builtin/LDAP/OAuth2), RBAC policy,

@@ -67,7 +67,7 @@ existing owners.
 
 `StageSplitSource` and the stage binder still reside in the existing Coordinator
 artifact during this migration: their signatures include live Planner and session
-types. Only the closed `QuerySplit` value moved to Query API in this batch; the remaining
+types. Only the closed `QuerySplit` value lives in Query API; the remaining
 Query/Planner contracts must be separated before moving the whole execution family.
 Index descriptor caching, mapping persistence orchestration and evaluation metrics
 now belong to Indexing Core; the catalog-scoped connector access adapter is separate

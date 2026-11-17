@@ -315,68 +315,11 @@ def distributed_topology() -> None:
     OUT.joinpath("distributed-topology.svg").write_text("\n".join(lines), encoding="utf-8")
 
 
-def connectors_plugin() -> None:
-    h = 900
-    lines = svg_open(h, "Connector plugin architecture", "Versioned factories are discovered per role, isolated by classloader, and exposed through the Connector SPI.")
-    title_block(lines, "Connector plugin architecture", "Factories and providers are isolated; the engine compiles against contracts only.")
-    panel(lines, 60, 140, 1080, 230, "INVENTORY", "#7C3AED", "#FBFBFE")
-    node(lines, 90, 190, 310, 120, "Factory discovery", ["ServiceLoader per role", "Duplicate names and versions rejected"], "#2563EB")
-    node(lines, 430, 190, 310, 120, "Classloader isolation", ["Builtin factories on the role classpath", "Each external directory gets one loader"], "#0D9488")
-    node(lines, 770, 190, 340, 120, "Lifecycle", ["Restart to update plugins", "Active leases block loader reclamation"], "#D97706")
-    arrow(lines, 600, 370, 600, 410, "connector contracts", "#7C3AED")
-    panel(lines, 60, 410, 1080, 210, "CONNECTOR SPI", "#7C3AED")
-    spi = ["Metadata", "Split planning", "Page source", "Page sink", "Transaction", "Index & statistics"]
-    for i, label in enumerate(spi):
-        x = 90 + (i % 3) * 350
-        y = 465 + (i // 3) * 64
-        lines.append(f'<rect x="{x}" y="{y}" width="320" height="46" rx="10" fill="#F5F3FF" stroke="#DDD6FE"/>')
-        lines.append(f'<text x="{x + 160}" y="{y + 29}" font-size="14.5" font-weight="600" fill="#5B21B6" text-anchor="middle">{esc(label)}</text>')
-    arrow(lines, 600, 620, 600, 660, "bindings", "#7C3AED")
-    for i, (label, sub) in enumerate([
-        ("Apache Iceberg", ["Native catalog · snapshots · metadata tables"]),
-        ("Apache Paimon", ["Filesystem or REST catalog · merge policies"]),
-        ("Managed Lance", ["Native dataset control · snapshot isolation"]),
-    ]):
-        x = 90 + i * 360
-        arrow(lines, 600, 660, x + 160, 690, "", "#7C3AED")
-        node(lines, x, 690, 320, 92, label, sub, "#0D9488")
-    lines.append(f'<text x="600" y="830" font-size="14" fill="#64748B" text-anchor="middle">Additional formats register through the same factory contract; updates require a restart.</text>')
-    legend(lines, 870)
-    lines.extend(svg_close())
-    OUT.joinpath("connectors-plugin.svg").write_text("\n".join(lines), encoding="utf-8")
-
-
-def native_layers() -> None:
-    h = 900
-    lines = svg_open(h, "Native execution layers", "Java control plane, connector contracts, Protobuf task bindings, and C++/Velox execution.")
-    title_block(lines, "Native execution layers", "Control-plane decisions are serialized once; Native execution owns relational work.")
-    panel(lines, 60, 140, 1080, 250, "CONTROL PLANE — JAVA", "#7C3AED", "#FBFBFE")
-    names = [("SQL parser", "ANTLR"), ("Calcite planner", "rules · cost"), ("Substrait", "canonical plan"), ("Split planning", "connector bindings")]
-    for i, (name, sub) in enumerate(names):
-        node(lines, 90 + i * 260, 195, 230, 86, name, [sub], "#7C3AED")
-        if i < 3:
-            arrow(lines, 320 + i * 260, 238, 350 + i * 260, 238, "", "#7C3AED")
-    node(lines, 90, 305, 1020, 62, "Connector SPI — metadata, splits, page sinks, statistics", [], "#0D9488")
-    arrow(lines, 600, 390, 600, 440, "TaskRequest v2 + Substrait + bindings", "#7C3AED")
-    panel(lines, 60, 440, 1080, 360, "DATA PLANE — C++ / VELOX", "#D97706", "#FFFCF5")
-    node(lines, 90, 495, 480, 120, "Native connector SPI", ["DataSource factory", "DataSource reader", "Native writer · spiller"], "#0D9488")
-    node(lines, 650, 495, 460, 120, "Vectorized operators", ["scan · filter · project", "join · aggregate · sort", "retrieve · shuffle · fill · output"], "#D97706")
-    arrow(lines, 550, 555, 650, 555, "", "#D97706", dashed=True)
-    lines.append('<text x="600" y="543" font-size="11.5" font-weight="600" fill="#D97706" text-anchor="middle">Arrow batches</text>')
-    node(lines, 90, 645, 1020, 90, "Result and exchange", ["Native Flight shuffle · Arrow Flight result stream", "Canonical lifecycle and error reports return to the Worker JVM"], "#D97706")
-    arrow(lines, 600, 800, 600, 840, "JNI status / terminal report", "#7C3AED")
-    legend(lines, 890)
-    lines.extend(svg_close())
-    OUT.joinpath("native-layers.svg").write_text("\n".join(lines), encoding="utf-8")
-
-
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     blog_execution_path()
     planning_stack()
     distributed_topology()
-    connectors_plugin()
-    native_layers()
     query_execution_flow()
     metadata_layers()
     security_flow()
@@ -393,7 +336,6 @@ def main() -> None:
     jni_ownership()
     refresh_flow()
     upgrade_flow()
-    developer_workflow()
     print("generated diagrams in", OUT)
 
 
@@ -757,19 +699,6 @@ def upgrade_flow() -> None:
         ],
         "A running process is not a completed upgrade. Record the validation evidence for the exact release and topology.")
 
-
-def developer_workflow() -> None:
-    simple_flow("developer-workflow.svg",
-        "Development workflow",
-        "Build, test the owning module, run the required integration chain, and submit a reviewable change.",
-        [
-            ("Prepare", "JDK 17 · Maven 3.9+ · Python 3.10+ · native toolchain and dependencies", "#2563EB"),
-            ("Build", "Pinned Iceberg SDK · native library · Java reactor", "#7C3AED"),
-            ("Focused checks", "Owning module tests · compile diagnostics · relevant repository gates", "#0D9488"),
-            ("Integration chain", "Native/JNI · protocol · connector · distributed behavior when the path crosses them", "#D97706"),
-            ("Submit", "Small root-cause change · updated tests and docs · evidence in the pull request", "#7C3AED"),
-        ],
-        "The closest check runs first; broad regression remains the final gate for shared contracts and release-quality changes.")
 
 if __name__ == "__main__":
     main()

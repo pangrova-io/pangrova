@@ -160,14 +160,20 @@ class StructuralPolicyTest(unittest.TestCase):
             policy.mkdir(parents=True)
             script = root / '.pangrova/setup.sh'
             script.write_text((ROOT / '.pangrova/setup.sh').read_text())
-            (root / 'AGENTS.md').write_text('Canonical entry point')
-            for name in ('architecture', 'code-standards', 'development', 'testing',
-                         'build-pipeline', 'ci-gates', 'workflow'):
+            names = ('architecture', 'code-standards', 'development', 'testing',
+                     'build-pipeline', 'ci-gates')
+            (root / 'AGENTS.md').write_text(' '.join(f'`{name}.md`' for name in names))
+            for name in names:
                 (policy / f'{name}.md').write_text(name)
             result = subprocess.run(['bash', str(script), '--check'], capture_output=True)
             self.assertEqual(result.returncode, 0)
             self.assertFalse((root / '.claude').exists())
             self.assertFalse((root / '.qoder').exists())
+            (policy / 'unindexed.md').write_text('unindexed')
+            result = subprocess.run(['bash', str(script), '--check'], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b'unindexed.md', result.stderr)
+            (policy / 'unindexed.md').unlink()
             (policy / 'testing.md').unlink()
             self.assertNotEqual(subprocess.run(['bash', str(script), '--check'],
                                               capture_output=True).returncode, 0)

@@ -39,12 +39,6 @@ and is not passed to payload serializers. Core owns the pure value state
 transitions of IndexDescriptor; persistence publication must still pass the
 current authority, generation, and transaction fencing.
 
-A real-call audit corrected conclusions from the previous batch:
-`NativeIndexHintConsumer` and `IndexEvalSplitFilter` have no production callers
-and were retired together with the old `IndexFileEvaluator`/factory,
-implementations, and registrations. They cannot prove that Worker Java filtering
-is enabled. The random multi-hint aggregation coverage moved to the Core
-evaluation service and is not claimed as end-to-end coverage.
 `IndexEvaluationService` currently has only construction and no business caller;
 it remains an explicitly unwired Java capability and is not connected to a
 duplicate execution path merely to improve coverage numbers. The actual Worker

@@ -224,38 +224,11 @@ public class QueryExecutor {
 
 ### Validation Scope and Readability
 
-The canonical policy is `.pangrova/rules/development.md`. Start with the closest
-check, then the owning module and affected consumers. Maven `test`/`verify`
-already compiles; avoid duplicate invocations unless diagnosing a failure.
-Runtime JNI/protocol/native/execution changes require affected native, packaging,
-Java, and E2E/smoke validation; native memory/ownership/JNI/concurrency changes
-also need ASan. Docs/tooling edits use their own checks. CI selects lightweight
-checks for docs/rules/gate-tooling PRs; runtime/build/test PRs retain production
-correctness regression. Protected-branch pushes and releases run the complete
-chain; broad execution changes also require full local validation.
-
-Structural ceilings (800 file lines, 100 effective method lines, complexity 15,
-10 parameters) are backstops. Review constructors above 6 dependencies and
-interfaces above 12 methods for mixed responsibilities. Preserve meaningful names,
-cohesion, explicit control flow, and shallow nesting. Do not introduce forwarding
-classes, generic parameter bags, or compressed statements just to pass a metric.
-Checkstyle owns these metrics; a second regex scanner and historical rename
-ledgers have been removed. Enums may contain as many values as the domain needs. Established pattern names
-such as Adapter, Visitor, and Observer are valid when they describe the actual role.
-
-Test changed behavior and relevant errors/boundaries. Pure refactors may reuse
-existing tests. Coverage reports are diagnostic; there is no changed-line
-percentage gate.
-Record unrelated baseline/environment failures with evidence and their impact;
-do not disable tests, claim blocked checks passed, or require stashing a shared
-worktree. Submit concise execution evidence with links to complete logs.
-
-Extra TPC-H/JMH jobs are selected by production/dependency/benchmark changes;
-docs and unrelated tests do not require them. Correctness regression and existing
-performance thresholds remain enforced. Static analysis runs in one owning CI job. Date-based doc-age alarms, the fixed
-historical dependency-use list, and an unused ADR trailer hook are removed.
-See [Quality Gate Audit](quality-gate-audit.md) for measurements and decisions.
-Repository instruction discovery uses `AGENTS.md` and `.pangrova/rules/` only.
+Repository policy is discovered through `AGENTS.md` and `.pangrova/rules/`, which
+own validation selection (`development.md`), structural review thresholds
+(`code-standards.md`), test rules (`testing.md`) and CI selection (`ci-gates.md`).
+Start with the closest check, then the owning module and affected consumers, and
+report blockers instead of disabling tests or claiming unexecuted checks passed.
 
 ### 2.3 Comment Conventions
 

@@ -2,8 +2,8 @@
 // FlightShuffleServer + a real Arrow Flight client DoGet, exercising the full
 // producer sign (TicketSigner) → verify (TicketVerifier) round trip over the wire.
 //
-// This is the acceptance test for ADR-002 task #105 ("开启 HMAC 后 shuffle 端到
-// 端正常"): consumers only forward opaque producer-issued tickets and never
+// This is the acceptance test for ADR-002 task #105 ("shuffle works end to end
+// with HMAC enabled"): consumers only forward opaque producer-issued tickets and never
 // receive or reconstruct the producer's process-local signing key.
 //
 // Scope note — only the *positive* (OK-status) DoGet paths are asserted here.

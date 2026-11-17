@@ -217,9 +217,9 @@ unimplemented targets must not be written as current state.
   incarnation, exchange generation, producer/consumer attempts, seal, commit
   receipt, cancellation, backpressure, and buffer ownership. Fault-tolerance
   guarantees must be confirmed jointly by capability and deployment.
-- Celeborn is a future provider; this round validates the abstraction with the
-  existing Direct, Local, and in-house remote implementations, does not create an
-  empty Celeborn module, and does not claim integration.
+- Celeborn is a future provider. The abstraction is validated with the existing
+  Direct, Local, and in-house remote implementations; there is no empty Celeborn
+  module and no claimed integration.
 - Native keeps Java control, JNI bridging, C++20 execution, and a single shared
   library distribution.
 - The new project modifies all callers directly, retains no old-FQN forwarding
@@ -641,19 +641,10 @@ commits, active-read and cleanup races, cancellation, bounded queues, descriptor
 authorization, and Native buffers. Fake implementations must not replace real
 providers or end-to-end evidence.
 
-Each batch records the actual commands, exit status, first failure, fix,
-environment blockers, and unfinished items. Previously passing results are not
-inherited as passing for this batch; unsupported capabilities are marked
-explicitly, and the existence of a class or interface must not be used to claim
-support.
-
-## Evidence for This Round
-
-Per-class disposition, production callers, fact and resource owners, and
-corresponding tests are in the
-[module refactor disposition ledger](./modularization-dispositions.md). The ledger
-distinguishes verified call chains from capabilities pending acceptance.
-
+Validation records the actual commands, exit status, first failure, fix,
+environment blockers, and unfinished items. Earlier passing results are not
+inherited by a later change; unsupported capabilities are marked explicitly, and
+the existence of a class or interface must not be used to claim support.
 
 ## Implemented Execution Base and Shared Encoding Boundaries
 
@@ -888,7 +879,7 @@ ends early must not return a terminal frame. This mechanism protects one
 time-bounded authorized read; provider fault tolerance and speculative execution
 are still admitted separately per factory declaration.
 
-### Retracting False Local Publication and Inventory Safety Inference (2026-11-03)
+### Retracting False Local Publication and Inventory Safety Inference
 
 SpoolingExchangeManager and LocalSpillLifecycleManager had no production callers
 and could not derive whole-exchange publication from a single file. This round
@@ -915,7 +906,7 @@ closure, complete execution/reader inventory, and proof valid during removal; th
 current WorkerManager task-count drain logic cannot yet replace these requirements.
 
 
-### Worker Registration Identity Revocation Boundary (2026-11-03)
+### Worker Registration Identity Revocation Boundary
 
 Coordination API owns WorkerRegistrationIdentity (logical ID, admission domain,
 incarnation), and Persistence's WorkerRegistry defines atomic unregistration by
@@ -934,7 +925,7 @@ physical resource drain; the existing Shuffle inventory gaps continue to be
 implemented.
 
 
-### Worker Heartbeat and Auto-Repair Identity Ownership (2026-11-03)
+### Worker Heartbeat and Auto-Repair Identity Ownership
 
 WorkerRegistry heartbeat must carry the complete WorkerRegistrationIdentity and
 return the atomically conditionally updated WorkerSnapshot or empty. Core must not
@@ -953,11 +944,10 @@ handles, output readers, or shutdown resource ownership, nor does it prove drain
 
 Global ordering of the first unconditional registration, persisted
 DECOMMISSIONING, readiness/admission state integration, and exact inventory remain
-follow-up work; this batch must not claim safe scale-down or a complete Shuffle
-lifecycle.
+follow-up work; safe scale-down and a complete Shuffle lifecycle are not claimed.
 
 
-### Metadata Shared Encoding Boundary (2026-11-03)
+### Metadata Shared Encoding Boundary
 
 Metadata API/SPI share an artifact, and domain values do not depend on persistence
 ports. Catalog Persistence API depends on Metadata API; the PostgreSQL Provider
@@ -972,7 +962,7 @@ lifecycle of the real provider. This boundary does not mean the remaining Metada
 cross-domain workflows, the Table default backend, and Governance ownership are
 complete.
 
-### Domain Ports for Metadata Synchronization Progress (2026-11-03)
+### Domain Ports for Metadata Synchronization Progress
 
 Synchronization progress and diagnostics have been extracted from the composite
 MetadataStore into Catalog Persistence's `synchronization` contract, and the
@@ -984,7 +974,7 @@ unknown-commit acknowledgement are constrained by the current Catalog Persistenc
 implementation and tests. Splitting projection transactions, the remaining
 composite Store, and the Federation SPI remains follow-up work.
 
-### Catalog Deployment and Projection Composite Store Retirement (2026-11-03)
+### Catalog Deployment and Projection Composite Store Retirement
 
 The composite MetadataStore and PostgresMetadataStore have been retired with no
 forwarding shell. Deployment, table projection, schema projection, and
@@ -1006,7 +996,7 @@ size use the non-copying size query. These guarantees do not imply Native zero-c
 buffers or completed Shuffle buffer-lease integration.
 
 
-### Metadata Projection Write Transactions and Receipts (2026-11-03)
+### Metadata Projection Write Transactions and Receipts
 
 `TableProjectionRepository` and `SchemaProjectionRepository` are narrowed to
 read-only ports. Writes go uniformly through `MetadataProjectionTransactions`,
@@ -1023,7 +1013,7 @@ projection transactions are not yet implemented", but whole-round scanning, sour
 version, parallel synchronization under the same deployment, and lifecycle remain
 incomplete.
 
-### Metadata durable request recovery (2026-11-03 implementation update)
+### Metadata durable request recovery
 
 Catalog Persistence now durably accepts immutable projection and completion intents
 before execution. The original IDs are recoverable by Catalog across

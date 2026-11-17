@@ -27,7 +27,8 @@ fi
 # Pattern: starts with uppercase, contains at least one lowercase, length >= 4,
 # no spaces, no dots (excludes package names), no parens (excludes method calls).
 # A reference is skipped only when that occurrence is itself recorded as removed
-# or migrated ("原 `X`", "退役的 `X`", "`X` 已删除", "| 删除 ..." cells). Other
+# or migrated ("retired `X`", "removed the `X`", "`X` was removed", "| Removed ..."
+# disposition cells). Other
 # active types on the same line are still checked.
 extract_class_refs() {
     python3 - "$DOCS_DIR" <<'PY'
@@ -41,10 +42,13 @@ design = re.compile(
     r'proposed|planned|target design|remaining work|new (class|component)'
     r'|phase [0-9]|does not exist|not implemented', re.I)
 reference = re.compile(r'`([A-Z][A-Za-z0-9]{3,})`')
-removed_before = re.compile(r'(原|已删除的|退役的|移除的|旧的|旧|retired|removed|former|legacy|old)\s*$', re.I)
-removed_verb_before = re.compile(r'(删除|移除|退役|迁移到|迁到|迁入|移至|归入)[^，。；|]{0,12}$')
-removed_after = re.compile(r'^\s*[也均]?\s*(已删除|退役|移除|删除)|^\s*(was|is)\s+(retired|removed)\b', re.I)
-disposition_verb = re.compile(r'^(已删除|删除|移除|退役|移入|迁入|迁到|迁至|移至|归入)')
+removed_before = re.compile(r'\b(retired|removed|deleted|former|legacy|old)\s*$', re.I)
+removed_verb_before = re.compile(
+    r'\b(removed|deleted|retired|moved to|migrated to|merged into)\b[^,.;|]{0,12}$', re.I)
+removed_after = re.compile(
+    r'^\s*(was|is|were|are|has been|have been)\s+(retired|removed|deleted)\b', re.I)
+disposition_verb = re.compile(r'^(removed|deleted|retired|moved|migrated|merged)\b', re.I)
+sentence_stop = re.compile(r'[.;](?=\s|$)')
 
 
 def cell_spans(line):
@@ -59,10 +63,9 @@ def cell_spans(line):
 
 
 def sentence_bounds(line, start, end):
-    begin = max(line.rfind('。', 0, start), line.rfind('；', 0, start)) + 1
-    ends = [position for position in (line.find('。', end), line.find('；', end))
-            if position != -1]
-    return begin, min(ends) if ends else len(line)
+    stops = [match.end() for match in sentence_stop.finditer(line, 0, start)]
+    following = sentence_stop.search(line, end)
+    return (stops[-1] if stops else 0), (following.start() if following else len(line))
 
 
 active = {}
