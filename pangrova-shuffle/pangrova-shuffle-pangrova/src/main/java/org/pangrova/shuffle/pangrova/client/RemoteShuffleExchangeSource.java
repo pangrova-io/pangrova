@@ -106,7 +106,8 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
         return switch (frame.getFrameCase()) {
             case CHUNK -> verifiedChunk(frame.getChunk(), frame.getRowCount());
             case TERMINAL -> terminalFrame(frame);
-            case FRAME_NOT_SET -> throw RemoteShuffleClientException.corruption("partition stream contains an empty frame");
+            case FRAME_NOT_SET -> throw RemoteShuffleClientException.corruption(
+                    "partition stream contains an empty frame");
         };
     }
 
@@ -192,7 +193,8 @@ public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.a
         }
         if (terminal.getGenerationPlanEpoch() != binding.planEpoch()
                 || terminal.getCommittedProducerCount() != binding.expectedProducerPartitions()) {
-            throw RemoteShuffleClientException.corruption("terminal generation or producer count does not match binding");
+            throw RemoteShuffleClientException.corruption(
+                    "terminal generation or producer count does not match binding");
         }
         requireExpectedChecksum(
                 terminal.getProducerSetChecksum(),

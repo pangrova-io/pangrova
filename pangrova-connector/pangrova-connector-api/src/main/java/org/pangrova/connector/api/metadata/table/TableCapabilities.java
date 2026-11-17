@@ -37,7 +37,6 @@ public record TableCapabilities(
         Set<String> allowedMaintenanceOperations,
         WriterFenceKind writerFenceKind) {
 
-
     /** Fail-closed default: nothing is supported. */
     public static final TableCapabilities UNSUPPORTED = new TableCapabilities(
             false, false, false, false, false, false,

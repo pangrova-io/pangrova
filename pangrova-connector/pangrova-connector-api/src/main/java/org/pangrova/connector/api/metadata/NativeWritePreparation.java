@@ -6,7 +6,8 @@ import java.util.Optional;
 
 /** Worker preparation evidence. Only the metadata catalog's atomic acceptance can establish COMMITTED. */
 @Experimental
-public record NativeWritePreparation(NativeWritePreparationOutcome outcome, Optional<PreparedSourcePublication> publication) {
+public record NativeWritePreparation(NativeWritePreparationOutcome outcome,
+        Optional<PreparedSourcePublication> publication) {
 
     public NativeWritePreparation {
         java.util.Objects.requireNonNull(outcome);

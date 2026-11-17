@@ -21,7 +21,6 @@ public record SourceObjectPage(int index, String afterPath, List<ObjectReference
 
     private static final int MAX_OBJECT_PATH_LENGTH = 2048;
 
-
     @Experimental
     public record ObjectReference(String relativePath, long sizeBytes, SourceObjectPurpose purpose) {
         public ObjectReference {

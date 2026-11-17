@@ -1,6 +1,5 @@
 package org.pangrova.planner.metadata.catalog;
 
-
 import org.pangrova.table.api.statistics.CurrentTableStatistics;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.planner.statistics.StatisticsCollector.ConnectorStatisticsProvider;

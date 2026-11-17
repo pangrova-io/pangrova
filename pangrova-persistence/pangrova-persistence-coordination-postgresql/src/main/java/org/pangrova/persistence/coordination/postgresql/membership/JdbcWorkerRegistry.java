@@ -366,7 +366,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 rs.getString("capability_inventory_proto"),
                 rs.getInt("copy_task_tls_port"),
                 rs.getString("admission_domain_id"), rs.getString("incarnation_id"),
-                rs.getString("shuffle_mode") == null ? null : new org.pangrova.coordination.api.membership.WorkerShuffleDeployment(
+                rs.getString("shuffle_mode") == null ? null
+                        : new org.pangrova.coordination.api.membership.WorkerShuffleDeployment(
                         rs.getString("shuffle_mode"), rs.getString("shuffle_provider"))
         );
     }

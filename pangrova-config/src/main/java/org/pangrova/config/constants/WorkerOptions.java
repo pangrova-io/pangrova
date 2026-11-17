@@ -234,13 +234,15 @@ public final class WorkerOptions {
             .withDescription("Persistent exclusive local directory for Worker execution incarnation proof").build();
 
     public static final ConfigOption<String> SHUFFLE_PROVIDER = ConfigOptions.key("worker.shuffle.provider")
-            .stringType().defaultValue("pangrova").withDescription("Worker provider for external Native shuffle.").build();
+            .stringType().defaultValue("pangrova").withDescription(
+                    "Worker provider for external Native shuffle.").build();
 
     public static final ConfigOption<ShuffleMode> SHUFFLE_MODE =
             ConfigOptions.key("worker.shuffle.mode")
                     .enumType(ShuffleMode.class)
                     .defaultValue(ShuffleMode.NATIVE)
-                    .withDescription("NATIVE serves Flight shuffle; LOCAL pins disk-backed exchanges to this Worker; REMOTE "
+                    .withDescription(
+                            "NATIVE serves Flight shuffle; LOCAL pins disk-backed exchanges to this Worker; REMOTE "
                             + "writes to the external shuffle service named by the Coordinator. Must match "
                             + "coordinator.shuffle.mode, and REMOTE requires worker transport TLS because "
                             + "the shuffle service demands mutual TLS.")

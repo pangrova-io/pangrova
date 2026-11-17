@@ -161,7 +161,8 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 accessControl.checkCanReadStorageProfile(root.identity(), current.profile().name());
                 String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
                 StagedSource proof = root.stagedSource().orElseThrow();
-                insert(connection, DigestUtils.sha256Hex(nonceBytes), scope, root.identity(), root.authorizationRevision(),
+                insert(connection, DigestUtils.sha256Hex(nonceBytes), scope, root.identity(),
+                        root.authorizationRevision(),
                         parentHash, proof);
                 requireCurrentFences(connection, scope, expectedAnchor);
                 connection.commit();

@@ -1,8 +1,5 @@
 package org.pangrova.query.api.journal;
 
-import org.pangrova.query.api.journal.QueryStateEvent;
-import org.pangrova.query.api.journal.TaskStateEvent;
-
 import java.util.List;
 import java.util.Optional;
 import org.pangrova.common.api.annotation.Stable;

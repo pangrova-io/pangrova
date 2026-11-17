@@ -55,7 +55,8 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
             CatalogRegistry catalogRegistry,
             DurableGeneratedValueBuildService buildService,
             DataSource dataSource, WriteCommitJournal writeJournal, CurrentModelAuthority modelAuthority,
-            DeferredTenantAuthority tenantAuthority, AuthorizationPublicationLock publicationLock, TableControlWriteAuthority tableAuthority) {
+            DeferredTenantAuthority tenantAuthority, AuthorizationPublicationLock publicationLock,
+                    TableControlWriteAuthority tableAuthority) {
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
         this.buildService = Objects.requireNonNull(

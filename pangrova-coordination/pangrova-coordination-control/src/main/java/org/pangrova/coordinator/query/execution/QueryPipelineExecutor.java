@@ -24,7 +24,6 @@ import org.pangrova.coordinator.query.execution.phase.StatementDispatchPhase;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
-import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;

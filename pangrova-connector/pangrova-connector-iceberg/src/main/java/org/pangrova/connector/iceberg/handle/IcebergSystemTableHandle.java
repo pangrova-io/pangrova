@@ -1,9 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.OptionalInt;
 
 import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;

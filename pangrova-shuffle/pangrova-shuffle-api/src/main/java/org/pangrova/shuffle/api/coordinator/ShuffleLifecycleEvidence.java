@@ -28,7 +28,8 @@ public interface ShuffleLifecycleEvidence {
     /** Capability-free immutable server allocation needed to recover the original generation. */
     record Allocation(String shuffleId, ShuffleProviderDescriptor descriptor) {
         public Allocation {
-            if (shuffleId == null || shuffleId.isBlank()) throw new IllegalArgumentException("Allocation ID is required");
+            if (shuffleId == null || shuffleId.isBlank()) throw new IllegalArgumentException(
+                    "Allocation ID is required");
             Objects.requireNonNull(descriptor, "descriptor");
         }
     }

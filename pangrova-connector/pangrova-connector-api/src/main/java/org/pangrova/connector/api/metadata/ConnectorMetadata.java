@@ -1,9 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
-import org.pangrova.connector.api.metadata.BranchCreationOptions;
 import org.pangrova.connector.api.enums.MetadataTableKind;
-import org.pangrova.connector.api.metadata.MetadataTableListing;
 
 import java.util.List;
 import java.util.Map;

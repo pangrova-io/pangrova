@@ -65,7 +65,8 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
                 existing.resultServerPort(),
                 snapshot.cacheSummary() != null ? snapshot.cacheSummary() : existing.cacheSummary(),
                 existing.capabilityInventory(),
-                existing.copyTaskTlsPort(), existing.admissionDomainId(), existing.incarnationId(), existing.shuffleDeployment()
+                existing.copyTaskTlsPort(), existing.admissionDomainId(), existing.incarnationId(),
+                        existing.shuffleDeployment()
             );
             updated.set(next);
             return next;

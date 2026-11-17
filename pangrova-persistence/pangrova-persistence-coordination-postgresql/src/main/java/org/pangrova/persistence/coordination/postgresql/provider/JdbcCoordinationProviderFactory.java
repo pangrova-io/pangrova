@@ -11,7 +11,8 @@ import javax.sql.DataSource;
 import java.util.function.Function;
 
 public final class JdbcCoordinationProviderFactory implements CoordinationProviderFactory {
-    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(JdbcCoordinationProviderFactory.class);
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(
+            JdbcCoordinationProviderFactory.class);
 
     @Override
     public int apiVersion() {

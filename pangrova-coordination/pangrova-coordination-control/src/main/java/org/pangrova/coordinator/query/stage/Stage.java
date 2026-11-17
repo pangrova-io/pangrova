@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.api.adaptive.AdaptiveDecision;
 import org.pangrova.query.api.error.QueryFailure;
@@ -202,8 +201,10 @@ public final class Stage {
         if (maxRetries < 0) {
             throw new IllegalArgumentException("maxRetries must not be negative");
         }
-        if (clientResultPublished || replayUnsafeWrite || terminalDecisionClaimed || stateMachine.isTerminal() || finishedTaskIds.contains(failedTaskId)
-                || failedTaskIds.contains(failedTaskId) || taskIds.contains(retryTaskId) || !taskIds.contains(failedTaskId)) {
+        if (clientResultPublished || replayUnsafeWrite || terminalDecisionClaimed || stateMachine.isTerminal()
+                || finishedTaskIds.contains(failedTaskId)
+                || failedTaskIds.contains(failedTaskId) || taskIds.contains(retryTaskId) || !taskIds.contains(
+                        failedTaskId)) {
             return false;
         }
         AtomicInteger counter = taskRetryCounters.computeIfAbsent(failedTaskId, ignored -> new AtomicInteger());
@@ -316,7 +317,8 @@ public final class Stage {
                 || requested.generation() != shufflePlanEpoch || shuffleHandle == null
                 || !requested.allocationId().equals(shuffleHandle.shuffleId())
                 || receipt.producerCount() != shuffleHandle.expectedProducerCount()
-                || !receipt.producerSetSha256().equals(java.util.HexFormat.of().formatHex(shuffleHandle.expectedProducerSetChecksum()))) {
+                || !receipt.producerSetSha256().equals(java.util.HexFormat.of().formatHex(
+                        shuffleHandle.expectedProducerSetChecksum()))) {
             throw new IllegalStateException("Shuffle receipt does not match registered allocation and producer set");
         }
         shuffleHandle.validatePartitionCoverage(receipt.partitions().size());
@@ -335,7 +337,8 @@ public final class Stage {
     public synchronized PublishedShuffle publishedShuffle() {
         var receipt = requireShuffleReceipt();
         if (shuffleExecutionOwner == null) {
-            throw new IllegalStateException("External shuffle allocation is missing producer identity: stage=" + stageId());
+            throw new IllegalStateException("External shuffle allocation is missing producer identity: stage="
+                    + stageId());
         }
         return new PublishedShuffle(shuffleHandle, shuffleExecutionOwner, receipt);
     }

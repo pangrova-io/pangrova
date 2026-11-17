@@ -62,21 +62,24 @@ final class QueryAuditDispatcher {
 
     void emitAuditCompleted(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.FINISHED, Optional.empty());
-        if (auditEmitter != null) auditEmitter.emitQueryCompleted(
-                queryId, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryCompleted(queryId, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
     void emitAuditFailed(String queryId, QueryStateMachine state, QueryFailure error) {
         String message = error == null ? "unknown" : error.message();
         emitTerminal(queryId, state, QueryState.FAILED, Optional.of(message));
-        if (auditEmitter != null) auditEmitter.emitQueryFailed(
-                queryId, message, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryFailed(queryId, message, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
     void emitAuditCancelled(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.CANCELLED, Optional.empty());
-        if (auditEmitter != null) auditEmitter.emitQueryCancelled(
-                queryId, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryCancelled(queryId, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
     void emitTableAccessedAudit(String queryId, String catalog, String schema,

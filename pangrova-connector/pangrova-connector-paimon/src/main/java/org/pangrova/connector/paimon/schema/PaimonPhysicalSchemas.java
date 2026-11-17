@@ -44,7 +44,8 @@ public final class PaimonPhysicalSchemas {
         var columns = rowType.getFields().stream().map(field -> new NativePhysicalWriteAllocation.Column(
                 field.id(), field.name(), PaimonDeclaredMetadata.declared(
                         field.type(), field.name(), options))).toList();
-        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, DigestUtils.sha256().digest(metadata), columns);
+        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, DigestUtils.sha256().digest(metadata),
+                columns);
     }
 
     private static byte[] serialize(org.apache.arrow.vector.types.pojo.Schema schema) {

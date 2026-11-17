@@ -28,7 +28,8 @@ final class QuerySchedulingWiring implements AutoCloseable {
                 QuerySchedulingWiring.class.getClassLoader()));
     }
 
-    QuerySchedulingWiring(TenantStore tenantStore, String providerId, Iterable<WorkerSelectionStrategyFactory> factories) {
+    QuerySchedulingWiring(TenantStore tenantStore, String providerId,
+            Iterable<WorkerSelectionStrategyFactory> factories) {
         var installed = new HashMap<String, WorkerSelectionStrategyFactory>();
         for (var candidate : factories) {
             String id = candidate.providerId();

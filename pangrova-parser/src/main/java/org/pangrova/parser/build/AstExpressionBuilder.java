@@ -8,7 +8,6 @@ import org.pangrova.parser.api.enums.WindowFrameType;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.expression.ArrayConstructor;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 import org.pangrova.parser.api.ast.expression.CaseExpression;
@@ -38,6 +37,13 @@ import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SortItem;
+import org.pangrova.parser.api.ast.SourceLocation;
+import org.pangrova.parser.api.ast.WindowSpec;
 
 /**
  * Handles expression and literal parse-tree visitor methods, delegated from AstBuilder.

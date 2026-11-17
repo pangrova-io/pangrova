@@ -4,7 +4,6 @@ import org.pangrova.table.api.enums.GovernanceBindingType;
 
 import org.pangrova.common.api.annotation.Internal;
 
-
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

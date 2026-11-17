@@ -187,25 +187,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
             connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
             connection.setAutoCommit(false);
             try {
-                try (var ids = JdbcTextSelection.create(connection, List.copyOf(selections.keySet()));
-                        var statement = connection.prepareStatement("""
-                                SELECT m.*, g.source_snapshot
-                                FROM index_file_mappings m
-                                JOIN index_generation_manifests g USING (index_id, generation)
-                                WHERE g.state = 'ACTIVE' AND m.index_id = ANY (?)
-                                  AND m.data_file_path = ANY (?)
-                                """)) {
-                    statement.setArray(1, ids.array());
-                    for (int offset = 0; offset < distinctPaths.size(); offset += BATCH_PARTITION_SIZE) {
-                        int end = Math.min(offset + BATCH_PARTITION_SIZE, distinctPaths.size());
-                        try (var paths = JdbcTextSelection.create(connection, distinctPaths.subList(offset, end))) {
-                            statement.setArray(2, paths.array());
-                            try (var rows = statement.executeQuery()) {
-                                collectArtifactResults(rows, selections, result);
-                            }
-                        }
-                    }
-                }
+                selectArtifacts(connection, selections, distinctPaths, result);
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
                 rollbackAfterFailure(connection, failure);
@@ -216,6 +198,29 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         }
         result.replaceAll((id, files) -> Map.copyOf(files));
         return Map.copyOf(result);
+    }
+
+    private static void selectArtifacts(Connection connection, Map<String, IndexFileSelection> selections,
+            List<String> distinctPaths, Map<String, Map<String, IndexFileMapping>> result) throws SQLException {
+        try (var ids = JdbcTextSelection.create(connection, List.copyOf(selections.keySet()));
+                var statement = connection.prepareStatement("""
+                        SELECT m.*, g.source_snapshot
+                        FROM index_file_mappings m
+                        JOIN index_generation_manifests g USING (index_id, generation)
+                        WHERE g.state = 'ACTIVE' AND m.index_id = ANY (?)
+                          AND m.data_file_path = ANY (?)
+                        """)) {
+            statement.setArray(1, ids.array());
+            for (int offset = 0; offset < distinctPaths.size(); offset += BATCH_PARTITION_SIZE) {
+                int end = Math.min(offset + BATCH_PARTITION_SIZE, distinctPaths.size());
+                try (var paths = JdbcTextSelection.create(connection, distinctPaths.subList(offset, end))) {
+                    statement.setArray(2, paths.array());
+                    try (var rows = statement.executeQuery()) {
+                        collectArtifactResults(rows, selections, result);
+                    }
+                }
+            }
+        }
     }
 
     private static void collectArtifactResults(

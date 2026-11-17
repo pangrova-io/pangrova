@@ -74,7 +74,8 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
                 } catch (KeeperException.NodeExistsException exists) {
                     Stat stat = new Stat();
                     CoordinatorSnapshot current = parse(client.getData().storingStatIn(stat).forPath(path));
-                    byte[] registration = serialize(coordinator.withInvalidationProgress(current.lastProcessedInvalidationId()));
+                    byte[] registration = serialize(coordinator.withInvalidationProgress(
+                            current.lastProcessedInvalidationId()));
                     client.setData().withVersion(stat.getVersion()).forPath(path, registration);
                 }
                 LOG.info("event=coordinator_registered coordinatorId={} role={} epoch={}",

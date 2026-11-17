@@ -222,8 +222,8 @@ public class QueryStateMachine {
     public boolean discardUnadmittedQuery() { return locallySubmitted && !hasJournalOwnership(); }
 
     /** Binds the submitted SQL text before publication so terminal audit records are self-describing. */
-    public void bindSql(String sql) {
-        this.sql = sql;
+    public void bindSql(String submittedSql) {
+        this.sql = submittedSql;
     }
 
     /** Submitted SQL text, or null when the query was rejected before parsing. */

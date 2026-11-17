@@ -84,7 +84,8 @@ final class HighAvailabilityBootstrap {
                 WorkerManager workerManager,
                 CoordinatorTaskTracker taskTracker,
                 ScheduledExecutorService schedulerExecutor,
-                DistributedLease distributedLease, CoordinatorRegistry coordinatorRegistry, CurrentModelAuthority modelAuthority,
+                DistributedLease distributedLease, CoordinatorRegistry coordinatorRegistry,
+                        CurrentModelAuthority modelAuthority,
                 CoordinatorShutdownSequence.WorkerTaskRetrier workerTaskRetrier) {
         this.config = config;
         this.queryManager = queryManager;

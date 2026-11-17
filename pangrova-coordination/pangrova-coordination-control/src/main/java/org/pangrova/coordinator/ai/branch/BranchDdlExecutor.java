@@ -202,7 +202,8 @@ public final class BranchDdlExecutor {
     private void checkAlterPrivilege(QualifiedTableName tableRef, UserIdentity user) {
         AccessControl ac = deps.accessControl();
         if (ac == null || user == null) {
-            throw new org.pangrova.security.api.exception.AccessDeniedException("Authenticated branch mutation authority required");
+            throw new org.pangrova.security.api.exception.AccessDeniedException(
+                    "Authenticated branch mutation authority required");
         }
         ac.checkCanAlterTable(user, tableRef.catalog(), tableRef.schema(), tableRef.table());
     }

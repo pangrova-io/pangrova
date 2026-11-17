@@ -49,7 +49,8 @@ public final class CatalogMetadata implements MetadataService {
             SchemaEvolutionValidator schemaValidator,
             long resolutionCacheMaxSize,
             Duration resolutionCacheTtl) {
-        this(catalogRegistry, new CatalogTableResolution(catalogRegistry, cache, resolutionCacheMaxSize, resolutionCacheTtl),
+        this(catalogRegistry, new CatalogTableResolution(catalogRegistry, cache, resolutionCacheMaxSize,
+                resolutionCacheTtl),
                 eventDispatcher, schemaValidator);
     }
 

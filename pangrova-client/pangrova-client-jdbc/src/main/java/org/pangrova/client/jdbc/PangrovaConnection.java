@@ -91,11 +91,15 @@ public final class PangrovaConnection implements Connection {
             }
             if (failure != null) throw failure;
             restClient.close();
-            synchronized (this) { resourcesReleased = true; }
+            synchronized (this) {
+                resourcesReleased = true;
+            }
         } catch (RuntimeException failure) {
             throw new SQLException("Connection resource release failed; close can be retried", failure);
         } finally {
-            synchronized (this) { releasing = false; }
+            synchronized (this) {
+                releasing = false;
+            }
         }
     }
 

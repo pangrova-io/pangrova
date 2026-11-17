@@ -2,7 +2,6 @@ package org.pangrova.query.api.write;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
-import org.pangrova.query.api.write.WriteAuthorityRequest;
 
 /**
  * Supplies current authority for every query write, ordinary or generated, before

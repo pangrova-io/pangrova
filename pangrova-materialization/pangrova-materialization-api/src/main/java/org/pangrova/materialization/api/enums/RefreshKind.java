@@ -35,6 +35,7 @@ public enum RefreshKind {
         return this != FULL;
     }
 
+    /** Returns whether this refresh kind fulfills the requested refresh mode. */
     public boolean satisfies(RefreshMode mode) {
         return switch (mode) {
             case FULL -> !isIncremental();

@@ -29,6 +29,7 @@ public final class MetadataQueryScopes {
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
     }
 
+    /** Opens connector query scopes for the session and fails if any connector rejects them. */
     public void begin(MetadataSessionContext session) {
         var result = open(session);
         beginQuerySuccessTotal.addAndGet(result.succeeded());
@@ -36,6 +37,7 @@ public final class MetadataQueryScopes {
         result.requireSuccess(session.queryId(), "beginQuery");
     }
 
+    /** Releases connector query scopes and fails if any release fails. */
     public void cleanup(ConnectorQueryAuthority authority) {
         var result = release(authority);
         cleanupQuerySuccessTotal.addAndGet(result.succeeded());

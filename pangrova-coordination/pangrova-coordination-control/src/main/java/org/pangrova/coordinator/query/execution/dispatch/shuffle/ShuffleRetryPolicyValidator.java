@@ -21,7 +21,8 @@ public final class ShuffleRetryPolicyValidator {
     public static void validateSpeculation(boolean enabled, ShuffleCapabilityDescriptor capabilities) {
         Objects.requireNonNull(capabilities, "capabilities");
         if (enabled && !capabilities.supports(SPECULATIVE_ATTEMPT_ISOLATION)) {
-            throw new IllegalArgumentException("Speculation requires explicit winning producer attempts from the Shuffle provider");
+            throw new IllegalArgumentException(
+                    "Speculation requires explicit winning producer attempts from the Shuffle provider");
         }
     }
 

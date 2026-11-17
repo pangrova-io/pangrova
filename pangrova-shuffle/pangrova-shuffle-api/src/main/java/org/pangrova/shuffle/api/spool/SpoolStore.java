@@ -2,7 +2,6 @@ package org.pangrova.shuffle.api.spool;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.shuffle.api.enums.ShuffleDurability;
-import org.pangrova.shuffle.api.spool.SpoolReadSelection;
 
 /**
  * Encoded-batch storage primitive, not an exchange publication or retry protocol.

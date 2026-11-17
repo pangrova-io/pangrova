@@ -1,10 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.api.metadata.NativePhysicalFileAllocation;
-import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
-import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
-
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 
 import org.pangrova.common.api.annotation.Experimental;

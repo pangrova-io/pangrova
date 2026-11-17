@@ -6,7 +6,6 @@ import org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenan
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

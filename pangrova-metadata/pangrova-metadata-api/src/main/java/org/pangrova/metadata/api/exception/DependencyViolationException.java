@@ -3,7 +3,6 @@ package org.pangrova.metadata.api.exception;
 import org.pangrova.metadata.api.relation.ObjectRef;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.metadata.api.exception.MetadataException;
 
 import java.util.List;
 import java.util.Objects;

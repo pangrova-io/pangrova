@@ -1,7 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

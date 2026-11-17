@@ -52,8 +52,12 @@ public final class ConnectorPluginInventory implements AutoCloseable {
             if (root.isPresent()) {
                 try (var entries = Files.list(root.get())) {
                     for (Path directory : entries.filter(Files::isDirectory).sorted().toList()) {
+                        Path pluginName = directory.getFileName();
+                        if (pluginName == null) {
+                            throw new IllegalStateException("Connector plugin directory has no name: " + directory);
+                        }
                         PluginClassLoader loader = isolation.createClassLoader(
-                                directory.getFileName().toString(), jarUrls(directory), parent);
+                                pluginName.toString(), jarUrls(directory), parent);
                         loaders.add(loader);
                         loadFactories(directory, loader, factories);
                     }
@@ -139,7 +143,8 @@ public final class ConnectorPluginInventory implements AutoCloseable {
                     loader.close();
                     loaders.remove(loader);
                 } catch (IOException failure) {
-                    throw new UncheckedIOException("Failed closing connector plugin " + loader.getPluginName(), failure);
+                    throw new UncheckedIOException("Failed closing connector plugin " + loader.getPluginName(),
+                            failure);
                 }
             });
         }

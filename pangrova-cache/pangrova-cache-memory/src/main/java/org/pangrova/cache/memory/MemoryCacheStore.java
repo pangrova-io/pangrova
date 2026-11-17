@@ -14,7 +14,9 @@ import java.util.UUID;
 
 final class MemoryCacheStore implements CacheStore {
     private record ValueKey(CacheKey key, String groupToken, String entryToken) { }
+
     private record Entry(String group, String key) { }
+
     private record Value(String text, long ttlNanos) { }
 
     // An evicted generation gets a fresh random identity, so an old loader can never win by ABA.
@@ -28,7 +30,9 @@ final class MemoryCacheStore implements CacheStore {
         entries = Caffeine.newBuilder().maximumSize(limit).build();
         values = Caffeine.newBuilder().maximumSize(limit).expireAfter(new Expiry<ValueKey, Value>() {
             public long expireAfterCreate(ValueKey key, Value value, long time) { return value.ttlNanos(); }
-            public long expireAfterUpdate(ValueKey key, Value value, long time, long remaining) { return value.ttlNanos(); }
+            public long expireAfterUpdate(ValueKey key, Value value, long time, long remaining) {
+                return value.ttlNanos();
+            }
             public long expireAfterRead(ValueKey key, Value value, long time, long remaining) { return remaining; }
         }).build();
     }

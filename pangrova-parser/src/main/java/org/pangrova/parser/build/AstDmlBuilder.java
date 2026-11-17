@@ -3,8 +3,14 @@ package org.pangrova.parser.build;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
 
-import org.pangrova.parser.api.ast.*;
-import org.pangrova.parser.api.ast.statement.*;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.TableRef;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;

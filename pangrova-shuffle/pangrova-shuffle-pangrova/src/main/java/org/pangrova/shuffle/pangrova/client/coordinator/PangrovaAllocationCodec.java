@@ -13,6 +13,7 @@ import java.util.List;
 /** Version one stores only allocation ID and canonical routes. Access grants are reissued by the service. */
 final class PangrovaAllocationCodec {
     private static final int VERSION = 1;
+
     private PangrovaAllocationCodec() {}
 
     static ShuffleProviderDescriptor encode(String id, ShuffleServiceAddress address,
@@ -26,7 +27,8 @@ final class PangrovaAllocationCodec {
                 throw new IllegalArgumentException("Shuffle allocation descriptor has conflicting partition routes");
             }
             wire.addEndpoints(ShuffleServiceEndpoint.newBuilder().setHost(endpoint.host()).setPort(endpoint.port())
-                    .setTlsIdentity(endpoint.tlsIdentity()).setPartitionStart(next).setPartitionEnd(endpoint.partitionEnd()));
+                    .setTlsIdentity(endpoint.tlsIdentity()).setPartitionStart(next).setPartitionEnd(
+                            endpoint.partitionEnd()));
             next = endpoint.partitionEnd();
         }
         if (id.isBlank() || partitions <= 0 || next != partitions) {
@@ -36,12 +38,14 @@ final class PangrovaAllocationCodec {
         if (value.getSerializedSize() > ShuffleProviderDescriptor.MAX_BYTES) {
             throw new IllegalArgumentException("Shuffle allocation descriptor exceeds size limit");
         }
-        return ShuffleProviderDescriptor.of(PangrovaShuffleCoordinatorFactory.PROVIDER_ID, VERSION, value.toByteArray());
+        return ShuffleProviderDescriptor.of(PangrovaShuffleCoordinatorFactory.PROVIDER_ID, VERSION,
+                value.toByteArray());
     }
 
     static ShuffleServiceAddress decode(Allocation allocation, int partitions) {
         var descriptor = allocation.descriptor();
-        if (!PangrovaShuffleCoordinatorFactory.PROVIDER_ID.equals(descriptor.providerId()) || descriptor.version() != VERSION) {
+        if (!PangrovaShuffleCoordinatorFactory.PROVIDER_ID.equals(descriptor.providerId())
+                || descriptor.version() != VERSION) {
             throw new IllegalArgumentException("Unsupported shuffle allocation descriptor provider or version");
         }
         try {

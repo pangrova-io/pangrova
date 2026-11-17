@@ -6,15 +6,56 @@ import org.pangrova.parser.api.ast.statement.privilege.ShowPrivilegeMutationStat
 import org.pangrova.parser.api.ast.statement.tenant.GrantTenantStatement;
 import org.pangrova.parser.api.ast.statement.tenant.RevokeTenantStatement;
 
-
 import org.pangrova.parser.api.ast.CreateCatalogStatement;
 import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
-import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;
 import org.pangrova.parser.api.ast.ShowSchemasStatement;
 import org.pangrova.parser.api.ast.Statement;
-import org.pangrova.parser.api.ast.statement.*;
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableAction;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.AlterIndexStatement;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewAction;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.BackfillColumnStatement;
+import org.pangrova.parser.api.ast.statement.CancelBackfillStatement;
+import org.pangrova.parser.api.ast.statement.CreateFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.CreateIndexStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DescribeMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DropIndexStatement;
+import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
+import org.pangrova.parser.api.ast.statement.MaterializeFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.api.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement;
+import org.pangrova.parser.api.ast.statement.ShowBackfillStatusStatement;
+import org.pangrova.parser.api.ast.statement.ShowCatalogsStatement;
+import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
+import org.pangrova.parser.api.ast.statement.ShowDynamicTablesStatement;
+import org.pangrova.parser.api.ast.statement.ShowIndexesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializedViewsStatement;
+import org.pangrova.parser.api.ast.statement.ShowMetadataStatement;
+import org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement;
+import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
@@ -79,17 +120,22 @@ final class StatementPrinter {
                 Map.entry(RevokePrivilegeStatement.class, s -> printRevoke((RevokePrivilegeStatement) s)),
                 // Catalog
                 Map.entry(CreateCatalogStatement.class, s -> printCreateCatalog((CreateCatalogStatement) s)),
-                Map.entry(DropCatalogStatement.class, s -> "DROP CATALOG " + printer.quote(((DropCatalogStatement) s).name())),
+                Map.entry(DropCatalogStatement.class, s -> "DROP CATALOG " + printer.quote(((
+                        DropCatalogStatement) s).name())),
                 Map.entry(ShowCatalogsStatement.class, s -> "SHOW CATALOGS"),
-                Map.entry(DescribeCatalogStatement.class, s -> "DESCRIBE CATALOG " + printer.quote(((DescribeCatalogStatement) s).name())),
+                Map.entry(DescribeCatalogStatement.class, s -> "DESCRIBE CATALOG " + printer.quote(((
+                        DescribeCatalogStatement) s).name())),
                 Map.entry(AlterCatalogStatement.class, s -> printAlterCatalog((AlterCatalogStatement) s)),
                 Map.entry(CallStatement.class, s -> printCall((CallStatement) s)),
                 // Dynamic Table
-                Map.entry(CreateDynamicTableStatement.class, s -> printCreateDynamicTable((CreateDynamicTableStatement) s)),
-                Map.entry(AlterDynamicTableStatement.class, s -> printAlterDynamicTable((AlterDynamicTableStatement) s)),
+                Map.entry(CreateDynamicTableStatement.class, s -> printCreateDynamicTable((
+                        CreateDynamicTableStatement) s)),
+                Map.entry(AlterDynamicTableStatement.class, s -> printAlterDynamicTable((
+                        AlterDynamicTableStatement) s)),
                 Map.entry(DropDynamicTableStatement.class, s -> printDropDynamicTable((DropDynamicTableStatement) s)),
                 Map.entry(ShowDynamicTablesStatement.class, s -> "SHOW DYNAMIC TABLES"),
-                Map.entry(DescribeDynamicTableStatement.class, s -> "DESCRIBE DYNAMIC TABLE " + printer.printId(((DescribeDynamicTableStatement) s).name())),
+                Map.entry(DescribeDynamicTableStatement.class, s -> "DESCRIBE DYNAMIC TABLE " + printer.printId(((
+                        DescribeDynamicTableStatement) s).name())),
                 // Materialized View
                 Map.entry(CreateMaterializedViewStatement.class,
                         s -> printCreateMaterializedView((CreateMaterializedViewStatement) s)),
@@ -117,12 +163,18 @@ final class StatementPrinter {
                 // DDL
                 Map.entry(CreateTableStatement.class, s -> printCreateTable((CreateTableStatement) s)),
                 Map.entry(DropTableStatement.class, s -> printDropTable((DropTableStatement) s)),
-                Map.entry(AlterTableStatement.AddColumn.class, s -> printAlterTableAddColumn((AlterTableStatement.AddColumn) s)),
-                Map.entry(AlterTableStatement.DropColumn.class, s -> printAlterTableDropColumn((AlterTableStatement.DropColumn) s)),
-                Map.entry(AlterTableStatement.RenameColumn.class, s -> printAlterTableRenameColumn((AlterTableStatement.RenameColumn) s)),
-                Map.entry(AlterTableStatement.ChangeColumnType.class, s -> printAlterTableChangeType((AlterTableStatement.ChangeColumnType) s)),
-                Map.entry(AlterTableStatement.SetPartitionSpec.class, s -> printAlterTableSetPartitionSpec((AlterTableStatement.SetPartitionSpec) s)),
-                Map.entry(AlterTableStatement.SetSortOrder.class, s -> printAlterTableSetSortOrder((AlterTableStatement.SetSortOrder) s)),
+                Map.entry(AlterTableStatement.AddColumn.class, s -> printAlterTableAddColumn((
+                        AlterTableStatement.AddColumn) s)),
+                Map.entry(AlterTableStatement.DropColumn.class, s -> printAlterTableDropColumn((
+                        AlterTableStatement.DropColumn) s)),
+                Map.entry(AlterTableStatement.RenameColumn.class, s -> printAlterTableRenameColumn((
+                        AlterTableStatement.RenameColumn) s)),
+                Map.entry(AlterTableStatement.ChangeColumnType.class, s -> printAlterTableChangeType((
+                        AlterTableStatement.ChangeColumnType) s)),
+                Map.entry(AlterTableStatement.SetPartitionSpec.class, s -> printAlterTableSetPartitionSpec((
+                        AlterTableStatement.SetPartitionSpec) s)),
+                Map.entry(AlterTableStatement.SetSortOrder.class, s -> printAlterTableSetSortOrder((
+                        AlterTableStatement.SetSortOrder) s)),
                 Map.entry(CreateSchemaStatement.class, s -> printCreateSchema((CreateSchemaStatement) s)),
                 Map.entry(CreateSemanticViewStatement.class,
                         s -> semanticFeaturePrinter.printCreateSemanticView((CreateSemanticViewStatement) s)),
@@ -144,35 +196,49 @@ final class StatementPrinter {
                 // Show/Describe
                 Map.entry(ShowTablesStatement.class, s -> printShowTables((ShowTablesStatement) s)),
                 Map.entry(ShowSchemasStatement.class, s -> printShowSchemas((ShowSchemasStatement) s)),
-                Map.entry(DescribeTableStatement.class, s -> "DESCRIBE " + printer.printId(((DescribeTableStatement) s).tableName())),
+                Map.entry(DescribeTableStatement.class, s -> "DESCRIBE " + printer.printId(((
+                        DescribeTableStatement) s).tableName())),
                 Map.entry(ShowSemanticViewsStatement.class,
                         s -> semanticFeaturePrinter.printShowSemanticViews((ShowSemanticViewsStatement) s)),
                 // Index DDL
                 Map.entry(CreateIndexStatement.class, s -> indexPrinter.printCreateIndex((CreateIndexStatement) s)),
                 Map.entry(DropIndexStatement.class, s -> indexPrinter.printDropIndex((DropIndexStatement) s)),
-                Map.entry(ShowIndexesStatement.class, s -> "SHOW INDEXES ON " + printer.printId(((ShowIndexesStatement) s).tableName())),
+                Map.entry(ShowIndexesStatement.class, s -> "SHOW INDEXES ON " + printer.printId(((
+                        ShowIndexesStatement) s).tableName())),
                 Map.entry(AlterIndexStatement.class, s -> indexPrinter.printAlterIndex((AlterIndexStatement) s)),
                 // Clustering DDL
-                Map.entry(SetClusteringOrderStatement.class, s -> printSetClusteringOrder((SetClusteringOrderStatement) s)),
+                Map.entry(SetClusteringOrderStatement.class, s -> printSetClusteringOrder((
+                        SetClusteringOrderStatement) s)),
                 Map.entry(ReclusterTableStatement.class, s -> printReclusterTable((ReclusterTableStatement) s)),
-                Map.entry(ShowClusteringStatusStatement.class, s -> "SHOW CLUSTERING STATUS FOR TABLE " + printer.printId(((ShowClusteringStatusStatement) s).tableName())),
+                Map.entry(ShowClusteringStatusStatement.class, s -> "SHOW CLUSTERING STATUS FOR TABLE "
+                        + printer.printId(((ShowClusteringStatusStatement) s).tableName())),
                 // Stream DDL
                 Map.entry(CreateStreamStatement.class, s -> streamPrinter.printCreateStream((CreateStreamStatement) s)),
                 Map.entry(AlterStreamStatement.class, s -> streamPrinter.printAlterStream((AlterStreamStatement) s)),
                 Map.entry(DropStreamStatement.class, s -> streamPrinter.printDropStream((DropStreamStatement) s)),
                 Map.entry(ShowStreamsStatement.class, s -> "SHOW STREAMS"),
-                Map.entry(DescribeStreamStatement.class, s -> "DESCRIBE STREAM " + printer.printId(((DescribeStreamStatement) s).name())),
+                Map.entry(DescribeStreamStatement.class, s -> "DESCRIBE STREAM " + printer.printId(((
+                        DescribeStreamStatement) s).name())),
                 // Incremental Read
                 Map.entry(IncrementalReadStatement.class, s -> printIncrementalRead((IncrementalReadStatement) s)),
                 // Show Metadata
-                Map.entry(ShowMetadataStatement.ShowSnapshots.class, s -> "SHOW SNAPSHOTS FROM " + ((ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(Collectors.joining("."))),
-                Map.entry(ShowMetadataStatement.ShowFiles.class, s -> "SHOW FILES FROM " + ((ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(Collectors.joining("."))),
-                Map.entry(ShowMetadataStatement.ShowManifests.class, s -> "SHOW MANIFESTS FROM " + ((ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(Collectors.joining("."))),
-                Map.entry(ShowMetadataStatement.ShowPartitions.class, s -> "SHOW PARTITIONS FROM " + ((ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(Collectors.joining("."))),
+                Map.entry(ShowMetadataStatement.ShowSnapshots.class, s -> "SHOW SNAPSHOTS FROM " + ((
+                        ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(
+                        Collectors.joining("."))),
+                Map.entry(ShowMetadataStatement.ShowFiles.class, s -> "SHOW FILES FROM " + ((
+                        ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(
+                        Collectors.joining("."))),
+                Map.entry(ShowMetadataStatement.ShowManifests.class, s -> "SHOW MANIFESTS FROM " + ((
+                        ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(
+                        Collectors.joining("."))),
+                Map.entry(ShowMetadataStatement.ShowPartitions.class, s -> "SHOW PARTITIONS FROM " + ((
+                        ShowMetadataStatement) s).tableName().stream().map(printer::quote).collect(
+                        Collectors.joining("."))),
                 // Backfill Operations
                 Map.entry(BackfillColumnStatement.class, s -> printBackfillColumn((BackfillColumnStatement) s)),
                 Map.entry(CancelBackfillStatement.class, s -> printCancelBackfill((CancelBackfillStatement) s)),
-                Map.entry(ShowBackfillStatusStatement.class, s -> "SHOW BACKFILL STATUS ON " + printer.printId(((ShowBackfillStatusStatement) s).tableName()))
+                Map.entry(ShowBackfillStatusStatement.class, s -> "SHOW BACKFILL STATUS ON " + printer.printId(((
+                        ShowBackfillStatusStatement) s).tableName()))
         );
     }
 
@@ -379,7 +445,8 @@ final class StatementPrinter {
     private String printAlterTableAddColumn(AlterTableStatement.AddColumn s) {
         var sb = new StringBuilder("ALTER TABLE ");
         sb.append(printer.printId(s.tableName()));
-        sb.append(" ADD COLUMN ").append(printer.quote(s.columnName())).append(" ").append(s.columnType().toCanonicalString());
+        sb.append(" ADD COLUMN ").append(printer.quote(s.columnName())).append(" ").append(
+                s.columnType().toCanonicalString());
         s.defaultValue().ifPresent(def -> sb.append(" DEFAULT ").append(printer.printLiteral(def)));
         return sb.toString();
     }

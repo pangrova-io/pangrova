@@ -37,6 +37,7 @@ public final class CatalogTableDdl {
     private final SchemaEvolutionValidator schemaValidator;
     private final Object alterTableLock = new Object();
 
+    /** Creates the table DDL service over the catalog registry and current-table resolution. */
     public CatalogTableDdl(CatalogRegistry catalogRegistry, CatalogTableResolution resolution,
             MetadataEventDispatcher eventDispatcher, SchemaEvolutionValidator schemaValidator) {
         this.catalogRegistry = catalogRegistry;
@@ -45,8 +46,10 @@ public final class CatalogTableDdl {
         this.schemaValidator = schemaValidator;
     }
 
+    /** Creates a table through its connector after verifying that the name is available. */
     public void createTable(MetadataSessionContext session, QualifiedTableRef tableRef, TableMetadata metadata) {
-        catalogRegistry.tableControl().registrations().requireCreatableName(tableRef.catalog(), tableRef.schema(), tableRef.table());
+        catalogRegistry.tableControl().registrations().requireCreatableName(tableRef.catalog(), tableRef.schema(),
+                tableRef.table());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
                 session, tableRef.catalog(), tableRef.schema());
@@ -65,6 +68,7 @@ public final class CatalogTableDdl {
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
     }
 
+    /** Drops a managed table through its connector and retires its control record. */
     public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
         var tableControl = catalogRegistry.tableControl();
         tableControl.requireDroppable(
@@ -98,6 +102,7 @@ public final class CatalogTableDdl {
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
     }
 
+    /** Validates and applies schema changes against the current table metadata. */
     public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {
         synchronized (alterTableLock) {
             catalogRegistry.tableControl().requireManagedForDdl(

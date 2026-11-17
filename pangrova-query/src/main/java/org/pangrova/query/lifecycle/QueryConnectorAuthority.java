@@ -46,7 +46,8 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
     }
 
     @Override
-    public ConnectorMetadataLease acquireMetadata(String catalog, java.util.function.Supplier<ConnectorMetadataLease> lookup) {
+    public ConnectorMetadataLease acquireMetadata(String catalog,
+            java.util.function.Supplier<ConnectorMetadataLease> lookup) {
         if (catalog == null || catalog.isBlank()) {
             throw new IllegalArgumentException("Resolved catalog is required");
         }
@@ -61,7 +62,8 @@ final class QueryConnectorAuthority implements ConnectorMetadataScope {
                 return awaitBegin(existing.completed);
             }
             try {
-                ConnectorMetadataLease resolved = java.util.Objects.requireNonNull(lookup.get(), "resolved metadata lease");
+                ConnectorMetadataLease resolved = java.util.Objects.requireNonNull(lookup.get(),
+                        "resolved metadata lease");
                 synchronized (this) {
                     candidate.owner = resolved;
                 }

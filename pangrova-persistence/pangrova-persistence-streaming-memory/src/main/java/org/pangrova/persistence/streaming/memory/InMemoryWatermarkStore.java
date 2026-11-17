@@ -18,7 +18,8 @@ public final class InMemoryWatermarkStore implements WatermarkStore {
 
     @Override
     public Instant advance(String tableName, Instant watermark) {
-        return data.merge(tableName, watermark, (previous, proposed) -> previous.isAfter(proposed) ? previous : proposed);
+        return data.merge(tableName, watermark, (previous, proposed) -> previous.isAfter(proposed) ? previous
+                : proposed);
     }
 
     @Override

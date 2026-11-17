@@ -20,8 +20,13 @@ import java.util.function.Supplier;
 
 /** L1 owns decoded projections. The selected L2 owns generation-fenced, serialized projections. */
 public final class TieredMetadataCache implements MetadataCache, MetadataEventListener, AutoCloseable {
+    private static final long DEFAULT_MAX_ENTRIES = 10_000;
+    private static final long DEFAULT_TTL_SECONDS = 60;
+
     private static final Duration L2_TTL = Duration.ofMinutes(5);
+
     private record LocalProjection(Object catalogGeneration, TableMetadata metadata) { }
+
     private final Cache<CacheKey, LocalProjection> l1;
     private final Cache<String, Object> catalogs;
     private final CacheStore l2;
@@ -53,7 +58,9 @@ public final class TieredMetadataCache implements MetadataCache, MetadataEventLi
     }
 
     /** Local L1 only. No backend is discovered implicitly. */
-    public TieredMetadataCache() { this(10_000, 60, null); }
+    public TieredMetadataCache() {
+        this(DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS, null);
+    }
 
     @Override public synchronized Optional<TableMetadata> getTable(String catalog, String schema, String table) {
         requireOpen();

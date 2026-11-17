@@ -80,7 +80,8 @@ final class PangrovaShuffleControlProtocol {
                 .build();
     }
 
-    static org.pangrova.protocol.v2.TaskAttemptId toProtocol(org.pangrova.shuffle.api.identity.ExchangeTaskAttempt attempt) {
+    static org.pangrova.protocol.v2.TaskAttemptId toProtocol(
+            org.pangrova.shuffle.api.identity.ExchangeTaskAttempt attempt) {
         return org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
                 .setQueryOrJobId(attempt.queryId()).setTaskId(attempt.taskId())
                 .setStageId(attempt.stageId()).setPartitionId(attempt.taskPartitionId())
@@ -88,7 +89,8 @@ final class PangrovaShuffleControlProtocol {
                 .setAttemptId(attempt.fence().attemptId()).setFencingToken(attempt.fence().fencingToken())
                 .setExecutionOwner(toProtocol(attempt.executionOwner()))
                 .setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
-                        .setAdmissionDomainId(attempt.workerAdmissionDomainId()).setIncarnationId(attempt.workerIncarnationId()))
+                        .setAdmissionDomainId(attempt.workerAdmissionDomainId()).setIncarnationId(
+                                attempt.workerIncarnationId()))
                 .build();
     }
 
@@ -99,7 +101,8 @@ final class PangrovaShuffleControlProtocol {
         PartitionTotals totals = collectPartitions(registration, response);
         requireTotals(response, totals);
         return new ShuffleCommitReceipt(publication, response.getCommittedProducerCount(),
-                HexFormat.of().formatHex(response.getProducerSetChecksum().getDigest().toByteArray()), totals.partitions());
+                HexFormat.of().formatHex(response.getProducerSetChecksum().getDigest().toByteArray()),
+                        totals.partitions());
     }
 
     static void requireSameRegistration(

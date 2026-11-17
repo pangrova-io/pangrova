@@ -31,7 +31,8 @@ record SemanticViewSqlScope(UserIdentity user, String tenantId, String catalog, 
 
     static SemanticViewSqlScope from(QuerySession session) {
         if (session == null || session.userIdentity() == null || session.userIdentity().principal() == null
-                || session.userIdentity().principal().isBlank() || session.tenantId() == null || session.tenantId().isBlank()) {
+                || session.userIdentity().principal().isBlank() || session.tenantId() == null
+                        || session.tenantId().isBlank()) {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
                     "Semantic View operations require an authenticated tenant context");
         }

@@ -7,6 +7,7 @@ public final class AiModelProperties {
 
     private AiModelProperties() {}
 
+    /** Returns the integer property, or {@code defaultValue} when it is absent or blank. */
     public static int integer(
             AiModelDescriptor model, String property, int defaultValue) {
         String raw = model.properties().get(property);
@@ -20,6 +21,7 @@ public final class AiModelProperties {
         }
     }
 
+    /** Returns the positive floating-point property, or {@code defaultValue} when it is absent or blank. */
     public static double positiveDouble(
             AiModelDescriptor model, String property, double defaultValue) {
         String raw = model.properties().get(property);

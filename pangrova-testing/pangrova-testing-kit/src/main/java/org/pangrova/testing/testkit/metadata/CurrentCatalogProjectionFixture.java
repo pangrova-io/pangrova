@@ -34,7 +34,8 @@ public final class CurrentCatalogProjectionFixture {
 
     public MetadataProjectionReceipt deleteTable(String catalog, String schema, String table) {
         var scope = identity(catalog);
-        return transactions.apply(transactions.beginObservation(scope), new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), scope,
+        return transactions.apply(transactions.beginObservation(scope), new MetadataProjectionMutation.DeleteTable(
+                UUID.randomUUID(), scope,
                 new QualifiedTableRef(catalog, schema, table)));
     }
 

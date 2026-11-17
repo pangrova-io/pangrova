@@ -2,8 +2,6 @@ package org.pangrova.planner.api.statistics;
 
 import org.pangrova.common.api.annotation.Internal;
 
-import org.pangrova.planner.api.statistics.MultiColumnStatistics;
-
 import java.util.Optional;
 import java.util.Set;
 

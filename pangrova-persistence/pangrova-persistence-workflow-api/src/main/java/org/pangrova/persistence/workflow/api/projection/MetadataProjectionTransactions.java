@@ -16,7 +16,8 @@ import java.util.UUID;
  * must be reported as outcome unknown and confirmed by ID before any new attempt.
  *
  * <p>Each operation is atomic. The observation epoch fences overlapping scans and callbacks.
- * External snapshot isolation and object version ordering depend on the source. Assembly owns shared backend resources.</p>
+ * External snapshot isolation and object version ordering depend on the source. Assembly owns shared backend
+ * resources.</p>
  */
 @Experimental
 public interface MetadataProjectionTransactions {

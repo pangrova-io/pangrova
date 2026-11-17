@@ -10,6 +10,7 @@ public final class QueryAuditServices {
     private final QueryProfileService profileService;
     private final org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry operatorStats;
 
+    /** Composes query audit, operator statistics and profile services over one audit store. */
     public QueryAuditServices(QueryAuditStore store) {
         auditService = new QueryAuditService(
                 java.util.Objects.requireNonNull(store, "store must not be null"));

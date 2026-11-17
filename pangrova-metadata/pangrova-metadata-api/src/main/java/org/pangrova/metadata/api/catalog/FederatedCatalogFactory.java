@@ -2,7 +2,6 @@ package org.pangrova.metadata.api.catalog;
 
 import java.util.Map;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.metadata.api.catalog.FederatedCatalog;
 
 /**
  * Factory for creating FederatedCatalog instances from configuration properties.

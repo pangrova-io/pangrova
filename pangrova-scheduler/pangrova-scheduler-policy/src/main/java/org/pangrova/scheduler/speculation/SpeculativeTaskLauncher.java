@@ -382,7 +382,8 @@ public class SpeculativeTaskLauncher {
                 .orElse(null);
     }
 
-    private SubmitTaskRequest bindReplacement(SubmitTaskRequest original, String replacementId, PlacementWorker target) {
+    private SubmitTaskRequest bindReplacement(SubmitTaskRequest original, String replacementId,
+            PlacementWorker target) {
         var targeted = taskDispatcher.bindWorkerIdentity(cloneWithNewTaskId(original, replacementId), target);
         return taskDispatcher.bindSourceInput(taskDispatcher.bindControlIdentity(targeted));
     }

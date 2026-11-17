@@ -12,6 +12,9 @@ import java.util.ServiceLoader;
 
 /** Selects the metadata cache before Catalog handles are created. Provider settings may include credentials. */
 public record MetadataCacheDeployment(int maxEntries, Duration ttl, String provider, Map<String, String> settings) {
+    private static final int DEFAULT_MAX_ENTRIES = 10_000;
+    private static final Duration DEFAULT_TTL = Duration.ofSeconds(60);
+
     private static final String SETTINGS_PREFIX = "metadata.cache.l2.properties.";
 
     public MetadataCacheDeployment {
@@ -26,15 +29,17 @@ public record MetadataCacheDeployment(int maxEntries, Duration ttl, String provi
     }
 
     static MetadataCacheDeployment defaults() {
-        return new MetadataCacheDeployment(10_000, Duration.ofSeconds(60), "disabled", Map.of());
+        return new MetadataCacheDeployment(DEFAULT_MAX_ENTRIES, DEFAULT_TTL, "disabled", Map.of());
     }
 
     static MetadataCacheDeployment from(PangrovaConfiguration config) {
         Map<String, String> properties = new HashMap<>();
         config.toMap().forEach((key, value) -> {
             if (key.startsWith(SETTINGS_PREFIX)) properties.put(key.substring(SETTINGS_PREFIX.length()), value);
-            else if (key.startsWith("metadata.cache.") && !key.equals(CoordinatorOptions.METADATA_CACHE_L1_MAX_SIZE.key())
-                    && !key.equals(CoordinatorOptions.METADATA_CACHE_L1_TTL.key()) && !key.equals(CoordinatorOptions.METADATA_CACHE_L2_PROVIDER.key())) {
+            else if (key.startsWith("metadata.cache.") && !key.equals(
+                    CoordinatorOptions.METADATA_CACHE_L1_MAX_SIZE.key())
+                    && !key.equals(CoordinatorOptions.METADATA_CACHE_L1_TTL.key()) && !key.equals(
+                            CoordinatorOptions.METADATA_CACHE_L2_PROVIDER.key())) {
                 throw new IllegalArgumentException("Unknown metadata cache option: " + key);
             }
         });
@@ -61,9 +66,12 @@ public record MetadataCacheDeployment(int maxEntries, Duration ttl, String provi
         var factory = factories.get(provider);
         if (factory == null) throw new IllegalArgumentException("Missing metadata cache provider: " + provider);
         var store = java.util.Objects.requireNonNull(factory.open(settings), "Cache provider returned null");
-        try { return new TieredMetadataCache(maxEntries, ttl, store); }
-        catch (RuntimeException | Error failure) {
-            try { store.close(); } catch (RuntimeException | Error cleanup) {
+        try {
+            return new TieredMetadataCache(maxEntries, ttl, store);
+        } catch (RuntimeException | Error failure) {
+            try {
+                store.close();
+            } catch (RuntimeException | Error cleanup) {
                 if (cleanup != failure) failure.addSuppressed(cleanup);
             }
             throw failure;

@@ -49,7 +49,8 @@ public final class CoordinatorBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final CurrentModelAuthority modelAuthority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
-    private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
+    private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority,
+            CoordinatorTableWriteAuthority.create());
     private final org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
             new org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
@@ -300,7 +301,8 @@ public final class CoordinatorBootstrap {
             coordinationProvider = CoordinatorLeaseBootstrap.resolve(metadataDataSource);
             distributedLease = java.util.Objects.requireNonNull(coordinationProvider.lease(), "coordination lease");
             SchemaMigrationRunner.migrate(metadataDataSource);
-            coordinatorRegistry = java.util.Objects.requireNonNull(coordinationProvider.registry(), "coordinator registry");
+            coordinatorRegistry = java.util.Objects.requireNonNull(coordinationProvider.registry(),
+                    "coordinator registry");
             aiInfrastructureStores = AiInfrastructureStores.jdbc(
                     metadataDataSource, artifactStores.builds(metadataDataSource));
             CatalogDeploymentRepository deployments = new PostgresCatalogDeploymentRepository(metadataDataSource);
@@ -316,16 +318,21 @@ public final class CoordinatorBootstrap {
             try {
                 var federationFactory = new PluginFederationHandleFactory(cl, secretResolver, cache);
                 metadataBootstrap = MetadataBootstrap.initialize(
-                        loadTableStores(cl, metadataDataSource), deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
+                        loadTableStores(cl, metadataDataSource), deployments, tables, projections,
+                                new PostgresMetadataSyncRepository(metadataDataSource),
                         connectorHandleFactory, federationFactory,
                         new JdbcMaterializationRepository(metadataDataSource),
                         new JdbcMaterializationCatalog(metadataDataSource), cache);
             } catch (RuntimeException | Error failure) {
-                try { cache.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    cache.close();
+                } catch (RuntimeException cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
                 throw failure;
             }
             LOG.info("event=phase_started phase=metadata");
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             throw new BootstrapFailedException("Metadata", e);
         }
     }

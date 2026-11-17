@@ -23,7 +23,9 @@ public final class TableRenames {
     private final TableControlSettings settings;
     private final Clock clock;
 
-    public TableRenames(TableControlStore store, TableCatalogAuthority catalogs, TableControlSettings settings, Clock clock) {
+    /** Creates table rename operations over the control store. */
+    public TableRenames(TableControlStore store, TableCatalogAuthority catalogs, TableControlSettings settings,
+            Clock clock) {
         this.store = store;
         this.catalogs = catalogs;
         this.settings = settings;

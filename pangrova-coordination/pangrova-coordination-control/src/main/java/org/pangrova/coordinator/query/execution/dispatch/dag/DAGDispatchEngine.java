@@ -115,7 +115,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
 
     /**
      * Admits a task-level retry before its replacement is dispatched.
-     * See {@link org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController#tryPrepareTaskRetry}.
+     * See {@link
+     * org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController#tryPrepareTaskRetry}.
      */
     public boolean tryPrepareTaskRetry(String queryId, String failedTaskId,
             String retryTaskId, int maxRetries) {
@@ -433,8 +434,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         if (state.cancelled().get() || !lifecycle.owns(state.queryId(), state.dag())) return;
         leafStageDispatcher.populateDispatchRecords(
                 partitions, stage, state.dispatched(), state.results());
-        if (partitions.stream().anyMatch(partition -> partition.winner() == null && partition.request().taskRequest().getTaskKind()
-                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE)) stage.markWriteAttempt();
+        if (partitions.stream().anyMatch(partition -> partition.winner() == null
+                && partition.request().taskRequest().getTaskKind()
+                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE)) {
+            stage.markWriteAttempt();
+        }
         if (state.durable() == null && "OUTPUT".equals(plan.taskType())) {
             if (partitions.size() != 1) {
                 throw new IllegalStateException(

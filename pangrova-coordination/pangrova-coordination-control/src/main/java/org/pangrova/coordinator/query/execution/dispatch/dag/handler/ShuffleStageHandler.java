@@ -80,7 +80,8 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
         var report = buildStatsReport(event.queryId(), stage.stageId(), receipt);
         stage.setShuffleStatsReport(report);
         LOG.info("event=shuffle_commit_stats queryId={} stageId={} totalBytes={} totalRows={} partitions={}",
-                event.queryId(), stage.stageId(), report.shuffleBytes(), report.shuffleRows(), receipt.partitions().size());
+                event.queryId(), stage.stageId(), report.shuffleBytes(), report.shuffleRows(),
+                        receipt.partitions().size());
     }
 
     private static StageEdge externalShuffleOutput(StageLifecycleEvent event) {
@@ -118,8 +119,10 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
                 queryId,
                 String.valueOf(stageId),
                 protocolStats,
-                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::bytes).reduce(0L, Math::addExact),
-                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::rows).reduce(0L, Math::addExact),
+                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::bytes).reduce(0L,
+                        Math::addExact),
+                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::rows).reduce(0L,
+                        Math::addExact),
                 System.currentTimeMillis());
     }
 

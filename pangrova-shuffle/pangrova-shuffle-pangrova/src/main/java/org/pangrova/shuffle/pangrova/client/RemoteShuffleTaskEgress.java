@@ -411,7 +411,6 @@ final class RemoteShuffleTaskEgress {
         }
     }
 
-
     record Binding(
             String shuffleId,
             List<ShuffleServerEndpoint> endpoints,

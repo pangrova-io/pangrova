@@ -18,7 +18,6 @@ import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.indexing.api.pruning.IndexHint;
 import org.pangrova.indexing.pruning.IndexPredicateAnalyzer;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.pangrova.planner.analysis.ScanPredicates;

@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public final class StreamingResource {
-
+    private static final long DEFAULT_MAX_PENDING_BYTES = 64L * 1024 * 1024;
     private static final Logger LOG = LoggerFactory.getLogger(StreamingResource.class);
 
     private final CdcLifecycleManager cdcManager;
@@ -31,13 +31,14 @@ public final class StreamingResource {
         this.cdcManager = checkNotNull(cdcManager, "cdcManager must not be null");
     }
 
+    /** Registers a CDC consumer with its write-concurrency and pending-byte limits. */
     @POST
     @Path("/cdc/register")
     public Response registerCdc(JsonNode node) {
         String consumerId = node.path("consumer_id").asText(null);
         String tenantId = node.path("tenant_id").asText(null);
         int maxWrites = node.path("max_concurrent_writes").asInt(4);
-        long maxBytes = node.path("max_pending_bytes").asLong(67_108_864L);
+        long maxBytes = node.path("max_pending_bytes").asLong(DEFAULT_MAX_PENDING_BYTES);
 
         CdcRegistrationResult result = cdcManager.register(
                 consumerId, tenantId, maxWrites, maxBytes);

@@ -136,7 +136,8 @@ public final class ProcessIncarnationStore {
         ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
         header.putInt(MAGIC);
         putUuid(header, UUID.randomUUID());
-        header.put(DigestUtils.sha256().digest(java.util.Arrays.copyOf(header.array(), Integer.BYTES + UUID_BYTES))).flip();
+        byte[] identity = java.util.Arrays.copyOf(header.array(), Integer.BYTES + UUID_BYTES);
+        header.put(DigestUtils.sha256().digest(identity)).flip();
         try (FileChannel data = FileChannel.open(pending, StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
             writeFully(data, header);

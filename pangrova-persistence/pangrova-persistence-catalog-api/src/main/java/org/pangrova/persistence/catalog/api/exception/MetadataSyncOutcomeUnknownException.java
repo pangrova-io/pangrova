@@ -1,6 +1,5 @@
 package org.pangrova.persistence.catalog.api.exception;
 
-import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import java.util.UUID;
 
 /** COMMIT acknowledgment was lost. Confirm this run before starting another synchronization. */

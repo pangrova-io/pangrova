@@ -6,7 +6,6 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.resource.memory.ShrinkableMemoryConsumer;
-import org.pangrova.worker.memory.AllocationListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

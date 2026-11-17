@@ -1,7 +1,5 @@
 package org.pangrova.indexing.api.pruning;
 
-import org.pangrova.indexing.api.pruning.TopKBoundary;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

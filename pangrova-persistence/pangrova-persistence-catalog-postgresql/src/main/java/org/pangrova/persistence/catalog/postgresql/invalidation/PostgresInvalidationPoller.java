@@ -121,7 +121,8 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     PostgresInvalidationPoller(DataSource dataSource, MetadataCache cache, long pollIntervalSeconds,
             InvalidationProgressRegistry progressRegistry, Optional<String> reportingCoordinatorId) {
         this.reportingCoordinatorId = Objects.requireNonNull(reportingCoordinatorId, "reportingCoordinatorId");
-        if (reportingCoordinatorId.isPresent() && (reportingCoordinatorId.get().isBlank() || progressRegistry == null)) {
+        if (reportingCoordinatorId.isPresent() && (reportingCoordinatorId.get().isBlank()
+                || progressRegistry == null)) {
             throw new IllegalArgumentException("Reporting requires a coordinator ID and progress registry");
         }
         this.progressRegistry = progressRegistry;

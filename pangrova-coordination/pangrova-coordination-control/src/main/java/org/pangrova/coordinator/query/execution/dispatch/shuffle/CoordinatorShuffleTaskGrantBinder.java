@@ -21,6 +21,7 @@ public final class CoordinatorShuffleTaskGrantBinder {
         this.grants = java.util.Objects.requireNonNull(grants, "grants");
     }
 
+    /** Binds shuffle access grants to the exact task attempt and rejects mismatched execution owners or epochs. */
     public SubmitTaskRequest bind(SubmitTaskRequest request) {
         TaskRequest canonical = request.taskRequest();
         TaskAttemptId attempt = canonical.getAttempt();
@@ -74,7 +75,8 @@ public final class CoordinatorShuffleTaskGrantBinder {
                 new ExchangeAttemptFence(attempt.getPlanEpoch(), attempt.getAttemptId(), attempt.getFencingToken()),
                 new ShuffleExecutionOwner(owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()),
                 worker.getAdmissionDomainId(), worker.getIncarnationId());
-        var grant = grants.grant(new ShuffleServiceAddress(address.getHost(), address.getPort(), address.getTlsIdentity()),
+        var grant = grants.grant(new ShuffleServiceAddress(address.getHost(), address.getPort(),
+                address.getTlsIdentity()),
                 shuffleId, identity, operation);
         return ShuffleAccessCapability.newBuilder().setToken(com.google.protobuf.ByteString.copyFrom(grant.token()))
                 .setExpiresAtEpochMs(grant.expiresAtEpochMs()).build();

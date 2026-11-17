@@ -10,6 +10,7 @@ import org.pangrova.ai.api.provider.AiProviderFactory;
 public final class AiProviderFactories {
     private final Map<String, AiProviderFactory> factories;
 
+    /** Indexes discovered factories by dialect, rejecting unsupported API versions and duplicate dialects. */
     public AiProviderFactories(Iterable<AiProviderFactory> discovered) {
         var byId = new HashMap<String, AiProviderFactory>();
         for (AiProviderFactory factory : discovered) {
@@ -29,9 +30,11 @@ public final class AiProviderFactories {
     }
 
     public static AiProviderFactories discover() {
-        return new AiProviderFactories(ServiceLoader.load(AiProviderFactory.class, AiProviderFactories.class.getClassLoader()));
+        return new AiProviderFactories(ServiceLoader.load(AiProviderFactory.class,
+                AiProviderFactories.class.getClassLoader()));
     }
 
+    /** Returns the factory for a dialect, or fails naming the model that requested it. */
     public AiProviderFactory require(String dialect, String modelName) {
         var factory = factories.get(dialect);
         if (factory == null) throw new IllegalArgumentException(

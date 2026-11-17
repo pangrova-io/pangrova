@@ -589,7 +589,8 @@ final class TaskIdentityRegistry {
                     request != null && request.taskRequest().getExecutionOptions().getDirectResultOutput()
                             && !request.taskRequest().getExecutionOptions().hasWrite()
                             && (request.taskRequest().getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
-                            || request.taskRequest().getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_SHUFFLE_READ));
+                            || request.taskRequest().getTaskKind()
+                                    == org.pangrova.protocol.v2.TaskKind.TASK_KIND_SHUFFLE_READ));
         }
 
         private Identity compact() {

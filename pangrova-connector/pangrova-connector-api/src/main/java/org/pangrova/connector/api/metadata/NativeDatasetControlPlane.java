@@ -1,11 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.api.metadata.NativeDatasetScanPage;
-import org.pangrova.connector.api.metadata.NativeWritePreparation;
-import org.pangrova.connector.api.metadata.SourcePublicationReservation;
-
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 
 import org.pangrova.common.api.annotation.Experimental;

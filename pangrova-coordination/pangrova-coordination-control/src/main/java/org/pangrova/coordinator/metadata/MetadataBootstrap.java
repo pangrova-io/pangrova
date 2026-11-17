@@ -108,6 +108,7 @@ public final class MetadataBootstrap {
                 federationHandleFactory, materializationRepository, materializationCatalog, new TieredMetadataCache());
     }
 
+    /** Builds the catalog registry and metadata services, closing partially created resources on failure. */
     public static MetadataBootstrap initialize(
             TableStores stores, CatalogDeploymentRepository deployments,
             TableProjectionRepository tables,
@@ -115,24 +116,34 @@ public final class MetadataBootstrap {
             MetadataSyncRepository synchronization,
             ConnectorHandleFactory connectorHandleFactory,
             FederationHandleFactory federationHandleFactory,
-            MaterializationRepository materializationRepository, MaterializationCatalog materializationCatalog, TieredMetadataCache cache) {
+            MaterializationRepository materializationRepository, MaterializationCatalog materializationCatalog,
+                    TieredMetadataCache cache) {
         if ((materializationRepository == null) != (materializationCatalog == null)) {
-            throw new IllegalArgumentException("Materialization requires both the repository and the published catalog");
+            throw new IllegalArgumentException(
+                    "Materialization requires both the repository and the published catalog");
         }
         MetadataEventDispatcher dispatcher = new MetadataEventDispatcher();
         CatalogRegistry registry;
         try {
-            registry = new CatalogRegistry(stores, deployments, connectorHandleFactory, federationHandleFactory, dispatcher);
+            registry = new CatalogRegistry(stores, deployments, connectorHandleFactory, federationHandleFactory,
+                    dispatcher);
         } catch (RuntimeException | Error failure) {
-            try { dispatcher.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            try {
+                dispatcher.close();
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
         try {
             return initialize(registry, dispatcher, tables, projections, synchronization,
                     materializationRepository, materializationCatalog, cache);
         } catch (RuntimeException | Error failure) {
-            try (var events = dispatcher) { registry.shutdown(); }
-            catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            try (var events = dispatcher) {
+                registry.shutdown();
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
     }

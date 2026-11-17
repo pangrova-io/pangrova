@@ -30,6 +30,7 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
 
     private final Cache<String, ConcurrentHashMap<String, OperatorStats>> byQuery;
 
+    /** Creates a bounded registry that retains recent per-query operator statistics. */
     public QueryOperatorStatsRegistry() {
         this.byQuery = Caffeine.newBuilder()
                 .maximumSize(MAX_QUERIES)

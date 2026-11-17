@@ -121,14 +121,16 @@ public final class DdlExecutor {
             return List.of();
         }
         var descriptor = catalogHandle.getDescriptor();
-        metadata.createTable(session, TableDeclarationCompiler.compile(new SchemaTableName(ref.schema(), ref.table()), stmt));
+        metadata.createTable(session, TableDeclarationCompiler.compile(new SchemaTableName(ref.schema(), ref.table()),
+                stmt));
         registerCreatedTable(descriptor, metadata, session, ref, context);
         invalidateSchemaCache();
         LOG.info("event=table_created table={}", ref);
         return List.of();
     }
 
-    private void registerCreatedTable(CatalogDescriptor descriptor, ConnectorMetadata metadata, ConnectorSession session,
+    private void registerCreatedTable(CatalogDescriptor descriptor, ConnectorMetadata metadata,
+            ConnectorSession session,
             QualifiedTableName ref, QuerySession context) {
         var tableControl = catalogRegistry.tableControl();
         String owner = context.userIdentity() == null ? "" : context.userIdentity().principal();
@@ -516,6 +518,7 @@ public final class DdlExecutor {
         invalidateSchemaCache();
     }
 
+    /** Unregisters the tenant catalog and invalidates cached schemas. */
     public List<TypedRow> executeDropCatalog(DropCatalogStatement stmt, QuerySession session) {
         catalogRegistry.unregister(stmt.name(), session.tenantId());
         invalidateSchemaCache();

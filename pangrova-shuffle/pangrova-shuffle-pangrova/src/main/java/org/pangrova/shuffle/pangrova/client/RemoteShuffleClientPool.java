@@ -229,7 +229,8 @@ public final class RemoteShuffleClientPool implements Closeable, org.pangrova.sh
                         published.getTotalBytes(), published.getTotalRows(),
                         java.util.HexFormat.of().formatHex(published.getManifestSha256().toByteArray())));
         var grant = input.getReadCapability();
-        var access = new org.pangrova.shuffle.api.ShuffleAccess(grant.getToken().toByteArray(), grant.getExpiresAtEpochMs());
+        var access = new org.pangrova.shuffle.api.ShuffleAccess(grant.getToken().toByteArray(),
+                grant.getExpiresAtEpochMs());
         var endpoint = input.getEndpointsList().stream().filter(candidate ->
                 candidate.getPartitionStart() <= input.getOutputPartitionId()
                         && input.getOutputPartitionId() < candidate.getPartitionEnd()).findFirst().orElseThrow();

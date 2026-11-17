@@ -1,7 +1,6 @@
 package org.pangrova.metadata.api.event;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.metadata.api.event.MetadataEvent;
 
 /**
  * Functional interface for receiving metadata lifecycle events.

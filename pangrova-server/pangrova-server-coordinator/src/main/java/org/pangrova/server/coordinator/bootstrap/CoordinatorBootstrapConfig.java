@@ -200,7 +200,8 @@ public record CoordinatorBootstrapConfig(
             java.util.Map<String, String> shuffleProviderSettings) {
 
         public FeatureFlags {
-            if (shuffleProvider == null || shuffleProvider.isBlank()) throw new IllegalArgumentException("Blank shuffle provider");
+            if (shuffleProvider == null || shuffleProvider.isBlank()) throw new IllegalArgumentException(
+                    "Blank shuffle provider");
             shuffleProviderSettings = java.util.Map.copyOf(shuffleProviderSettings);
             if (shuffleMode == null) shuffleMode = ShuffleMode.NATIVE;
             if (shuffleEndpoints == null) shuffleEndpoints = List.of();
@@ -283,7 +284,8 @@ public record CoordinatorBootstrapConfig(
                            long taskTimeoutSeconds) {
             this(queryTimeoutSeconds, timeoutCheckIntervalSeconds, taskTimeoutSeconds,
                     DEFAULT_QUERY_RETENTION_SECONDS, DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
-                    SpillBudget.DISABLED, DEFAULT_WORKER_MAX_RETRY, CoordinatorOptions.PLACEMENT_PROVIDER.defaultValue());
+                    SpillBudget.DISABLED, DEFAULT_WORKER_MAX_RETRY,
+                            CoordinatorOptions.PLACEMENT_PROVIDER.defaultValue());
         }
 
         /** Uses disabled task spilling. */

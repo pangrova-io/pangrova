@@ -29,7 +29,7 @@ public final class CoordinatorHealthResource {
     @GET
     public Response health() {
         HealthStatus status = healthCheckEndpoint.health();
-        int httpStatus = status.ready() ? 200 : 503;
+        Response.Status httpStatus = status.ready() ? Response.Status.OK : Response.Status.SERVICE_UNAVAILABLE;
         return Response.status(httpStatus).entity(status).build();
     }
 
@@ -37,6 +37,7 @@ public final class CoordinatorHealthResource {
     @Path("live")
     public Response live() {
         boolean live = healthCheckEndpoint.isLive();
-        return Response.status(live ? 200 : 503).entity(Map.of("live", live)).build();
+        Response.Status httpStatus = live ? Response.Status.OK : Response.Status.SERVICE_UNAVAILABLE;
+        return Response.status(httpStatus).entity(Map.of("live", live)).build();
     }
 }

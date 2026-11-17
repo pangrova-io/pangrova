@@ -17,6 +17,7 @@ public final class CdcSourceRegistry {
         return new CdcSourceRegistry(ServiceLoader.load(CdcSourceFactory.class, loader));
     }
 
+    /** Indexes CDC source factories by identifier, rejecting invalid or duplicate identifiers. */
     public CdcSourceRegistry(Iterable<CdcSourceFactory> providers) {
         var registered = new LinkedHashMap<String, CdcSourceFactory>();
         for (CdcSourceFactory factory : providers) {
@@ -25,7 +26,8 @@ public final class CdcSourceRegistry {
                 throw new IllegalArgumentException("Invalid or duplicate CDC source identifier: " + id);
             }
             if (factory.apiVersion() != CdcSourceFactory.API_VERSION) {
-                throw new IllegalArgumentException("Incompatible CDC source API for " + id + ": " + factory.apiVersion());
+                throw new IllegalArgumentException("Incompatible CDC source API for " + id + ": "
+                        + factory.apiVersion());
             }
         }
         factories = Map.copyOf(registered);
@@ -35,6 +37,7 @@ public final class CdcSourceRegistry {
         require(id).validate(properties);
     }
 
+    /** Validates the stream source properties and opens a reader at its checkpoint. */
     public CdcSourceReader open(StreamState state) {
         var provider = require(state.sourceProvider());
         provider.validate(state.sourceProperties());

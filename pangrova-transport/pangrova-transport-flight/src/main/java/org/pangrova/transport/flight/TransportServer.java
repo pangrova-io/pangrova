@@ -212,7 +212,8 @@ public class TransportServer implements TransportServerLifecycle {
         }
     }
 
-    private org.apache.arrow.flight.FlightServer buildSecureServer(BatchStreamProducer batchProducer) throws IOException {
+    private org.apache.arrow.flight.FlightServer buildSecureServer(
+            BatchStreamProducer batchProducer) throws IOException {
         Path certificate = requireTlsFile(config.tlsCertPath());
         Path key = requireTlsFile(config.tlsKeyPath());
         Path trust = config.mtlsConfigured() ? requireTlsFile(config.tlsTrustChainPath()) : null;

@@ -67,7 +67,8 @@ public final class IndexRebuildScheduler {
                                  DistributedLease distributedLease,
                                  String coordinatorId,
                                  VectorIndexHealthAssessor healthAssessor,
-                                 BiFunction<IndexDescriptor, IndexRebuildAction, CompletableFuture<Void>> rebuildExecutor,
+                                 BiFunction<IndexDescriptor, IndexRebuildAction,
+                                         CompletableFuture<Void>> rebuildExecutor,
                                  int maxConcurrentRebuilds) {
         this.executor = executor;
         this.distributedLease = distributedLease;
@@ -84,7 +85,8 @@ public final class IndexRebuildScheduler {
                                  DistributedLease distributedLease,
                                  String coordinatorId,
                                  VectorIndexHealthAssessor healthAssessor,
-                                 BiFunction<IndexDescriptor, IndexRebuildAction, CompletableFuture<Void>> rebuildExecutor) {
+                                 BiFunction<IndexDescriptor, IndexRebuildAction,
+                                         CompletableFuture<Void>> rebuildExecutor) {
         this(executor, distributedLease, coordinatorId, healthAssessor, rebuildExecutor, 2);
     }
 

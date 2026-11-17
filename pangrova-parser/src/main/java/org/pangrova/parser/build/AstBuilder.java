@@ -10,7 +10,40 @@ import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.api.enums.SqlDialect;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.AllColumns;
+import org.pangrova.parser.api.ast.CreateCatalogStatement;
+import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.api.ast.CteQuery;
+import org.pangrova.parser.api.ast.CubeGroupBy;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.ExpressionItem;
+import org.pangrova.parser.api.ast.GroupByExpression;
+import org.pangrova.parser.api.ast.GroupByItem;
+import org.pangrova.parser.api.ast.GroupingSets;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.JoinClause;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.NamedWindow;
+import org.pangrova.parser.api.ast.PivotClause;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.RollupGroupBy;
+import org.pangrova.parser.api.ast.SelectItem;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.ShowSchemasStatement;
+import org.pangrova.parser.api.ast.SortItem;
+import org.pangrova.parser.api.ast.SourceLocation;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.SystemTableReference;
+import org.pangrova.parser.api.ast.TableFunctionRef;
+import org.pangrova.parser.api.ast.TableRef;
+import org.pangrova.parser.api.ast.TableSample;
+import org.pangrova.parser.api.ast.TimeTravelSpec;
+import org.pangrova.parser.api.ast.UnpivotClause;
+import org.pangrova.parser.api.ast.ValuesTable;
+import org.pangrova.parser.api.ast.WindowSpec;
 import org.pangrova.parser.api.enums.TimeTravelType;
 import org.pangrova.parser.api.ast.RerankClause;
 import org.pangrova.parser.api.ast.RerankClause.CascadeStrategy;
@@ -162,8 +195,12 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         Statement stmt = (Statement) visit(ctx.statement());
         return withLocation(stmt, ctx);
     }
-    @Override public Statement visitCteQueryStatement(PangrovaSqlParser.CteQueryStatementContext ctx) { return withLocation((Statement) visit(ctx.cteQuery()), ctx); }
-    @Override public Statement visitQueryStatement(PangrovaSqlParser.QueryStatementContext ctx) { return withLocation((Statement) visit(ctx.setQuery()), ctx); }
+    @Override public Statement visitCteQueryStatement(PangrovaSqlParser.CteQueryStatementContext ctx) {
+        return withLocation((Statement) visit(ctx.cteQuery()), ctx);
+    }
+    @Override public Statement visitQueryStatement(PangrovaSqlParser.QueryStatementContext ctx) {
+        return withLocation((Statement) visit(ctx.setQuery()), ctx);
+    }
     @Override public Statement visitExplainStmt(PangrovaSqlParser.ExplainStmtContext ctx) {
         Statement inner = (Statement) visit(ctx.explainStatement().statement());
         return withLocation(new org.pangrova.parser.api.ast.statement.ExplainStatement(inner), ctx);
@@ -213,47 +250,155 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return new CteQuery.CycleClause(cycleColumns, cycleMarkColumn, cycleValue, noCycleValue, pathColumn);
     }
 
-    @Override public Statement visitCompactTableStatement(PangrovaSqlParser.CompactTableStatementContext ctx) { return (CompactStatement) ddlDml.visitCompactTable(ctx.compactTable()); }
-    @Override public Statement visitOptimizeTableStatement(PangrovaSqlParser.OptimizeTableStatementContext ctx) { return (OptimizeStatement) ddlDml.visitOptimizeTable(ctx.optimizeTable()); }
-    @Override public Statement visitVacuumTableStatement(PangrovaSqlParser.VacuumTableStatementContext ctx) { return (VacuumStatement) ddlDml.visitVacuumTable(ctx.vacuumTable()); }
-    @Override public Statement visitAnalyzeTableStatement(PangrovaSqlParser.AnalyzeTableStatementContext ctx) { return (org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement) ddlDml.visitAnalyzeTable(ctx.analyzeTable()); }
-    @Override public Statement visitCreateCatalogStatement(PangrovaSqlParser.CreateCatalogStatementContext ctx) { return (CreateCatalogStatement) ddlDml.visitCreateCatalog(ctx.createCatalog()); }
-    @Override public Statement visitDropCatalogStatement(PangrovaSqlParser.DropCatalogStatementContext ctx) { return (DropCatalogStatement) ddlDml.visitDropCatalog(ctx.dropCatalog()); }
-    @Override public Statement visitShowCatalogsStatement(PangrovaSqlParser.ShowCatalogsStatementContext ctx) { return (ShowCatalogsStatement) ddlDml.visitShowCatalogs(ctx.showCatalogs()); }
-    @Override public Statement visitDescribeCatalogStatement(PangrovaSqlParser.DescribeCatalogStatementContext ctx) { return (DescribeCatalogStatement) ddlDml.visitDescribeCatalog(ctx.describeCatalog()); }
-    @Override public Statement visitAlterCatalogStatement(PangrovaSqlParser.AlterCatalogStatementContext ctx) { return (AlterCatalogStatement) ddlDml.visitAlterCatalog(ctx.alterCatalog()); }
-    @Override public Statement visitCallProcedureStatement(PangrovaSqlParser.CallProcedureStatementContext ctx) { return (CallStatement) ddlDml.visitCallStatement(ctx.callStatement()); }
-    @Override public Statement visitCreateDynamicTableStatement(PangrovaSqlParser.CreateDynamicTableStatementContext ctx) { return (CreateDynamicTableStatement) extDdl.visitCreateDynamicTable(ctx.createDynamicTable()); }
-    @Override public Statement visitAlterDynamicTableStatement(PangrovaSqlParser.AlterDynamicTableStatementContext ctx) { return (AlterDynamicTableStatement) extDdl.visit(ctx.alterDynamicTable()); }
-    @Override public Statement visitDropDynamicTableStatement(PangrovaSqlParser.DropDynamicTableStatementContext ctx) { return (DropDynamicTableStatement) extDdl.visitDropDynamicTable(ctx.dropDynamicTable()); }
-    @Override public Statement visitShowDynamicTablesStatement(PangrovaSqlParser.ShowDynamicTablesStatementContext ctx) { return (ShowDynamicTablesStatement) extDdl.visitShowDynamicTables(ctx.showDynamicTables()); }
-    @Override public Statement visitDescribeDynamicTableStatement(PangrovaSqlParser.DescribeDynamicTableStatementContext ctx) { return (DescribeDynamicTableStatement) extDdl.visitDescribeDynamicTable(ctx.describeDynamicTable()); }
-    @Override public Statement visitCreateMaterializedViewStatement(PangrovaSqlParser.CreateMaterializedViewStatementContext ctx) { return (CreateMaterializedViewStatement) extDdl.visitCreateMaterializedView(ctx.createMaterializedView()); }
-    @Override public Statement visitAlterMaterializedViewStatement(PangrovaSqlParser.AlterMaterializedViewStatementContext ctx) { return (AlterMaterializedViewStatement) extDdl.visit(ctx.alterMaterializedView()); }
-    @Override public Statement visitRefreshMaterializedViewStatement(PangrovaSqlParser.RefreshMaterializedViewStatementContext ctx) { return (RefreshMaterializedViewStatement) extDdl.visitRefreshMaterializedView(ctx.refreshMaterializedView()); }
-    @Override public Statement visitDropMaterializedViewStatement(PangrovaSqlParser.DropMaterializedViewStatementContext ctx) { return (DropMaterializedViewStatement) extDdl.visitDropMaterializedView(ctx.dropMaterializedView()); }
-    @Override public Statement visitShowMaterializedViewsStatement(PangrovaSqlParser.ShowMaterializedViewsStatementContext ctx) { return (ShowMaterializedViewsStatement) extDdl.visitShowMaterializedViews(ctx.showMaterializedViews()); }
-    @Override public Statement visitShowMaterializationsStatement(PangrovaSqlParser.ShowMaterializationsStatementContext ctx) { return (ShowMaterializationsStatement) extDdl.visitShowMaterializations(ctx.showMaterializations()); }
-    @Override public Statement visitShowMaterializationRefreshHistoryStatement(PangrovaSqlParser.ShowMaterializationRefreshHistoryStatementContext ctx) { return (ShowMaterializationRefreshHistoryStatement) extDdl.visitShowMaterializationRefreshHistory(ctx.showMaterializationRefreshHistory()); }
-    @Override public Statement visitShowMaterializationDependenciesStatement(PangrovaSqlParser.ShowMaterializationDependenciesStatementContext ctx) { return (ShowMaterializationDependenciesStatement) extDdl.visitShowMaterializationDependencies(ctx.showMaterializationDependencies()); }
-    @Override public Statement visitShowMaterializationGcHistoryStatement(PangrovaSqlParser.ShowMaterializationGcHistoryStatementContext ctx) { return (ShowMaterializationGcHistoryStatement) extDdl.visitShowMaterializationGcHistory(ctx.showMaterializationGcHistory()); }
-    @Override public Statement visitDescribeMaterializedViewStatement(PangrovaSqlParser.DescribeMaterializedViewStatementContext ctx) { return (DescribeMaterializedViewStatement) extDdl.visitDescribeMaterializedView(ctx.describeMaterializedView()); }
-    @Override public Statement visitCreateTableStatement(PangrovaSqlParser.CreateTableStatementContext ctx) { return withLocation((Statement) ddlDml.visit(ctx.createTable()), ctx); }
-    @Override public Statement visitDropTableStatement(PangrovaSqlParser.DropTableStatementContext ctx) { return withLocation((DropTableStatement) ddlDml.visitDropTable(ctx.dropTable()), ctx); }
-    @Override public Statement visitInsertIntoStatement(PangrovaSqlParser.InsertIntoStatementContext ctx) { return withLocation((InsertStatement) dml.visitInsertInto(ctx.insertInto()), ctx); }
-    @Override public Statement visitInsertOverwriteStatement(PangrovaSqlParser.InsertOverwriteStatementContext ctx) { return withLocation((InsertOverwriteStatement) dml.visitInsertOverwrite(ctx.insertOverwrite()), ctx); }
-    @Override public Statement visitInsertSelectStatement(PangrovaSqlParser.InsertSelectStatementContext ctx) { return withLocation((InsertSelectStatement) dml.visitInsertSelect(ctx.insertSelect()), ctx); }
-    @Override public Statement visitCopyIntoStatement(PangrovaSqlParser.CopyIntoStatementContext ctx) { return withLocation((InsertSelectStatement) dml.visitCopyInto(ctx.copyInto()), ctx); }
-    @Override public Statement visitShowSchemasStatement(PangrovaSqlParser.ShowSchemasStatementContext ctx) { return (ShowSchemasStatement) ddlDml.visitShowSchemas(ctx.showSchemas()); }
-    @Override public Statement visitShowTablesStatement(PangrovaSqlParser.ShowTablesStatementContext ctx) { return (ShowTablesStatement) ddlDml.visitShowTables(ctx.showTables()); }
-    @Override public Statement visitShowTableControlsStatement(PangrovaSqlParser.ShowTableControlsStatementContext ctx) { return (ShowTableControlsStatement) ddlDml.visitShowTableControls(ctx.showTableControls()); }
-    @Override public Statement visitShowViewsStatement(PangrovaSqlParser.ShowViewsStatementContext ctx) { return (ShowViewsStatement) ddlDml.visitShowViews(ctx.showViews()); }
-    @Override public Statement visitShowSemanticViewsStatement(PangrovaSqlParser.ShowSemanticViewsStatementContext ctx) { return semanticView.visitShowSemanticViews(ctx.showSemanticViews()); }
-    @Override public Statement visitShowSnapshotsStatement(PangrovaSqlParser.ShowSnapshotsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowSnapshots(ctx.showSnapshots()); }
-    @Override public Statement visitShowFilesStatement(PangrovaSqlParser.ShowFilesStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowFiles(ctx.showFiles()); }
-    @Override public Statement visitShowManifestsStatement(PangrovaSqlParser.ShowManifestsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowManifests(ctx.showManifests()); }
-    @Override public Statement visitShowPartitionsStatement(PangrovaSqlParser.ShowPartitionsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowPartitions(ctx.showPartitions()); }
-    @Override public Statement visitDescribeTableStatement(PangrovaSqlParser.DescribeTableStatementContext ctx) { return (DescribeTableStatement) ddlDml.visitDescribeTable(ctx.describeTable()); }
+    @Override public Statement visitCompactTableStatement(PangrovaSqlParser.CompactTableStatementContext ctx) {
+        return (CompactStatement) ddlDml.visitCompactTable(ctx.compactTable());
+    }
+    @Override public Statement visitOptimizeTableStatement(PangrovaSqlParser.OptimizeTableStatementContext ctx) {
+        return (OptimizeStatement) ddlDml.visitOptimizeTable(ctx.optimizeTable());
+    }
+    @Override public Statement visitVacuumTableStatement(PangrovaSqlParser.VacuumTableStatementContext ctx) {
+        return (VacuumStatement) ddlDml.visitVacuumTable(ctx.vacuumTable());
+    }
+    @Override public Statement visitAnalyzeTableStatement(PangrovaSqlParser.AnalyzeTableStatementContext ctx) {
+        return (org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement) ddlDml.visitAnalyzeTable(
+                ctx.analyzeTable());
+    }
+    @Override public Statement visitCreateCatalogStatement(PangrovaSqlParser.CreateCatalogStatementContext ctx) {
+        return (CreateCatalogStatement) ddlDml.visitCreateCatalog(ctx.createCatalog());
+    }
+    @Override public Statement visitDropCatalogStatement(PangrovaSqlParser.DropCatalogStatementContext ctx) {
+        return (DropCatalogStatement) ddlDml.visitDropCatalog(ctx.dropCatalog());
+    }
+    @Override public Statement visitShowCatalogsStatement(PangrovaSqlParser.ShowCatalogsStatementContext ctx) {
+        return (ShowCatalogsStatement) ddlDml.visitShowCatalogs(ctx.showCatalogs());
+    }
+    @Override public Statement visitDescribeCatalogStatement(PangrovaSqlParser.DescribeCatalogStatementContext ctx) {
+        return (DescribeCatalogStatement) ddlDml.visitDescribeCatalog(ctx.describeCatalog());
+    }
+    @Override public Statement visitAlterCatalogStatement(PangrovaSqlParser.AlterCatalogStatementContext ctx) {
+        return (AlterCatalogStatement) ddlDml.visitAlterCatalog(ctx.alterCatalog());
+    }
+    @Override public Statement visitCallProcedureStatement(PangrovaSqlParser.CallProcedureStatementContext ctx) {
+        return (CallStatement) ddlDml.visitCallStatement(ctx.callStatement());
+    }
+    @Override
+    public Statement visitCreateDynamicTableStatement(PangrovaSqlParser.CreateDynamicTableStatementContext ctx) {
+        return (CreateDynamicTableStatement) extDdl.visitCreateDynamicTable(ctx.createDynamicTable());
+    }
+    @Override
+    public Statement visitAlterDynamicTableStatement(PangrovaSqlParser.AlterDynamicTableStatementContext ctx) {
+        return (AlterDynamicTableStatement) extDdl.visit(ctx.alterDynamicTable());
+    }
+    @Override public Statement visitDropDynamicTableStatement(PangrovaSqlParser.DropDynamicTableStatementContext ctx) {
+        return (DropDynamicTableStatement) extDdl.visitDropDynamicTable(ctx.dropDynamicTable());
+    }
+    @Override
+    public Statement visitShowDynamicTablesStatement(PangrovaSqlParser.ShowDynamicTablesStatementContext ctx) {
+        return (ShowDynamicTablesStatement) extDdl.visitShowDynamicTables(ctx.showDynamicTables());
+    }
+    @Override
+    public Statement visitDescribeDynamicTableStatement(PangrovaSqlParser.DescribeDynamicTableStatementContext ctx) {
+        return (DescribeDynamicTableStatement) extDdl.visitDescribeDynamicTable(ctx.describeDynamicTable());
+    }
+    @Override
+    public Statement visitCreateMaterializedViewStatement(
+            PangrovaSqlParser.CreateMaterializedViewStatementContext ctx) {
+        return (CreateMaterializedViewStatement) extDdl.visitCreateMaterializedView(ctx.createMaterializedView());
+    }
+    @Override
+    public Statement visitAlterMaterializedViewStatement(PangrovaSqlParser.AlterMaterializedViewStatementContext ctx) {
+        return (AlterMaterializedViewStatement) extDdl.visit(ctx.alterMaterializedView());
+    }
+    @Override
+    public Statement visitRefreshMaterializedViewStatement(
+            PangrovaSqlParser.RefreshMaterializedViewStatementContext ctx) {
+        return (RefreshMaterializedViewStatement) extDdl.visitRefreshMaterializedView(ctx.refreshMaterializedView());
+    }
+    @Override
+    public Statement visitDropMaterializedViewStatement(PangrovaSqlParser.DropMaterializedViewStatementContext ctx) {
+        return (DropMaterializedViewStatement) extDdl.visitDropMaterializedView(ctx.dropMaterializedView());
+    }
+    @Override
+    public Statement visitShowMaterializedViewsStatement(PangrovaSqlParser.ShowMaterializedViewsStatementContext ctx) {
+        return (ShowMaterializedViewsStatement) extDdl.visitShowMaterializedViews(ctx.showMaterializedViews());
+    }
+    @Override
+    public Statement visitShowMaterializationsStatement(PangrovaSqlParser.ShowMaterializationsStatementContext ctx) {
+        return (ShowMaterializationsStatement) extDdl.visitShowMaterializations(ctx.showMaterializations());
+    }
+    @Override
+    public Statement visitShowMaterializationRefreshHistoryStatement(
+            PangrovaSqlParser.ShowMaterializationRefreshHistoryStatementContext ctx) {
+        return (ShowMaterializationRefreshHistoryStatement) extDdl.visitShowMaterializationRefreshHistory(
+                ctx.showMaterializationRefreshHistory());
+    }
+    @Override
+    public Statement visitShowMaterializationDependenciesStatement(
+            PangrovaSqlParser.ShowMaterializationDependenciesStatementContext ctx) {
+        return (ShowMaterializationDependenciesStatement) extDdl.visitShowMaterializationDependencies(
+                ctx.showMaterializationDependencies());
+    }
+    @Override
+    public Statement visitShowMaterializationGcHistoryStatement(
+            PangrovaSqlParser.ShowMaterializationGcHistoryStatementContext ctx) {
+        return (ShowMaterializationGcHistoryStatement) extDdl.visitShowMaterializationGcHistory(
+                ctx.showMaterializationGcHistory());
+    }
+    @Override
+    public Statement visitDescribeMaterializedViewStatement(
+            PangrovaSqlParser.DescribeMaterializedViewStatementContext ctx) {
+        return (DescribeMaterializedViewStatement) extDdl.visitDescribeMaterializedView(ctx.describeMaterializedView());
+    }
+    @Override public Statement visitCreateTableStatement(PangrovaSqlParser.CreateTableStatementContext ctx) {
+        return withLocation((Statement) ddlDml.visit(ctx.createTable()), ctx);
+    }
+    @Override public Statement visitDropTableStatement(PangrovaSqlParser.DropTableStatementContext ctx) {
+        return withLocation((DropTableStatement) ddlDml.visitDropTable(ctx.dropTable()), ctx);
+    }
+    @Override public Statement visitInsertIntoStatement(PangrovaSqlParser.InsertIntoStatementContext ctx) {
+        return withLocation((InsertStatement) dml.visitInsertInto(ctx.insertInto()), ctx);
+    }
+    @Override public Statement visitInsertOverwriteStatement(PangrovaSqlParser.InsertOverwriteStatementContext ctx) {
+        return withLocation((InsertOverwriteStatement) dml.visitInsertOverwrite(ctx.insertOverwrite()), ctx);
+    }
+    @Override public Statement visitInsertSelectStatement(PangrovaSqlParser.InsertSelectStatementContext ctx) {
+        return withLocation((InsertSelectStatement) dml.visitInsertSelect(ctx.insertSelect()), ctx);
+    }
+    @Override public Statement visitCopyIntoStatement(PangrovaSqlParser.CopyIntoStatementContext ctx) {
+        return withLocation((InsertSelectStatement) dml.visitCopyInto(ctx.copyInto()), ctx);
+    }
+    @Override public Statement visitShowSchemasStatement(PangrovaSqlParser.ShowSchemasStatementContext ctx) {
+        return (ShowSchemasStatement) ddlDml.visitShowSchemas(ctx.showSchemas());
+    }
+    @Override public Statement visitShowTablesStatement(PangrovaSqlParser.ShowTablesStatementContext ctx) {
+        return (ShowTablesStatement) ddlDml.visitShowTables(ctx.showTables());
+    }
+    @Override
+    public Statement visitShowTableControlsStatement(PangrovaSqlParser.ShowTableControlsStatementContext ctx) {
+        return (ShowTableControlsStatement) ddlDml.visitShowTableControls(ctx.showTableControls());
+    }
+    @Override public Statement visitShowViewsStatement(PangrovaSqlParser.ShowViewsStatementContext ctx) {
+        return (ShowViewsStatement) ddlDml.visitShowViews(ctx.showViews());
+    }
+    @Override
+    public Statement visitShowSemanticViewsStatement(PangrovaSqlParser.ShowSemanticViewsStatementContext ctx) {
+        return semanticView.visitShowSemanticViews(ctx.showSemanticViews());
+    }
+    @Override public Statement visitShowSnapshotsStatement(PangrovaSqlParser.ShowSnapshotsStatementContext ctx) {
+        return (ShowMetadataStatement) ddlDml.visitShowSnapshots(ctx.showSnapshots());
+    }
+    @Override public Statement visitShowFilesStatement(PangrovaSqlParser.ShowFilesStatementContext ctx) {
+        return (ShowMetadataStatement) ddlDml.visitShowFiles(ctx.showFiles());
+    }
+    @Override public Statement visitShowManifestsStatement(PangrovaSqlParser.ShowManifestsStatementContext ctx) {
+        return (ShowMetadataStatement) ddlDml.visitShowManifests(ctx.showManifests());
+    }
+    @Override public Statement visitShowPartitionsStatement(PangrovaSqlParser.ShowPartitionsStatementContext ctx) {
+        return (ShowMetadataStatement) ddlDml.visitShowPartitions(ctx.showPartitions());
+    }
+    @Override public Statement visitDescribeTableStatement(PangrovaSqlParser.DescribeTableStatementContext ctx) {
+        return (DescribeTableStatement) ddlDml.visitDescribeTable(ctx.describeTable());
+    }
     @Override public Statement visitAlterTableStatement(PangrovaSqlParser.AlterTableStatementContext ctx) {
         var a = ctx.alterTable();
         if (a instanceof PangrovaSqlParser.AlterTableCreateBranchContext
@@ -268,43 +413,130 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         }
         return (Statement) ddlDml.visit(a);
     }
-    @Override public Statement visitCreateViewStatement(PangrovaSqlParser.CreateViewStatementContext ctx) { return withLocation((CreateViewStatement) ddlDml.visitCreateView(ctx.createView()), ctx); }
-    @Override public Statement visitCreateSemanticViewStatement(PangrovaSqlParser.CreateSemanticViewStatementContext ctx) { return withLocation(semanticView.visitCreateSemanticView(ctx.createSemanticView()), ctx); }
-    @Override public Statement visitPublishSemanticViewStatement(PangrovaSqlParser.PublishSemanticViewStatementContext ctx) { return withLocation(semanticView.visitPublishSemanticView(ctx.publishSemanticView()), ctx); }
-    @Override public Statement visitCreateFeatureViewStatement(PangrovaSqlParser.CreateFeatureViewStatementContext ctx) { return withLocation(featureView.visitCreateFeatureView(ctx.createFeatureView()), ctx); }
-    @Override public Statement visitPublishFeatureViewStatement(PangrovaSqlParser.PublishFeatureViewStatementContext ctx) { return withLocation(featureView.visitPublishFeatureView(ctx.publishFeatureView()), ctx); }
-    @Override public Statement visitMaterializeFeatureViewStatement(PangrovaSqlParser.MaterializeFeatureViewStatementContext ctx) { return withLocation(featureView.visitMaterializeFeatureView(ctx.materializeFeatureView()), ctx); }
-    @Override public Statement visitDropViewStatement(PangrovaSqlParser.DropViewStatementContext ctx) { return (DropViewStatement) ddlDml.visitDropView(ctx.dropView()); }
-    @Override public Statement visitCreateSchemaStatement(PangrovaSqlParser.CreateSchemaStatementContext ctx) { return (CreateSchemaStatement) ddlDml.visitCreateSchema(ctx.createSchema()); }
-    @Override public Statement visitDeleteFromStatement(PangrovaSqlParser.DeleteFromStatementContext ctx) { return withLocation((DeleteStatement) dml.visitDeleteFrom(ctx.deleteFrom()), ctx); }
-    @Override public Statement visitUpdateStmt(PangrovaSqlParser.UpdateStmtContext ctx) { return withLocation((UpdateStatement) dml.visitUpdateStatement(ctx.updateStatement()), ctx); }
-    @Override public Statement visitMergeIntoStatement(PangrovaSqlParser.MergeIntoStatementContext ctx) { return withLocation((MergeStatement) dml.visitMergeInto(ctx.mergeInto()), ctx); }
-    @Override public Statement visitCreateIndexStatement(PangrovaSqlParser.CreateIndexStatementContext ctx) { return (CreateIndexStatement) extDdl.visitCreateIndex(ctx.createIndex()); }
-    @Override public Statement visitDropIndexStatement(PangrovaSqlParser.DropIndexStatementContext ctx) { return (DropIndexStatement) extDdl.visitDropIndex(ctx.dropIndex()); }
-    @Override public Statement visitShowIndexesStatement(PangrovaSqlParser.ShowIndexesStatementContext ctx) { return (ShowIndexesStatement) extDdl.visitShowIndexes(ctx.showIndexes()); }
-    @Override public Statement visitAlterIndexStatement(PangrovaSqlParser.AlterIndexStatementContext ctx) { return (AlterIndexStatement) extDdl.visitAlterIndex(ctx.alterIndex()); }
-    @Override public Statement visitSetClusteringOrderStatement(PangrovaSqlParser.SetClusteringOrderStatementContext ctx) { return (SetClusteringOrderStatement) extDdl.visitSetClusteringOrder(ctx.setClusteringOrder()); }
-    @Override public Statement visitReclusterTableStatement(PangrovaSqlParser.ReclusterTableStatementContext ctx) { return (ReclusterTableStatement) extDdl.visitReclusterTable(ctx.reclusterTable()); }
-    @Override public Statement visitShowClusteringStatusStatement(PangrovaSqlParser.ShowClusteringStatusStatementContext ctx) { return (ShowClusteringStatusStatement) extDdl.visitShowClusteringStatus(ctx.showClusteringStatus()); }
-    @Override public Statement visitCreateStreamStatement(PangrovaSqlParser.CreateStreamStatementContext ctx) { return (CreateStreamStatement) extDdl.visitCreateStream(ctx.createStream()); }
-    @Override public Statement visitAlterStreamStatement(PangrovaSqlParser.AlterStreamStatementContext ctx) { return (AlterStreamStatement) extDdl.visit(ctx.alterStream()); }
-    @Override public Statement visitDropStreamStatement(PangrovaSqlParser.DropStreamStatementContext ctx) { return (DropStreamStatement) extDdl.visitDropStream(ctx.dropStream()); }
-    @Override public Statement visitShowStreamsStatement(PangrovaSqlParser.ShowStreamsStatementContext ctx) { return (ShowStreamsStatement) extDdl.visitShowStreams(ctx.showStreams()); }
-    @Override public Statement visitDescribeStreamStatement(PangrovaSqlParser.DescribeStreamStatementContext ctx) { return (DescribeStreamStatement) extDdl.visitDescribeStream(ctx.describeStream()); }
-    @Override public Statement visitCreateBranchStatement(PangrovaSqlParser.CreateBranchStatementContext ctx) { return (Statement) extDdl.visitCreateBranch(ctx.createBranch()); }
-    @Override public Statement visitDropBranchStatement(PangrovaSqlParser.DropBranchStatementContext ctx) { return (Statement) extDdl.visitDropBranch(ctx.dropBranch()); }
-    @Override public Statement visitCreateTagStatement(PangrovaSqlParser.CreateTagStatementContext ctx) { return (Statement) extDdl.visitCreateTag(ctx.createTag()); }
-    @Override public Statement visitDropTagStatement(PangrovaSqlParser.DropTagStatementContext ctx) { return (Statement) extDdl.visitDropTag(ctx.dropTag()); }
-    @Override public Statement visitUseBranchStatement(PangrovaSqlParser.UseBranchStatementContext ctx) { return (Statement) extDdl.visitUseBranch(ctx.useBranch()); }
-    @Override public Statement visitShowBranchesStatement(PangrovaSqlParser.ShowBranchesStatementContext ctx) { return (Statement) extDdl.visitShowBranches(ctx.showBranches()); }
-    @Override public Statement visitShowTagsStatement(PangrovaSqlParser.ShowTagsStatementContext ctx) { return (Statement) extDdl.visitShowTags(ctx.showTags()); }
-    @Override public Statement visitCreateEmbeddingModelStatement(PangrovaSqlParser.CreateEmbeddingModelStatementContext ctx) { return (Statement) extDdl.visitCreateEmbeddingModel(ctx.createEmbeddingModel()); }
-    @Override public Statement visitAlterEmbeddingModelStatement(PangrovaSqlParser.AlterEmbeddingModelStatementContext ctx) { return (Statement) extDdl.visitAlterEmbeddingModel(ctx.alterEmbeddingModel()); }
-    @Override public Statement visitDropEmbeddingModelStatement(PangrovaSqlParser.DropEmbeddingModelStatementContext ctx) { return (Statement) extDdl.visitDropEmbeddingModel(ctx.dropEmbeddingModel()); }
-    @Override public Statement visitShowEmbeddingModelsStatement(PangrovaSqlParser.ShowEmbeddingModelsStatementContext ctx) { return (Statement) extDdl.visitShowEmbeddingModels(ctx.showEmbeddingModels()); }
-    @Override public Statement visitBackfillColumnStatement(PangrovaSqlParser.BackfillColumnStatementContext ctx) { return (Statement) extDdl.visitBackfillColumn(ctx.backfillColumn()); }
-    @Override public Statement visitCancelBackfillStatement(PangrovaSqlParser.CancelBackfillStatementContext ctx) { return (Statement) extDdl.visitCancelBackfill(ctx.cancelBackfill()); }
-    @Override public Statement visitShowBackfillStatusStatement(PangrovaSqlParser.ShowBackfillStatusStatementContext ctx) { return (Statement) extDdl.visitShowBackfillStatus(ctx.showBackfillStatus()); }
+    @Override public Statement visitCreateViewStatement(PangrovaSqlParser.CreateViewStatementContext ctx) {
+        return withLocation((CreateViewStatement) ddlDml.visitCreateView(ctx.createView()), ctx);
+    }
+    @Override
+    public Statement visitCreateSemanticViewStatement(PangrovaSqlParser.CreateSemanticViewStatementContext ctx) {
+        return withLocation(semanticView.visitCreateSemanticView(ctx.createSemanticView()), ctx);
+    }
+    @Override
+    public Statement visitPublishSemanticViewStatement(PangrovaSqlParser.PublishSemanticViewStatementContext ctx) {
+        return withLocation(semanticView.visitPublishSemanticView(ctx.publishSemanticView()), ctx);
+    }
+    @Override
+    public Statement visitCreateFeatureViewStatement(PangrovaSqlParser.CreateFeatureViewStatementContext ctx) {
+        return withLocation(featureView.visitCreateFeatureView(ctx.createFeatureView()), ctx);
+    }
+    @Override
+    public Statement visitPublishFeatureViewStatement(PangrovaSqlParser.PublishFeatureViewStatementContext ctx) {
+        return withLocation(featureView.visitPublishFeatureView(ctx.publishFeatureView()), ctx);
+    }
+    @Override
+    public Statement visitMaterializeFeatureViewStatement(
+            PangrovaSqlParser.MaterializeFeatureViewStatementContext ctx) {
+        return withLocation(featureView.visitMaterializeFeatureView(ctx.materializeFeatureView()), ctx);
+    }
+    @Override public Statement visitDropViewStatement(PangrovaSqlParser.DropViewStatementContext ctx) {
+        return (DropViewStatement) ddlDml.visitDropView(ctx.dropView());
+    }
+    @Override public Statement visitCreateSchemaStatement(PangrovaSqlParser.CreateSchemaStatementContext ctx) {
+        return (CreateSchemaStatement) ddlDml.visitCreateSchema(ctx.createSchema());
+    }
+    @Override public Statement visitDeleteFromStatement(PangrovaSqlParser.DeleteFromStatementContext ctx) {
+        return withLocation((DeleteStatement) dml.visitDeleteFrom(ctx.deleteFrom()), ctx);
+    }
+    @Override public Statement visitUpdateStmt(PangrovaSqlParser.UpdateStmtContext ctx) {
+        return withLocation((UpdateStatement) dml.visitUpdateStatement(ctx.updateStatement()), ctx);
+    }
+    @Override public Statement visitMergeIntoStatement(PangrovaSqlParser.MergeIntoStatementContext ctx) {
+        return withLocation((MergeStatement) dml.visitMergeInto(ctx.mergeInto()), ctx);
+    }
+    @Override public Statement visitCreateIndexStatement(PangrovaSqlParser.CreateIndexStatementContext ctx) {
+        return (CreateIndexStatement) extDdl.visitCreateIndex(ctx.createIndex());
+    }
+    @Override public Statement visitDropIndexStatement(PangrovaSqlParser.DropIndexStatementContext ctx) {
+        return (DropIndexStatement) extDdl.visitDropIndex(ctx.dropIndex());
+    }
+    @Override public Statement visitShowIndexesStatement(PangrovaSqlParser.ShowIndexesStatementContext ctx) {
+        return (ShowIndexesStatement) extDdl.visitShowIndexes(ctx.showIndexes());
+    }
+    @Override public Statement visitAlterIndexStatement(PangrovaSqlParser.AlterIndexStatementContext ctx) {
+        return (AlterIndexStatement) extDdl.visitAlterIndex(ctx.alterIndex());
+    }
+    @Override
+    public Statement visitSetClusteringOrderStatement(PangrovaSqlParser.SetClusteringOrderStatementContext ctx) {
+        return (SetClusteringOrderStatement) extDdl.visitSetClusteringOrder(ctx.setClusteringOrder());
+    }
+    @Override public Statement visitReclusterTableStatement(PangrovaSqlParser.ReclusterTableStatementContext ctx) {
+        return (ReclusterTableStatement) extDdl.visitReclusterTable(ctx.reclusterTable());
+    }
+    @Override
+    public Statement visitShowClusteringStatusStatement(PangrovaSqlParser.ShowClusteringStatusStatementContext ctx) {
+        return (ShowClusteringStatusStatement) extDdl.visitShowClusteringStatus(ctx.showClusteringStatus());
+    }
+    @Override public Statement visitCreateStreamStatement(PangrovaSqlParser.CreateStreamStatementContext ctx) {
+        return (CreateStreamStatement) extDdl.visitCreateStream(ctx.createStream());
+    }
+    @Override public Statement visitAlterStreamStatement(PangrovaSqlParser.AlterStreamStatementContext ctx) {
+        return (AlterStreamStatement) extDdl.visit(ctx.alterStream());
+    }
+    @Override public Statement visitDropStreamStatement(PangrovaSqlParser.DropStreamStatementContext ctx) {
+        return (DropStreamStatement) extDdl.visitDropStream(ctx.dropStream());
+    }
+    @Override public Statement visitShowStreamsStatement(PangrovaSqlParser.ShowStreamsStatementContext ctx) {
+        return (ShowStreamsStatement) extDdl.visitShowStreams(ctx.showStreams());
+    }
+    @Override public Statement visitDescribeStreamStatement(PangrovaSqlParser.DescribeStreamStatementContext ctx) {
+        return (DescribeStreamStatement) extDdl.visitDescribeStream(ctx.describeStream());
+    }
+    @Override public Statement visitCreateBranchStatement(PangrovaSqlParser.CreateBranchStatementContext ctx) {
+        return (Statement) extDdl.visitCreateBranch(ctx.createBranch());
+    }
+    @Override public Statement visitDropBranchStatement(PangrovaSqlParser.DropBranchStatementContext ctx) {
+        return (Statement) extDdl.visitDropBranch(ctx.dropBranch());
+    }
+    @Override public Statement visitCreateTagStatement(PangrovaSqlParser.CreateTagStatementContext ctx) {
+        return (Statement) extDdl.visitCreateTag(ctx.createTag());
+    }
+    @Override public Statement visitDropTagStatement(PangrovaSqlParser.DropTagStatementContext ctx) {
+        return (Statement) extDdl.visitDropTag(ctx.dropTag());
+    }
+    @Override public Statement visitUseBranchStatement(PangrovaSqlParser.UseBranchStatementContext ctx) {
+        return (Statement) extDdl.visitUseBranch(ctx.useBranch());
+    }
+    @Override public Statement visitShowBranchesStatement(PangrovaSqlParser.ShowBranchesStatementContext ctx) {
+        return (Statement) extDdl.visitShowBranches(ctx.showBranches());
+    }
+    @Override public Statement visitShowTagsStatement(PangrovaSqlParser.ShowTagsStatementContext ctx) {
+        return (Statement) extDdl.visitShowTags(ctx.showTags());
+    }
+    @Override
+    public Statement visitCreateEmbeddingModelStatement(PangrovaSqlParser.CreateEmbeddingModelStatementContext ctx) {
+        return (Statement) extDdl.visitCreateEmbeddingModel(ctx.createEmbeddingModel());
+    }
+    @Override
+    public Statement visitAlterEmbeddingModelStatement(PangrovaSqlParser.AlterEmbeddingModelStatementContext ctx) {
+        return (Statement) extDdl.visitAlterEmbeddingModel(ctx.alterEmbeddingModel());
+    }
+    @Override
+    public Statement visitDropEmbeddingModelStatement(PangrovaSqlParser.DropEmbeddingModelStatementContext ctx) {
+        return (Statement) extDdl.visitDropEmbeddingModel(ctx.dropEmbeddingModel());
+    }
+    @Override
+    public Statement visitShowEmbeddingModelsStatement(PangrovaSqlParser.ShowEmbeddingModelsStatementContext ctx) {
+        return (Statement) extDdl.visitShowEmbeddingModels(ctx.showEmbeddingModels());
+    }
+    @Override public Statement visitBackfillColumnStatement(PangrovaSqlParser.BackfillColumnStatementContext ctx) {
+        return (Statement) extDdl.visitBackfillColumn(ctx.backfillColumn());
+    }
+    @Override public Statement visitCancelBackfillStatement(PangrovaSqlParser.CancelBackfillStatementContext ctx) {
+        return (Statement) extDdl.visitCancelBackfill(ctx.cancelBackfill());
+    }
+    @Override
+    public Statement visitShowBackfillStatusStatement(PangrovaSqlParser.ShowBackfillStatusStatementContext ctx) {
+        return (Statement) extDdl.visitShowBackfillStatus(ctx.showBackfillStatus());
+    }
     @Override
     public Statement visitShowPrivilegeMutationStatement(PangrovaSqlParser.ShowPrivilegeMutationStatementContext ctx) {
         return new PrivilegeStatementBuilder(this).receipt(ctx.showPrivilegeMutation());
@@ -314,14 +546,16 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     public Statement visitGrantTenantStatement(PangrovaSqlParser.GrantTenantStatementContext ctx) {
         var values = ctx.grantTenant().identifier();
         return withLocation(new org.pangrova.parser.api.ast.statement.tenant.GrantTenantStatement(
-                Identifier.of(extractIdentifierText(values.get(0))), Identifier.of(extractIdentifierText(values.get(1)))), ctx);
+                Identifier.of(extractIdentifierText(values.get(0))),
+                        Identifier.of(extractIdentifierText(values.get(1)))), ctx);
     }
 
     @Override
     public Statement visitRevokeTenantStatement(PangrovaSqlParser.RevokeTenantStatementContext ctx) {
         var values = ctx.revokeTenant().identifier();
         return withLocation(new org.pangrova.parser.api.ast.statement.tenant.RevokeTenantStatement(
-                Identifier.of(extractIdentifierText(values.get(0))), Identifier.of(extractIdentifierText(values.get(1)))), ctx);
+                Identifier.of(extractIdentifierText(values.get(0))),
+                        Identifier.of(extractIdentifierText(values.get(1)))), ctx);
     }
 
     @Override
@@ -334,21 +568,54 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return new PrivilegeStatementBuilder(this).revoke(ctx.revokePrivilege());
     }
 
-    @Override public Statement visitCreateStorageProfileStatement(PangrovaSqlParser.CreateStorageProfileStatementContext ctx) { return (Statement) extDdl.visitCreateStorageProfile(ctx.createStorageProfile()); }
-    @Override public Statement visitDropStorageProfileStatement(PangrovaSqlParser.DropStorageProfileStatementContext ctx) { return (Statement) extDdl.visitDropStorageProfile(ctx.dropStorageProfile()); }
-    @Override public Statement visitShowStorageProfilesStatement(PangrovaSqlParser.ShowStorageProfilesStatementContext ctx) { return (Statement) extDdl.visitShowStorageProfiles(ctx.showStorageProfiles()); }
-    @Override public Statement visitCreateVolumeStatement(PangrovaSqlParser.CreateVolumeStatementContext ctx) { return (Statement) extDdl.visitCreateVolume(ctx.createVolume()); }
-    @Override public Statement visitAlterVolumeStatement(PangrovaSqlParser.AlterVolumeStatementContext ctx) { return (Statement) extDdl.visit(ctx.alterVolume()); }
-    @Override public Statement visitDropVolumeStatement(PangrovaSqlParser.DropVolumeStatementContext ctx) { return (Statement) extDdl.visitDropVolume(ctx.dropVolume()); }
-    @Override public Statement visitShowVolumesStatement(PangrovaSqlParser.ShowVolumesStatementContext ctx) { return (Statement) extDdl.visitShowVolumes(ctx.showVolumes()); }
-    @Override public Statement visitDescribeVolumeStatement(PangrovaSqlParser.DescribeVolumeStatementContext ctx) { return (Statement) extDdl.visitDescribeVolume(ctx.describeVolume()); }
-    @Override public Statement visitCreateStageStatement(PangrovaSqlParser.CreateStageStatementContext ctx) { return (Statement) extDdl.visitCreateStage(ctx.createStage()); }
-    @Override public Statement visitAlterStageStatement(PangrovaSqlParser.AlterStageStatementContext ctx) { return (Statement) extDdl.visit(ctx.alterStage()); }
-    @Override public Statement visitDropStageStatement(PangrovaSqlParser.DropStageStatementContext ctx) { return (Statement) extDdl.visitDropStage(ctx.dropStage()); }
-    @Override public Statement visitShowStagesStatement(PangrovaSqlParser.ShowStagesStatementContext ctx) { return (Statement) extDdl.visitShowStages(ctx.showStages()); }
-    @Override public Statement visitDescribeStageStatement(PangrovaSqlParser.DescribeStageStatementContext ctx) { return (Statement) extDdl.visitDescribeStage(ctx.describeStage()); }
-    @Override public Statement visitListStageStatement(PangrovaSqlParser.ListStageStatementContext ctx) { return (Statement) extDdl.visitListStage(ctx.listStage()); }
-    @Override public Statement visitRemoveStageStatement(PangrovaSqlParser.RemoveStageStatementContext ctx) { return (Statement) extDdl.visitRemoveStage(ctx.removeStage()); }
+    @Override
+    public Statement visitCreateStorageProfileStatement(PangrovaSqlParser.CreateStorageProfileStatementContext ctx) {
+        return (Statement) extDdl.visitCreateStorageProfile(ctx.createStorageProfile());
+    }
+    @Override
+    public Statement visitDropStorageProfileStatement(PangrovaSqlParser.DropStorageProfileStatementContext ctx) {
+        return (Statement) extDdl.visitDropStorageProfile(ctx.dropStorageProfile());
+    }
+    @Override
+    public Statement visitShowStorageProfilesStatement(PangrovaSqlParser.ShowStorageProfilesStatementContext ctx) {
+        return (Statement) extDdl.visitShowStorageProfiles(ctx.showStorageProfiles());
+    }
+    @Override public Statement visitCreateVolumeStatement(PangrovaSqlParser.CreateVolumeStatementContext ctx) {
+        return (Statement) extDdl.visitCreateVolume(ctx.createVolume());
+    }
+    @Override public Statement visitAlterVolumeStatement(PangrovaSqlParser.AlterVolumeStatementContext ctx) {
+        return (Statement) extDdl.visit(ctx.alterVolume());
+    }
+    @Override public Statement visitDropVolumeStatement(PangrovaSqlParser.DropVolumeStatementContext ctx) {
+        return (Statement) extDdl.visitDropVolume(ctx.dropVolume());
+    }
+    @Override public Statement visitShowVolumesStatement(PangrovaSqlParser.ShowVolumesStatementContext ctx) {
+        return (Statement) extDdl.visitShowVolumes(ctx.showVolumes());
+    }
+    @Override public Statement visitDescribeVolumeStatement(PangrovaSqlParser.DescribeVolumeStatementContext ctx) {
+        return (Statement) extDdl.visitDescribeVolume(ctx.describeVolume());
+    }
+    @Override public Statement visitCreateStageStatement(PangrovaSqlParser.CreateStageStatementContext ctx) {
+        return (Statement) extDdl.visitCreateStage(ctx.createStage());
+    }
+    @Override public Statement visitAlterStageStatement(PangrovaSqlParser.AlterStageStatementContext ctx) {
+        return (Statement) extDdl.visit(ctx.alterStage());
+    }
+    @Override public Statement visitDropStageStatement(PangrovaSqlParser.DropStageStatementContext ctx) {
+        return (Statement) extDdl.visitDropStage(ctx.dropStage());
+    }
+    @Override public Statement visitShowStagesStatement(PangrovaSqlParser.ShowStagesStatementContext ctx) {
+        return (Statement) extDdl.visitShowStages(ctx.showStages());
+    }
+    @Override public Statement visitDescribeStageStatement(PangrovaSqlParser.DescribeStageStatementContext ctx) {
+        return (Statement) extDdl.visitDescribeStage(ctx.describeStage());
+    }
+    @Override public Statement visitListStageStatement(PangrovaSqlParser.ListStageStatementContext ctx) {
+        return (Statement) extDdl.visitListStage(ctx.listStage());
+    }
+    @Override public Statement visitRemoveStageStatement(PangrovaSqlParser.RemoveStageStatementContext ctx) {
+        return (Statement) extDdl.visitRemoveStage(ctx.removeStage());
+    }
 
     @Override public Statement visitSetSessionStatement(PangrovaSqlParser.SetSessionStatementContext ctx) {
         var ss = ctx.setSession();
@@ -387,9 +654,17 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return new IncrementalReadStatement(selectItems, tableName, fromSnapshot, toSnapshot, where, orderBy, limit);
     }
 
-    @Override public MergeStatement.MergeClause visitMergeWhenMatched(PangrovaSqlParser.MergeWhenMatchedContext ctx) { return (MergeStatement.MergeClause) dml.visitMergeWhenMatched(ctx); }
-    @Override public MergeStatement.MergeClause visitMergeWhenMatchedDelete(PangrovaSqlParser.MergeWhenMatchedDeleteContext ctx) { return (MergeStatement.MergeClause) dml.visitMergeWhenMatchedDelete(ctx); }
-    @Override public MergeStatement.MergeClause visitMergeWhenNotMatched(PangrovaSqlParser.MergeWhenNotMatchedContext ctx) { return (MergeStatement.MergeClause) dml.visitMergeWhenNotMatched(ctx); }
+    @Override public MergeStatement.MergeClause visitMergeWhenMatched(PangrovaSqlParser.MergeWhenMatchedContext ctx) {
+        return (MergeStatement.MergeClause) dml.visitMergeWhenMatched(ctx);
+    }
+    @Override
+    public MergeStatement.MergeClause visitMergeWhenMatchedDelete(PangrovaSqlParser.MergeWhenMatchedDeleteContext ctx) {
+        return (MergeStatement.MergeClause) dml.visitMergeWhenMatchedDelete(ctx);
+    }
+    @Override
+    public MergeStatement.MergeClause visitMergeWhenNotMatched(PangrovaSqlParser.MergeWhenNotMatchedContext ctx) {
+        return (MergeStatement.MergeClause) dml.visitMergeWhenNotMatched(ctx);
+    }
 
     @Override
     public Statement visitSetQuery(PangrovaSqlParser.SetQueryContext ctx) {
@@ -450,6 +725,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     private record FromResult(List<TableRef> tables, List<JoinClause> joins) {
         static final FromResult EMPTY = new FromResult(List.of(), List.of());
     }
+
     /**
      * Parses the FROM clause table reference list into tables and joins.
      *
@@ -730,55 +1006,142 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 ? Optional.of(stripQuotes(ctx.alias.getText())) : Optional.empty();
         return new UnpivotClause.UnpivotColumn(column, alias);
     }
-    @Override public TimeTravelSpec visitSystemTimeTravel(PangrovaSqlParser.SystemTimeTravelContext ctx) { return new TimeTravelSpec(TimeTravelType.SYSTEM_TIME, (Expression) visit(ctx.expression())); }
-    @Override public TimeTravelSpec visitSystemVersionTravel(PangrovaSqlParser.SystemVersionTravelContext ctx) { return new TimeTravelSpec(TimeTravelType.SYSTEM_VERSION, (Expression) visit(ctx.expression())); }
-    @Override public TimeTravelSpec visitBranchVersionTravel(PangrovaSqlParser.BranchVersionTravelContext ctx) { return TimeTravelSpec.branch(stripQuotes(ctx.STRING_LITERAL().getText())); }
-    @Override public TimeTravelSpec visitTagVersionTravel(PangrovaSqlParser.TagVersionTravelContext ctx) { return TimeTravelSpec.tag(stripQuotes(ctx.STRING_LITERAL().getText())); }
+    @Override public TimeTravelSpec visitSystemTimeTravel(PangrovaSqlParser.SystemTimeTravelContext ctx) {
+        return new TimeTravelSpec(TimeTravelType.SYSTEM_TIME, (Expression) visit(ctx.expression()));
+    }
+    @Override public TimeTravelSpec visitSystemVersionTravel(PangrovaSqlParser.SystemVersionTravelContext ctx) {
+        return new TimeTravelSpec(TimeTravelType.SYSTEM_VERSION, (Expression) visit(ctx.expression()));
+    }
+    @Override public TimeTravelSpec visitBranchVersionTravel(PangrovaSqlParser.BranchVersionTravelContext ctx) {
+        return TimeTravelSpec.branch(stripQuotes(ctx.STRING_LITERAL().getText()));
+    }
+    @Override public TimeTravelSpec visitTagVersionTravel(PangrovaSqlParser.TagVersionTravelContext ctx) {
+        return TimeTravelSpec.tag(stripQuotes(ctx.STRING_LITERAL().getText()));
+    }
     @Override public SortItem visitSortItem(PangrovaSqlParser.SortItemContext ctx) { return expr.visitSortItem(ctx); }
-    @Override public Expression visitPrimaryExpr(PangrovaSqlParser.PrimaryExprContext ctx) { return expr.visitPrimaryExpr(ctx); }
-    @Override public Expression visitSubscriptExpr(PangrovaSqlParser.SubscriptExprContext ctx) { return expr.visitSubscriptExpr(ctx); }
-    @Override public Expression visitMultiplicativeExpr(PangrovaSqlParser.MultiplicativeExprContext ctx) { return expr.visitMultiplicativeExpr(ctx); }
-    @Override public Expression visitAdditiveExpr(PangrovaSqlParser.AdditiveExprContext ctx) { return expr.visitAdditiveExpr(ctx); }
-    @Override public Expression visitConcatExpr(PangrovaSqlParser.ConcatExprContext ctx) { return expr.visitConcatExpr(ctx); }
-    @Override public Expression visitComparisonExpr(PangrovaSqlParser.ComparisonExprContext ctx) { return expr.visitComparisonExpr(ctx); }
+    @Override public Expression visitPrimaryExpr(PangrovaSqlParser.PrimaryExprContext ctx) {
+        return expr.visitPrimaryExpr(ctx);
+    }
+    @Override public Expression visitSubscriptExpr(PangrovaSqlParser.SubscriptExprContext ctx) {
+        return expr.visitSubscriptExpr(ctx);
+    }
+    @Override public Expression visitMultiplicativeExpr(PangrovaSqlParser.MultiplicativeExprContext ctx) {
+        return expr.visitMultiplicativeExpr(ctx);
+    }
+    @Override public Expression visitAdditiveExpr(PangrovaSqlParser.AdditiveExprContext ctx) {
+        return expr.visitAdditiveExpr(ctx);
+    }
+    @Override public Expression visitConcatExpr(PangrovaSqlParser.ConcatExprContext ctx) {
+        return expr.visitConcatExpr(ctx);
+    }
+    @Override public Expression visitComparisonExpr(PangrovaSqlParser.ComparisonExprContext ctx) {
+        return expr.visitComparisonExpr(ctx);
+    }
     @Override public Expression visitAndExpr(PangrovaSqlParser.AndExprContext ctx) { return expr.visitAndExpr(ctx); }
     @Override public Expression visitOrExpr(PangrovaSqlParser.OrExprContext ctx) { return expr.visitOrExpr(ctx); }
     @Override public Expression visitNotExpr(PangrovaSqlParser.NotExprContext ctx) { return expr.visitNotExpr(ctx); }
-    @Override public Expression visitUnaryMinusExpr(PangrovaSqlParser.UnaryMinusExprContext ctx) { return expr.visitUnaryMinusExpr(ctx); }
-    @Override public Expression visitInSubqueryExpr(PangrovaSqlParser.InSubqueryExprContext ctx) { return expr.visitInSubqueryExpr(ctx); }
-    @Override public Expression visitInListExpr(PangrovaSqlParser.InListExprContext ctx) { return expr.visitInListExpr(ctx); }
-    @Override public Expression visitNotInSubqueryExpr(PangrovaSqlParser.NotInSubqueryExprContext ctx) { return expr.visitNotInSubqueryExpr(ctx); }
-    @Override public Expression visitNotInListExpr(PangrovaSqlParser.NotInListExprContext ctx) { return expr.visitNotInListExpr(ctx); }
-    @Override public Expression visitParenExpr(PangrovaSqlParser.ParenExprContext ctx) { return expr.visitParenExpr(ctx); }
-    @Override public Expression visitIsNullExpr(PangrovaSqlParser.IsNullExprContext ctx) { return expr.visitIsNullExpr(ctx); }
-    @Override public Expression visitTruthTestExpr(PangrovaSqlParser.TruthTestExprContext ctx) { return expr.visitTruthTestExpr(ctx); }
-    @Override public Expression visitBetweenExpr(PangrovaSqlParser.BetweenExprContext ctx) { return expr.visitBetweenExpr(ctx); }
+    @Override public Expression visitUnaryMinusExpr(PangrovaSqlParser.UnaryMinusExprContext ctx) {
+        return expr.visitUnaryMinusExpr(ctx);
+    }
+    @Override public Expression visitInSubqueryExpr(PangrovaSqlParser.InSubqueryExprContext ctx) {
+        return expr.visitInSubqueryExpr(ctx);
+    }
+    @Override public Expression visitInListExpr(PangrovaSqlParser.InListExprContext ctx) {
+        return expr.visitInListExpr(ctx);
+    }
+    @Override public Expression visitNotInSubqueryExpr(PangrovaSqlParser.NotInSubqueryExprContext ctx) {
+        return expr.visitNotInSubqueryExpr(ctx);
+    }
+    @Override public Expression visitNotInListExpr(PangrovaSqlParser.NotInListExprContext ctx) {
+        return expr.visitNotInListExpr(ctx);
+    }
+    @Override public Expression visitParenExpr(PangrovaSqlParser.ParenExprContext ctx) {
+        return expr.visitParenExpr(ctx);
+    }
+    @Override public Expression visitIsNullExpr(PangrovaSqlParser.IsNullExprContext ctx) {
+        return expr.visitIsNullExpr(ctx);
+    }
+    @Override public Expression visitTruthTestExpr(PangrovaSqlParser.TruthTestExprContext ctx) {
+        return expr.visitTruthTestExpr(ctx);
+    }
+    @Override public Expression visitBetweenExpr(PangrovaSqlParser.BetweenExprContext ctx) {
+        return expr.visitBetweenExpr(ctx);
+    }
     @Override public Expression visitLikeExpr(PangrovaSqlParser.LikeExprContext ctx) { return expr.visitLikeExpr(ctx); }
-    @Override public Expression visitExistsExpr(PangrovaSqlParser.ExistsExprContext ctx) { return expr.visitExistsExpr(ctx); }
-    @Override public Expression visitSimpleCaseExpr(PangrovaSqlParser.SimpleCaseExprContext ctx) { return expr.visitSimpleCaseExpr(ctx); }
-    @Override public Expression visitSearchedCaseExpr(PangrovaSqlParser.SearchedCaseExprContext ctx) { return expr.visitSearchedCaseExpr(ctx); }
-    @Override public Expression visitLiteralExpr(PangrovaSqlParser.LiteralExprContext ctx) { return expr.visitLiteralExpr(ctx); }
+    @Override public Expression visitExistsExpr(PangrovaSqlParser.ExistsExprContext ctx) {
+        return expr.visitExistsExpr(ctx);
+    }
+    @Override public Expression visitSimpleCaseExpr(PangrovaSqlParser.SimpleCaseExprContext ctx) {
+        return expr.visitSimpleCaseExpr(ctx);
+    }
+    @Override public Expression visitSearchedCaseExpr(PangrovaSqlParser.SearchedCaseExprContext ctx) {
+        return expr.visitSearchedCaseExpr(ctx);
+    }
+    @Override public Expression visitLiteralExpr(PangrovaSqlParser.LiteralExprContext ctx) {
+        return expr.visitLiteralExpr(ctx);
+    }
     @Override public Expression visitCastExpr(PangrovaSqlParser.CastExprContext ctx) { return expr.visitCastExpr(ctx); }
-    @Override public Expression visitIdentifierExpr(PangrovaSqlParser.IdentifierExprContext ctx) { return expr.visitIdentifierExpr(ctx); }
-    @Override public Expression visitFunctionCallExpr(PangrovaSqlParser.FunctionCallExprContext ctx) { return expr.visitFunctionCallExpr(ctx); }
-    @Override public Expression visitStarFunctionCallExpr(PangrovaSqlParser.StarFunctionCallExprContext ctx) { return expr.visitStarFunctionCallExpr(ctx); }
-    @Override public Expression visitScalarSubqueryExpr(PangrovaSqlParser.ScalarSubqueryExprContext ctx) { return expr.visitScalarSubqueryExpr(ctx); }
-    @Override public Expression visitArrayConstructorExpr(PangrovaSqlParser.ArrayConstructorExprContext ctx) { return expr.visitArrayConstructorExpr(ctx); }
-    @Override public Expression visitParameterMarkerExpr(PangrovaSqlParser.ParameterMarkerExprContext ctx) { return expr.visitParameterMarkerExpr(ctx); }
-    @Override public Literal visitIntegerLiteral(PangrovaSqlParser.IntegerLiteralContext ctx) { return expr.visitIntegerLiteral(ctx); }
-    @Override public Literal visitDecimalLiteral(PangrovaSqlParser.DecimalLiteralContext ctx) { return expr.visitDecimalLiteral(ctx); }
-    @Override public Literal visitStringLiteral(PangrovaSqlParser.StringLiteralContext ctx) { return expr.visitStringLiteral(ctx); }
-    @Override public Literal visitBooleanTrue(PangrovaSqlParser.BooleanTrueContext ctx) { return expr.visitBooleanTrue(ctx); }
-    @Override public Literal visitBooleanFalse(PangrovaSqlParser.BooleanFalseContext ctx) { return expr.visitBooleanFalse(ctx); }
-    @Override public Literal visitNullLiteral(PangrovaSqlParser.NullLiteralContext ctx) { return expr.visitNullLiteral(ctx); }
-    @Override public Literal visitDateLiteral(PangrovaSqlParser.DateLiteralContext ctx) { return expr.visitDateLiteral(ctx); }
-    @Override public Literal visitUuidLiteral(PangrovaSqlParser.UuidLiteralContext ctx) { return expr.visitUuidLiteral(ctx); }
-    @Override public Literal visitTimestampLiteral(PangrovaSqlParser.TimestampLiteralContext ctx) { return expr.visitTimestampLiteral(ctx); }
-    @Override public Literal visitIntervalLiteral(PangrovaSqlParser.IntervalLiteralContext ctx) { return expr.visitIntervalLiteral(ctx); }
-    @Override public Literal visitBinaryHexLiteral(PangrovaSqlParser.BinaryHexLiteralContext ctx) { return expr.visitBinaryHexLiteral(ctx); }
-    @Override public Literal visitTimestampWithTimeZoneLiteral(PangrovaSqlParser.TimestampWithTimeZoneLiteralContext ctx) { return expr.visitTimestampWithTimeZoneLiteral(ctx); }
-    @Override public Expression visitExtractExpr(PangrovaSqlParser.ExtractExprContext ctx) { return expr.visitExtractExpr(ctx); }
-    @Override public Expression visitSubstringFromForExpr(PangrovaSqlParser.SubstringFromForExprContext ctx) { return expr.visitSubstringFromForExpr(ctx); }
+    @Override public Expression visitIdentifierExpr(PangrovaSqlParser.IdentifierExprContext ctx) {
+        return expr.visitIdentifierExpr(ctx);
+    }
+    @Override public Expression visitFunctionCallExpr(PangrovaSqlParser.FunctionCallExprContext ctx) {
+        return expr.visitFunctionCallExpr(ctx);
+    }
+    @Override public Expression visitStarFunctionCallExpr(PangrovaSqlParser.StarFunctionCallExprContext ctx) {
+        return expr.visitStarFunctionCallExpr(ctx);
+    }
+    @Override public Expression visitScalarSubqueryExpr(PangrovaSqlParser.ScalarSubqueryExprContext ctx) {
+        return expr.visitScalarSubqueryExpr(ctx);
+    }
+    @Override public Expression visitArrayConstructorExpr(PangrovaSqlParser.ArrayConstructorExprContext ctx) {
+        return expr.visitArrayConstructorExpr(ctx);
+    }
+    @Override public Expression visitParameterMarkerExpr(PangrovaSqlParser.ParameterMarkerExprContext ctx) {
+        return expr.visitParameterMarkerExpr(ctx);
+    }
+    @Override public Literal visitIntegerLiteral(PangrovaSqlParser.IntegerLiteralContext ctx) {
+        return expr.visitIntegerLiteral(ctx);
+    }
+    @Override public Literal visitDecimalLiteral(PangrovaSqlParser.DecimalLiteralContext ctx) {
+        return expr.visitDecimalLiteral(ctx);
+    }
+    @Override public Literal visitStringLiteral(PangrovaSqlParser.StringLiteralContext ctx) {
+        return expr.visitStringLiteral(ctx);
+    }
+    @Override public Literal visitBooleanTrue(PangrovaSqlParser.BooleanTrueContext ctx) {
+        return expr.visitBooleanTrue(ctx);
+    }
+    @Override public Literal visitBooleanFalse(PangrovaSqlParser.BooleanFalseContext ctx) {
+        return expr.visitBooleanFalse(ctx);
+    }
+    @Override public Literal visitNullLiteral(PangrovaSqlParser.NullLiteralContext ctx) {
+        return expr.visitNullLiteral(ctx);
+    }
+    @Override public Literal visitDateLiteral(PangrovaSqlParser.DateLiteralContext ctx) {
+        return expr.visitDateLiteral(ctx);
+    }
+    @Override public Literal visitUuidLiteral(PangrovaSqlParser.UuidLiteralContext ctx) {
+        return expr.visitUuidLiteral(ctx);
+    }
+    @Override public Literal visitTimestampLiteral(PangrovaSqlParser.TimestampLiteralContext ctx) {
+        return expr.visitTimestampLiteral(ctx);
+    }
+    @Override public Literal visitIntervalLiteral(PangrovaSqlParser.IntervalLiteralContext ctx) {
+        return expr.visitIntervalLiteral(ctx);
+    }
+    @Override public Literal visitBinaryHexLiteral(PangrovaSqlParser.BinaryHexLiteralContext ctx) {
+        return expr.visitBinaryHexLiteral(ctx);
+    }
+    @Override
+    public Literal visitTimestampWithTimeZoneLiteral(PangrovaSqlParser.TimestampWithTimeZoneLiteralContext ctx) {
+        return expr.visitTimestampWithTimeZoneLiteral(ctx);
+    }
+    @Override public Expression visitExtractExpr(PangrovaSqlParser.ExtractExprContext ctx) {
+        return expr.visitExtractExpr(ctx);
+    }
+    @Override public Expression visitSubstringFromForExpr(PangrovaSqlParser.SubstringFromForExprContext ctx) {
+        return expr.visitSubstringFromForExpr(ctx);
+    }
     @Override
     public Identifier visitQualifiedName(PangrovaSqlParser.QualifiedNameContext ctx) {
         List<String> parts = ctx.identifier().stream().map(this::extractIdentifierText).toList();

@@ -20,7 +20,6 @@ public record IcebergFileTableHandle(
         this(manifestSelection, manifests, typedColumns, false);
     }
 
-
     /** One child manifest verified independently before the Native scan. */
     public record ManifestObject(String uri, long length, String sha256, int specId, int content) {
         public ManifestObject {

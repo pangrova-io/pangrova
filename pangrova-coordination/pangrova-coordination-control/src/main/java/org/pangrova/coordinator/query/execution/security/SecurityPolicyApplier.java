@@ -48,7 +48,8 @@ public class SecurityPolicyApplier {
         if (accessControlEnforcer == null || session.userIdentity() == null) {
             throw new org.pangrova.security.api.exception.AccessDeniedException("Authenticated branch reader required");
         }
-        accessControlEnforcer.checkTableAccess(java.util.List.of(java.util.List.of(catalog, schema, table)), session.userIdentity());
+        accessControlEnforcer.checkTableAccess(java.util.List.of(java.util.List.of(catalog, schema, table)),
+                session.userIdentity());
     }
 
     /**

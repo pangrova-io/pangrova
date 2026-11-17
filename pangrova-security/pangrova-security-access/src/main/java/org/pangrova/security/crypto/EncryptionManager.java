@@ -53,6 +53,7 @@ public class EncryptionManager {
         return new EncryptedData(ciphertext, iv, encryptedKey, masterKeyId, FORMAT_VERSION);
     }
 
+    /** Decrypts an envelope of the supported format version using its associated data. */
     public byte[] decrypt(EncryptedData data, byte[] aad) {
         if (data.formatVersion() != FORMAT_VERSION) {
             throw new PangrovaException(PangrovaErrorCode.ENCRYPTION_FAILED,

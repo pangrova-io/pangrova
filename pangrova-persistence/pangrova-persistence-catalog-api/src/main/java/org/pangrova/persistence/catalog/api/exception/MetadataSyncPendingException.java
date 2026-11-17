@@ -1,7 +1,6 @@
 package org.pangrova.persistence.catalog.api.exception;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import java.util.UUID;
 
 /** A durable request still requires recovery. New operation IDs must not bypass it. */

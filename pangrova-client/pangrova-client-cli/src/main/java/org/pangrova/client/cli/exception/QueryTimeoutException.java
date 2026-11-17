@@ -18,6 +18,7 @@ public final class QueryTimeoutException extends RuntimeException {
     private final String queryId;
     private final Duration timeout;
 
+    /** Reports that the query exceeded its client timeout after a cancel request was sent. */
     public QueryTimeoutException(String queryId, Duration timeout) {
         super("Query " + queryId + " timed out after " + formatDuration(timeout)
                 + "; cancel request sent to coordinator");

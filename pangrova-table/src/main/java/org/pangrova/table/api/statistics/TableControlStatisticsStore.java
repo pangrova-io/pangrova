@@ -2,8 +2,6 @@ package org.pangrova.table.api.statistics;
 
 import org.pangrova.common.api.annotation.Internal;
 
-import org.pangrova.table.api.statistics.TableControlStatistics;
-
 import java.util.Optional;
 import java.util.UUID;
 

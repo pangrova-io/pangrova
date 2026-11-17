@@ -16,6 +16,7 @@ public final class BatchRejectedException extends PangrovaException {
 
     private final int batchSizeBytes;
 
+    /** Reports that the output buffer stayed full for the timeout and the batch was dropped. */
     public BatchRejectedException(int batchSizeBytes, long timeoutMs) {
         super(PangrovaErrorCode.RUNTIME_RESOURCE_EXHAUSTED,
                 "Output buffer full after " + timeoutMs + "ms timeout, batch dropped"

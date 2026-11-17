@@ -19,6 +19,7 @@ public final class TableCatalogAuthority {
         return catalogs.apply(catalog);
     }
 
+    /** Rejects the operation when the record no longer matches the current catalog deployment. */
     public void requireCurrent(TableControlRecord record, String operation) {
         if (!matches(record, current(record.catalog()))) {
             throw new AccessDeniedException(operation + " rejected: catalog deployment identity changed or "

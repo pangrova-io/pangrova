@@ -59,7 +59,8 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaRestClient.class);
 
     private final PangrovaRestClientConfig config;
-    private final java.util.concurrent.ConcurrentMap<String, String> branchRoutes = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentMap<String,
+            String> branchRoutes = new java.util.concurrent.ConcurrentHashMap<>();
     private final RetryPolicy retryPolicy;
     private final ConnectionPoolConfig connectionPoolConfig;
     private final RestHttpClientOwner httpOwner;

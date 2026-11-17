@@ -47,7 +47,8 @@ final class JdbcIndexMappingWriteFence {
             statement.setString(3, owner);
             try (var rows = statement.executeQuery()) {
                 if (!rows.next()) {
-                    throw new IllegalStateException("Index build attempt lost its claim: " + indexId + "/" + generation);
+                    throw new IllegalStateException("Index build attempt lost its claim: " + indexId + "/"
+                            + generation);
                 }
             }
         }

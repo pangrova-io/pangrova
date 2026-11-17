@@ -175,7 +175,8 @@ public class CatalogRegistry implements CatalogReadAccess {
             throw new CatalogBackendException("Catalog registration in progress: " + name);
         }
         if (updates.isEmpty() || updates.keySet().stream().anyMatch("connector"::equalsIgnoreCase)) {
-            throw new IllegalArgumentException("ALTER CATALOG requires connector properties and cannot replace its provider");
+            throw new IllegalArgumentException(
+                    "ALTER CATALOG requires connector properties and cannot replace its provider");
         }
         var properties = new HashMap<>(current.properties());
         properties.putAll(updates);

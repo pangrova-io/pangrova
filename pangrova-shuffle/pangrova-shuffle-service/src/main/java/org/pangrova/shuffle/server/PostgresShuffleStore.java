@@ -153,7 +153,8 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             requireFutureExpiry(connection, readUntilMs);
             UUID id = UUID.randomUUID();
             try (PreparedStatement insert = connection.prepareStatement(
-                    "INSERT INTO shuffle_read_pin (pin_id, query_id, read_until_ms, protect_until_ms) VALUES (?, ?, ?, ?)")) {
+                    "INSERT INTO shuffle_read_pin (pin_id, query_id, read_until_ms, protect_until_ms) "
+                            + "VALUES (?, ?, ?, ?)")) {
                 insert.setObject(1, id);
                 insert.setString(2, queryId);
                 insert.setLong(3, readUntilMs);

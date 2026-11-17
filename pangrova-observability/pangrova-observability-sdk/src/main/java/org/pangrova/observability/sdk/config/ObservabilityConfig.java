@@ -59,7 +59,8 @@ public final class ObservabilityConfig {
             return Optional.empty();
         }
         boolean exporterConfigured = config.toMap().keySet().stream()
-                .anyMatch(key -> key.startsWith("observability.") && !key.equals(CommonOptions.OBSERVABILITY_ENABLED.key()));
+                .anyMatch(key -> key.startsWith("observability.") && !key.equals(
+                        CommonOptions.OBSERVABILITY_ENABLED.key()));
         return exporterConfigured ? Optional.of(new ObservabilityConfig(config)) : Optional.empty();
     }
 

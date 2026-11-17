@@ -246,7 +246,8 @@ final class TaskLifecycleManager {
                 .toExchangeInputs(
                         bindings, info.request().taskRequest().getAttempt(),
                         info.request().taskRequest().getDeadlineEpochMs());
-        var consumerAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(info.request().taskRequest().getAttempt());
+        var consumerAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(
+                info.request().taskRequest().getAttempt());
         exchangeTransport.bindInputs(handle, consumerAttempt, inputs);
         LOG.info("event=exchange_sources_wired taskId={} sourceCount={}",
                 info.taskId(), bindings.stream()

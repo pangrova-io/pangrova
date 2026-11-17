@@ -153,7 +153,8 @@ final class ExchangeSourceBuilder {
                 .build();
     }
 
-    private static void requireLocalProducer(StageDispatchRecord record, org.pangrova.coordinator.worker.WorkerInfo consumer) {
+    private static void requireLocalProducer(StageDispatchRecord record,
+            org.pangrova.coordinator.worker.WorkerInfo consumer) {
         if (!consumer.workerId().equals(record.result().workerId()) || record.request() == null
                 || consumer.workerExecutionIdentity() == null) {
             throw new IllegalStateException("Local shuffle producer does not belong to the selected Worker");

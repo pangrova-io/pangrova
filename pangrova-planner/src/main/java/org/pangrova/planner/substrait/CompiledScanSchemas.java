@@ -2,7 +2,6 @@ package org.pangrova.planner.substrait;
 
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
-import io.substrait.proto.Plan;
 import io.substrait.proto.ReadRel;
 
 import java.util.Arrays;

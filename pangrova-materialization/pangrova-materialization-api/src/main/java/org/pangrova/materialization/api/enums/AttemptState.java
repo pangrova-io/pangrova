@@ -33,6 +33,7 @@ public enum AttemptState {
         return name();
     }
 
+    /** Returns whether a refresh attempt may move from this state to {@code target}. */
     public boolean canTransitionTo(AttemptState target) {
         return switch (this) {
             case PREPARING -> target == BUILDING || target == FAILED || target == ABANDONED;

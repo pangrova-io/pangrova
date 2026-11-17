@@ -1,10 +1,6 @@
 package org.pangrova.connector.api.clustering;
 
 import org.pangrova.connector.api.enums.ClusteringMode;
-import org.pangrova.connector.api.clustering.ClusteringRequest;
-import org.pangrova.connector.api.clustering.ClusteringResult;
-import org.pangrova.connector.api.clustering.ClusteringTableRef;
-import org.pangrova.connector.api.clustering.FileClusteringStats;
 
 import org.pangrova.common.api.annotation.Experimental;
 

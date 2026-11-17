@@ -1,7 +1,5 @@
 package org.pangrova.connector.api.index;
 
-import org.pangrova.connector.api.index.CommitEvent;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

@@ -76,7 +76,8 @@ public final class InMemoryCoordinatorRegistry implements CoordinatorRegistry {
     @Override
     public void updateLastProcessedInvalidationId(String coordinatorId, long lastProcessedId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        coordinators.computeIfPresent(coordinatorId, (id, existing) -> existing.withInvalidationProgress(lastProcessedId));
+        coordinators.computeIfPresent(coordinatorId, (id, existing) -> existing.withInvalidationProgress(
+                lastProcessedId));
     }
 
     @Override

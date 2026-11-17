@@ -1,9 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.pangrova.connector.api.enums.DeletionMode;
-import org.pangrova.connector.api.metadata.DistributedWriteAbortReceipt;
 
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 

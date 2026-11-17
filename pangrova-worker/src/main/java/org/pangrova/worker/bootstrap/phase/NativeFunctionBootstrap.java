@@ -49,7 +49,8 @@ public final class NativeFunctionBootstrap {
      * @param functionConfig configuration controlling auto-registration
      */
     public static void initialize(WorkerComponentRefs refs, NativeFunctionConfig functionConfig) {
-        initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class, NativeFunctionBootstrap.class.getClassLoader()));
+        initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class,
+                NativeFunctionBootstrap.class.getClassLoader()));
     }
 
     static void initialize(

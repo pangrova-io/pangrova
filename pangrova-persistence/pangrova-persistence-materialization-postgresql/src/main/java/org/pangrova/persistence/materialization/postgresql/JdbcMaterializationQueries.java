@@ -295,7 +295,8 @@ final class JdbcMaterializationQueries {
         return jdbc.queryList("findReaderPins", sql, statement ->
                 statement.setObject(1, generation.value()), result -> new ReaderPin(
                         new GenerationId(result.getObject("generation_id", UUID.class)),
-                        new ReaderId(ReaderKind.valueOf(result.getString("reader_kind")), result.getString("reader_id")),
+                        new ReaderId(ReaderKind.valueOf(result.getString("reader_kind")), result.getString(
+                                "reader_id")),
                         result.getString("owner"),
                         getInstant(result, "expires_at"),
                         getInstant(result, "heartbeat_at")));

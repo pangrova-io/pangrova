@@ -1,8 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.Constraint;
-import org.pangrova.connector.api.metadata.DynamicFilter;
-
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.common.api.annotation.Stable;

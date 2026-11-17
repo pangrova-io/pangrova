@@ -84,7 +84,8 @@ final class StreamingBootstrap implements AutoCloseable {
     static StreamingBootstrap build(DataSource dataSource,
                                     WatermarkTracker watermarkTracker,
                                     MaintenanceScheduler maintenanceScheduler,
-                                    CatalogRegistry catalogRegistry, String coordinatorId, MetricsProvider metricsProvider) {
+                                    CatalogRegistry catalogRegistry, String coordinatorId,
+                                            MetricsProvider metricsProvider) {
         StreamConfig config = StreamConfig.withDefaults();
         StreamStateStore stateStore = new JdbcStreamStateStore(dataSource);
         StreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);

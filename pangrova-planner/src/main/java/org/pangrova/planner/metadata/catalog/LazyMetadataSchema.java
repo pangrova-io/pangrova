@@ -227,7 +227,7 @@ public final class LazyMetadataSchema extends AbstractSchema {
     public Map<String, Table> getTableMap() {
         if (catalogRegistry == null) {
             if (cachedTableMap == null) {
-                cachedTableMap = new LinkedHashMap<>();
+                cachedTableMap = java.util.Collections.unmodifiableMap(new LinkedHashMap<>());
                 fallbackTableMap = cachedTableMap;
                 cacheTimestamp = System.currentTimeMillis();
                 cacheGeneration = DDL_GENERATION.get();
@@ -315,7 +315,7 @@ public final class LazyMetadataSchema extends AbstractSchema {
         return new java.util.AbstractMap<>() {
             @Override
             public java.util.Set<Entry<String, Table>> entrySet() {
-                return base.entrySet();
+                return java.util.Collections.unmodifiableSet(base.entrySet());
             }
 
             @Override

@@ -22,7 +22,8 @@ import org.pangrova.connector.api.materialization.SourceRef;
 /**
  * Explicit registry of materialization extensions.
  *
- * <p>The Server supplies the class loader for refresh strategy factories. Duplicate identifiers, inconsistent strategy kinds, or
+ * <p>The Server supplies the class loader for refresh strategy factories. Duplicate identifiers,
+         inconsistent strategy kinds, or
  * missing required handlers fail at startup rather than at query time. Adding a
  * strategy, connector policy evaluator, object kind, or rewrite guard requires
  * no change to the kernel.

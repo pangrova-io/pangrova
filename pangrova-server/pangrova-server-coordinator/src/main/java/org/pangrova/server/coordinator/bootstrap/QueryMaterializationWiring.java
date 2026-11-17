@@ -38,7 +38,8 @@ final class QueryMaterializationWiring {
 
     QueryMaterializationWiring(Dependencies dependencies) {
         this.dependencies = dependencies;
-        artifactStores = new PostgresGenerationStores(dependencies.modelAuthority(), CoordinatorTableWriteAuthority.create());
+        artifactStores = new PostgresGenerationStores(dependencies.modelAuthority(),
+                CoordinatorTableWriteAuthority.create());
     }
 
     GeneratedValueMaterializationCoordinator createGeneratedValue(CatalogRegistry catalog) {
@@ -59,7 +60,8 @@ final class QueryMaterializationWiring {
                 dependencies.metadataDataSource(), new JdbcWriteCommitJournal(
                         dependencies.metadataDataSource()), dependencies.modelAuthority(),
                 new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
-                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication, CoordinatorTableWriteAuthority.create());
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication,
+                CoordinatorTableWriteAuthority.create());
         var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);
         LOG.info("event=generated_value_materialization_wired catalogs={}", registeredCatalogs);

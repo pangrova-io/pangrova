@@ -1,10 +1,6 @@
 package org.pangrova.observability.api.metrics;
 
 import org.pangrova.common.api.annotation.Stable;
-import org.pangrova.observability.api.metrics.DoubleHistogram;
-import org.pangrova.observability.api.metrics.LongCounter;
-import org.pangrova.observability.api.metrics.LongUpDownCounter;
-import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 
 import java.util.List;
 import java.util.OptionalDouble;

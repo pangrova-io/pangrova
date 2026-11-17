@@ -33,7 +33,10 @@ public interface SemanticViewOperations {
     SemanticViewVersion create(
             UserIdentity user, SemanticViewId id, long version, String definitionJson, boolean ifNotExists);
 
-    /** Rechecks source privileges and requires the exact current epoch. An empty expectation requires no publication. */
+    /**
+     * Rechecks source privileges and requires the exact current epoch. An empty expectation requires no
+     * publication.
+     */
     SemanticViewPublication publish(
             UserIdentity user, SemanticViewId id, long version, OptionalLong expectedPublicationEpoch);
 

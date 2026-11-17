@@ -1,6 +1,7 @@
 package org.pangrova.testing.testkit.architecture;
 
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
@@ -9,6 +10,7 @@ import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.JavacTask;
+import com.sun.source.util.SourcePositions;
 import com.sun.source.util.TreeScanner;
 import com.sun.source.util.Trees;
 
@@ -125,58 +127,8 @@ public final class JavaSourceReferences {
                             + packageName + "; expected path " + expected);
                 }
                 packages.get(root).add(packageName);
-                new TreeScanner<Void, Void>() {
-                    private final java.util.Deque<String> enclosing = new java.util.ArrayDeque<>();
-
-                    @Override
-                    public Void visitClass(ClassTree tree, Void unused) {
-                        String name = tree.getSimpleName().toString();
-                        if (pangrova && (name.endsWith("Bridge") || name.endsWith("Adapter"))) {
-                            throw new IllegalStateException("Name " + name + " for its capability: " + file);
-                        }
-                        enclosing.addLast(name);
-                        String category = requiredPackage(tree);
-                        if (category != null && (enclosing.size() != 1 || !packageName.endsWith("." + category))) {
-                            long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
-                            misplaced.get(root).put(relativeFile + ":" + line + " " + String.join(".", enclosing), category);
-                        }
-                        if (tree.getKind() == Tree.Kind.ENUM) {
-                            enums.get(root).add(packageName + "." + String.join(".", enclosing));
-                        }
-                        super.visitClass(tree, unused);
-                        enclosing.removeLast();
-                        return null;
-                    }
-
-                    private void reference(Tree tree, String name) {
-                        if (name.startsWith("org.pangrova.")) {
-                            long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
-                            references.get(root).putIfAbsent(name, relativeFile + ":" + line);
-                        }
-                    }
-
-                    @Override
-                    public Void visitPackage(PackageTree tree, Void unused) {
-                        // A declaration is ownership, not a reference. Package annotations still are references.
-                        return scan(tree.getAnnotations(), unused);
-                    }
-
-                    @Override
-                    public Void visitImport(ImportTree tree, Void unused) {
-                        reference(tree, tree.getQualifiedIdentifier().toString());
-                        return null;
-                    }
-
-                    @Override
-                    public Void visitMemberSelect(MemberSelectTree tree, Void unused) {
-                        if (dottedName(tree)) {
-                            reference(tree, tree.toString());
-                            // Do not turn one qualified reference into unresolved package-prefix fragments.
-                            return null;
-                        }
-                        return super.visitMemberSelect(tree, unused);
-                    }
-                }.scan(unit, null);
+                new ReferenceScanner(unit, positions, file, relativeFile, packageName, pangrova,
+                        new ScanSinks(references.get(root), enums.get(root), misplaced.get(root))).scan(unit, null);
             }
             var errors = diagnostics.getDiagnostics().stream()
                     .filter(d -> d.getKind() == Diagnostic.Kind.ERROR).toList();
@@ -208,7 +160,8 @@ public final class JavaSourceReferences {
                 if (!flags.contains(Modifier.STATIC) || !flags.contains(Modifier.FINAL)) return false;
                 exportedField |= !flags.contains(Modifier.PRIVATE);
             } else if (member instanceof MethodTree method && method.getReturnType() == null
-                    && method.getModifiers().getFlags().contains(Modifier.PRIVATE) && method.getParameters().isEmpty()) {
+                    && method.getModifiers().getFlags().contains(Modifier.PRIVATE)
+                            && method.getParameters().isEmpty()) {
                 privateConstructor = true;
             } else {
                 return false;
@@ -238,5 +191,85 @@ public final class JavaSourceReferences {
         }
         output.flush();
         if (output.checkError()) throw new IOException("Cannot write architecture source facts");
+    }
+
+    private record ScanSinks(Map<String, String> references, Set<String> enums, Map<String, String> misplaced) {
+    }
+
+    private static final class ReferenceScanner extends TreeScanner<Void, Void> {
+        private final CompilationUnitTree unit;
+        private final SourcePositions positions;
+        private final Path file;
+        private final Path relativeFile;
+        private final String packageName;
+        private final boolean pangrova;
+        private final Map<String, String> references;
+        private final Set<String> enums;
+        private final Map<String, String> misplaced;
+        private final java.util.Deque<String> enclosing = new java.util.ArrayDeque<>();
+
+        private ReferenceScanner(CompilationUnitTree unit, SourcePositions positions, Path file, Path relativeFile,
+                String packageName, boolean pangrova, ScanSinks sinks) {
+            this.unit = unit;
+            this.positions = positions;
+            this.file = file;
+            this.relativeFile = relativeFile;
+            this.packageName = packageName;
+            this.pangrova = pangrova;
+            this.references = sinks.references();
+            this.enums = sinks.enums();
+            this.misplaced = sinks.misplaced();
+        }
+
+
+        @Override
+        public Void visitClass(ClassTree tree, Void unused) {
+            String name = tree.getSimpleName().toString();
+            if (pangrova && (name.endsWith("Bridge") || name.endsWith("Adapter"))) {
+                throw new IllegalStateException("Name " + name + " for its capability: " + file);
+            }
+            enclosing.addLast(name);
+            String category = requiredPackage(tree);
+            if (category != null && (enclosing.size() != 1 || !packageName.endsWith("." + category))) {
+                long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
+                misplaced.put(relativeFile + ":" + line + " " + String.join(".", enclosing),
+                        category);
+            }
+            if (tree.getKind() == Tree.Kind.ENUM) {
+                enums.add(packageName + "." + String.join(".", enclosing));
+            }
+            super.visitClass(tree, unused);
+            enclosing.removeLast();
+            return null;
+        }
+
+        private void reference(Tree tree, String name) {
+            if (name.startsWith("org.pangrova.")) {
+                long line = unit.getLineMap().getLineNumber(positions.getStartPosition(unit, tree));
+                references.putIfAbsent(name, relativeFile + ":" + line);
+            }
+        }
+
+        @Override
+        public Void visitPackage(PackageTree tree, Void unused) {
+            // A declaration is ownership, not a reference. Package annotations still are references.
+            return scan(tree.getAnnotations(), unused);
+        }
+
+        @Override
+        public Void visitImport(ImportTree tree, Void unused) {
+            reference(tree, tree.getQualifiedIdentifier().toString());
+            return null;
+        }
+
+        @Override
+        public Void visitMemberSelect(MemberSelectTree tree, Void unused) {
+            if (dottedName(tree)) {
+                reference(tree, tree.toString());
+                // Do not turn one qualified reference into unresolved package-prefix fragments.
+                return null;
+            }
+            return super.visitMemberSelect(tree, unused);
+        }
     }
 }

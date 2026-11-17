@@ -99,6 +99,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
         this(suspectThresholdMs, deadThresholdMs, registry, null);
     }
 
+    /** Creates a manager whose dead threshold must exceed its positive suspect threshold. */
     public WorkerManager(long suspectThresholdMs, long deadThresholdMs, WorkerRegistry registry,
             WorkerShuffleDeployment shuffleDeployment) {
         this.shuffleDeployment = shuffleDeployment;
@@ -180,7 +181,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 return null;
             }
             boolean same = existing != null && toSnapshot(existing).registrationIdentity().equals(expected)
-                    && java.util.Objects.equals(existing.shuffleDeployment(), accepted.orElseThrow().shuffleDeployment());
+                    && java.util.Objects.equals(existing.shuffleDeployment(),
+                            accepted.orElseThrow().shuffleDeployment());
             WorkerInfo base = same ? existing : inventoryPool.share(fromSnapshot(accepted.orElseThrow()));
             WorkerInfo next = buildUpdatedWorker(base, data);
             changed.set(!same || base.healthState() != next.healthState());
@@ -424,7 +426,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                     if (existing != null) dropTenantUsage(id);
                     return null;
                 }
-                if (existing != null && toSnapshot(existing).registrationIdentity().equals(current.registrationIdentity())
+                if (existing != null && toSnapshot(existing).registrationIdentity().equals(
+                        current.registrationIdentity())
                         && java.util.Objects.equals(existing.shuffleDeployment(), current.shuffleDeployment())) {
                     return existing;
                 }

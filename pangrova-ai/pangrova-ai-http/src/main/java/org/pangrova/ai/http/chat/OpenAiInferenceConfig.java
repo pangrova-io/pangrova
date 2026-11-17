@@ -25,13 +25,15 @@ public record OpenAiInferenceConfig(
         double maxRequestsPerSecond,
         int maxConcurrency,
         int timeoutSeconds) {
+    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+
     /** Resolves transport limits from a canonical deployment descriptor. */
     public static OpenAiInferenceConfig fromModel(AiModelDescriptor model, String apiKey) {
         int maxBatchSize = AiModelProperties.integer(model, "max-batch-size", 16);
         double maxRequestsPerSecond = AiModelProperties.positiveDouble(
                 model, "max-requests-per-second", 10.0);
         int timeoutSeconds = AiModelProperties.integer(
-                model, "timeout-seconds", 30);
+                model, "timeout-seconds", DEFAULT_TIMEOUT_SECONDS);
         return new OpenAiInferenceConfig(
                 model.endpoint().toString(), model.properties().get("provider-model"), apiKey,
                 maxBatchSize, maxRequestsPerSecond,

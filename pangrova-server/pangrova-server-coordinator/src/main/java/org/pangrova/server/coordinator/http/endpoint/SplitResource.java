@@ -42,6 +42,7 @@ public final class SplitResource {
                 "splitAssignmentManager must not be null");
     }
 
+    /** Assigns the next split to a pulling Worker task when pull mode is enabled. */
     @POST
     @Path("/request-split")
     public Response requestSplit(SplitRequest request) {
@@ -80,6 +81,7 @@ public final class SplitResource {
         return Response.ok(response).build();
     }
 
+    /** Records completion of a pulled split when pull mode is enabled. */
     @POST
     @Path("/complete-split")
     public Response completeSplit(SplitCompletionRequest request) {

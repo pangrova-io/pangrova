@@ -1,6 +1,5 @@
 package org.pangrova.observability.api.logging;
 
-import org.pangrova.observability.api.logging.Logger;
 import org.pangrova.observability.api.tracing.Context;
 
 import org.pangrova.common.api.annotation.Stable;

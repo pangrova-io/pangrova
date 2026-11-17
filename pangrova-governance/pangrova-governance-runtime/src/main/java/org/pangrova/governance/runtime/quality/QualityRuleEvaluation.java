@@ -30,8 +30,9 @@ final class QualityRuleEvaluation {
             }
             return result;
         } catch (RuntimeException failure) {
-            long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-            LOG.warn("event=quality_rule_evaluation_failed ruleId={} tableId={}", rule.ruleId(), rule.tableId(), failure);
+            long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            LOG.warn("event=quality_rule_evaluation_failed ruleId={} tableId={}", rule.ruleId(), rule.tableId(),
+                    failure);
             return new QualityCheckResult(0, rule.ruleId(), rule.ruleName(), rule.tableName(), rule.severity(),
                     Instant.now(), false, 0, 0, elapsedMs, failure.getMessage(), rule.tableId());
         }

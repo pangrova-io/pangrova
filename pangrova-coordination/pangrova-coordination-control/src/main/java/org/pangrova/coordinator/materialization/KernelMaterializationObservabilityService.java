@@ -56,7 +56,8 @@ public final class KernelMaterializationObservabilityService {
      * @param accessControl current object access policy
      * @param repository durable materialization repository
      */
-    public KernelMaterializationObservabilityService(MaterializationRepository repository, AccessControl accessControl) {
+    public KernelMaterializationObservabilityService(MaterializationRepository repository,
+            AccessControl accessControl) {
         this.accessControl = Objects.requireNonNull(accessControl, "accessControl");
         this.repository = Objects.requireNonNull(repository, "repository");
     }

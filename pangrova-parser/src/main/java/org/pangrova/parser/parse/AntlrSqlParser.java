@@ -82,6 +82,7 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
     private final int maxTreeDepth;
     private final SqlDialect dialect;
     private final StatementParserRegistry extensionRegistry;
+
     private record ParseCacheKey(long extensionRevision, String sql) {}
 
     private volatile Cache<ParseCacheKey, Statement> parseCache;

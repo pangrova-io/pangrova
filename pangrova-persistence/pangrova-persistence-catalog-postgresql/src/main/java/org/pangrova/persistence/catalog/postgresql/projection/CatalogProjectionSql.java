@@ -36,6 +36,7 @@ public final class CatalogProjectionSql {
         }
     }
 
+    /** Loads the projected metadata of a table on the caller connection. */
     public static Optional<TableMetadata> load(Connection connection, QualifiedTableRef ref) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT columns "
@@ -54,6 +55,7 @@ public final class CatalogProjectionSql {
                 full.createdAt(), full.updatedAt());
     }
 
+    /** Inserts or updates the projected metadata of a table and reports whether a row changed. */
     public static boolean upsert(Connection connection, TableMetadata table) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO table_metadata (catalog_name, schema_name, table_name, "
@@ -78,6 +80,7 @@ public final class CatalogProjectionSql {
         }
     }
 
+    /** Deletes the projected metadata of a table and reports whether a row existed. */
     public static boolean delete(Connection connection, QualifiedTableRef ref) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "DELETE FROM table_metadata WHERE catalog_name=? AND schema_name=? AND table_name=?")) {
@@ -86,7 +89,9 @@ public final class CatalogProjectionSql {
         }
     }
 
-    public static boolean observeSchemas(Connection connection, String catalog, List<String> schemas) throws SQLException {
+    /** Records the observed schemas of a catalog and reports whether any row changed. */
+    public static boolean observeSchemas(Connection connection, String catalog,
+            List<String> schemas) throws SQLException {
         Timestamp now = Timestamp.from(Instant.now());
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO schema_metadata (catalog_name, schema_name, synced_at) "

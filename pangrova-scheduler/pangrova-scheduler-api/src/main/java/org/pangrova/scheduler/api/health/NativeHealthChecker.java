@@ -1,7 +1,5 @@
 package org.pangrova.scheduler.api.health;
 
-import org.pangrova.scheduler.api.enums.NativeFaultPolicy;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

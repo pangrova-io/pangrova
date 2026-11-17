@@ -82,7 +82,8 @@ public final class ZooKeeperLeaseProvider implements CoordinationProvider {
             this.registry = new ZooKeeperCoordinatorRegistry(client, siblingPath(basePath, "coordinators"));
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            var failure = new IllegalStateException("Interrupted connecting to ZooKeeper: " + connectString, interrupted);
+            var failure = new IllegalStateException("Interrupted connecting to ZooKeeper: " + connectString,
+                    interrupted);
             closeAfterFailure(failure);
             throw failure;
         } catch (RuntimeException | Error failure) {

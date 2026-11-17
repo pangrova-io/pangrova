@@ -66,7 +66,8 @@ public final class ConnectorFactoryRegistry {
                 version = factory.apiVersion();
             } catch (AbstractMethodError incompatibleFactory) {
                 throw new ConfigurationException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
-                        "ConnectorFactory '" + name + "' does not implement the current factory contract", incompatibleFactory);
+                        "ConnectorFactory '" + name + "' does not implement the current factory contract",
+                                incompatibleFactory);
             }
             if (version != ConnectorFactoryContract.CURRENT_API_VERSION) {
                 throw invalid("ConnectorFactory '" + name + "' declares API version "

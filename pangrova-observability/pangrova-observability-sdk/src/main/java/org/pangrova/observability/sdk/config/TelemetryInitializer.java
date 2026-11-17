@@ -94,11 +94,19 @@ public final class TelemetryInitializer implements AutoCloseable {
                         .setMeterProvider(meterProvider)
                         .build();
             } catch (RuntimeException | Error failure) {
-                try { meterProvider.close(); } catch (RuntimeException suppressed) { failure.addSuppressed(suppressed); }
+                try {
+                    meterProvider.close();
+                } catch (RuntimeException suppressed) {
+                    failure.addSuppressed(suppressed);
+                }
                 throw failure;
             }
         } catch (RuntimeException | Error failure) {
-            try { tracerProvider.close(); } catch (RuntimeException suppressed) { failure.addSuppressed(suppressed); }
+            try {
+                tracerProvider.close();
+            } catch (RuntimeException suppressed) {
+                failure.addSuppressed(suppressed);
+            }
             throw failure;
         }
     }

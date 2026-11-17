@@ -44,7 +44,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         var edge = requireStage(registration);
         return persisted(registration.stageId()).map(saved -> {
             var allocation = new Allocation(saved.shuffleId(), saved.descriptor());
-            if (!saved.equals(registrationRecord(registration, edge.exchangeId(), allocation, saved.registeredOwner()))) {
+            if (!saved.equals(registrationRecord(registration, edge.exchangeId(), allocation,
+                    saved.registeredOwner()))) {
                 throw new IllegalStateException("Restored shuffle allocation differs from the requested stage cohort");
             }
             return allocation;
@@ -88,7 +89,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                 || receipt.publication().stageId() != registration.stageId()
                 || receipt.producerCount() != allocation.producerCount()
                 || !receipt.producerSetSha256().equals(allocation.producerSetSha256())) {
-            throw new IllegalStateException("External finalize RPC changed allocation, owner, epoch or producer cohort");
+            throw new IllegalStateException(
+                    "External finalize RPC changed allocation, owner, epoch or producer cohort");
         }
         List<GenerationExchangeFinalization.Partition> partitions = receipt.partitions().entrySet().stream()
                 .map(entry -> {
@@ -101,7 +103,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                 receipt.publication().generation(), owner, receipt.producerCount(), receipt.producerSetSha256(),
                 partitions, partitions.stream().mapToLong(GenerationExchangeFinalization.Partition::totalBytes)
                         .reduce(0, Math::addExact),
-                partitions.stream().mapToLong(GenerationExchangeFinalization.Partition::totalRows).reduce(0, Math::addExact),
+                partitions.stream().mapToLong(GenerationExchangeFinalization.Partition::totalRows).reduce(0,
+                        Math::addExact),
                 Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
         GenerationExchangeEvidenceCodec.requireRegistration(proof, allocation);
         store.finalizeExchange(job, owner, proof);

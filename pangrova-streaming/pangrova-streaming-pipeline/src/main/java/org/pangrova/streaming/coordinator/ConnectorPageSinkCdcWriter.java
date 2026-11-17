@@ -206,7 +206,6 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     private record PhaseStage(
             org.pangrova.connector.api.metadata.ConnectorOutputTableHandle handle, byte[] fragment) {}
 
-
     /** A staged (written-but-unpublished) batch for the local commit path. */
     private static final class StagedBatch implements CdcWriteSink.StagedWrite {
         private final ConnectorPageSinkCdcWriter owner;

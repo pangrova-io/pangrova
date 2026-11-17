@@ -1,7 +1,5 @@
 package org.pangrova.security.api.audit;
 
-import org.pangrova.security.api.audit.AuditEvent;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

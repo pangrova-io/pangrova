@@ -77,7 +77,8 @@ public final class QueryResource {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
             }
-            receipt = idempotencyRegistry.submit(identity.principal(), key, request, () -> submitWithIdempotency(request, identity));
+            receipt = idempotencyRegistry.submit(identity.principal(), key, request, () -> submitWithIdempotency(
+                    request, identity));
         } else {
             receipt = doSubmit(UUID.randomUUID().toString(), request, identity);
         }

@@ -26,7 +26,8 @@ public final class LocalShufflePlacement implements WorkerSelector {
     }
 
     @Override
-    public synchronized WorkerInfo selectForBindings(String tenant, List<String> paths, List<OperatorBinding> bindings) {
+    public synchronized WorkerInfo selectForBindings(String tenant, List<String> paths,
+            List<OperatorBinding> bindings) {
         if (original != null) return cluster.requireLocalWorker(tenant, original, bindings);
         var selected = cluster.selectForBindings(tenant, paths, bindings);
         if (selected.workerExecutionIdentity() == null || selected.shuffleDeployment() == null

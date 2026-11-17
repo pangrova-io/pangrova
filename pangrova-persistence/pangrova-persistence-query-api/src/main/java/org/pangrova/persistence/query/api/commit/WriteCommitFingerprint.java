@@ -43,7 +43,8 @@ public final class WriteCommitFingerprint {
         }
         Objects.requireNonNull(fragments, "fragments must not be null");
         List<byte[]> fragmentDigests = fragments.stream()
-                .map(fragment -> DigestUtils.sha256().digest(Objects.requireNonNull(fragment, "fragment must not be null")))
+                .map(fragment -> DigestUtils.sha256().digest(Objects.requireNonNull(fragment,
+                        "fragment must not be null")))
                 .sorted(WriteCommitFingerprint::compareUnsigned)
                 .toList();
         try {
