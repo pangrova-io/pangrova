@@ -68,8 +68,10 @@ runs:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         # rustup reads rust-toolchain.toml here and installs the exact channel
-        # before any Lance FFI build runs.
+        # before any Lance FFI build runs; refuse silent fallback to a
+        # different channel later in the job.
         cargo --version
+        echo "RUSTUP_AUTO_INSTALL=0" >> "$GITHUB_ENV"
         rustc --version
 
     - name: Verify free disk for a cold Velox build
