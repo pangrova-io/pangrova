@@ -12,6 +12,16 @@ C++20 compiler and the dependencies installed by
 Python 3.10+ and Docker. Keep personal paths, credentials, fixed host ports and IDE
 state out of tracked files.
 
+`setup-native-build-env.sh --check-tools` is the single toolchain contract: it
+checks Rust, autotools, libtool, pkg-config, and (on macOS) Homebrew and a Clang 15+
+toolchain before any dependency build. CI jobs never install native prerequisites
+ad hoc; they call `.github/actions/setup-native-build`, which installs that contract
+on Ubuntu (build-essential, autotools, rustup with the channel pinned by
+`pangrova-worker-native/lance-ffi/rust-toolchain.toml`) or macOS (Homebrew
+autotools, bison, flex, ccache, llvm) and then runs `--check-tools`, so a missing
+tool fails fast with its name. Velox and Rust pins resolve upstream
+(`v2026.04.17.00`, Rust 1.98.1); bump both together with the script.
+
 On a clean machine, publish the patched Iceberg JDBC catalog candidate before Maven.
 It needs JDK 17 and Gradle 8.14.4 (`GRADLE_BIN` if not on `PATH`), verifies archive
 and patch checksums, and must not be replaced by the unpatched upstream 1.11.0:

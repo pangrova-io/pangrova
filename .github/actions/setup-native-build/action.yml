@@ -1,0 +1,89 @@
+name: Set up native build environment
+description: >-
+  Install and verify the toolchain contracted by
+  pangrova-worker-native/bin/setup-native-build-env.sh. Keeps CI and the
+  bootstrap script from drifting: the final step runs the script's own
+  --check-tools verification, so a missing tool fails the job immediately with
+  the exact name instead of midway through the Velox build.
+
+inputs:
+  rust-cache-key:
+    description: Extra cache key component; defaults to the pinned Lance FFI toolchain
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install build tools (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        # cmake/ninja/gcc for CMake; autotools and pkg-config for Velox and
+        # Arrow dependency builds; patchelf for JNI archive checks; curl,
+        # unzip and xz for dependency archives.
+        sudo apt-get install -y --no-install-recommends \
+          build-essential cmake ninja-build autoconf automake libtool \
+          pkg-config curl ca-certificates xz-utils unzip zip patchelf
+
+    - name: Install build tools (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew update --quiet || true
+        # configure_compiler() requires a Clang 15+ toolchain because Velox
+        # rejects AppleClang; bison/flex/autotools support Velox's dependency
+        # builds and the repository bootstrap checks glibtoolize explicitly.
+        brew install cmake ninja autoconf automake libtool pkg-config \
+          bison flex ccache llvm
+        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+
+    - name: Install rustup (no default toolchain)
+      shell: bash
+      run: |
+        if ! command -v rustup >/dev/null 2>&1; then
+          installer="$(mktemp -d)/rustup-init"
+          curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$installer"
+          sh "$installer" -y --profile minimal --default-toolchain none
+        fi
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+    - name: Cache Rust toolchains and registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.rustup
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: pangrova-rust-${{ runner.os }}-${{ runner.arch }}-${{ inputs.rust-cache-key || hashFiles('pangrova-worker-native/lance-ffi/rust-toolchain.toml', 'pangrova-worker-native/lance-ffi/Cargo.lock') }}
+        restore-keys: |
+          pangrova-rust-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install the toolchain pinned by rust-toolchain.toml
+      shell: bash
+      working-directory: pangrova-worker-native/lance-ffi
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        # rustup reads rust-toolchain.toml here and installs the exact channel
+        # before any Lance FFI build runs.
+        cargo --version
+        rustc --version
+
+    - name: Verify free disk for a cold Velox build
+      shell: bash
+      run: |
+        # A cold dependency + Velox build plus its archives needs roughly 10 GB.
+        available_kb=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
+        available_gb=$((available_kb / 1024 / 1024))
+        echo "Free disk on the runner: ${available_gb} GB"
+        if [[ "$available_gb" -lt 5 ]]; then
+          echo "ERROR: a native dependency build needs at least 5 GB free" >&2
+          exit 1
+        fi
+
+    - name: Verify the native toolchain contract
+      shell: bash
+      run: ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools

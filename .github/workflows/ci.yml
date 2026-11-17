@@ -72,16 +72,8 @@ jobs:
           restore-keys: |
             pangrova-native-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Install build tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc g++
-
-      - name: Install build tools (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja
+      - name: Install and verify the native toolchain
+        uses: ./.github/actions/setup-native-build
 
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
@@ -441,10 +433,8 @@ jobs:
             ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
           key: pangrova-native-asan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
 
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc g++
+      - name: Install and verify the native toolchain
+        uses: ./.github/actions/setup-native-build
 
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh

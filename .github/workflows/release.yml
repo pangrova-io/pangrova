@@ -81,13 +81,9 @@ jobs:
             ~/.pangrova/velox
           key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
-      - name: Install build tools (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake ninja
-
       - name: Setup native build environment (macOS)
         if: "!matrix.platform.docker-build"
-        run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+        uses: ./.github/actions/setup-native-build
 
       - name: Build required Lance C FFI (macOS)
         if: "!matrix.platform.docker-build"

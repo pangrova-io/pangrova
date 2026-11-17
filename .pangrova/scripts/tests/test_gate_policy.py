@@ -189,6 +189,23 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertNotIn('diff-coverage-check.sh', workflow)
         self.assertEqual(workflow.count('verify -Pstatic-analysis'), 1)
 
+    def test_native_jobs_take_their_toolchain_from_the_verified_action(self):
+        action = (ROOT / '.github/actions/setup-native-build/action.yml').read_text()
+        self.assertIn('setup-native-build-env.sh --check-tools', action)
+        self.assertIn('rustup', action)
+        self.assertIn('autoconf', action)
+        self.assertIn('llvm', action)
+        for workflow_name in ('ci.yml', 'release.yml'):
+            workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
+            matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
+            jobs = [workflow[m.end():(matches[index + 1].start() if index + 1 < len(matches)
+                                   else len(workflow))] for index, m in enumerate(matches)]
+            bootstrapping = [job for job in jobs if 'setup-native-build-env.sh' in job]
+            self.assertTrue(bootstrapping, workflow_name)
+            for job in bootstrapping:
+                self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
+                self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
+
     def test_production_regression_retains_same_source_image_identity(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(
