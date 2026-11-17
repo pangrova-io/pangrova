@@ -52,7 +52,7 @@ runs:
             sudo dd if=/dev/zero of="$swap" bs=1M count=8192 status=none
           sudo chmod 600 "$swap"
           sudo mkswap "$swap" >/dev/null
-          sudo swapon "$swap"
+          sudo swapon "$swap" || echo "warning: swap unavailable on this runner; continuing"
         fi
         free -h
 
