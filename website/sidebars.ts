@@ -343,6 +343,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'testing/tpc-benchmark-methodology', label: 'TPC Benchmark Methodology'},
         {type: 'doc', id: 'testing/dml-copy-on-write-policy', label: 'DML Copy-on-Write Policy'},
         {type: 'doc', id: 'testing/speculative-process-e2e', label: 'Speculative Execution E2E'},
+        {type: 'doc', id: 'development/native-build-dependencies', label: 'Native Build Dependencies'},
         {type: 'doc', id: 'development/darwin-arm64-asan-runtime', label: 'Darwin ASAN Runtime'},
         {type: 'doc', id: 'development/darwin-function-sanitizer', label: 'Darwin Function Sanitizer'},
       ],
