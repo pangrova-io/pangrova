@@ -85,17 +85,26 @@ jobs:
       - name: Setup native build environment
         run: |
           set -o pipefail
-          if ! ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
-              | tee "$RUNNER_TEMP/native-setup.log"; then
+          report_failure() {
+            local log="$1" title="$2" escaped
             {
-              echo "### Native setup failed"
-              echo '```text'
-              tail -n 120 "$RUNNER_TEMP/native-setup.log"
-              echo '```'
+              printf '### %s\n```text\n' "$title"
+              df -h /
+              uname -a
+              free -m 2>/dev/null || vm_stat
+              tail -n 160 "$log"
+              printf '```\n'
             } >> "$GITHUB_STEP_SUMMARY"
-            # Logs need admin; annotations are public on this repository.
-            awk 'length {print "::error::" substr($0, 1, 400)}' \
-              "$RUNNER_TEMP/native-setup.log" | tail -n 25
+            # Logs need admin, and GitHub caps annotations per step. Escape the
+            # entire tail into one annotation so the actual error stays visible.
+            escaped="$({ df -h /; uname -a; free -m 2>/dev/null || vm_stat; \
+              tail -n 140 "$log"; } | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk 'length {printf "%s%%0A", $0}')"
+            printf '::error::%s\n' "${escaped:0:60000}"
+          }
+          if ! bash -x ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-setup.log"; then
+            report_failure "$RUNNER_TEMP/native-setup.log" "Native setup failed"
             exit 1
           fi
 
@@ -473,17 +482,26 @@ jobs:
           PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' && 'dependencies' || 'all' }}
         run: |
           set -o pipefail
-          if ! ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
-              | tee "$RUNNER_TEMP/native-setup.log"; then
+          report_failure() {
+            local log="$1" title="$2" escaped
             {
-              echo "### Native setup failed"
-              echo '```text'
-              tail -n 120 "$RUNNER_TEMP/native-setup.log"
-              echo '```'
+              printf '### %s\n```text\n' "$title"
+              df -h /
+              uname -a
+              free -m 2>/dev/null || vm_stat
+              tail -n 160 "$log"
+              printf '```\n'
             } >> "$GITHUB_STEP_SUMMARY"
-            # Logs need admin; annotations are public on this repository.
-            awk 'length {print "::error::" substr($0, 1, 400)}' \
-              "$RUNNER_TEMP/native-setup.log" | tail -n 25
+            # Logs need admin, and GitHub caps annotations per step. Escape the
+            # entire tail into one annotation so the actual error stays visible.
+            escaped="$({ df -h /; uname -a; free -m 2>/dev/null || vm_stat; \
+              tail -n 140 "$log"; } | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk 'length {printf "%s%%0A", $0}')"
+            printf '::error::%s\n' "${escaped:0:60000}"
+          }
+          if ! bash -x ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-setup.log"; then
+            report_failure "$RUNNER_TEMP/native-setup.log" "Native setup failed"
             exit 1
           fi
 
@@ -495,18 +513,28 @@ jobs:
         if: matrix.sanitizer.name == 'asan'
         run: |
           set -o pipefail
-          if ! PANGROVA_ASAN_CI_PRUNE_RELEASE=1 \
+          report_failure() {
+            local log="$1" title="$2" escaped
+            {
+              printf '### %s\n```text\n' "$title"
+              df -h /
+              uname -a
+              free -m 2>/dev/null || vm_stat
+              tail -n 160 "$log"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            # Logs need admin, and GitHub caps annotations per step. Escape the
+            # entire tail into one annotation so the actual error stays visible.
+            escaped="$({ df -h /; uname -a; free -m 2>/dev/null || vm_stat; \
+              tail -n 140 "$log"; } | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk 'length {printf "%s%%0A", $0}')"
+            printf '::error::%s\n' "${escaped:0:60000}"
+          }
+          if ! PANGROVA_ASAN_CI_PRUNE_RELEASE=1 bash -x \
               ./pangrova-worker-native/bin/setup-native-asan-env.sh 2>&1 \
               | tee "$RUNNER_TEMP/native-asan-setup.log"; then
-            {
-              echo "### Sanitizer dependency setup failed"
-              echo '```text'
-              tail -n 120 "$RUNNER_TEMP/native-asan-setup.log"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            # Logs need admin; annotations are public on this repository.
-            awk 'length {print "::error::" substr($0, 1, 400)}' \
-              "$RUNNER_TEMP/native-asan-setup.log" | tail -n 25
+            report_failure "$RUNNER_TEMP/native-asan-setup.log" \
+              "Sanitizer dependency setup failed"
             exit 1
           fi
 

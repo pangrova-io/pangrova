@@ -48,6 +48,23 @@ class NativeToolchainTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return github_env.read_text(), github_path.read_text(), (self.root / "trace").read_text()
 
+    def test_macos_disk_cleanup_keeps_the_selected_xcode(self):
+        self.executable(self.bin / "sudo", 'printf "%s\\n" "$*" >> "$TRACE"')
+        xcodes = self.root / "Applications"
+        for name in ("Xcode_15.4.app", "Xcode_16.4.app"):
+            (xcodes / name).mkdir(parents=True)
+        self.executable(self.bin / "xcode-select",
+                        f'printf "{xcodes / "Xcode_16.4.app"}/Contents/Developer\\n"')
+        self.env["TRACE"] = str(self.root / "trace")
+        script = action_script("Free runner disk space (macOS)").replace(
+            "/Applications/Xcode*.app", str(xcodes / "Xcode*.app"))
+        result = subprocess.run(["bash", "-e", "-c", script], env=self.env,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        trace = (self.root / "trace").read_text()
+        self.assertIn("Xcode_15.4.app", trace)
+        self.assertNotIn("Xcode_16.4.app", trace)
+
     def test_linux_action_installs_and_exports_matching_compilers(self):
         self.executable(self.bin / "sudo", 'printf "%s\\n" "$*" >> "$TRACE"')
         environment, _, trace = self.run_action("Install build tools (Linux)")

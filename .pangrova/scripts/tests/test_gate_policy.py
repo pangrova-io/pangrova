@@ -228,6 +228,15 @@ class StructuralPolicyTest(unittest.TestCase):
                 self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
                 self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
 
+    def test_native_failures_publish_the_complete_log_tail(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertNotIn("awk 'length {print \"::error::\"", workflow)
+        self.assertEqual(workflow.count('report_failure() {'), 3)
+        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 3)
+        self.assertEqual(workflow.count('bash -x'), 3)
+        for marker in ('setup-native-build-env.sh 2>&1', 'setup-native-asan-env.sh 2>&1'):
+            self.assertIn(marker, workflow)
+
     def test_asan_prepares_dependencies_without_building_release_velox(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]

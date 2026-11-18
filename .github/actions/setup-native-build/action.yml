@@ -30,10 +30,20 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        # Simulator runtimes and Android toolchains are several GB and are not
-        # used by a C++ build; a cold Velox tree needs the space instead.
+        # Simulator runtimes, extra Xcode copies, Android toolchains and package
+        # caches are many GB and are not used by a C++ build; a cold Velox tree
+        # needs the space instead. Keep the Xcode selected by xcode-select.
+        selected_xcode="$(xcode-select -p)"
+        selected_xcode="${selected_xcode%/Contents/Developer}"
+        for app in /Applications/Xcode*.app; do
+          [[ -d "$app" && "$app" != "$selected_xcode" ]] && sudo rm -rf "$app" || true
+        done
         sudo rm -rf ~/Library/Android/sdk ~/Library/Developer/CoreSimulator \
           /Library/Developer/CoreSimulator ~/Library/Developer/Xcode/DerivedData \
+          ~/Library/Developer/Xcode/iOS\ DeviceSupport \
+          ~/Library/Developer/Xcode/watchOS\ DeviceSupport \
+          ~/Library/Developer/Xcode/tvOS\ DeviceSupport \
+          ~/Library/Caches/Homebrew \
           /usr/local/share/dotnet ~/.gradle/caches || true
         df -h /
 
