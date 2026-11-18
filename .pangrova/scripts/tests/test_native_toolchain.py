@@ -40,7 +40,7 @@ class NativeToolchainTest(unittest.TestCase):
         github_path.touch()
         env = dict(self.env, GITHUB_ENV=str(github_env), GITHUB_PATH=str(github_path),
                    TRACE=str(self.root / "trace"), LLVM_PREFIX=str(self.root / "llvm"),
-                   TEST_SDKROOT=str(self.root / "macos sdk"))
+                   TEST_SDKROOT=str(self.root / "macos sdk"), RUNNER_TEMP=str(self.root))
         result = subprocess.run(["bash", "-e", "-c", action_script(name)], env=env,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -50,7 +50,39 @@ class NativeToolchainTest(unittest.TestCase):
         self.executable(self.bin / "sudo", 'printf "%s\\n" "$*" >> "$TRACE"')
         environment, _, trace = self.run_action("Install build tools (Linux)")
         self.assertIn("gcc-13 g++-13", trace)
+        self.assertIn("libgflags-dev", trace)
         self.assertEqual(environment, "CC=gcc-13\nCXX=g++-13\n")
+
+    def test_linux_action_checks_and_runs_a_static_gflags_consumer(self):
+        compiler = self.bin / "cxx"
+        self.executable(compiler, """
+printf '%s\\n' "$*" >> "$TRACE"
+cat >> "$TRACE"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    shift
+    printf '#!/bin/sh\\nprintf "ABI check ran\\\\n" >> "$TRACE"\\n' > "$1"
+    chmod +x "$1"
+    exit 0
+  fi
+  shift
+done
+exit 1
+""")
+        self.env["CXX"] = str(compiler)
+        _, _, trace = self.run_action("Verify Linux system C++ ABI")
+        self.assertIn("GFLAGS_NAMESPACE::ParseCommandLineFlags", trace)
+        self.assertIn("-Wl,-Bstatic -lgflags -Wl,-Bdynamic", trace)
+        self.assertIn("ABI check ran", trace)
+
+    def test_linux_action_propagates_a_gflags_link_failure(self):
+        compiler = self.bin / "cxx"
+        self.executable(compiler, "exit 1")
+        env = dict(self.env, CXX=str(compiler), RUNNER_TEMP=str(self.root))
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
+                                 action_script("Verify Linux system C++ ABI")],
+                                env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_macos_action_exports_the_installed_llvm_prefix(self):
         self.executable(self.bin / "brew", """
@@ -61,6 +93,7 @@ if [ "$1" = "--prefix" ]; then
     *) exit 1 ;;
   esac
 else
+  printf 'auto-update=%s install-upgrade=%s\\n' "${HOMEBREW_NO_AUTO_UPDATE:-}" "${HOMEBREW_NO_INSTALL_UPGRADE:-}" >> "$TRACE"
   printf '%s\\n' "$*" >> "$TRACE"
 fi
 """)
@@ -69,6 +102,9 @@ fi
         self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
         environment, path, trace = self.run_action("Install build tools (macOS)")
         self.assertIn("llvm@17", trace)
+        self.assertIn("auto-update=1 install-upgrade=1", trace)
+        self.assertNotIn("ccache", trace)
+        self.assertNotIn("update --quiet", trace)
         self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={self.root / 'llvm'}\n"
                                       f"SDKROOT={sdk_root}\n")
         self.assertIn(f"{self.root / 'llvm' / 'bin'}\n", path)
