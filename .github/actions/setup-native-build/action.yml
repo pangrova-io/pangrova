@@ -66,9 +66,11 @@ runs:
         # unzip and xz for dependency archives. OpenSSL and zlib headers are
         # required by the gRPC build that runs before Velox's setup-ubuntu.sh.
         sudo apt-get install -y --no-install-recommends \
-          build-essential cmake ninja-build autoconf automake libtool \
+          build-essential gcc-13 g++-13 cmake ninja-build autoconf automake libtool \
           pkg-config curl ca-certificates xz-utils unzip zip patchelf \
           libssl-dev zlib1g-dev ccache
+        echo "CC=gcc-13" >> "$GITHUB_ENV"
+        echo "CXX=g++-13" >> "$GITHUB_ENV"
 
     - name: Install build tools (macOS)
       if: runner.os == 'macOS'
@@ -79,8 +81,10 @@ runs:
         # rejects AppleClang; bison/flex/autotools support Velox's dependency
         # builds and the repository bootstrap checks glibtoolize explicitly.
         brew install cmake ninja autoconf automake libtool pkg-config \
-          bison flex ccache llvm
-        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          bison flex ccache llvm@17
+        llvm_prefix="$(brew --prefix llvm@17)"
+        echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
+        echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
 

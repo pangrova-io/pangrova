@@ -164,13 +164,15 @@ configure_compiler() {
     return
   fi
   local llvm_prefix
-  if [[ -x "$PANGROVA_HOME/llvm/bin/clang++" ]]; then
+  if [[ -n "${PANGROVA_LLVM_PREFIX:-}" ]]; then
+    llvm_prefix="$PANGROVA_LLVM_PREFIX"
+  elif [[ -x "$PANGROVA_HOME/llvm/bin/clang++" ]]; then
     llvm_prefix="$PANGROVA_HOME/llvm"
   else
     llvm_prefix="$(brew --prefix llvm 2>/dev/null || true)"
   fi
   [[ -x "$llvm_prefix/bin/clang++" ]] || \
-    die "Clang 15 or newer is required by Velox; install it under $PANGROVA_HOME/llvm"
+    die "Clang 15 or newer is required by Velox; check PANGROVA_LLVM_PREFIX or install it under $PANGROVA_HOME/llvm"
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
   for tool in bison flex; do
     if [[ -d "$PANGROVA_HOME/homebrew/opt/$tool/bin" ]]; then
@@ -179,7 +181,7 @@ configure_compiler() {
   done
   export CC="$llvm_prefix/bin/clang"
   export CXX="$llvm_prefix/bin/clang++"
-  step "Using $($CXX --version | head -1)"
+  step "Using $("$CXX" --version | head -1)"
 }
 
 ensure_folly_compiler_abi() {

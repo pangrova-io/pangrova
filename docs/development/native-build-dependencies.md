@@ -43,6 +43,11 @@ macOS, installs rustup and the pinned Rust channel, and then runs
 `--check-tools`. A missing tool fails in seconds with its name instead of after
 half an hour of compilation.
 
+CI selects GCC 13 on Linux and Homebrew LLVM 17 on macOS to keep the compiler
+compatible with the pinned Velox dependency sources. On macOS,
+`PANGROVA_LLVM_PREFIX` selects an explicit LLVM installation; without it the
+bootstrap uses `~/.pangrova/llvm` or Homebrew's default LLVM.
+
 ## Why the Order Matters
 
 `setup-native-build-env.sh` builds abseil, protobuf, RE2 and gRPC into a
