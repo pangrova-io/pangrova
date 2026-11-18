@@ -157,6 +157,41 @@ else()
   message(WARNING "libvelox.a NOT found — Velox symbols will be MISSING.")
 endif()
 
+set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
+  "Isolated ASan Folly install prefix for sanitized native builds")
+if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address" AND NOT PANGROVA_ASAN_FOLLY_PREFIX)
+  message(FATAL_ERROR
+    "ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX with an ASan-instrumented Folly archive")
+endif()
+if(PANGROVA_ASAN_FOLLY_PREFIX)
+  if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+    message(FATAL_ERROR "ASan Folly override requires an ASan native build")
+  endif()
+  set(_ASAN_FOLLY_ARCHIVE "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/libfolly.a")
+  if(NOT EXISTS "${_ASAN_FOLLY_ARCHIVE}" OR
+      NOT EXISTS "${PANGROVA_ASAN_FOLLY_PREFIX}/include/folly/Executor.h")
+    message(FATAL_ERROR "ASan Folly install is incomplete: ${PANGROVA_ASAN_FOLLY_PREFIX}")
+  endif()
+  execute_process(
+    COMMAND "${CMAKE_NM}" -u "${_ASAN_FOLLY_ARCHIVE}"
+    OUTPUT_VARIABLE _ASAN_FOLLY_UNDEFINED
+    RESULT_VARIABLE _ASAN_FOLLY_NM_RESULT
+    ERROR_QUIET)
+  if(NOT _ASAN_FOLLY_NM_RESULT EQUAL 0 OR
+      NOT _ASAN_FOLLY_UNDEFINED MATCHES "_+asan_init")
+    message(FATAL_ERROR
+      "PANGROVA_ASAN_FOLLY_PREFIX does not contain an ASan-instrumented Folly archive")
+  endif()
+  unset(_ASAN_FOLLY_UNDEFINED)
+  set(folly_DIR "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/cmake/folly")
+  find_package(folly CONFIG REQUIRED PATHS "${folly_DIR}" NO_DEFAULT_PATH)
+  # Folly's ASan option also enables UBSan; its exported target owns both runtimes.
+  target_link_libraries(velox_imported INTERFACE Folly::folly)
+  target_include_directories(velox_imported SYSTEM BEFORE INTERFACE
+    "${PANGROVA_ASAN_FOLLY_PREFIX}/include")
+  message(STATUS "ASan Folly archive: ${_ASAN_FOLLY_ARCHIVE}")
+endif()
+
 # 3a) deps-install (folly, glog, gflags, fmt, boost, etc.)
 # Search relative to VELOX_HOME and VELOX_INSTALL_PREFIX only — no hardcoded paths.
 set(_DEPS_INSTALL "")
@@ -182,45 +217,8 @@ if(_DEPS_INSTALL)
   endif()
   file(GLOB _DEPS_INSTALL_LIBS "${_DEPS_INSTALL}/lib/*.a")
   if(_DEPS_INSTALL_LIBS)
-    # ASan's libc++ container annotations require Folly's JSON builder to use
-    # the same instrumentation as the reader. Keep the regular Velox archive
-    # for release builds and opt in to an isolated, matching ASan installation.
-    set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
-      "Isolated ASan Folly install prefix for sanitized native builds")
-    if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address" AND
-        NOT PANGROVA_ASAN_FOLLY_PREFIX)
-      message(FATAL_ERROR
-        "ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX with an ASan-instrumented Folly archive")
-    endif()
     if(PANGROVA_ASAN_FOLLY_PREFIX)
-      if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
-        message(FATAL_ERROR "ASan Folly override requires an ASan native build")
-      endif()
-      set(_ASAN_FOLLY_ARCHIVE "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/libfolly.a")
-      if(NOT EXISTS "${_ASAN_FOLLY_ARCHIVE}" OR
-          NOT EXISTS "${PANGROVA_ASAN_FOLLY_PREFIX}/include/folly/Executor.h")
-        message(FATAL_ERROR "ASan Folly install is incomplete: ${PANGROVA_ASAN_FOLLY_PREFIX}")
-      endif()
-      execute_process(
-        COMMAND "${CMAKE_NM}" -u "${_ASAN_FOLLY_ARCHIVE}"
-        OUTPUT_VARIABLE _ASAN_FOLLY_UNDEFINED
-        RESULT_VARIABLE _ASAN_FOLLY_NM_RESULT
-        ERROR_QUIET)
-      if(NOT _ASAN_FOLLY_NM_RESULT EQUAL 0 OR
-          NOT _ASAN_FOLLY_UNDEFINED MATCHES "_+asan_init")
-        message(FATAL_ERROR
-          "PANGROVA_ASAN_FOLLY_PREFIX does not contain an ASan-instrumented Folly archive")
-      endif()
-      unset(_ASAN_FOLLY_UNDEFINED)
-      list(FIND _DEPS_INSTALL_LIBS "${_DEPS_INSTALL}/lib/libfolly.a" _FOLLY_INDEX)
-      if(_FOLLY_INDEX EQUAL -1)
-        message(FATAL_ERROR "Velox deps-install libfolly.a is missing")
-      endif()
-      list(REMOVE_AT _DEPS_INSTALL_LIBS ${_FOLLY_INDEX})
-      list(INSERT _DEPS_INSTALL_LIBS ${_FOLLY_INDEX} "${_ASAN_FOLLY_ARCHIVE}")
-      target_include_directories(velox_imported SYSTEM BEFORE INTERFACE
-        "${PANGROVA_ASAN_FOLLY_PREFIX}/include")
-      message(STATUS "ASan Folly archive: ${_ASAN_FOLLY_ARCHIVE}")
+      list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "/libfolly[^/]*\\.a$")
     endif()
     # Exclude libgflags*.a — glog links gflags dynamically on macOS.
     # Including static gflags causes dual-registration of global flags → fatal error.
@@ -323,6 +321,9 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     # Including Velox's bundled c-ares causes duplicate symbol errors (ares_inet_pton).
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "c-ares-build")
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "libre2\\.a$")
+    if(PANGROVA_ASAN_FOLLY_PREFIX)
+      list(FILTER _VENDORED_LIBS EXCLUDE REGEX "/libfolly[^/]*[.]a$")
+    endif()
     pangrova_select_abseil_targets(_VENDORED_LIBS ${_VENDORED_LIBS})
     target_link_libraries(velox_imported INTERFACE ${_VENDORED_LIBS})
 
@@ -354,6 +355,9 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
   if(_INSTALL_PREFIX_LIBS)
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libvelox\\.a$")
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libre2\\.a$")
+    if(PANGROVA_ASAN_FOLLY_PREFIX)
+      list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "/libfolly[^/]*[.]a$")
+    endif()
     pangrova_select_abseil_targets(_INSTALL_PREFIX_LIBS ${_INSTALL_PREFIX_LIBS})
     if(_INSTALL_PREFIX_LIBS)
       target_link_libraries(velox_imported INTERFACE ${_INSTALL_PREFIX_LIBS})

@@ -1,6 +1,7 @@
-"""Exercise the RE2 probe's actual child environment and failure propagation."""
+"""Exercise native sanitizer dependency qualification and probe execution."""
 
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
@@ -70,6 +71,122 @@ include("{MODULE}")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Canonical RE2 runtime ABI mismatch (23)", result.stdout)
         self.assertEqual(environment, "detect_leaks=0:halt_on_error=1")
+
+
+class AsanFollyContractTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="asan folly contract ")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
+        start = source.index('set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH')
+        end = source.index("# 3a) deps-install")
+        self.assertLess(start, end, "Folly qualification must not depend on deps-install")
+        self.contract = source[start:end]
+
+    def package(self, instrumented=True, headers=True):
+        prefix = self.root / "folly install"
+        library = prefix / "lib/libfolly.a"
+        library.parent.mkdir(parents=True)
+        source = self.root / "folly.cpp"
+        source.write_text('extern "C" int read_value(int* value) { return *value; }\n')
+        obj = self.root / "folly.o"
+        flags = ["-fsanitize=address,undefined"] if instrumented else []
+        subprocess.run(["c++", *flags, "-c", str(source), "-o", str(obj)], check=True,
+                       capture_output=True, text=True)
+        subprocess.run(["ar", "rcs", str(library), str(obj)], check=True,
+                       capture_output=True, text=True)
+        if headers:
+            include = prefix / "include/folly"
+            include.mkdir(parents=True)
+            (include / "Executor.h").touch()
+        config = prefix / "lib/cmake/folly"
+        config.mkdir(parents=True)
+        (config / "folly-config.cmake").write_text(f'''
+add_library(Folly::folly STATIC IMPORTED)
+set_target_properties(Folly::folly PROPERTIES
+  IMPORTED_LOCATION "{library}"
+  INTERFACE_LINK_LIBRARIES "-fsanitize=address,undefined")
+''')
+        return prefix
+
+    def configure(self, prefix=None, asan=True):
+        settings = f'set(PANGROVA_ASAN_FOLLY_PREFIX "{prefix}" CACHE PATH "")\n' if prefix else ""
+        if asan:
+            settings += 'set(CMAKE_CXX_FLAGS "-fsanitize=address")\n'
+        (self.root / "main.cpp").write_text(
+            'extern "C" int read_value(int*);\n'
+            'int main() { int value = 7; return read_value(&value) == 7 ? 0 : 1; }\n')
+        (self.root / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.20)\nproject(FollyContract CXX)\n'
+            'add_library(velox_imported INTERFACE)\n' + settings + self.contract +
+            '\nadd_executable(folly_consumer main.cpp)\n'
+            'target_link_libraries(folly_consumer PRIVATE velox_imported)\n')
+        return subprocess.run(["cmake", "-S", str(self.root), "-B", str(self.root / "build")],
+                              capture_output=True, text=True)
+
+    def test_missing_prefix_is_rejected_without_a_deps_install_directory(self):
+        result = self.configure()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX", result.stderr)
+
+    def test_release_folly_archive_is_rejected(self):
+        result = self.configure(self.package(instrumented=False))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not contain an ASan-instrumented Folly archive",
+                      " ".join(result.stderr.split()))
+
+    def test_missing_matching_headers_are_rejected(self):
+        result = self.configure(self.package(headers=False))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ASan Folly install is incomplete", result.stderr)
+
+    def test_release_consumer_cannot_select_asan_folly(self):
+        result = self.configure(self.package(), asan=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ASan Folly override requires an ASan native build", result.stderr)
+
+    def test_instrumented_target_propagates_both_runtimes_to_a_real_consumer(self):
+        result = self.configure(self.package())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run(["cmake", "--build", str(self.root / "build")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([str(self.root / "build/folly_consumer")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_dependency_globs_cannot_reintroduce_release_folly(self):
+        source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
+        for variable in ("_DEPS_INSTALL_LIBS", "_VENDORED_LIBS", "_INSTALL_PREFIX_LIBS"):
+            selection = re.search(r'if\(PANGROVA_ASAN_FOLLY_PREFIX\)\s+'
+                                  r'list\(FILTER ' + variable + r' EXCLUDE REGEX [^\n]+\)\s+'
+                                  r'endif\(\)', source)
+            self.assertIsNotNone(selection, variable)
+            for enabled in (True, False):
+                with self.subTest(variable=variable, asan=enabled):
+                    archives = "/release/libfolly.a;/release/libfollybase.a;/keep/libother.a"
+                    expected = "/keep/libother.a" if enabled else archives
+                    script = self.root / "selection.cmake"
+                    script.write_text(
+                        'cmake_minimum_required(VERSION 3.20)\n'
+                        f'set(PANGROVA_ASAN_FOLLY_PREFIX {"ON" if enabled else "OFF"})\n'
+                        f'set({variable} "{archives}")\n' + selection[0] +
+                        f'\nif(NOT "${{{variable}}}" STREQUAL "{expected}")\n'
+                        '  message(FATAL_ERROR "Unexpected Folly archive selection")\nendif()\n')
+                    result = subprocess.run(["cmake", "-P", str(script)],
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_bootstrap_and_ci_forward_the_same_folly_prefix(self):
+        setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
+        self.assertLess(setup.index("\nbuild_asan_folly\n"),
+                        setup.index("\nconfigure_asan_velox\n"))
+        self.assertIn("-DFOLLY_LIBRARY_SANITIZE_ADDRESS=ON", setup)
+        self.assertIn("-Dfolly_SOURCE=SYSTEM", setup)
+        self.assertIn('export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', setup)
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn('-DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', workflow)
 
 
 if __name__ == "__main__":

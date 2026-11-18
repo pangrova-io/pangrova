@@ -489,7 +489,7 @@ jobs:
         if: matrix.sanitizer.name == 'asan'
         run: ./pangrova-worker-native/bin/setup-native-asan-env.sh --check-tools
 
-      - name: Build instrumented Velox, Protobuf, Abseil, RE2, gRPC and Flight
+      - name: Build instrumented Velox, Folly, Protobuf, Abseil, RE2, gRPC and Flight
         if: matrix.sanitizer.name == 'asan'
         run: |
           set -o pipefail
@@ -525,6 +525,7 @@ jobs:
               -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
               -DProtobuf_DIR="$Protobuf_DIR" \
               -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
+              -DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX" \
               -Dabsl_DIR="$absl_DIR"
           else
             cmake --preset ${{ matrix.sanitizer.preset }}

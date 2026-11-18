@@ -48,6 +48,7 @@ ABSEIL_SOURCE="$WORK_DIR/abseil-cpp"
 PROTOBUF_SOURCE="$WORK_DIR/protobuf"
 RE2_SOURCE="$WORK_DIR/re2"
 GRPC_SOURCE="$WORK_DIR/grpc"
+FOLLY_SOURCE="$VELOX_HOME/deps-download/folly"
 ASAN_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -92,6 +93,10 @@ command -v ninja >/dev/null 2>&1 || die "ninja not found"
   die "RE2/gRPC source missing; run setup-native-build-env.sh first"
 [[ -f "$VELOX_HOME/CMakeLists.txt" ]] || \
   die "Velox source missing; run setup-native-build-env.sh first"
+if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+  [[ -f "$FOLLY_SOURCE/CMakeLists.txt" ]] || \
+    die "Folly source missing; run setup-native-build-env.sh first"
+fi
 require_source_revision "$ABSEIL_SOURCE" "${ABSEIL_VERSION:-20240116.2}"
 require_source_revision "$PROTOBUF_SOURCE" "${PROTOBUF_VERSION:-v25.3}"
 require_source_revision "$RE2_SOURCE" "${RE2_VERSION:-2024-07-02}"
@@ -157,6 +162,27 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package \
     ${asan_ssl_args[@]+"${asan_ssl_args[@]}"}
 
+build_asan_folly() {
+  if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+    local architecture_flags
+    architecture_flags="$(source "$VELOX_HOME/scripts/setup-helper-functions.sh"; get_cxx_flags)"
+    build_asan_dependency "$FOLLY_SOURCE" "$WORK_DIR/folly-asan-build" \
+      -DCMAKE_CXX_STANDARD=20 \
+      "-DCMAKE_CXX_FLAGS=$ASAN_FLAGS $architecture_flags" \
+      "-DCMAKE_PREFIX_PATH=$ASAN_PREFIX;$VELOX_HOME/deps-install${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DFOLLY_LIBRARY_SANITIZE_ADDRESS=ON -DFOLLY_HAVE_INT128_T=ON \
+      -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DGFLAGS_SHARED=FALSE \
+      "-DCMAKE_PROJECT_folly_INCLUDE=$ASAN_SCRIPT_DIR/../cmake/AsanFollyCompat.cmake" \
+      ${asan_ssl_args[@]+"${asan_ssl_args[@]}"}
+    PANGROVA_ASAN_FOLLY_PREFIX="$ASAN_PREFIX"
+  fi
+  [[ -f "$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly/folly-config.cmake" ]] || \
+    die "ASan Folly package is missing: $PANGROVA_ASAN_FOLLY_PREFIX"
+}
+
+build_asan_folly
+
 # The hosted Linux runner cannot hold both complete Release and ASan Velox
 # object trees.  Release setup has already installed the shared/native
 # dependencies needed below, so CI may reclaim only that explicit build tree
@@ -173,11 +199,8 @@ configure_asan_velox() {
   # never add its native-deps prefix: Protobuf and Abseil must remain ASan-only.
   velox_prefix_path="$ASAN_PREFIX;$VELOX_HOME/deps-install"
   velox_platform_args=()
-  if [[ -n "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
-    local folly_config="$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly"
-    [[ -f "$folly_config/folly-config.cmake" ]] || die "ASan Folly package is missing: $folly_config"
-    velox_platform_args+=("-Dfolly_DIR:PATH=$folly_config")
-  fi
+  local folly_config="$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly"
+  velox_platform_args+=(-Dfolly_SOURCE=SYSTEM "-Dfolly_DIR:PATH=$folly_config")
   if [[ "$(uname -s)" == "Darwin" ]]; then
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
     [[ -n "$OPENSSL_PREFIX" ]] && velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
@@ -304,6 +327,7 @@ export Protobuf_DIR="$ASAN_PREFIX/lib/cmake/protobuf"
 export VELOX_BUILD_DIR="$ASAN_VELOX_BUILD_DIR"
 export PANGROVA_ASAN_PROTOBUF_LIB="$ASAN_PREFIX/lib/libprotobuf.a"
 export PANGROVA_ASAN_ABSL_DIR="$ASAN_PREFIX/lib/cmake/absl"
+export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"
 EOF
 
 printf 'ASan dependencies ready: %s\n' "$ASAN_VELOX_BUILD_DIR"

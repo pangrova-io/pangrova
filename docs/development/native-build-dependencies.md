@@ -75,6 +75,30 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
+## Sanitizer Dependency Chain
+
+AddressSanitizer needs matching instrumentation across the runtime and the
+libraries whose headers participate in its memory access. The
+[LLVM ASan guide](https://clang.llvm.org/docs/AddressSanitizer.html) requires
+sanitizer flags at compilation and final linkage, and warns that partially
+instrumented container code can produce false positives.
+
+After the regular bootstrap fetches the pinned sources, `setup-native-asan-env.sh`
+rebuilds Abseil, protobuf, RE2, gRPC, Folly, Velox and Arrow Flight into separate
+ASan prefixes and build directories. Folly uses C++20 and its upstream
+`FOLLY_LIBRARY_SANITIZE_ADDRESS` option. The generated `asan-env.sh` records
+`PANGROVA_ASAN_FOLLY_PREFIX`, which CI passes to Pangrova's CMake configure.
+An explicitly supplied Folly prefix is consumed rather than overwritten, allowing
+the separately qualified Darwin build described in the sanitizer guide.
+
+Pangrova checks Folly's headers and archive instrumentation regardless of whether
+Velox dependencies came from `deps-install` or a system prefix. Missing or
+uninstrumented Folly is an error, not a reason to fall back to Release. The
+`Folly::folly` CMake target carries the dependency's sanitizer runtime flags;
+linking only its archive would lose the UBSan runtime that Folly also enables.
+Release Folly archives found in other dependency directories are excluded from
+ASan linkage.
+
 ## Disk and Cache Budget
 
 A cold dependency and Velox tree is roughly 30 GB. A standard Ubuntu or macOS
