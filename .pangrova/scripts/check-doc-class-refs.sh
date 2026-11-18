@@ -192,22 +192,33 @@ is_excluded() {
 # scanned the repository for every referenced name, including large generated
 # and dependency directories, which made this gate impractical on real docs.
 build_symbol_index() {
-    {
-        rg --no-filename --only-matching \
-            '(class|struct|interface|enum|record|message)[[:space:]]+[A-Z][A-Za-z0-9]*' \
-            "$REPO_ROOT" \
-            --glob '*.java' --glob '*.proto' --glob '*.h' --glob '*.hpp' \
-            --glob '*.cc' --glob '*.cpp' \
-            --glob '!**/target/**' --glob '!website/node_modules/**' \
-            --glob '!website/build/**' --glob '!website/.docusaurus/**' \
-            --glob '!.git/**' 2>/dev/null \
-            | awk '{print $2}'
-        rg --files "$REPO_ROOT" \
-            -g '*.java' -g '*.proto' -g '*.h' -g '*.hpp' -g '*.cc' -g '*.cpp' \
-            -g '!**/target/**' -g '!website/node_modules/**' -g '!website/build/**' \
-            -g '!website/.docusaurus/**' -g '!.git/**' \
-            | awk -F/ '{name=$NF; sub(/\.[^.]+$/, "", name); print name}'
-    } | sort -u
+    python3 - "$REPO_ROOT" <<'PY'
+import pathlib
+import re
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = subprocess.check_output(
+    ['git', '-C', str(root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+extensions = {'.java', '.proto', '.h', '.hpp', '.cc', '.cpp'}
+declaration = re.compile(r'\b(?:class|struct|interface|enum|record|message)\s+([A-Z][A-Za-z0-9]*)')
+symbols = set()
+for raw in files.split(b'\0'):
+    if not raw:
+        continue
+    path = pathlib.Path(raw.decode('utf-8', errors='surrogateescape'))
+    if (path.suffix not in extensions or 'target' in path.parts
+            or any(part.startswith('.') for part in path.parts)
+            or path.parts[:2] in (('website', 'node_modules'), ('website', 'build'))):
+        continue
+    source = root / path
+    if source.is_symlink() or not source.is_file():
+        continue
+    symbols.add(path.stem)
+    symbols.update(declaration.findall(source.read_text(encoding='utf-8', errors='replace')))
+print('\n'.join(sorted(symbols)))
+PY
 }
 
 class_exists() {

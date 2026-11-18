@@ -11,12 +11,14 @@ GATE = ROOT / '.pangrova/scripts/check-doc-class-refs.sh'
 
 
 class DocumentationClassReferenceTest(unittest.TestCase):
-    def run_gate(self, documents):
+    def run_gate(self, documents, path=None):
         with tempfile.TemporaryDirectory() as directory:
             for name, content in documents.items():
                 (Path(directory) / name).write_text(content, encoding='utf-8')
             environment = dict(os.environ)
             environment['PANGROVA_DOC_CLASS_REFS_DIR'] = directory
+            if path is not None:
+                environment['PATH'] = path
             result = subprocess.run([str(GATE)], cwd=ROOT, env=environment,
                                     capture_output=True, text=True)
         reported = {
@@ -71,6 +73,17 @@ class DocumentationClassReferenceTest(unittest.TestCase):
         status, reported = self.run_gate({'removed.md': content})
         self.assertEqual(0, status)
         self.assertEqual(set(), reported)
+
+    def test_gate_does_not_require_ripgrep(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ripgrep = Path(directory) / 'rg'
+            ripgrep.write_text('#!/bin/sh\nexit 127\n', encoding='utf-8')
+            ripgrep.chmod(0o755)
+            path = directory + os.pathsep + os.environ['PATH']
+            status, reported = self.run_gate(
+                {'classes.md': '`QueryId` and `MissingExampleClass`.\n'}, path=path)
+        self.assertEqual(1, status)
+        self.assertEqual({'MissingExampleClass'}, reported)
 
 
 if __name__ == '__main__':
