@@ -11,6 +11,17 @@ set -euo pipefail
 ASAN_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PANGROVA_HOME="${PANGROVA_HOME:-$HOME/.pangrova}"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ -x "${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}" ]]; then
+    PANGROVA_BREW="${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}"
+  else
+    PANGROVA_BREW="$(command -v brew || true)"
+  fi
+  HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
+  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
+  FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
+fi
 VELOX_HOME="${VELOX_HOME:-$PANGROVA_HOME/velox}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 ASAN_PREFIX="${PANGROVA_ASAN_DEPS_PREFIX:-$PANGROVA_HOME/native-deps-asan}"
@@ -132,7 +143,7 @@ build_asan_dependency "$RE2_SOURCE" "$RE2_SOURCE/build-asan-ci" \
 
 asan_ssl_args=()
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
+  [[ -n "$OPENSSL_PREFIX" ]] && asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
 fi
 build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -168,11 +179,11 @@ configure_asan_velox() {
     velox_platform_args+=("-Dfolly_DIR:PATH=$folly_config")
   fi
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    velox_prefix_path+=";$PANGROVA_HOME/homebrew"
-    velox_platform_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
-    velox_platform_args+=("-DBISON_EXECUTABLE=$PANGROVA_HOME/homebrew/opt/bison/bin/bison")
-    velox_platform_args+=("-DFLEX_EXECUTABLE=$PANGROVA_HOME/homebrew/opt/flex/bin/flex")
-    velox_platform_args+=("-DFLEX_INCLUDE_DIR=$PANGROVA_HOME/homebrew/opt/flex/include")
+    [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
+    [[ -n "$OPENSSL_PREFIX" ]] && velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    [[ -n "$BISON_PREFIX" ]] && velox_platform_args+=("-DBISON_EXECUTABLE=$BISON_PREFIX/bin/bison")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_EXECUTABLE=$FLEX_PREFIX/bin/flex")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
   fi
   # Release + -O1/-g1 keeps the monolithic archive small enough for a hosted
   # runner while retaining symbolized ASan stacks.  Full -g makes libvelox.a

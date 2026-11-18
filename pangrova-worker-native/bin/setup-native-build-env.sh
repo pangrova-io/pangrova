@@ -47,6 +47,19 @@ PROTOBUF_VERSION="${PROTOBUF_VERSION:-v25.3}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+# The macOS dependency builds need Homebrew prefixes. A developer machine may
+# keep a private tree under PANGROVA_HOME; hosted runners use the system one.
+if [[ "$OS" == "Darwin" ]]; then
+  if [[ -x "${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}" ]]; then
+    PANGROVA_BREW="${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}"
+  else
+    PANGROVA_BREW="$(command -v brew || true)"
+  fi
+  HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
+  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
+  FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
+fi
 # A caller's explicit build limit must reach both our builds and Velox's
 # dependency installer. CPU count alone does not describe available memory.
 if [[ -n "${CMAKE_BUILD_PARALLEL_LEVEL:-}" || -n "${BUILD_THREADS:-}" ]]; then
@@ -182,11 +195,8 @@ configure_compiler() {
     || die "macOS SDK headers not found at $SDKROOT"
   export SDKROOT
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
-  for tool in bison flex; do
-    if [[ -d "$PANGROVA_HOME/homebrew/opt/$tool/bin" ]]; then
-      export PATH="$PANGROVA_HOME/homebrew/opt/$tool/bin:$PATH"
-    fi
-  done
+  [[ -n "$BISON_PREFIX" && -d "$BISON_PREFIX/bin" ]] && export PATH="$BISON_PREFIX/bin:$PATH"
+  [[ -n "$FLEX_PREFIX" && -d "$FLEX_PREFIX/bin" ]] && export PATH="$FLEX_PREFIX/bin:$PATH"
   export CC="$llvm_prefix/bin/clang"
   export CXX="$llvm_prefix/bin/clang++"
   step "Using $("$CXX" --version | head -1)"
@@ -213,7 +223,7 @@ ensure_folly_compiler_abi() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_CXX_STANDARD=20 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install;$PANGROVA_HOME/homebrew" \
+    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
     -DCMAKE_INSTALL_PREFIX="$VELOX_DIR/deps-install" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \
@@ -500,9 +510,9 @@ build_velox() {
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
-    velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
-    velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$PANGROVA_HOME/homebrew/opt/flex/include")
-    velox_prefix_path+=";$PANGROVA_HOME/homebrew"
+    [[ -n "$OPENSSL_PREFIX" ]] && velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
+    [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
   cmake -B _build/release -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
@@ -574,7 +584,7 @@ build_arrow_flight() {
   local arrow_build="$WORK_DIR/arrow-flight-build"
   local arrow_platform_args=()
   if [[ "$OS" == "Darwin" ]]; then
-    arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
+    [[ -n "$OPENSSL_PREFIX" ]] && arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
     arrow_platform_args+=("-DCMAKE_C_VISIBILITY_PRESET=default" "-DCMAKE_CXX_VISIBILITY_PRESET=default"
       "-DCMAKE_VISIBILITY_INLINES_HIDDEN=OFF")
     arrow_platform_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-unexported_symbols_list,\"$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../arrow_unexported_symbols_macos.list\"")
