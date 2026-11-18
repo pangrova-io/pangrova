@@ -65,22 +65,35 @@ runs:
         # Arrow dependency builds; patchelf for JNI archive checks; curl,
         # unzip and xz for dependency archives. OpenSSL and zlib headers are
         # required by the gRPC build that runs before Velox's setup-ubuntu.sh.
+        # gflags is also installed early to verify the system C++ ABI.
         sudo apt-get install -y --no-install-recommends \
-          build-essential cmake ninja-build autoconf automake libtool \
+          build-essential gcc-13 g++-13 cmake ninja-build autoconf automake libtool \
           pkg-config curl ca-certificates xz-utils unzip zip patchelf \
-          libssl-dev zlib1g-dev ccache
+          libssl-dev zlib1g-dev libgflags-dev ccache
+        echo "CC=gcc-13" >> "$GITHUB_ENV"
+        echo "CXX=g++-13" >> "$GITHUB_ENV"
 
     - name: Install build tools (macOS)
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        brew update --quiet || true
+        export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1
         # configure_compiler() requires a Clang 15+ toolchain because Velox
         # rejects AppleClang; bison/flex/autotools support Velox's dependency
         # builds and the repository bootstrap checks glibtoolize explicitly.
+        # Reuse preinstalled tools; optional ccache can pull an entire LLVM
+        # toolchain from source on Intel runners.
         brew install cmake ninja autoconf automake libtool pkg-config \
-          bison flex ccache llvm
-        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          bison flex llvm@17
+        llvm_prefix="$(brew --prefix llvm@17)"
+        sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+        [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {
+          echo "ERROR: macOS SDK headers not found at $sdk_root" >&2
+          exit 1
+        }
+        echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
+        echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
+        echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
 
@@ -132,3 +145,29 @@ runs:
     - name: Verify the native toolchain contract
       shell: bash
       run: ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
+
+    - name: Verify Linux system C++ ABI
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        printf '%s\n' \
+          '#include <gflags/gflags.h>' \
+          'int main(int argc, char** argv) {' \
+          '  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);' \
+          '}' \
+          | "$CXX" -std=c++17 -x c++ - -o "$RUNNER_TEMP/pangrova-gflags-abi-check" \
+              -Wl,-Bstatic -lgflags -Wl,-Bdynamic -pthread
+        "$RUNNER_TEMP/pangrova-gflags-abi-check"
+
+    - name: Verify macOS SDK header ordering
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        build_dir="$RUNNER_TEMP/pangrova-macos-sdk-check"
+        cmake -S pangrova-worker-native/cmake/dependency-checks/macos-sdk \
+          -B "$build_dir" -G Ninja \
+          -DCMAKE_CXX_COMPILER="$PANGROVA_LLVM_PREFIX/bin/clang++" \
+          -DCMAKE_PREFIX_PATH="$HOME/.pangrova/native-deps" \
+          -DCMAKE_IGNORE_PATH="/opt/local;/opt/homebrew"
+        cmake --build "$build_dir" --verbose
+        "$build_dir/pangrova_macos_sdk_check"

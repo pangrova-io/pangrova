@@ -69,9 +69,7 @@ jobs:
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
             ~/.pangrova/velox/archive-cache
-          key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
-          restore-keys: |
-            pangrova-native-${{ runner.os }}-${{ runner.arch }}-
+          key: pangrova-native-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
@@ -399,7 +397,7 @@ jobs:
       # Short E2E latency samples are never submitted to a P99 calibration comparator.
   native-sanitizers:
     name: Native Sanitizer (${{ matrix.sanitizer.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: change-scope
     if: needs.change-scope.outputs.native == 'true'
     strategy:
@@ -431,9 +429,7 @@ jobs:
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
             ~/.pangrova/velox/archive-cache
-          key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
-          restore-keys: |
-            pangrova-native-${{ runner.os }}-${{ runner.arch }}-
+          key: pangrova-native-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
       - name: Cache ASan Velox + ABI dependencies
         if: matrix.sanitizer.name == 'asan'
@@ -445,7 +441,7 @@ jobs:
             ~/.pangrova/velox/_build/asan-ci/lib/libvelox.a
             ~/.pangrova/velox/_build/asan-ci/_deps
             ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
-          key: pangrova-native-asan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
+          key: pangrova-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4

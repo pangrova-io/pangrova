@@ -12,7 +12,7 @@ import sys
 NATIVE_PLATFORMS = [
     {
         "name": "linux-x86_64",
-        "runner": "ubuntu-latest",
+        "runner": "ubuntu-24.04",
         "os": "linux",
         "arch": "x86_64",
         "lib-ext": "so",

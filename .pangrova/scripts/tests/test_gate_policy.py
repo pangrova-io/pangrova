@@ -299,6 +299,33 @@ class RuntimeScopeTest(unittest.TestCase):
                          {'linux-x86_64', 'linux-aarch_64', 'osx-x86_64', 'osx-aarch_64'})
         self.assertEqual(matrix[0]['name'], 'linux-x86_64')
 
+    def test_linux_native_and_sanitizers_share_a_pinned_runner_release(self):
+        platforms = {item['name']: item['runner'] for item in scope.NATIVE_PLATFORMS}
+        runner = platforms['linux-x86_64']
+        self.assertRegex(runner, r'^ubuntu-\d+\.\d+$')
+        self.assertEqual(platforms['linux-aarch_64'], f'{runner}-arm')
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
+            '\n  jmh-benchmarks:', 1)[0]
+        self.assertIn(f'    runs-on: {runner}\n', sanitizer)
+
+    def test_native_dependency_cache_is_scoped_to_runner_and_toolchain(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
+            '\n  jmh-benchmarks:', 1)[0]
+        caches = [section.split('      - name: Cache native deps + Velox\n', 1)[1].split(
+            '\n      - name:', 1)[0] for section in (native, sanitizer)]
+        keys = [re.search(r'^\s+key: (.+)$', cache, re.MULTILINE).group(1)
+                for cache in caches]
+        runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
+                      if item['name'] == 'linux-x86_64')
+        self.assertEqual(keys[0].replace('${{ matrix.platform.runner }}', runner), keys[1])
+        self.assertIn("hashFiles('.github/actions/setup-native-build/action.yml', "
+                      "'pangrova-worker-native/bin/setup-native-build-env.sh')", keys[0])
+        for cache in caches:
+            self.assertNotIn('restore-keys:', cache)
+
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
                  'docs/architecture/overview.md', 'pangrova-worker-native/README.md',

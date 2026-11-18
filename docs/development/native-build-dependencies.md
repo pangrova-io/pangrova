@@ -43,6 +43,19 @@ macOS, installs rustup and the pinned Rust channel, and then runs
 `--check-tools`. A missing tool fails in seconds with its name instead of after
 half an hour of compilation.
 
+CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
+jobs, keeping the compiler compatible with both the pinned Velox sources and the
+distribution's C++ libraries. It links a small static gflags consumer before
+building dependencies to catch ABI mismatches early. On macOS, CI selects
+Homebrew LLVM 17 using `PANGROVA_LLVM_PREFIX`; without an explicit prefix, the
+bootstrap uses `~/.pangrova/llvm` or Homebrew's default LLVM. The bootstrap
+resolves `SDKROOT` with `xcrun` when needed and records it in `env.sh`: CMake
+then treats the SDK headers as implicit system headers instead of placing them
+ahead of libc++ while building gRPC. CI compiles a small zlib consumer to
+verify that header ordering before building the dependencies. macOS CI reuses
+preinstalled Homebrew tools without upgrading them and uses ccache only when
+already available, avoiding unnecessary source builds on Intel runners.
+
 ## Why the Order Matters
 
 `setup-native-build-env.sh` builds abseil, protobuf, RE2 and gRPC into a
@@ -68,6 +81,8 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   `~/.pangrova/velox/archive-cache` are cached. The whole `~/.pangrova/velox`
   tree is never cached: it cannot fit, and the bootstrap verifies every pinned
   dependency revision so a partial restore is rejected rather than trusted.
+  Binary dependency cache keys include the runner image and toolchain action;
+  they do not fall back to another image or compiler configuration.
 
 ## Industry Alternatives
 
