@@ -228,6 +228,26 @@ class StructuralPolicyTest(unittest.TestCase):
                 self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
                 self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
 
+    def test_macos_release_builds_dependencies_before_lance_and_configure(self):
+        release = (ROOT / '.github/workflows/release.yml').read_text()
+        native = release.split('  native-build:\n', 1)[1].split('\n  release:', 1)[0]
+        steps = re.split(r'\n      - ', native)
+        tools = next(index for index, step in enumerate(steps)
+                     if 'uses: ./.github/actions/setup-native-build' in step)
+        setup = [(index, step) for index, step in enumerate(steps)
+                 if re.search(r'^\s+run: ./pangrova-worker-native/bin/'
+                              r'setup-native-build-env\.sh\s*$', step, re.MULTILINE)]
+        self.assertEqual(len(setup), 1, 'Release must run the full dependency bootstrap')
+        index, step = setup[0]
+        self.assertIn('if: "!matrix.platform.docker-build"', step)
+        lance = next(index for index, step in enumerate(steps)
+                     if 'run: ./pangrova-worker-native/bin/build-lance-ffi.sh' in step)
+        configure = next(index for index, step in enumerate(steps)
+                         if 'cmake --preset dev-release' in step)
+        self.assertLess(tools, index)
+        self.assertLess(index, lance)
+        self.assertLess(lance, configure)
+
     def test_daily_tests_exclude_end_to_end_suites(self):
         pom = (ROOT / 'pom.xml').read_text()
         self.assertIn('routing-integration,native-required,performance,e2e', pom)

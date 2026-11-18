@@ -89,9 +89,13 @@ jobs:
           path: ~/.cache/ccache
           key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
-      - name: Setup native build environment (macOS)
+      - name: Set up native build tools (macOS)
         if: "!matrix.platform.docker-build"
         uses: ./.github/actions/setup-native-build
+
+      - name: Build native dependencies (macOS)
+        if: "!matrix.platform.docker-build"
+        run: ./pangrova-worker-native/bin/setup-native-build-env.sh
 
       - name: Build required Lance C FFI (macOS)
         if: "!matrix.platform.docker-build"

@@ -239,6 +239,7 @@ build_abseil() {
   log "Building abseil-cpp $ABSEIL_VERSION"
   local src="$WORK_DIR/abseil-cpp"
   checkout_dependency https://github.com/abseil/abseil-cpp.git "$ABSEIL_VERSION" "$src"
+  # macOS Bash 3.2 treats an empty array as unset under nounset; guard its expansion.
   local arch_flags=()
   if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
     arch_flags+=(-DCMAKE_OSX_ARCHITECTURES=arm64)
@@ -257,7 +258,7 @@ build_abseil() {
     -DCMAKE_CXX_STANDARD=17 \
     -DABSL_PROPAGATE_CXX_STD=ON \
     -DABSL_BUILD_TESTING=OFF \
-    "${arch_flags[@]}"
+    ${arch_flags[@]+"${arch_flags[@]}"}
   cmake --build "$src/build" -j "$NPROC"
   cmake --install "$src/build"
   step "abseil installed to $DEPS_PREFIX"
@@ -343,7 +344,7 @@ build_grpc() {
     -DgRPC_RE2_PROVIDER=package \
     -DgRPC_SSL_PROVIDER=package \
     -DgRPC_ZLIB_PROVIDER=package \
-    "${ssl_args[@]}"
+    ${ssl_args[@]+"${ssl_args[@]}"}
   cmake --build "$src/_cmake_build" -j "$NPROC"
   cmake --install "$src/_cmake_build"
   step "gRPC installed to $DEPS_PREFIX"
@@ -535,7 +536,7 @@ build_velox() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    "${velox_ssl_args[@]}" \
+    ${velox_ssl_args[@]+"${velox_ssl_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
@@ -615,7 +616,7 @@ build_arrow_flight() {
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0177=NEW \
-    "${arrow_platform_args[@]}" \
+    ${arrow_platform_args[@]+"${arrow_platform_args[@]}"} \
     -DARROW_BUILD_STATIC="$arrow_static" \
     -DARROW_BUILD_SHARED="$arrow_shared" \
     -DARROW_OPTIONAL_INSTALL=ON \

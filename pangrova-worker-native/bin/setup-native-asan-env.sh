@@ -155,7 +155,7 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DgRPC_ABSL_PROVIDER=package -DgRPC_PROTOBUF_PROVIDER=package \
     -DgRPC_RE2_PROVIDER=package -DgRPC_CARES_PROVIDER=module \
     -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package \
-    "${asan_ssl_args[@]}"
+    ${asan_ssl_args[@]+"${asan_ssl_args[@]}"}
 
 # The hosted Linux runner cannot hold both complete Release and ASan Velox
 # object trees.  Release setup has already installed the shared/native
@@ -201,7 +201,7 @@ configure_asan_velox() {
     -DCMAKE_EXE_LINKER_FLAGS="$ASAN_FLAGS" \
     -DCMAKE_SHARED_LINKER_FLAGS="$ASAN_FLAGS" \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    "${velox_platform_args[@]}" \
+    ${velox_platform_args[@]+"${velox_platform_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
@@ -280,7 +280,7 @@ cmake -S "$arrow_source" -B "$arrow_build" -GNinja \
     -Dlz4_SOURCE=BUNDLED -DARROW_WITH_BROTLI=OFF -DARROW_WITH_BZ2=OFF \
     -DARROW_DEPENDENCY_USE_SHARED=OFF -DARROW_PROTOBUF_USE_SHARED=OFF \
     -DProtobuf_SOURCE=SYSTEM -DgRPC_SOURCE=SYSTEM \
-    "${asan_ssl_args[@]}" "${arrow_platform_args[@]}"
+    ${asan_ssl_args[@]+"${asan_ssl_args[@]}"} ${arrow_platform_args[@]+"${arrow_platform_args[@]}"}
 cmake --build "$arrow_build" --target arrow_flight_shared --parallel "$NPROC"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   python3 "$ASAN_SCRIPT_DIR/isolate-arrow-macos-exports.py" --build-dir "$arrow_build" \

@@ -41,7 +41,13 @@ CI never installs these ad hoc. Both native jobs call
 `.github/actions/setup-native-build`, which installs the same set on Ubuntu or
 macOS, installs rustup and the pinned Rust channel, and then runs
 `--check-tools`. A missing tool fails in seconds with its name instead of after
-half an hour of compilation.
+half an hour of compilation. Tool verification does not build dependencies or
+write `env.sh`: both CI and macOS release jobs run the full bootstrap afterwards,
+before Lance FFI and Pangrova's CMake configure.
+
+The bootstrap supports the system Bash on macOS, including Bash 3.2. Optional
+CMake argument arrays use guarded expansion so that an empty array passes zero
+arguments under `set -u`, while populated arrays preserve paths containing spaces.
 
 CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
 jobs, keeping the compiler compatible with both the pinned Velox sources and the

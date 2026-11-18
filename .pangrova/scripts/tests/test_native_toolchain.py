@@ -2,6 +2,8 @@
 
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -109,11 +111,11 @@ fi
                                       f"SDKROOT={sdk_root}\n")
         self.assertIn(f"{self.root / 'llvm' / 'bin'}\n", path)
 
-    def bootstrap(self, prefix=None, sdkroot=None, full=False):
-        self.executable(self.bin / "uname", """
+    def bootstrap(self, prefix=None, sdkroot=None, full=False, build_deps=False, arch="arm64"):
+        self.executable(self.bin / "uname", f"""
 case "$1" in
   -s) echo Darwin ;;
-  -m) echo arm64 ;;
+  -m) echo {arch} ;;
 esac
 """)
         for name in ("cmake", "ninja", "git", "cargo", "rustc", "autoconf", "automake",
@@ -143,9 +145,53 @@ esac
                 path = deps / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
+        if build_deps:
+            env["SKIP_DEPS"] = "0"
+            env["TRACE"] = str(self.root / "cmake-trace")
+            self.executable(self.bin / "cmake", 'printf "%s\\n" "$@" >> "$TRACE"')
+            for name in ("abseil-cpp", "protobuf", "re2", "grpc"):
+                (self.root / "build" / name).mkdir(parents=True, exist_ok=True)
+            copts = self.root / "build/abseil-cpp/absl/copts/AbseilConfigureCopts.cmake"
+            copts.parent.mkdir(parents=True)
+            copts.write_text('foreach(_arch IN ITEMS "x86_64" "arm64")\n')
         args = [] if full else ["--check-tools"]
-        return subprocess.run(["bash", str(BOOTSTRAP), *args], env=env,
+        return subprocess.run(["/bin/bash", str(BOOTSTRAP), *args], env=env,
                               text=True, capture_output=True)
+
+    def test_macos_intel_bootstrap_reaches_dependency_configure(self):
+        result = self.bootstrap(full=True, build_deps=True, arch="x86_64")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        trace = (self.root / "cmake-trace").read_text()
+        self.assertIn(str(self.root / "build/abseil-cpp"), trace)
+        self.assertIn(str(self.root / "build/grpc"), trace)
+        self.assertNotIn("-DCMAKE_OSX_ARCHITECTURES=arm64", trace)
+
+    def test_macos_arm_bootstrap_keeps_the_architecture_argument(self):
+        result = self.bootstrap(full=True, build_deps=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("-DCMAKE_OSX_ARCHITECTURES=arm64",
+                      (self.root / "cmake-trace").read_text())
+
+    def test_optional_argument_arrays_preserve_empty_and_quoted_values(self):
+        for script in (BOOTSTRAP, BOOTSTRAP.with_name("setup-native-asan-env.sh")):
+            expansions = [line.strip().rstrip("\\").strip()
+                          for line in script.read_text().splitlines()
+                          if "[@]" in line and not line.lstrip().startswith("#")]
+            self.assertTrue(expansions)
+            for expansion in expansions:
+                names = sorted(set(re.findall(r'\$\{(\w+)\[@\]', expansion)))
+                for values in ([], ["-DPREFIX=/path with spaces", "-DOPTION=ON"]):
+                    with self.subTest(script=script.name, expansion=expansion, values=values):
+                        items = " ".join(shlex.quote(value) for value in values)
+                        assignments = "; ".join(f"{name}=({items})" for name in names)
+                        command = (f"set -eu; {assignments}; "
+                                   'capture() { printf "%s\\n" "$#" "$@"; }; '
+                                   f"capture {expansion}")
+                        result = subprocess.run(["/bin/bash", "-c", command], env=self.env,
+                                                text=True, capture_output=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(result.stdout.splitlines(),
+                                         [str(len(values) * len(names)), *values * len(names)])
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
