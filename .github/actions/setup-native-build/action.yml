@@ -111,7 +111,8 @@ runs:
         llvm_prefix=""
         for formula in llvm llvm@20 llvm@19 llvm@18 llvm@17; do
           candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
-          [[ -x "$candidate/bin/clang++" ]] || continue
+          [[ -n "$candidate" && "$candidate" != "/" \
+            && "$candidate" != "/usr" && -x "$candidate/bin/clang++" ]] || continue
           version="$("$candidate/bin/clang++" --version \
             | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
           if [[ "${version:-0}" -ge 15 ]]; then
@@ -122,6 +123,12 @@ runs:
         if [[ -z "$llvm_prefix" ]]; then
           brew install llvm@17
           llvm_prefix="$(brew --prefix llvm@17)"
+          version="$("$llvm_prefix/bin/clang++" --version \
+            | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
+          if [[ ! -x "$llvm_prefix/bin/clang++" || "${version:-0}" -lt 15 ]]; then
+            echo "ERROR: Homebrew LLVM 17 did not provide a usable Clang 15+" >&2
+            exit 1
+          fi
         fi
         sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
         [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {
