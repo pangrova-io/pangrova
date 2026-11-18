@@ -17,7 +17,7 @@
 #   ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
 #   SKIP_VELOX=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
 #   SKIP_DEPS=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
-#   PANGROVA_NATIVE_BUILD_PHASE=velox|arrow-flight to split Docker cache layers
+#   PANGROVA_NATIVE_BUILD_PHASE=dependencies|velox|arrow-flight to split build phases
 #
 # Output layout:
 #   ~/.pangrova/native-deps/     — abseil + protobuf + RE2 + gRPC (hermetic)
@@ -490,6 +490,10 @@ build_velox() {
 
   ensure_folly_compiler_abi
   export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
+  if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "dependencies" ]]; then
+    step "Velox dependency sources and installation are ready"
+    return
+  fi
 
   # ===========================================================================
   # Velox CMake configuration
@@ -722,7 +726,8 @@ verify() {
       ok=false
     fi
   done
-  if [[ "$SKIP_VELOX" != "1" ]] && [[ ! -f "$VELOX_DIR/_build/release/lib/libvelox.a" ]] && \
+  if [[ "$SKIP_VELOX" != "1" && "$PANGROVA_NATIVE_BUILD_PHASE" != "dependencies" ]] && \
+     [[ ! -f "$VELOX_DIR/_build/release/lib/libvelox.a" ]] && \
      [[ ! -f "$VELOX_DIR/_build/release/libvelox.a" ]]; then
     step "WARNING: libvelox.a not found (may be in a different path)"
   fi
@@ -776,9 +781,9 @@ main() {
         build_velox
         build_arrow_flight
         ;;
-      velox) build_velox ;;
+      dependencies|velox) build_velox ;;
       arrow-flight) build_arrow_flight ;;
-      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, velox, or arrow-flight" ;;
+      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, dependencies, velox, or arrow-flight" ;;
     esac
   else
     step "Skipping Velox build (SKIP_VELOX=1)"

@@ -184,12 +184,17 @@ if(PANGROVA_ASAN_FOLLY_PREFIX)
   endif()
   unset(_ASAN_FOLLY_UNDEFINED)
   set(folly_DIR "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/cmake/folly")
+  find_package(gflags CONFIG REQUIRED)
   find_package(folly CONFIG REQUIRED PATHS "${folly_DIR}" NO_DEFAULT_PATH)
   # Folly's ASan option also enables UBSan; its exported target owns both runtimes.
   target_link_libraries(velox_imported INTERFACE Folly::folly)
   target_include_directories(velox_imported SYSTEM BEFORE INTERFACE
     "${PANGROVA_ASAN_FOLLY_PREFIX}/include")
   message(STATUS "ASan Folly archive: ${_ASAN_FOLLY_ARCHIVE}")
+elseif(NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  find_package(gflags CONFIG REQUIRED)
+  find_package(folly CONFIG REQUIRED)
+  target_link_libraries(velox_imported INTERFACE Folly::folly)
 endif()
 
 # 3a) deps-install (folly, glog, gflags, fmt, boost, etc.)

@@ -228,6 +228,19 @@ class StructuralPolicyTest(unittest.TestCase):
                 self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
                 self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
 
+    def test_asan_prepares_dependencies_without_building_release_velox(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split('\n  jmh-benchmarks:', 1)[0]
+        self.assertNotIn('PANGROVA_NATIVE_BUILD_PHASE:', native)
+        self.assertIn("PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' "
+                      "&& 'dependencies' || 'all' }}", sanitizer)
+        self.assertIn('setup-native-asan-env.sh --check-tools', sanitizer)
+        self.assertIn('setup-native-asan-env.sh 2>&1', sanitizer)
+        self.assertIn('run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}', sanitizer)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
+
     def test_macos_release_builds_dependencies_before_lance_and_configure(self):
         release = (ROOT / '.github/workflows/release.yml').read_text()
         native = release.split('  native-build:\n', 1)[1].split('\n  release:', 1)[0]

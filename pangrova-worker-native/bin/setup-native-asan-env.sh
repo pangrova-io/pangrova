@@ -85,6 +85,7 @@ PANGROVA_CMAKE_BIN="$(command -v cmake)"
   || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
 export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
+command -v patch >/dev/null 2>&1 || die "patch not found"
 [[ -f "$ABSEIL_SOURCE/CMakeLists.txt" ]] || \
   die "Abseil source missing; run setup-native-build-env.sh first"
 [[ -f "$PROTOBUF_SOURCE/CMakeLists.txt" ]] || \
@@ -164,6 +165,11 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
 
 build_asan_folly() {
   if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+    local socket_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-socket-function-types.patch"
+    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 -i "$socket_patch" >/dev/null 2>&1; then
+      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
+      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
+    fi
     local architecture_flags
     architecture_flags="$(source "$VELOX_HOME/scripts/setup-helper-functions.sh"; get_cxx_flags)"
     build_asan_dependency "$FOLLY_SOURCE" "$WORK_DIR/folly-asan-build" \

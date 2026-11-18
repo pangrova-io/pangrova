@@ -193,6 +193,35 @@ esac
                         self.assertEqual(result.stdout.splitlines(),
                                          [str(len(values) * len(names)), *values * len(names)])
 
+    def test_dependency_phase_prepares_sources_without_compiling_release_velox(self):
+        sdk = self.root / "velox"
+        (sdk / ".git").mkdir(parents=True)
+        aws = sdk / "deps-install/lib/cmake/AWSSDK/AWSSDKConfig.cmake"
+        aws.parent.mkdir(parents=True)
+        aws.touch()
+        self.executable(sdk / "scripts/setup-ubuntu.sh", 'printf "prepared\\n" >> "$TRACE"')
+        self.executable(self.bin / "git", "exit 0")
+        self.executable(self.bin / "bash", "exit 0")
+        self.executable(self.bin / "cmake", 'printf "compiled\\n" >> "$TRACE"; exit 73')
+        source = BOOTSTRAP.read_text()
+        function = "build_velox() {" + source.split("\nbuild_velox() {", 1)[1].split("\n}\n", 1)[0] + "\n}"
+        env = dict(self.env, VELOX_DIR=str(sdk), WORK_DIR=str(self.root),
+                   VELOX_REF="fixture", GRPC_VERSION="fixture", PROTOBUF_VERSION="fixture",
+                   ABSEIL_VERSION="fixture", OS="Linux", NPROC="1", CC="cc", CXX="c++",
+                   PANGROVA_PRODUCTION_BUILD="OFF", CMAKE_LAUNCHER_FLAGS="",
+                   PANGROVA_CMAKE_BIN=str(self.bin / "cmake"), DEPS_PREFIX=str(self.root / "deps"),
+                   PANGROVA_BOOTSTRAP_SCRIPT_DIR=str(BOOTSTRAP.parent))
+        for phase, expected in (("dependencies", 0), ("velox", 73)):
+            with self.subTest(phase=phase):
+                trace = self.root / f"{phase}-trace"
+                command = ('set -euo pipefail\nlog() { :; }\nstep() { :; }\n'
+                           'ensure_folly_compiler_abi() { :; }\n' + function + '\nbuild_velox\n')
+                result = subprocess.run(["/bin/bash", "-c", command], text=True, capture_output=True,
+                                        env=dict(env, PANGROVA_NATIVE_BUILD_PHASE=phase, TRACE=str(trace)))
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("prepared", trace.read_text())
+                self.assertEqual("compiled" in trace.read_text(), phase == "velox")
+
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
         self.executable(prefix / "bin/clang++", "echo selected-clang")

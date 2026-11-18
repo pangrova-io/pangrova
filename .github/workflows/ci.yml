@@ -455,7 +455,7 @@ jobs:
             ~/.pangrova/velox/_build/asan-ci/lib/libvelox.a
             ~/.pangrova/velox/_build/asan-ci/_deps
             ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
-          key: pangrova-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
+          key: pangrova-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
@@ -469,6 +469,8 @@ jobs:
         uses: ./.github/actions/setup-native-build
 
       - name: Setup native build environment
+        env:
+          PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' && 'dependencies' || 'all' }}
         run: |
           set -o pipefail
           if ! ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \

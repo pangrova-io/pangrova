@@ -83,9 +83,11 @@ libraries whose headers participate in its memory access. The
 sanitizer flags at compilation and final linkage, and warns that partially
 instrumented container code can produce false positives.
 
-After the regular bootstrap fetches the pinned sources, `setup-native-asan-env.sh`
-rebuilds Abseil, protobuf, RE2, gRPC, Folly, Velox and Arrow Flight into separate
-ASan prefixes and build directories. Folly uses C++20 and its upstream
+The ASan job first runs the regular bootstrap with
+`PANGROVA_NATIVE_BUILD_PHASE=dependencies`. This fetches the pinned SDK sources and
+prepares dependencies without compiling Release Velox or Release Arrow Flight.
+`setup-native-asan-env.sh` then rebuilds Abseil, protobuf, RE2, gRPC, Folly, Velox
+and Arrow Flight into separate ASan prefixes and build directories. Folly uses C++20 and its upstream
 `FOLLY_LIBRARY_SANITIZE_ADDRESS` option. The generated `asan-env.sh` records
 `PANGROVA_ASAN_FOLLY_PREFIX`, which CI passes to Pangrova's CMake configure.
 An explicitly supplied Folly prefix is consumed rather than overwritten, allowing
@@ -97,7 +99,16 @@ uninstrumented Folly is an error, not a reason to fall back to Release. The
 `Folly::folly` CMake target carries the dependency's sanitizer runtime flags;
 linking only its archive would lose the UBSan runtime that Folly also enables.
 Release Folly archives found in other dependency directories are excluded from
-ASan linkage.
+ASan linkage. The gflags CMake package is imported before Folly because the pinned
+Linux package exports a `gflags_static` target reference rather than a library
+filename. Non-production Linux builds also consume Folly's installed package
+instead of assuming that it was installed beneath Velox's `deps-install`.
+
+Folly's ASan option also enables UBSan. GCC 13 rejects the pinned socket API
+address assertions with UBSan enabled. The reviewed
+`folly-2026.01.05-socket-function-types.patch` checks that `recvmmsg` and `sendmmsg`
+are declared functions without requiring their addresses to be constant
+expressions. Runtime socket calls and both sanitizers remain enabled.
 
 ## Disk and Cache Budget
 
@@ -114,24 +125,29 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   Binary dependency cache keys include the runner image and toolchain action;
   they do not fall back to another image or compiler configuration.
 
-## Industry Alternatives
+## Apache Gluten Reference
 
-The current approach builds from pinned sources on standard runners. Larger
-organizations with the same dependency stack usually add one or more of:
+Gluten's published [CI guide](https://apache.github.io/gluten/backends/velox/developers/velox-backend-CI.html),
+[Docker build guide](https://apache.github.io/gluten/backends/velox/developers/velox-backend-build-in-docker.html)
+and [image inventory](https://apache.github.io/gluten/backends/velox/developers/velox-backend-docker-images.html)
+describe a useful separation of dependencies, revision-specific binaries and
+runtime qualification. These are documented upstream practices, not a claim that
+Pangrova has reproduced Gluten's CI results.
 
-- A prebuilt dependency image (Docker) for Linux jobs, so CI pulls binaries
-  instead of compiling Velox.
-- Published per-platform Native artifacts consumed by Java jobs, keeping C++
-  compilation out of the test path.
-- `ccache` or remote build caching keyed by compiler, flags and source hash.
-  The repository enables `ccache` when it is installed and caches the compiler
-  results between runs, which keeps repeated CI builds practical without caching
-  the multi-gigabyte object tree itself.
-- Larger runners with more disk for cold builds.
+| Gluten practice | Pangrova application and current boundary |
+|---|---|
+| Prebuilt toolchain/dependency images; static builds restore vcpkg binary packages from `/var/cache/vcpkg` | Reuse dependency preparation, not an unrelated prebuilt Velox library. Pangrova retains its pinned protobuf/gRPC/RE2 cohort and SDK patches; Gluten's binary cache is not interchangeable with it. A published Pangrova dependency image is not yet wired into CI. |
+| Build environments contain dependency caches, not Gluten or Velox source/binaries | Keep dependencies separate from the revision-specific SDK and JNI build. The ASan job now prepares dependencies without first compiling Release Velox and Flight. |
+| One same-revision Native artifact feeds multiple JVM and TPC jobs | Pangrova already shares classifier artifacts with JDK 17/21 jobs. Its static production image and sanitizer variants have different build contracts and must not reuse a development classifier as a substitute. |
+| Runtime images contain no compiler, Velox or Arrow installation | Keep production-image acceptance separate from the build environment so installed development libraries cannot mask missing runtime dependencies. |
+| Images are refreshed on Docker input changes and a schedule; mutable tags can be reproduced by digest | Preserve digest-pinned production base images and exact source identity. Future dependency-image reuse must also bind compiler, architecture, dependency revisions, patches and sanitizer mode. |
 
-These reduce cost but add artifact publication and trust requirements. The
-repository keeps the source build as the correctness reference and would need a
-provenance model before consuming prebuilt binaries.
+Gluten's static-build guide specifies 64 GB of memory and its image guide notes
+that dependency images can take hours to build. Caching amortizes that work; it
+does not make a cold build free or prove that a smaller runner is sufficient.
+Pangrova's memory-aware job limits are safeguards, not evidence of cold-build
+capacity. Four-platform builds, sanitizer runs and same-source production
+regression remain the acceptance criteria.
 
 ## Diagnosing Failures
 

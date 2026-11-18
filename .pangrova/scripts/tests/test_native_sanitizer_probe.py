@@ -100,20 +100,28 @@ class AsanFollyContractTest(unittest.TestCase):
             include = prefix / "include/folly"
             include.mkdir(parents=True)
             (include / "Executor.h").touch()
+        gflags = prefix / "lib/cmake/gflags"
+        gflags.mkdir(parents=True)
+        (gflags / "gflags-config.cmake").write_text(
+            'add_library(gflags_static INTERFACE IMPORTED)\n')
         config = prefix / "lib/cmake/folly"
         config.mkdir(parents=True)
+        flags = "-fsanitize=address,undefined;" if instrumented else ""
         (config / "folly-config.cmake").write_text(f'''
 add_library(Folly::folly STATIC IMPORTED)
 set_target_properties(Folly::folly PROPERTIES
   IMPORTED_LOCATION "{library}"
-  INTERFACE_LINK_LIBRARIES "-fsanitize=address,undefined")
+  INTERFACE_LINK_LIBRARIES "{flags}gflags_static")
 ''')
         return prefix
 
-    def configure(self, prefix=None, asan=True):
+    def configure(self, prefix=None, asan=True, apple=None):
         settings = f'set(PANGROVA_ASAN_FOLLY_PREFIX "{prefix}" CACHE PATH "")\n' if prefix else ""
+        if apple is not None:
+            settings += f'set(APPLE {"TRUE" if apple else "FALSE"})\n'
         if asan:
             settings += 'set(CMAKE_CXX_FLAGS "-fsanitize=address")\n'
+        settings += f'set(CMAKE_PREFIX_PATH "{self.root / "folly install"}")\n'
         (self.root / "main.cpp").write_text(
             'extern "C" int read_value(int*);\n'
             'int main() { int value = 7; return read_value(&value) == 7 ? 0 : 1; }\n')
@@ -156,6 +164,17 @@ set_target_properties(Folly::folly PROPERTIES
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_linux_release_consumer_imports_the_installed_folly_package(self):
+        self.package(instrumented=False)
+        result = self.configure(asan=False, apple=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run(["cmake", "--build", str(self.root / "build")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([str(self.root / "build/folly_consumer")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_dependency_globs_cannot_reintroduce_release_folly(self):
         source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
         for variable in ("_DEPS_INSTALL_LIBS", "_VENDORED_LIBS", "_INSTALL_PREFIX_LIBS"):
@@ -187,6 +206,64 @@ set_target_properties(Folly::folly PROPERTIES
         self.assertIn('export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', setup)
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn('-DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', workflow)
+
+
+class FollySocketPatchTest(unittest.TestCase):
+    def test_patch_preserves_function_availability_checks_with_sanitizers(self):
+        patch = ROOT / "pangrova-worker-native/patches/folly-2026.01.05-socket-function-types.patch"
+        with tempfile.TemporaryDirectory(prefix="folly socket patch ") as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            source = root / "deps-download/folly/folly/net/NetOps.cpp"
+            source.parent.mkdir(parents=True)
+            source.write_text('''#include <cstddef>
+#include <stdexcept>
+
+#include <folly/CPortability.h>
+#include <folly/ScopeGuard.h>
+#include <folly/Utility.h>
+
+#ifdef _WIN32
+#include <MSWSock.h> // @manual
+#endif
+
+#if (defined(__linux__) && !defined(__ANDROID__)) ||                       \\
+    (defined(__ANDROID__) && __ANDROID_API__ >= 21 /* released 2014 */) || \\
+    defined(__FreeBSD__) || defined(__SGX__) || defined(__EMSCRIPTEN__)
+static_assert(folly::to_bool(::recvmmsg));
+static_assert(folly::to_bool(::sendmmsg));
+#else
+static int (*recvmmsg)(...) = nullptr;
+static int (*sendmmsg)(...) = nullptr;
+#endif
+''')
+            command = ["patch", "--batch", "-d", str(root / "deps-download/folly"),
+                       "-p1", "-i", str(patch)]
+            subprocess.run([*command, "--dry-run", "--forward"], check=True, capture_output=True)
+            setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
+            start = setup.index("    if ! patch --dry-run")
+            patch_step = setup[start:setup.index("    local architecture_flags", start)]
+            shell = ('set -euo pipefail\n'
+                     f'FOLLY_SOURCE={shlex.quote(str(root / "deps-download/folly"))}\n'
+                     f'socket_patch={shlex.quote(str(patch))}\n' + patch_step)
+            for _ in range(2):
+                subprocess.run(["/bin/bash", "-c", shell], check=True, capture_output=True)
+            subprocess.run([*command, "--dry-run", "--forward", "--reverse"],
+                           check=True, capture_output=True)
+            patched = source.read_text()
+            self.assertIn("#include <type_traits>", patched)
+            checks = "\n".join(line for line in patched.splitlines() if line.startswith("static_assert"))
+            self.assertEqual(len(checks.splitlines()), 2)
+            for declarations, valid in (
+                    ("int recvmmsg(); int sendmmsg();", True),
+                    ("int (*recvmmsg)(); int (*sendmmsg)();", False),
+                    ("int sendmmsg();", False)):
+                with self.subTest(declarations=declarations):
+                    result = subprocess.run(
+                        ["c++", "-std=c++20", "-fsanitize=address,undefined", "-fsyntax-only",
+                         "-x", "c++", "-"], input="#include <type_traits>\n" + declarations + "\n" + checks,
+                        text=True, capture_output=True)
+                    self.assertEqual(result.returncode == 0, valid, result.stderr)
 
 
 if __name__ == "__main__":
