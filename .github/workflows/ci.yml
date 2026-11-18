@@ -93,6 +93,9 @@ jobs:
               tail -n 120 "$RUNNER_TEMP/native-setup.log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            # Logs need admin; annotations are public on this repository.
+            awk 'length {print "::error::" substr($0, 1, 400)}' \
+              "$RUNNER_TEMP/native-setup.log" | tail -n 25
             exit 1
           fi
 
@@ -476,6 +479,9 @@ jobs:
               tail -n 120 "$RUNNER_TEMP/native-setup.log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            # Logs need admin; annotations are public on this repository.
+            awk 'length {print "::error::" substr($0, 1, 400)}' \
+              "$RUNNER_TEMP/native-setup.log" | tail -n 25
             exit 1
           fi
 
@@ -496,6 +502,9 @@ jobs:
               tail -n 120 "$RUNNER_TEMP/native-asan-setup.log"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            # Logs need admin; annotations are public on this repository.
+            awk 'length {print "::error::" substr($0, 1, 400)}' \
+              "$RUNNER_TEMP/native-asan-setup.log" | tail -n 25
             exit 1
           fi
 
