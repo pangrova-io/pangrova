@@ -28,7 +28,10 @@ GitHub Pages deployment marker.
 
 The official site is https://pangrova-io.github.io/pangrova/, deployed by
 `.github/workflows/deploy-website.yml` on every push to `main` that changes `docs/`
-or `website/`. The repository's Pages source must be set to GitHub Actions. Pull
+or `website/`. The workflow configures Pages with Actions as the source and asks
+GitHub to create the site on the first run; for a private repository an
+organization owner must still enable Pages once (Settings → Pages → Source:
+GitHub Actions), which requires a plan that includes Pages. Pull
 requests build and typecheck the site without deploying. Builds default to the
 `/pangrova/` base path; `PANGROVA_SITE_URL` and `PANGROVA_SITE_BASE_URL` override
 the URL and base path for another host. No `gh-pages` branch is used.
