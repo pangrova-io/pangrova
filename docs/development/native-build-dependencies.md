@@ -52,15 +52,21 @@ arguments under `set -u`, while populated arrays preserve paths containing space
 CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
 jobs, keeping the compiler compatible with both the pinned Velox sources and the
 distribution's C++ libraries. It links a small static gflags consumer before
-building dependencies to catch ABI mismatches early. On macOS, CI selects
-Homebrew LLVM 17 using `PANGROVA_LLVM_PREFIX`; without an explicit prefix, the
-bootstrap uses `~/.pangrova/llvm` or Homebrew's default LLVM. The bootstrap
-resolves `SDKROOT` with `xcrun` when needed and records it in `env.sh`: CMake
-then treats the SDK headers as implicit system headers instead of placing them
-ahead of libc++ while building gRPC. CI compiles a small zlib consumer to
-verify that header ordering before building the dependencies. macOS CI reuses
-preinstalled Homebrew tools without upgrading them and uses ccache only when
-already available, avoiding unnecessary source builds on Intel runners.
+building dependencies to catch ABI mismatches early. On macOS, CI selects an
+installed Homebrew LLVM of version 15 or newer, preferring the existing `llvm`
+(or newest installed `llvm@*`) formula instead of installing a possibly
+unavailable Intel bottle; only a machine without a suitable LLVM installs
+`llvm@17`. The selected prefix is exported as `PANGROVA_LLVM_PREFIX`. Without an
+explicit prefix, the bootstrap uses `~/.pangrova/llvm` or Homebrew's default
+LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
+in `env.sh`: CMake then treats the SDK headers as implicit system headers
+instead of placing them ahead of libc++ while building gRPC. CI compiles a small
+zlib consumer to verify that header ordering before building the dependencies.
+macOS CI reuses preinstalled tools and installs only a missing tool without
+upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
+Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
+no bottles, so deleting that cache turns a reusable download into a build
+failure. ccache is used only when already available.
 
 ## Why the Order Matters
 

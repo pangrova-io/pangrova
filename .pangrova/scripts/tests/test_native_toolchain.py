@@ -103,30 +103,45 @@ exit 1
                                 env=env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_macos_action_exports_the_installed_llvm_prefix(self):
-        self.executable(self.bin / "brew", """
+    def macos_tooling(self, llvm_formula="llvm@17"):
+        for name in ("cmake", "ninja", "autoconf", "automake", "glibtoolize",
+                     "pkg-config", "bison", "flex"):
+            self.executable(self.bin / name, "exit 0")
+        prefix = self.root / llvm_formula.replace("@", "")
+        self.executable(prefix / "bin/clang++",
+                        'echo "Homebrew clang version 17.0.6"')
+        self.executable(self.bin / "brew", f"""
+printf 'auto-update=%s install-upgrade=%s\\n' "${{HOMEBREW_NO_AUTO_UPDATE:-}}" "${{HOMEBREW_NO_INSTALL_UPGRADE:-}}" >> "$TRACE"
+printf '%s\\n' "$*" >> "$TRACE"
 if [ "$1" = "--prefix" ]; then
   case "$2" in
-    llvm@17) printf '%s\\n' "$LLVM_PREFIX" ;;
+    {llvm_formula}) printf '%s\\n' "{prefix}" ;;
     bison|flex) printf '%s/%s\\n' "$HOME" "$2" ;;
     *) exit 1 ;;
   esac
-else
-  printf 'auto-update=%s install-upgrade=%s\\n' "${HOMEBREW_NO_AUTO_UPDATE:-}" "${HOMEBREW_NO_INSTALL_UPGRADE:-}" >> "$TRACE"
-  printf '%s\\n' "$*" >> "$TRACE"
 fi
 """)
         sdk_root = self.root / "macos sdk"
         (sdk_root / "usr/include").mkdir(parents=True)
         self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
+        return sdk_root, prefix
+
+    def test_macos_action_exports_the_selected_llvm_prefix(self):
+        sdk_root, prefix = self.macos_tooling()
         environment, path, trace = self.run_action("Install build tools (macOS)")
-        self.assertIn("llvm@17", trace)
         self.assertIn("auto-update=1 install-upgrade=1", trace)
+        self.assertNotIn("install llvm@17", trace)
         self.assertNotIn("ccache", trace)
         self.assertNotIn("update --quiet", trace)
-        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={self.root / 'llvm'}\n"
-                                      f"SDKROOT={sdk_root}\n")
-        self.assertIn(f"{self.root / 'llvm' / 'bin'}\n", path)
+        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\nSDKROOT={sdk_root}\n")
+        self.assertIn(f"{prefix / 'bin'}\n", path)
+
+    def test_macos_action_prefers_an_installed_newer_llvm_without_installing(self):
+        _, prefix = self.macos_tooling(llvm_formula="llvm@18")
+        environment, path, _ = self.run_action("Install build tools (macOS)")
+        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\n"
+                                      f"SDKROOT={self.root / 'macos sdk'}\n")
+        self.assertIn(f"{prefix / 'bin'}\n", path)
 
     def bootstrap(self, prefix=None, sdkroot=None, full=False, build_deps=False, arch="arm64"):
         self.executable(self.bin / "uname", f"""

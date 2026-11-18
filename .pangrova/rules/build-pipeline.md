@@ -22,8 +22,9 @@ startup and re-prepend its directory before configuring Velox, because a shim
 without its Modules directory aborts configuration. CI jobs never install native prerequisites
 ad hoc; they call `.github/actions/setup-native-build`, which installs that contract
 on Ubuntu (build-essential, autotools, rustup with the channel pinned by
-`pangrova-worker-native/lance-ffi/rust-toolchain.toml`) or macOS (Homebrew
-autotools, bison, flex, ccache, llvm) and then runs `--check-tools`, so a missing
+`pangrova-worker-native/lance-ffi/rust-toolchain.toml`) or reuses the macOS
+image's tools and an installed Homebrew LLVM 15+ (installing only missing
+formulae without upgrading bottles) and then runs `--check-tools`, so a missing
 tool fails fast with its name. Velox and Rust pins resolve upstream
 (`v2026.04.17.00`, Rust 1.98.1); bump both together with the script.
 

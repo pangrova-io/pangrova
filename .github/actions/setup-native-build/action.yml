@@ -43,7 +43,6 @@ runs:
           ~/Library/Developer/Xcode/iOS\ DeviceSupport \
           ~/Library/Developer/Xcode/watchOS\ DeviceSupport \
           ~/Library/Developer/Xcode/tvOS\ DeviceSupport \
-          ~/Library/Caches/Homebrew \
           /usr/local/share/dotnet ~/.gradle/caches || true
         df -h /
 
@@ -91,11 +90,39 @@ runs:
         # configure_compiler() requires a Clang 15+ toolchain because Velox
         # rejects AppleClang; bison/flex/autotools support Velox's dependency
         # builds and the repository bootstrap checks glibtoolize explicitly.
-        # Reuse preinstalled tools; optional ccache can pull an entire LLVM
-        # toolchain from source on Intel runners.
-        brew install cmake ninja autoconf automake libtool pkg-config \
-          bison flex llvm@17
-        llvm_prefix="$(brew --prefix llvm@17)"
+        # Reuse the image's tools: Intel macOS 15 is Tier 3 for Homebrew and
+        # some formulas have no bottles, so a blanket install can fail where
+        # the image already has a usable version.
+        ensure_tool() {
+          local formula="$1" command="$2"
+          command -v "$command" >/dev/null 2>&1 && return 0
+          brew list --versions "$formula" >/dev/null 2>&1 && return 0
+          brew install "$formula" || brew install --build-from-source "$formula"
+        }
+        ensure_tool cmake cmake
+        ensure_tool ninja ninja
+        ensure_tool autoconf autoconf
+        ensure_tool automake automake
+        ensure_tool libtool glibtoolize
+        ensure_tool pkg-config pkg-config
+        ensure_tool bison bison
+        ensure_tool flex flex
+
+        llvm_prefix=""
+        for formula in llvm llvm@20 llvm@19 llvm@18 llvm@17; do
+          candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
+          [[ -x "$candidate/bin/clang++" ]] || continue
+          version="$("$candidate/bin/clang++" --version \
+            | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
+          if [[ "${version:-0}" -ge 15 ]]; then
+            llvm_prefix="$candidate"
+            break
+          fi
+        done
+        if [[ -z "$llvm_prefix" ]]; then
+          brew install llvm@17
+          llvm_prefix="$(brew --prefix llvm@17)"
+        fi
         sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
         [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {
           echo "ERROR: macOS SDK headers not found at $sdk_root" >&2
@@ -104,8 +131,12 @@ runs:
         echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
         echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
         echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
-        echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-        echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+        for tool in bison flex; do
+          prefix="$(brew --prefix "$tool" 2>/dev/null || true)"
+          if [[ -d "$prefix/bin" ]]; then
+            echo "$prefix/bin" >> "$GITHUB_PATH"
+          fi
+        done
 
     - name: Install rustup (no default toolchain)
       shell: bash
