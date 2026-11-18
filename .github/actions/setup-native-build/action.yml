@@ -83,7 +83,13 @@ runs:
         brew install cmake ninja autoconf automake libtool pkg-config \
           bison flex ccache llvm@17
         llvm_prefix="$(brew --prefix llvm@17)"
+        sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+        [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {
+          echo "ERROR: macOS SDK headers not found at $sdk_root" >&2
+          exit 1
+        }
         echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
+        echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
         echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
@@ -136,3 +142,16 @@ runs:
     - name: Verify the native toolchain contract
       shell: bash
       run: ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
+
+    - name: Verify macOS SDK header ordering
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        build_dir="$RUNNER_TEMP/pangrova-macos-sdk-check"
+        cmake -S pangrova-worker-native/cmake/dependency-checks/macos-sdk \
+          -B "$build_dir" -G Ninja \
+          -DCMAKE_CXX_COMPILER="$PANGROVA_LLVM_PREFIX/bin/clang++" \
+          -DCMAKE_PREFIX_PATH="$HOME/.pangrova/native-deps" \
+          -DCMAKE_IGNORE_PATH="/opt/local;/opt/homebrew"
+        cmake --build "$build_dir" --verbose
+        "$build_dir/pangrova_macos_sdk_check"

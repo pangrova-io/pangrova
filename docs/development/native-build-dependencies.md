@@ -46,7 +46,11 @@ half an hour of compilation.
 CI selects GCC 13 on Linux and Homebrew LLVM 17 on macOS to keep the compiler
 compatible with the pinned Velox dependency sources. On macOS,
 `PANGROVA_LLVM_PREFIX` selects an explicit LLVM installation; without it the
-bootstrap uses `~/.pangrova/llvm` or Homebrew's default LLVM.
+bootstrap uses `~/.pangrova/llvm` or Homebrew's default LLVM. The bootstrap
+resolves `SDKROOT` with `xcrun` when needed and records it in `env.sh`: CMake
+then treats the SDK headers as implicit system headers instead of placing them
+ahead of libc++ while building gRPC. CI compiles a small zlib consumer to
+verify that header ordering before building the dependencies.
 
 ## Why the Order Matters
 

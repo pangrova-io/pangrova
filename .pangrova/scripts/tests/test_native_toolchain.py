@@ -39,7 +39,8 @@ class NativeToolchainTest(unittest.TestCase):
         github_env.touch()
         github_path.touch()
         env = dict(self.env, GITHUB_ENV=str(github_env), GITHUB_PATH=str(github_path),
-                   TRACE=str(self.root / "trace"), LLVM_PREFIX=str(self.root / "llvm"))
+                   TRACE=str(self.root / "trace"), LLVM_PREFIX=str(self.root / "llvm"),
+                   TEST_SDKROOT=str(self.root / "macos sdk"))
         result = subprocess.run(["bash", "-e", "-c", action_script(name)], env=env,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -63,12 +64,16 @@ else
   printf '%s\\n' "$*" >> "$TRACE"
 fi
 """)
+        sdk_root = self.root / "macos sdk"
+        (sdk_root / "usr/include").mkdir(parents=True)
+        self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
         environment, path, trace = self.run_action("Install build tools (macOS)")
         self.assertIn("llvm@17", trace)
-        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={self.root / 'llvm'}\n")
+        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={self.root / 'llvm'}\n"
+                                      f"SDKROOT={sdk_root}\n")
         self.assertIn(f"{self.root / 'llvm' / 'bin'}\n", path)
 
-    def bootstrap(self, prefix=None):
+    def bootstrap(self, prefix=None, sdkroot=None, full=False):
         self.executable(self.bin / "uname", """
 case "$1" in
   -s) echo Darwin ;;
@@ -78,14 +83,32 @@ esac
         for name in ("cmake", "ninja", "git", "cargo", "rustc", "autoconf", "automake",
                      "pkg-config", "glibtoolize", "xcode-select", "brew"):
             self.executable(self.bin / name, "exit 0")
+        self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
+        sdk = self.root / "macos sdk"
+        (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
         default = self.root / ".pangrova/llvm/bin/clang++"
         self.executable(default, "echo default-clang")
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
-                   CMAKE_BUILD_PARALLEL_LEVEL="1")
+                   PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
+                   TEST_SDKROOT=str(sdk), CMAKE_BUILD_PARALLEL_LEVEL="1")
         env.pop("PANGROVA_LLVM_PREFIX", None)
+        env.pop("SDKROOT", None)
         if prefix is not None:
             env["PANGROVA_LLVM_PREFIX"] = str(prefix)
-        return subprocess.run(["bash", str(BOOTSTRAP), "--check-tools"], env=env,
+        if sdkroot is not None:
+            env["SDKROOT"] = str(sdkroot)
+        if full:
+            env.update(SKIP_DEPS="1", SKIP_VELOX="1")
+            self.executable(self.root / "build/re2-contract-build/pangrova_re2_contract", "exit 0")
+            deps = self.root / ".pangrova/native-deps"
+            for name in ("bin/protoc", "bin/grpc_cpp_plugin"):
+                self.executable(deps / name, "exit 0")
+            for name in ("lib/cmake/protobuf/protobuf-config.cmake", "lib/cmake/grpc/gRPCConfig.cmake"):
+                path = deps / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+        args = [] if full else ["--check-tools"]
+        return subprocess.run(["bash", str(BOOTSTRAP), *args], env=env,
                               text=True, capture_output=True)
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
@@ -94,6 +117,7 @@ esac
         result = self.bootstrap(prefix)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Using selected-clang", result.stdout)
+        self.assertIn(f"Using macOS SDK {self.root / 'macos sdk'}", result.stdout)
         self.assertNotIn("default-clang", result.stdout)
 
     def test_macos_bootstrap_rejects_an_invalid_explicit_prefix(self):
@@ -105,6 +129,33 @@ esac
         result = self.bootstrap()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Using default-clang", result.stdout)
+
+    def test_macos_bootstrap_preserves_the_requested_sdk(self):
+        sdk = self.root / "requested sdk"
+        (sdk / "usr/include").mkdir(parents=True)
+        result = self.bootstrap(sdkroot=sdk)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Using macOS SDK {sdk}", result.stdout)
+
+    def test_macos_bootstrap_resolves_a_named_sdk(self):
+        result = self.bootstrap(sdkroot="macosx")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Using macOS SDK {self.root / 'macos sdk'}", result.stdout)
+
+    def test_macos_bootstrap_rejects_an_invalid_sdk(self):
+        result = self.bootstrap(sdkroot=self.root / "missing sdk")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("macOS SDK headers not found", result.stderr)
+
+    def test_macos_bootstrap_records_the_sdk_for_later_builds(self):
+        result = self.bootstrap(full=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        env_file = self.root / ".pangrova/env.sh"
+        result = subprocess.run(["bash", "-c", 'source "$1"; printf "%s" "$SDKROOT"',
+                                 "test", str(env_file)], env=self.env,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, str(self.root / "macos sdk"))
 
 
 if __name__ == "__main__":

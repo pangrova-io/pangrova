@@ -173,6 +173,14 @@ configure_compiler() {
   fi
   [[ -x "$llvm_prefix/bin/clang++" ]] || \
     die "Clang 15 or newer is required by Velox; check PANGROVA_LLVM_PREFIX or install it under $PANGROVA_HOME/llvm"
+  if [[ -z "${SDKROOT:-}" ]]; then
+    SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" || die "Unable to locate the macOS SDK"
+  elif [[ "$SDKROOT" != /* ]]; then
+    SDKROOT="$(xcrun --sdk "$SDKROOT" --show-sdk-path)" || die "Unable to locate the requested macOS SDK"
+  fi
+  [[ "$SDKROOT" == /* && "$SDKROOT" != "/" && -d "$SDKROOT/usr/include" ]] \
+    || die "macOS SDK headers not found at $SDKROOT"
+  export SDKROOT
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
   for tool in bison flex; do
     if [[ -d "$PANGROVA_HOME/homebrew/opt/$tool/bin" ]]; then
@@ -182,6 +190,7 @@ configure_compiler() {
   export CC="$llvm_prefix/bin/clang"
   export CXX="$llvm_prefix/bin/clang++"
   step "Using $("$CXX" --version | head -1)"
+  step "Using macOS SDK $SDKROOT"
 }
 
 ensure_folly_compiler_abi() {
@@ -671,7 +680,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
