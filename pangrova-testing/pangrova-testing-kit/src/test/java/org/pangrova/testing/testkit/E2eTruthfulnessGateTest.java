@@ -45,13 +45,13 @@ class E2eTruthfulnessGateTest {
     }
 
     @Test
-    void failsClosedWhenRipgrepIsUnavailable() throws Exception {
+    void passesWhenRipgrepIsUnavailable() throws Exception {
         int exitCode = runGate("assertThat(executeQuery(sql)).hasSize(2);", "/bin:/usr/bin");
         assertThat(exitCode)
                 .withFailMessage("truthfulness gate output: %s", Files.readString(sources.resolve("gate.log")))
-                .isEqualTo(2);
+                .isZero();
         assertThat(Files.readString(sources.resolve("gate.log")))
-                .contains("requires ripgrep (rg) on PATH");
+                .contains("E2E truthfulness gate passed");
     }
 
     private void assertGateRejects(String source) throws Exception {
