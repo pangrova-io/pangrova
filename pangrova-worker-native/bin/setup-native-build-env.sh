@@ -354,7 +354,7 @@ build_velox() {
   local GRPC_VERSION="$GRPC_VERSION"
   local PROTOBUF_VERSION="$PROTOBUF_VERSION"
   local ABSEIL_VERSION="$ABSEIL_VERSION"
-  if [[ -d "$VELOX_DIR" ]]; then
+  if [[ -d "$VELOX_DIR/.git" ]]; then
     step "Updating existing Velox source"
     cd "$VELOX_DIR"
     if ! git checkout "$VELOX_REF"; then
@@ -365,6 +365,18 @@ build_velox() {
       done
       git checkout "$VELOX_REF"
     fi
+  elif [[ -d "$VELOX_DIR" ]]; then
+    # The dependency cache restores deps-install without the source checkout.
+    # Clone beside it and move the source in, preserving the restored prefixes.
+    step "Populating Velox source into the restored dependency prefix"
+    local checkout
+    checkout="$(mktemp -d "$WORK_DIR/velox-checkout.XXXXXX")"
+    git clone --depth 1 --branch "$VELOX_REF" \
+      https://github.com/facebookincubator/velox.git "$checkout/repository"
+    shopt -s dotglob
+    mv "$checkout/repository"/* "$VELOX_DIR"/
+    shopt -u dotglob
+    rm -rf "$checkout"
   else
     step "Cloning Velox"
     git clone --depth 1 --branch "$VELOX_REF" \
