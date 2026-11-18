@@ -83,7 +83,18 @@ jobs:
         uses: ./.github/actions/setup-native-build
 
       - name: Setup native build environment
-        run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+        run: |
+          set -o pipefail
+          if ! ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-setup.log"; then
+            {
+              echo "### Native setup failed"
+              echo '```text'
+              tail -n 120 "$RUNNER_TEMP/native-setup.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Build required Lance C FFI
         run: ./pangrova-worker-native/bin/build-lance-ffi.sh
@@ -455,7 +466,18 @@ jobs:
         uses: ./.github/actions/setup-native-build
 
       - name: Setup native build environment
-        run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+        run: |
+          set -o pipefail
+          if ! ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-setup.log"; then
+            {
+              echo "### Native setup failed"
+              echo '```text'
+              tail -n 120 "$RUNNER_TEMP/native-setup.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Verify the sanitizer dependency contract
         if: matrix.sanitizer.name == 'asan'
@@ -464,8 +486,18 @@ jobs:
       - name: Build instrumented Velox, Protobuf, Abseil, RE2, gRPC and Flight
         if: matrix.sanitizer.name == 'asan'
         run: |
-          PANGROVA_ASAN_CI_PRUNE_RELEASE=1 \
-            ./pangrova-worker-native/bin/setup-native-asan-env.sh
+          set -o pipefail
+          if ! PANGROVA_ASAN_CI_PRUNE_RELEASE=1 \
+              ./pangrova-worker-native/bin/setup-native-asan-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-asan-setup.log"; then
+            {
+              echo "### Sanitizer dependency setup failed"
+              echo '```text'
+              tail -n 120 "$RUNNER_TEMP/native-asan-setup.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Build required Lance C FFI
         run: ./pangrova-worker-native/bin/build-lance-ffi.sh
