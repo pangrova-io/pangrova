@@ -89,12 +89,17 @@ Starting Pangrova Standalone (Coordinator + Worker)...
   JVM_CONFIG:      /path/to/pangrova/etc/jvm-coordinator.config (loaded)
 ```
 
-By default, the Coordinator listens on port **8080**. Verify it is running:
+By default, the Coordinator listens on port **8080**. Check that it responds:
 
 ```bash
-bin/pangrova-health-check.sh localhost:8080
-# Output: healthy
+curl -fsS http://localhost:8080/v1/health/live
+# Output: {"live":true}
 ```
+
+This checks liveness, not SQL readiness. The `/v1/health` readiness endpoint
+returns HTTP 503 until the Coordinator has an active Worker and an active
+catalog. A fresh instance without a catalog can therefore be live but not yet
+ready.
 
 ### Using a Custom Configuration
 
