@@ -210,6 +210,43 @@ set_target_properties(Folly::folly PROPERTIES
         self.assertIn('-DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', workflow)
 
 
+class AsanArrowSourceTest(unittest.TestCase):
+    def test_bootstrap_generates_patch_target_without_building_arrow(self):
+        setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
+        option = re.search(r'-DCMAKE_PROJECT_Arrow_INCLUDE:FILEPATH=\$ASAN_SCRIPT_DIR/\.\./(\S+?)"',
+                           setup)
+        self.assertIsNotNone(option, "ASan bootstrap must wire the Velox Arrow project include")
+        hook = ROOT / "pangrova-worker-native" / option[1]
+        self.assertLess(setup.index("--target arrow_ep-patch"), setup.index("--target velox"))
+        with tempfile.TemporaryDirectory(prefix="asan-arrow-source-") as tmp:
+            root = Path(tmp)
+            (root / "arrow").mkdir()
+            (root / "arrow-source").mkdir()
+            (root / "arrow-source/source.txt").write_text("unpadded source")
+            (root / "CMakeLists.txt").write_text("""cmake_minimum_required(VERSION 3.20)
+project(Velox NONE)
+add_subdirectory(arrow)
+""")
+            # Mirror the pinned nested project and ExternalProject name. No
+            # STEP_TARGETS declaration, native builds, or network downloads.
+            (root / "arrow/CMakeLists.txt").write_text("""project(Arrow NONE)
+include(ExternalProject)
+ExternalProject_Add(arrow_ep
+  SOURCE_DIR "${CMAKE_SOURCE_DIR}/arrow-source"
+  PATCH_COMMAND "${CMAKE_COMMAND}" -E touch "<SOURCE_DIR>/patch-ran"
+  CONFIGURE_COMMAND "${CMAKE_COMMAND}" -E false
+  BUILD_COMMAND "${CMAKE_COMMAND}" -E false
+  INSTALL_COMMAND "${CMAKE_COMMAND}" -E false)
+""")
+            build = root / "build"
+            for cmd in (["cmake", "-S", str(root), "-B", str(build),
+                         f"-DCMAKE_PROJECT_Arrow_INCLUDE:FILEPATH={hook}"],
+                        ["cmake", "--build", str(build), "--target", "arrow_ep-patch"]):
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / "arrow-source/patch-ran").is_file())
+
+
 class FollySocketPatchTest(unittest.TestCase):
     def test_patch_preserves_function_availability_checks_with_sanitizers(self):
         patch = ROOT / "pangrova-worker-native/patches/folly-2026.01.05-socket-function-types.patch"
