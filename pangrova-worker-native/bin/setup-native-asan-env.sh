@@ -106,6 +106,12 @@ if [[ "$CHECK_TOOLS" == 1 ]]; then
   printf 'ASan dependency toolchain and sources verified\n'
   exit 0
 fi
+libevent_prefix=""
+if [[ "$(uname -s)" == "Darwin" && -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+  source "$ASAN_SCRIPT_DIR/resolve-darwin-libevent.sh"
+  libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW")"
+fi
+
 bash "$(dirname "${BASH_SOURCE[0]}")/apply-velox-patches.sh" apply "$VELOX_HOME"
 
 mkdir -p "$ASAN_PREFIX"
@@ -175,7 +181,7 @@ build_asan_folly() {
     build_asan_dependency "$FOLLY_SOURCE" "$WORK_DIR/folly-asan-build" \
       -DCMAKE_CXX_STANDARD=20 \
       "-DCMAKE_CXX_FLAGS=$ASAN_FLAGS $architecture_flags" \
-      "-DCMAKE_PREFIX_PATH=$ASAN_PREFIX;$VELOX_HOME/deps-install${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
+      "-DCMAKE_PREFIX_PATH=$ASAN_PREFIX;$VELOX_HOME/deps-install${libevent_prefix:+;$libevent_prefix}${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DFOLLY_LIBRARY_SANITIZE_ADDRESS=ON -DFOLLY_HAVE_INT128_T=ON \
       -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DGFLAGS_SHARED=FALSE \

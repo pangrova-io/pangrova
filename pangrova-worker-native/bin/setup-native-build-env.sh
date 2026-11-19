@@ -205,6 +205,7 @@ configure_compiler() {
 
 ensure_folly_compiler_abi() {
   [[ "$OS" == "Darwin" ]] || return 0
+  local libevent_prefix="$1"
   local folly_source="$VELOX_DIR/deps-download/folly"
   local folly_archive="$VELOX_DIR/deps-install/lib/libfolly.a"
   # Consume nm fully: grep -q closes the pipe early and pipefail turns a
@@ -223,7 +224,7 @@ ensure_folly_compiler_abi() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_CXX_STANDARD=20 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
+    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install;$libevent_prefix${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
     -DCMAKE_INSTALL_PREFIX="$VELOX_DIR/deps-install" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \
@@ -355,6 +356,7 @@ build_velox() {
   local GRPC_VERSION="$GRPC_VERSION"
   local PROTOBUF_VERSION="$PROTOBUF_VERSION"
   local ABSEIL_VERSION="$ABSEIL_VERSION"
+  local libevent_prefix=""
   if [[ -d "$VELOX_DIR/.git" ]]; then
     step "Updating existing Velox source"
     cd "$VELOX_DIR"
@@ -396,6 +398,10 @@ build_velox() {
     export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-Y}"
     export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"
     source ./scripts/setup-macos.sh
+    source "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/resolve-darwin-libevent.sh"
+    # Pangrova suppresses Velox's blanket Homebrew install below. Restore the
+    # existing Folly prerequisite even when the compiled dependencies are cached.
+    libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
 
     # Upstream stores archives inside source directories that it deletes on retry.
     wget_and_untar() {
@@ -441,12 +447,11 @@ build_velox() {
       wget_and_untar \
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
-      # Folly's libevent lookup searches /usr/local and $HOME, not Homebrew's
-      # /opt/homebrew prefix on Apple silicon.
+      # Use the formula's opt prefix even if Homebrew leaves it unlinked.
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
-        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$HOMEBREW_PREFIX"
+        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
     }
 
     install_aws_deps() {
@@ -500,7 +505,7 @@ build_velox() {
     fi
   fi
 
-  ensure_folly_compiler_abi
+  ensure_folly_compiler_abi "$libevent_prefix"
   export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
   if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "dependencies" ]]; then
     step "Velox dependency sources and installation are ready"
