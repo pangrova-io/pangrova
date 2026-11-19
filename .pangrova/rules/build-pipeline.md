@@ -13,7 +13,7 @@ Python 3.10+ and Docker. Keep personal paths, credentials, fixed host ports and 
 state out of tracked files.
 
 `setup-native-build-env.sh --check-tools` is the single toolchain contract: it
-checks Rust, autotools, libtool, pkg-config, system OpenSSL/zlib headers on Linux,
+checks Rust, autotools, libtool, pkg-config, ripgrep, system OpenSSL/zlib headers on Linux,
 and (on macOS) Homebrew and a Clang 15+ toolchain before any dependency build. The
 bootstrap builds gRPC before Velox's own `setup-ubuntu.sh` runs, so OpenSSL and
 zlib development headers must already be installed. That setup script also

@@ -70,6 +70,7 @@ class NativeToolchainTest(unittest.TestCase):
         environment, _, trace = self.run_action("Install build tools (Linux)")
         self.assertIn("gcc-13 g++-13", trace)
         self.assertIn("libgflags-dev", trace)
+        self.assertIn("ripgrep", trace)
         self.assertEqual(environment, "CC=gcc-13\nCXX=g++-13\n")
 
     def test_linux_action_checks_and_runs_a_static_gflags_consumer(self):
@@ -105,7 +106,7 @@ exit 1
 
     def macos_tooling(self, llvm_formula="llvm@17"):
         for name in ("cmake", "ninja", "autoconf", "automake", "glibtoolize",
-                     "pkg-config", "bison", "flex"):
+                     "pkg-config", "bison", "flex", "rg"):
             self.executable(self.bin / name, "exit 0")
         prefix = self.root / llvm_formula.replace("@", "")
         self.executable(prefix / "bin/clang++",
@@ -150,8 +151,8 @@ case "$1" in
   -m) echo {arch} ;;
 esac
 """)
-        for name in ("cmake", "ninja", "git", "cargo", "rustc", "autoconf", "automake",
-                     "pkg-config", "glibtoolize", "xcode-select", "brew"):
+        for name in ("cmake", "ninja", "git", "cargo", "rustc", "rg", "autoconf",
+                     "automake", "pkg-config", "glibtoolize", "xcode-select", "brew"):
             self.executable(self.bin / name, "exit 0")
         self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
         sdk = self.root / "macos sdk"

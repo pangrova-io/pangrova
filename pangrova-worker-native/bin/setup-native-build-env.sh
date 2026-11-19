@@ -120,7 +120,7 @@ check_prerequisites() {
   if [[ "$OS" == "Darwin" && -x "$PANGROVA_HOME/homebrew/bin/brew" ]]; then
     export PATH="$PANGROVA_HOME/homebrew/bin:$PANGROVA_HOME/homebrew/sbin:$PATH"
   fi
-  for cmd in cmake ninja git cargo rustc; do
+  for cmd in cmake ninja git cargo rustc rg; do
     command -v "$cmd" >/dev/null 2>&1 || die "$cmd not found. Install it first."
   done
   # A package-manager-installed cmake can be a shim without its Modules

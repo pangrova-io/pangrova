@@ -32,7 +32,8 @@ usable machine looks like. It verifies:
 
 - CMake and Ninja, and that CMake can find its own Modules directory.
 - Git, Rust (`cargo`, `rustc`) and the GNU autotools (`autoconf`, `automake`,
-  `libtoolize` on Linux, `glibtoolize` on macOS), plus `pkg-config`.
+  `libtoolize` on Linux, `glibtoolize` on macOS), plus `pkg-config` and
+  `ripgrep` (`rg`), which hashes the Lance SDK source tree.
 - On Linux, system OpenSSL and zlib development headers, because gRPC is built
   before Velox's own `setup-ubuntu.sh` runs.
 - On macOS, the Xcode command-line tools, Homebrew, and a Clang 15+ toolchain.
