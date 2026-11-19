@@ -1,0 +1,125 @@
+name: Main CI failure diagnostics
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  summarize:
+    # Do not give fork or pull-request code a credential-bearing execution path.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.id == github.event.repository.id
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Summarize the exact failed run attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.request
+
+
+          def safe_label(value):
+              return re.sub(r"[^A-Za-z0-9 ()_.-]", " ", str(value))[:120]
+
+
+          def summarize(jobs):
+              rows = {"Failing jobs": [], "Report failures": [], "Aggregate check": []}
+              for job in jobs:
+                  if job.get("conclusion") != "failure":
+                      continue
+                  name = safe_label(job["name"])
+                  job_id = int(job["id"])
+                  failed = sorted(
+                      (step for step in job.get("steps", []) if step["conclusion"] == "failure"),
+                      key=lambda step: int(step["number"]),
+                  )
+                  if name == "Validation result":
+                      rows["Aggregate check"].extend(
+                          (job_id, name, step) for step in (failed or [None])
+                      )
+                      continue
+                  primary = None
+                  for step in failed:
+                      if step["name"] == "Publish native test report":
+                          rows["Report failures"].append((job_id, name, step))
+                      elif primary is None:
+                          primary = step
+                  if primary is not None or not failed:
+                      rows["Failing jobs"].append((job_id, name, primary))
+              return rows
+
+
+          def main():
+              event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+              run = event["workflow_run"]
+              repo = event["repository"]
+              if not (
+                  event["action"] == "completed"
+                  and run["status"] == "completed"
+                  and run["conclusion"] == "failure"
+                  and run["name"] == "CI"
+                  and run["path"] == ".github/workflows/ci.yml"
+                  and run["event"] == "push"
+                  and run["head_branch"] == "main"
+                  and (run.get("head_repository") or {}).get("id") == repo["id"]
+                  and (run.get("repository") or {}).get("id") == repo["id"]
+              ):
+                  return
+              slug = os.environ["GITHUB_REPOSITORY"]
+              if slug != repo["full_name"] or not re.fullmatch(r"[\w.-]+/[\w.-]+", slug):
+                  raise ValueError("Unexpected repository")
+              run_id, attempt = int(run["id"]), int(run["run_attempt"])
+              sha = run["head_sha"]
+              if min(run_id, attempt) < 1 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise ValueError("Invalid run identity")
+              api = os.environ["GITHUB_API_URL"].rstrip("/")
+              url = f"{api}/repos/{slug}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
+              request = urllib.request.Request(url, headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              })
+              with urllib.request.urlopen(request, timeout=25) as response:
+                  payload = json.load(response)
+              web = os.environ["GITHUB_SERVER_URL"].rstrip("/")
+              base = f"{web}/{slug}/actions/runs/{run_id}"
+              lines = [
+                  f"# Main CI failure: [{run_id}, attempt {attempt}]({base}/attempts/{attempt})",
+                  f"Commit: `{sha}`",
+                  "First failing steps are pointers for investigation, not diagnosed root causes.",
+              ]
+              jobs = payload["jobs"]
+              if len(jobs) != int(payload["total_count"]):
+                  lines.append("**Partial result:** only the first page of jobs was fetched.")
+              for title, rows in summarize(jobs).items():
+                  lines += ["", f"## {title}"]
+                  if not rows:
+                      lines.append("None in the retrieved job metadata.")
+                  for job_id, name, step in rows:
+                      detail = (
+                          f"step {int(step['number'])}: {safe_label(step['name'])}"
+                          if step else "no failed step reported"
+                      )
+                      lines.append(f"- [{name}]({base}/job/{job_id}): {detail}")
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+                  summary.write("\n".join(lines) + "\n")
+
+
+          if __name__ == "__main__":
+              main()
+          PY
