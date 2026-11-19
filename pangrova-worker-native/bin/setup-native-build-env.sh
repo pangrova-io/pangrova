@@ -416,6 +416,20 @@ build_velox() {
         -f "$archive" -C "$DEPENDENCY_DIR/$dir"
     }
 
+    if [[ "$ARCH" == x86_64 ]]; then
+      install_boost() {
+        # Match the pinned Velox install_boost archive and install target, but
+        # do not mix Homebrew Clang's libc++ headers with the system runtime.
+        wget_and_untar \
+          https://github.com/boostorg/boost/releases/download/"${BOOST_VERSION}"/"${BOOST_VERSION}".tar.gz boost
+        (
+          cd "$DEPENDENCY_DIR/boost"
+          SUDO="$SUDO" bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/darwin-x86-boost.sh" \
+            --build "$INSTALL_PREFIX" "$NPROC"
+        )
+      }
+    fi
+
     install_fbthrift() {
       wget_and_untar \
         "https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
@@ -774,6 +788,10 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  if [[ "$OS" == Darwin && "$ARCH" == x86_64 && "$SKIP_VELOX" != 1 &&
+        "$PANGROVA_NATIVE_BUILD_PHASE" != arrow-flight ]]; then
+    bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/darwin-x86-boost.sh" --check-runtime
+  fi
   mkdir -p "$WORK_DIR" "$DEPS_PREFIX"
 
   if [[ "$SKIP_DEPS" != "1" ]]; then

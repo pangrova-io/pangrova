@@ -835,3 +835,10 @@ ctest --test-dir pangrova-worker-native/build            # Test
 CMake presets: `dev-release` (recommended), `dev-debug` (C++ debugging only), `ci-linux-x86_64`, `ci-osx-aarch64`.
 
 Dependencies are hermetic (`~/.pangrova/`). System paths blocked via `CMAKE_IGNORE_PATH`.
+
+On Intel macOS, the pinned Boost build uses the selected Xcode SDK's libc++
+headers with the system libc++ runtime. The bootstrap links and runs an
+exception-pointer probe before compiling dependencies. If it fails, verify
+that `SDKROOT` points to a complete selected Xcode SDK and that the configured
+Homebrew Clang can consume its headers. Do not bypass the check by adding a
+second libc++ runtime to the build.
