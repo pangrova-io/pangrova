@@ -205,7 +205,9 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('CMAKE_LAUNCHER_FLAGS', bootstrap)
         self.assertIn('ccache', action)
         self.assertIn('install_folly() {', bootstrap)
-        self.assertIn('-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$HOMEBREW_PREFIX', bootstrap)
+        self.assertIn(
+            '-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX', bootstrap
+        )
         self.assertLess(bootstrap.index('install_folly() {'),
                         bootstrap.index('install_velox_deps'))
         asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
