@@ -100,6 +100,14 @@ and Arrow Flight into separate ASan prefixes and build directories. Folly uses C
 An explicitly supplied Folly prefix is consumed rather than overwritten, allowing
 the separately qualified Darwin build described in the sanitizer guide.
 
+Arrow's bundled resolver is selected explicitly, and its patch-step target is
+exported so the checksum-verified source is prepared before building Velox. Its
+ExternalProject is a separate CMake invocation, which does not inherit parent
+compiler or sanitizer flags automatically. The reviewed
+`velox-arrow-build-flags.patch` forwards the C/C++ compilers, compilation flags,
+Release optimization flags and executable/shared linker flags. This keeps the
+bundled Arrow build instrumented as well as the later Arrow Flight build.
+
 Pangrova checks Folly's headers and archive instrumentation regardless of whether
 Velox dependencies came from `deps-install` or a system prefix. Missing or
 uninstrumented Folly is an error, not a reason to fall back to Release. The

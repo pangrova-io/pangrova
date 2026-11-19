@@ -113,6 +113,11 @@ if [[ "$(uname -s)" == "Darwin" && -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
 fi
 
 bash "$(dirname "${BASH_SOURCE[0]}")/apply-velox-patches.sh" apply "$VELOX_HOME"
+arrow_build_patch="$ASAN_SCRIPT_DIR/../patches/velox-arrow-build-flags.patch"
+if ! git -C "$VELOX_HOME" apply --reverse --check "$arrow_build_patch" >/dev/null 2>&1; then
+  git -C "$VELOX_HOME" apply --check "$arrow_build_patch"
+  git -C "$VELOX_HOME" apply "$arrow_build_patch"
+fi
 
 mkdir -p "$ASAN_PREFIX"
 

@@ -211,6 +211,96 @@ set_target_properties(Folly::folly PROPERTIES
 
 
 class AsanArrowSourceTest(unittest.TestCase):
+    def test_external_project_inherits_compilers_and_sanitizer_flags(self):
+        with tempfile.TemporaryDirectory(prefix="asan-arrow-flags-") as tmp:
+            root = Path(tmp)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            resolver = root / 'CMake/resolve_dependency_modules/arrow'
+            resolver.mkdir(parents=True)
+            child = root / 'arrow-source'
+            child.mkdir()
+            (root / 'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 3.28)
+project(ArrowBuildFlags C CXX)
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_C_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS "-fsanitize=address -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS_RELEASE "-O1 -g1 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O1 -g1 -DNDEBUG")
+set(CMAKE_EXE_LINKER_FLAGS "-fsanitize=address")
+set(CMAKE_SHARED_LINKER_FLAGS "-fsanitize=address")
+add_subdirectory(CMake/resolve_dependency_modules/arrow)
+''')
+            (resolver / 'CMakeLists.txt').write_text('''include(ExternalProject)
+set(ARROW_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/arrow_ep")
+set(ARROW_CMAKE_ARGS
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_INSTALL_PREFIX=${ARROW_PREFIX}/install
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DARROW_BUILD_STATIC=ON
+    -DThrift_SOURCE=${THRIFT_SOURCE}
+    -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+)
+ExternalProject_Add(arrow_ep
+  SOURCE_DIR "${CMAKE_SOURCE_DIR}/arrow-source"
+  BINARY_DIR "${CMAKE_BINARY_DIR}/arrow-child"
+  CMAKE_ARGS ${ARROW_CMAKE_ARGS}
+  INSTALL_COMMAND "")
+''')
+            (child / 'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 3.28)
+project(ArrowChild C CXX)
+foreach(language C CXX)
+  if(NOT CMAKE_${language}_FLAGS MATCHES "-fsanitize=address")
+    message(FATAL_ERROR "Arrow child lost ASan flags")
+  endif()
+  if(NOT CMAKE_${language}_FLAGS_RELEASE STREQUAL "-O1 -g1 -DNDEBUG")
+    message(FATAL_ERROR "Arrow child lost sanitizer optimization flags")
+  endif()
+endforeach()
+foreach(kind EXE SHARED)
+  if(NOT CMAKE_${kind}_LINKER_FLAGS STREQUAL "-fsanitize=address")
+    message(FATAL_ERROR "Arrow child lost sanitizer linker flags")
+  endif()
+endforeach()
+add_library(arrow_probe STATIC probe.c probe.cpp)
+add_executable(arrow_consumer main.cpp)
+target_link_libraries(arrow_consumer PRIVATE arrow_probe)
+''')
+            (child / 'probe.c').write_text('int read_c(int* value) { return *value; }\n')
+            (child / 'probe.cpp').write_text('int read_cpp(int* value) { return *value; }\n')
+            (child / 'main.cpp').write_text(
+                'extern "C" int read_c(int*);\nint read_cpp(int*);\n'
+                'int main() { int value = 7; return read_c(&value) == read_cpp(&value) ? 0 : 1; }\n')
+            build = root / 'build'
+            configure = ['cmake', '-S', str(root), '-B', str(build)]
+            compile_command = ['cmake', '--build', str(build), '--target', 'arrow_ep', '--parallel', '1']
+            subprocess.run(configure, check=True, capture_output=True, text=True)
+            failed = subprocess.run(compile_command, capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn('Arrow child lost ASan flags', failed.stdout + failed.stderr)
+            setup = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
+            start = setup.index('arrow_build_patch=')
+            end = setup.index('\nmkdir -p "$ASAN_PREFIX"', start)
+            shell = ('set -euo pipefail\n'
+                     f'VELOX_HOME={shlex.quote(str(root))}\n'
+                     f'ASAN_SCRIPT_DIR={shlex.quote(str(ROOT / "pangrova-worker-native/bin"))}\n' +
+                     setup[start:end])
+            for _ in range(2):
+                subprocess.run(['/bin/bash', '-c', shell], check=True, capture_output=True, text=True)
+            subprocess.run(configure, check=True, capture_output=True, text=True)
+            result = subprocess.run(compile_command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            parent_cache = (build / 'CMakeCache.txt').read_text()
+            child_cache = (build / 'arrow-child/CMakeCache.txt').read_text()
+            for language in ('C', 'CXX'):
+                pattern = rf'^CMAKE_{language}_COMPILER:[^=]+=(.+)$'
+                self.assertEqual(re.search(pattern, parent_cache, re.M)[1],
+                                 re.search(pattern, child_cache, re.M)[1])
+            symbols = subprocess.check_output(['nm', '-u', str(build / 'arrow-child/libarrow_probe.a')],
+                                              text=True)
+            self.assertRegex(symbols, r'_+asan_init')
+            subprocess.run([str(build / 'arrow-child/arrow_consumer')], check=True,
+                           capture_output=True, text=True)
+
     def test_bootstrap_generates_patch_target_despite_ambient_system_arrow(self):
         setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
         option = re.search(r'-DCMAKE_PROJECT_Arrow_INCLUDE:FILEPATH=\$ASAN_SCRIPT_DIR/\.\./(\S+?)"',
