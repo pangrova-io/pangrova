@@ -100,11 +100,15 @@ Standalone mode runs the Coordinator and a Worker in one JVM:
 bin/pangrova-standalone.sh
 ```
 
-The Coordinator listens on port `8080` by default. Verify it in another terminal:
+The Coordinator listens on port `8080` by default. Check that it responds in
+another terminal:
 
 ```bash
-bin/pangrova-health-check.sh localhost:8080
+curl -fsS http://localhost:8080/v1/health/live
 ```
+
+This checks liveness, not SQL readiness. The `/v1/health` readiness endpoint
+requires an active Worker and an active catalog.
 
 ### Run your first query
 
