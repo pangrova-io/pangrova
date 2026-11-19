@@ -1,12 +1,20 @@
 package org.pangrova.query.lifecycle;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.AppenderBase;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.lifecycle.QueryExecutionCleanup;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -62,6 +70,60 @@ class QueryTerminalCleanupContractTest {
                 "journal", "observability", "cancel", "cleanup", "cancel", "cleanup", "release");
         assertThat(state.physicalCleanupApplied()).isTrue();
         assertThat(fixture.cleanup.isPending("pending")).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void dueRetryCannotBeLostWhileFailedAttemptIsStillExiting(boolean notifyDrain) throws Exception {
+        var fixture = new Fixture();
+        var state = terminal(QueryState.FAILED);
+        var failureLogged = new CountDownLatch(1);
+        var finishAttempt = new CountDownLatch(1);
+        var logger = (Logger) LoggerFactory.getLogger(QueryTerminalCleanup.class);
+        var pauseFailedAttempt = new AppenderBase<ILoggingEvent>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                if (!event.getFormattedMessage().startsWith(
+                        "event=query_terminal_cleanup_pending queryId=overlap ")) {
+                    return;
+                }
+                failureLogged.countDown();
+                try {
+                    assertThat(finishAttempt.await(10, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(interrupted);
+                }
+            }
+        };
+        var executor = Executors.newSingleThreadExecutor();
+        pauseFailedAttempt.start();
+        logger.addAppender(pauseFailedAttempt);
+        try {
+            fixture.execution.incomplete = true;
+            var firstAttempt = executor.submit(() -> fixture.cleanup.complete("overlap", state, "test"));
+            assertThat(failureLogged.await(10, TimeUnit.SECONDS)).isTrue();
+            if (notifyDrain) fixture.cleanup.onExecutionDrain("overlap");
+            fixture.clock.set(TimeUnit.SECONDS.toNanos(1));
+            fixture.cleanup.retryPending();
+            assertThat(state.physicalCleanupApplied()).isFalse();
+
+            finishAttempt.countDown();
+            firstAttempt.get(10, TimeUnit.SECONDS);
+
+            fixture.execution.incomplete = false;
+            fixture.clock.set(TimeUnit.SECONDS.toNanos(2));
+            fixture.cleanup.retryPending();
+            assertThat(fixture.events).containsExactly(
+                    "journal", "observability", "cancel", "cleanup", "cancel", "cleanup", "release");
+            assertThat(state.physicalCleanupApplied()).isTrue();
+            assertThat(fixture.cleanup.isPending("overlap")).isFalse();
+        } finally {
+            finishAttempt.countDown();
+            logger.detachAppender(pauseFailedAttempt);
+            pauseFailedAttempt.stop();
+            executor.shutdownNow();
+        }
     }
 
     private static QueryStateMachine terminal(QueryState target) {
