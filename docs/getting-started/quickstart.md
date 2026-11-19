@@ -305,19 +305,20 @@ docker compose down
 
 ---
 
-## Distribution Layout
+## Packaged Runtime Layout
 
-When Pangrova is packaged as a binary distribution, the directory structure is:
-
-![pangrova-{version}/](/img/diagrams/generated/quickstart-23-f2bcbe9fac.svg)
+The release workflow does not assemble a runnable binary tarball. For the
+current launch paths, use the [source build](#build-from-source) or the
+[Docker image build](../deployment/docker.md#docker--build-image-from-source).
+If you stage a packaged runtime, the launchers expect this layout:
 
 | Directory | Purpose |
 |-----------|---------|
-| `bin/` | All executable scripts for starting, stopping, and managing the cluster |
-| `config/` | Configuration templates; copy and modify for your environment |
-| `lib/` | Application JAR files loaded onto the classpath at startup |
-| `logs/` | Runtime log files and `.pid` files for daemon processes |
-| `data/` | Local storage for spill-to-disk, native engine cache, and temporary data |
+| `bin/` | Launcher scripts for starting, stopping, and managing the cluster |
+| `etc/` | Default launcher configuration directory; override with `PANGROVA_CONF_DIR` |
+| `lib/<role>/` | Application and dependency JARs and an ordered `classpath.list` for `coordinator`, `worker`, or `standalone` |
+| `cli/` | One `pangrova-client-cli-*-exec.jar`, separate from the service classpaths |
+| `logs/` | Default directory for daemon logs and PID files |
 
 ## Next Steps
 
