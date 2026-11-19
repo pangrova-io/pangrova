@@ -223,7 +223,9 @@ configure_asan_velox() {
   # Release + -O1/-g1 keeps the monolithic archive small enough for a hosted
   # runner while retaining symbolized ASan stacks.  Full -g makes libvelox.a
   # several gigabytes and exhausts the runner before Pangrova can link.
-  cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja $CMAKE_LAUNCHER_FLAGS \
+  # Velox gives the environment selector precedence over CMake cache variables.
+  # Use the bundled resolver so the matching Arrow patch target exists.
+  Arrow_SOURCE=BUNDLED cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$ASAN_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
     -DPANGROVA_FUNCTION_SELECTION_DECLARATION="$ASAN_SCRIPT_DIR/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json" \
     -DPANGROVA_FUNCTION_SDK_PATCH_FILE="$ASAN_SCRIPT_DIR/../patches/velox-function-metadata-snapshot.patch" \
