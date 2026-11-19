@@ -158,7 +158,21 @@ bin/pangrova-stop.sh --all
 
 ## End-to-End Example: Query Iceberg Data
 
-Once Pangrova is running, try a complete workflow with an Iceberg catalog:
+Run this example in the CLI against a **local standalone instance** as described
+above. It uses three sample rows, a local warehouse, and no cloud credentials.
+Use an isolated development instance: the example creates and later drops a
+catalog, schema, and table. From the checkout root, you can run the
+[SQL fixture](https://github.com/pangrova-io/pangrova/blob/main/examples/iceberg-smoke.sql)
+in one pass:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080 < examples/iceberg-smoke.sql
+```
+
+Check the output for errors and the two expected rows below. Piped input runs
+the interactive CLI, which continues after a statement error, so its exit
+status alone is not evidence of success. For step-by-step execution, run the
+following SQL blocks in order instead.
 
 ### Register a Local Iceberg Catalog
 
@@ -200,6 +214,17 @@ GROUP BY event_type
 ORDER BY cnt DESC;
 ```
 
+Expected result (column formatting depends on the client):
+
+| event_type | cnt |
+|------------|----:|
+| click      |   2 |
+| purchase   |   1 |
+
+This is a basic standalone SQL check, not a benchmark or a test of distributed
+writes, vector retrieval, or access controls. You can skip straight to
+[cleanup](#cleanup) after checking the result.
+
 ### Time Travel
 
 ```sql
@@ -228,18 +253,49 @@ DROP CATALOG local_iceberg;
 
 ## Docker Quick Start
 
-If you prefer Docker:
+The Docker Compose profile is for isolated development only: it publishes
+service ports and uses a development authentication mode that accepts
+unauthenticated clients. Do not expose it to untrusted networks. For the local
+warehouse SQL example above, use standalone mode.
+
+From the repository root, prepare a local environment file:
 
 ```bash
 cd deploy/docker
-docker compose up -d
+if [ ! -e .env ]; then
+  cp .env.example .env
+fi
 ```
 
-Check health:
+Set a unique `PANGROVA_DB_PASSWORD` and a random
+`PANGROVA_INTERNAL_AUTH_SECRET` of at least 32 bytes in `.env` (for example,
+generate the secret with `openssl rand -base64 48`). Do not commit the populated
+file.
+
+Before starting Compose, confirm you have a locally built or pullable Pangrova
+image for your platform, matching `pangrova/pangrova:$PANGROVA_VERSION`. Set
+`PANGROVA_VERSION` in `.env` to that exact tag; do not assume `latest` is
+available. To build and load a local image, follow the Buildx/Bake instructions
+in the [Docker deployment guide](../deployment/docker.md), using the same tag
+for `IMAGE`. If a compatible image is not available, use the standalone build
+above.
 
 ```bash
-curl -f http://localhost:8080/v1/health
+docker compose config --quiet
+docker compose up -d
+docker compose ps
 ```
+
+Check Coordinator liveness (replace `8080` if you changed `COORDINATOR_PORT`):
+
+```bash
+curl -f http://localhost:8080/v1/health/live
+```
+
+Liveness confirms the process responds. SQL readiness is checked separately at
+`/v1/health` and can return HTTP 503 until a catalog is configured. See the
+[Docker deployment guide](../deployment/docker.md) for configuration and
+troubleshooting.
 
 Stop:
 
