@@ -13,16 +13,15 @@
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue.svg" alt="C++20" />
 </p>
 
-Pangrova is an open-source distributed SQL engine for lakehouse analytics and AI
-retrieval. It combines Apache Calcite planning with C++20 / Velox vectorized
-execution over JNI, Arrow Flight data exchange, and connectors for Apache Iceberg,
-Apache Paimon, and managed Lance datasets.
+Pangrova is an open-source distributed SQL engine for Apache Iceberg and Apache
+Paimon lakehouses. It uses Calcite for SQL planning, Velox for native
+execution, and Arrow Flight for data exchange. Vector and full-text retrieval
+are available on specific execution paths; see the capability notes below.
 
-Pangrova queries lakehouse tables in place: the Java Coordinator parses, plans,
-authorizes, and schedules work, while Workers execute relational operators in
-C++ and publish catalog commits through the Coordinator. Relational SQL, vector
-and full-text retrieval, and governed model invocation share one planning,
-execution, and governance path.
+**Try it:** [Start Pangrova](#quick-start), then run the
+[three-row Iceberg example](docs/getting-started/quickstart.md#end-to-end-example-query-iceberg-data).
+The [SQL fixture](examples/iceberg-smoke.sql) creates a local events table and
+aggregates it to two clicks and one purchase.
 
 > **Status:** Under active development. Capabilities vary by execution path and
 > connector, and production qualification is ongoing. Read the
@@ -81,7 +80,7 @@ For the full execution model, see the
 ### Build from source
 
 ```bash
-git clone git@github.com:pangrova-io/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 
 # Build the pinned Iceberg SDK, then the Native library and Java modules.
@@ -117,7 +116,9 @@ bin/pangrova-cli.sh --host localhost --port 8080
 SELECT 1 + 1 AS result;
 ```
 
-See the [quickstart](docs/getting-started/quickstart.md) for configuration,
+Next, try the [Iceberg sample query](docs/getting-started/quickstart.md#end-to-end-example-query-iceberg-data)
+on that standalone instance. The [quickstart](docs/getting-started/quickstart.md)
+also covers [Docker setup](docs/getting-started/quickstart.md#docker-quick-start),
 catalogs, daemon mode, and troubleshooting.
 
 ## Documentation
