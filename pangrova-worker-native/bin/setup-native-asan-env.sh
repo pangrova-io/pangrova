@@ -245,6 +245,7 @@ configure_asan_velox() {
     -DVELOX_ENABLE_EXAMPLES=OFF \
     -DVELOX_ENABLE_SUBSTRAIT=ON \
     -DVELOX_ENABLE_ARROW=ON \
+    "-DCMAKE_PROJECT_Arrow_INCLUDE:FILEPATH=$ASAN_SCRIPT_DIR/../cmake/AsanArrowSource.cmake" \
     -DVELOX_ENABLE_PARQUET=ON \
     -DVELOX_ENABLE_HIVE_CONNECTOR=ON \
     -DVELOX_ENABLE_PRESTO_FUNCTIONS=ON \
@@ -263,6 +264,15 @@ configure_asan_velox() {
 # cached Protobuf and Abseil paths belong to the requested dependency cohort.
 configure_asan_velox
 
+# Use the matching SDK's authoritative Arrow external-project source, not a
+# guessed system source or the Release tree which CI may already have retired.
+# Building libvelox does not fetch Arrow (it is not linked into the archive), so
+# materialize and patch the ExternalProject source before consuming it.
+cmake --build "$ASAN_VELOX_BUILD_DIR" --target arrow_ep-patch --parallel "$NPROC"
+arrow_source="$ASAN_VELOX_BUILD_DIR/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep/cpp"
+[[ -f "$arrow_source/CMakeLists.txt" ]] || \
+  die "Matching SDK Arrow source missing: $arrow_source"
+
 # A cached archive must still incorporate the reviewed source patch.
 cmake --build "$ASAN_VELOX_BUILD_DIR" --target velox --parallel "$NPROC"
 PANGROVA_FUNCTION_INSPECTOR_ASAN=1 bash "$ASAN_SCRIPT_DIR/record-function-provenance.sh" "$VELOX_HOME" \
@@ -274,14 +284,6 @@ grep -Eq '^CMAKE_CXX_FLAGS:.*-fsanitize=address' \
   "$ASAN_VELOX_BUILD_DIR/CMakeCache.txt" || \
   die "ASan Velox cache does not contain address-sanitizer flags"
 
-# Use the matching SDK's authoritative Arrow external-project source, not a
-# guessed system source or the Release tree which CI may already have retired.
-# Building libvelox does not fetch Arrow (it is not linked into the archive), so
-# materialize and patch the ExternalProject source before consuming it.
-cmake --build "$ASAN_VELOX_BUILD_DIR" --target arrow_ep-patch --parallel "$NPROC"
-arrow_source="$ASAN_VELOX_BUILD_DIR/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep/cpp"
-[[ -f "$arrow_source/CMakeLists.txt" ]] || \
-  die "Matching SDK Arrow source missing: $arrow_source"
 arrow_build="$WORK_DIR/arrow-flight-asan-build"
 arrow_platform_args=()
 if [[ "$(uname -s)" == "Darwin" ]]; then
