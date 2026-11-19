@@ -40,6 +40,41 @@ for directory and script ownership.
 Prefer Conventional Commit messages such as `fix(planner): preserve null ordering`.
 There is no required local Git hook or mandatory commit-language rule.
 
+## Fix and review workflow
+
+Use this loop for maintenance fixes. Each step should leave evidence that a
+maintainer can review without relying on another person's checkout.
+
+1. **Find and track the problem.** Check current `main`, search existing issues
+   and PRs, then write the actual and expected behavior, affected versions,
+   and the smallest safe validation case in an issue. Link an existing issue
+   rather than duplicating it. Use [SECURITY.md](SECURITY.md) for potential
+   vulnerabilities; do not put sensitive details or customer data in public issues.
+2. **Fix and open a draft PR.** Use a focused branch, fix the root cause, and add
+   regression coverage. Link the issue with `Refs #N` for partial work, or
+   `Closes #N` only when the fix fully meets the issue's acceptance criteria.
+3. **Review and validate the final change.** In a separate review pass, trace
+   affected callers and check failure behavior, cleanup, compatibility, and
+   the blast radius. The author runs the applicable checks on the final change,
+   and records the commands and what passed, failed, or did not run. Distinguish
+   tests with fakes, full runtime checks, and CI; one is not evidence for another.
+4. **Merge only after the applicable checks pass.** Keep incomplete work as a
+   draft. Verify the checks correspond to the final PR head and target branch,
+   required checks and reviews are satisfied, and there are no known blockers.
+   Do not bypass branch protection. If the PR head or relevant base behavior
+   changes, repeat the affected checks.
+5. **Verify the outcome.** Record the merge commit, inspect post-merge checks
+   and confirm the issue state. Keep unresolved acceptance criteria open.
+   Merge does not itself authorize or validate a release or deployment.
+
+For readiness work, keep evidence for the exact release candidate and target
+workload. A clean-host Iceberg smoke proves only the documented trial. Track
+multi-node correctness and isolation, representative load and tail latency,
+failure recovery, and upgrade/rollback separately against the
+[production deployment checklist](docs/deployment/production-checklist.md).
+Label each capability as passed, failed, or unverified; local success and
+green CI alone do not establish production readiness.
+
 ## Standards and verification
 
 [AGENTS.md](AGENTS.md) is the policy entry point. The canonical rules live in
