@@ -133,6 +133,14 @@ projection header follows the same rule through `physical_type_manifest.py`.
 The connector header includes `<cstddef>` and `<cstdint>` directly instead of
 relying on transitive includes from each translation unit.
 
+On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
+range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
+Rust and C dependencies place inside their static archives. Pangrova builds
+embedded dependencies (OpenTelemetry, simdjson) as position-independent code and
+selects `ld.lld` when it is installed; lld inserts range-extension thunks and the
+link also passes `--undefined-version` because the JNI version script names
+optional entry points. CI installs `lld` on Linux for this purpose.
+
 When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
 dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
 static AWS archives in a linker rescan group and appends the s2n, stemmer and
