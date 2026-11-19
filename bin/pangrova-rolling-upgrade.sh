@@ -180,7 +180,8 @@ upgrade_node() {
     # Step 1: Backup current lib/ (only binaries, not logs or config)
     log "  Backing up lib/ on ${host}..."
     run_ssh "$host" "cp -r ${PANGROVA_HOME}/lib ${PANGROVA_HOME}/lib.backup" 2>/dev/null || {
-        log "  WARN: lib/ backup via SSH failed (host=${host}). Skipping backup."
+        log "  ERROR: lib/ backup failed on ${host}; aborting before stopping the node."
+        return 1
     }
 
     # Step 2: Stop the node
