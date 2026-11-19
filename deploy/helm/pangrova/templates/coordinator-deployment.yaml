@@ -17,8 +17,19 @@
 {{- end -}}
 {{- $coordinator := get $config "coordinator" | default dict -}}
 {{- $ha := get $coordinator "ha" | default dict -}}
-{{- if and (gt (int .Values.coordinator.replicas) 1) (ne (get $ha "enabled" | toString | lower) "true") -}}
+{{- $multiple := gt (int .Values.coordinator.replicas) 1 -}}
+{{- $identityMode := .Values.coordinator.identityMode -}}
+{{- if not (has $identityMode (list "configured" "podUid")) -}}
+{{- fail "coordinator.identityMode must be configured or podUid" -}}
+{{- end -}}
+{{- if and $multiple (ne (get $ha "enabled" | toString | lower) "true") -}}
 {{- fail "multiple Coordinator replicas require coordinator.ha.enabled=true and a verified shared HA topology" -}}
+{{- end -}}
+{{- if and $multiple (ne $identityMode "podUid") -}}
+{{- fail "multiple Coordinator replicas require coordinator.identityMode=podUid" -}}
+{{- end -}}
+{{- if and (eq $identityMode "podUid") (hasKey $coordinator "id") -}}
+{{- fail "coordinator.identityMode=podUid requires removing coordinator.id from config.coordinator, including the embedded default ID" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -53,6 +64,12 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            {{- if eq $identityMode "podUid" }}
+            - name: PANGROVA_COORDINATOR_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            {{- end }}
             - name: PANGROVA_HOME
               value: /opt/pangrova
             - name: PANGROVA_CONF_DIR

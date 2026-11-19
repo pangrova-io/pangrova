@@ -52,6 +52,14 @@ coordinator:
   # A single Coordinator is the only supported default. Multiple replicas
   # require a separately configured and verified HA topology.
   replicas: 1
+  # configured preserves the single-replica YAML ID. To migrate to multiple
+  # replicas, supply config.coordinator without any coordinator.id key (even the
+  # embedded default), set coordinator.ha.enabled=true in that YAML, and choose
+  # podUid below. Each Pod uses its own Kubernetes UID: a container restart
+  # preserves it; a replacement Pod gets a new identity. Keep podUid when
+  # scaling down if you want that same identity policy. This prevents duplicate
+  # IDs; shared PostgreSQL, routing, and failover still need separate validation.
+  identityMode: configured
 
   resources:
     requests:

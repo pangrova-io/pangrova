@@ -12,11 +12,10 @@ an external PostgreSQL database for durable metadata and state and explicitly
 selects the `NOOP` user authenticator. `NOOP` accepts unauthenticated users, so
 the chart **refuses to render by default**. Set `developmentMode=true` only for
 an isolated development cluster, or replace `config.coordinator` with a real
-OAUTH2/LDAP configuration. The chart also rejects multiple Coordinator replicas
-unless `coordinator.ha.enabled=true` is configured; that flag alone does not
-prove HA. Rendering and linting do not prove the external database, Secrets,
-catalogs, transport TLS, or spill capacity are usable. Verify these before
-production deployment.
+OAUTH2/LDAP configuration. Multiple Coordinator replicas also require the
+[explicit Coordinator identity settings](#coordinator-identity) below. Rendering
+and linting do not prove the external database, Secrets, catalogs, transport
+TLS, or spill capacity are usable. Verify these before production deployment.
 
 Before installation, create a PostgreSQL database named `pangrova_meta` with
 an account allowed to create and migrate tables. Expose it as
@@ -79,6 +78,31 @@ helm uninstall pangrova -n pangrova
 ---
 
 ## Helm Chart — Advanced Usage
+
+### Coordinator identity {#coordinator-identity}
+
+For a single replica, the default `coordinator.identityMode: configured` keeps
+the ID from the Coordinator configuration. For multiple replicas, use
+`coordinator.identityMode: podUid`, and provide a complete `config.coordinator`
+YAML with `coordinator.ha.enabled: true` and **without** a `coordinator.id` key.
+The chart rejects any fixed ID in this mode, including its embedded default.
+Compose this file from the current configuration rather than replacing
+authentication, TLS or shared JDBC settings with development defaults.
+
+The chart passes the Pod UID to the process. Restarting a container inside the
+same Pod retains that UID; replacing the Pod gives it a new UID. Client Service
+addresses are unchanged. The UID is not durable query ownership, and this
+setting does not by itself qualify failover or recovery.
+
+Before moving an existing release to this mode, render the proposed values and
+verify the shared metadata, routing, and recovery behavior in a test
+environment. Treat an identity-mode change as a coordinated rollout: drain the
+old instances and account for their durable work before retiring the old
+identity. If you scale down to one replica, keep `podUid` to avoid changing
+the identity policy at the same time. To return to `configured`, first reduce
+to one replica, account for work owned by the retiring process, and restore
+the previous complete Coordinator configuration and its fixed ID. Do not
+roll back to a multi-replica configuration with a shared fixed ID.
 
 ### Custom Values File
 
@@ -226,6 +250,7 @@ kubectl describe hpa pangrova-worker -n pangrova
 | `image.tag` | string | `latest` | Container image tag |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `coordinator.replicas` | int | `1` | Number of Coordinator pods; multiple replicas require shared JDBC state and HA configuration |
+| `coordinator.identityMode` | string | `configured` | Use `podUid` for multiple replicas; omit `coordinator.id` from the Coordinator YAML |
 | `internalAuth.existingSecret` | string | `pangrova-internal-auth` | Existing Secret with `internal-auth-secret` key in each deployment namespace |
 | `coordinator.resources` | object | 2 CPU / 4Gi | Coordinator resource requests/limits |
 | `coordinator.javaOpts` | string | `-Xms1g -Xmx4g` | Coordinator JVM options |
