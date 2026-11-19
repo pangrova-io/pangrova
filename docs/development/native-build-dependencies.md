@@ -125,6 +125,22 @@ address assertions with UBSan enabled. The reviewed
 are declared functions without requiring their addresses to be constant
 expressions. Runtime socket calls and both sanitizers remain enabled.
 
+GCC 13 also enables `-Wdangling-reference` under `-Wall`/`-Werror`. Helpers
+that return references must not receive temporary `std::string` arguments, so
+the retrieval helpers take `std::string_view`, the storage contract hoists
+computed option names into named locals, and the generated capability
+projection header follows the same rule through `physical_type_manifest.py`.
+The connector header includes `<cstddef>` and `<cstdint>` directly instead of
+relying on transitive includes from each translation unit.
+
+When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
+dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
+static AWS archives in a linker rescan group and appends the s2n, stemmer and
+Thrift archives plus OpenSSL/curl after the group. The Thrift search first uses
+Velox's Arrow ExternalProject install and falls back to the AWS dependency
+prefix, so builds whose Velox used dependency sources instead of the
+ExternalProject layout still link.
+
 On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
 `$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
 formula's `opt` prefix and adds it to Folly's configure. OpenSSL 4.0 makes

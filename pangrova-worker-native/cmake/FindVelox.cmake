@@ -434,7 +434,12 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
     if(EXISTS "${_AWS_PREFIX}/lib")
       file(GLOB _AWS_LIBS "${_AWS_PREFIX}/lib/libaws-*.a")
       if(_AWS_LIBS)
-        target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+        if(APPLE)
+          target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+        else()
+          target_link_libraries(velox_imported INTERFACE
+            "-Wl,--start-group" ${_AWS_LIBS} "-Wl,--end-group")
+        endif()
         if(APPLE)
           target_link_libraries(velox_imported INTERFACE
             "-framework Security"
@@ -456,7 +461,12 @@ if(NOT _AWS_LIBS)
   if(PANGROVA_DEPS_PREFIX)
     file(GLOB _AWS_LIBS "${PANGROVA_DEPS_PREFIX}/lib/libaws-*.a")
     if(_AWS_LIBS)
-      target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+      if(APPLE)
+        target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+      else()
+        target_link_libraries(velox_imported INTERFACE
+          "-Wl,--start-group" ${_AWS_LIBS} "-Wl,--end-group")
+      endif()
       if(APPLE)
         target_link_libraries(velox_imported INTERFACE
           "-framework Security" "-framework CoreFoundation" "-lcurl")
@@ -470,6 +480,20 @@ if(NOT _AWS_LIBS)
         "Run: bin/install-aws-sdk.sh")
     endif()
   endif()
+endif()
+
+# The AWS CRT's TLS backend, stemmer and Thrift archives are installed beside
+# the selected AWS SDK when Velox resolves them from the same dependency prefix.
+if(_AWS_LIBS)
+  list(GET _AWS_LIBS 0 _AWS_LIBS_ANCHOR)
+  get_filename_component(_AWS_LIBS_DIR "${_AWS_LIBS_ANCHOR}" DIRECTORY)
+endif()
+if(_AWS_LIBS_DIR AND NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  foreach(_beside s2n stemmer)
+    if(EXISTS "${_AWS_LIBS_DIR}/lib${_beside}.a")
+      target_link_libraries(velox_imported INTERFACE "${_AWS_LIBS_DIR}/lib${_beside}.a")
+    endif()
+  endforeach()
 endif()
 
 if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -526,6 +550,7 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
   set(_THRIFT_SEARCH_DIRS
     "${VELOX_BUILD_DIR}/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install"
   )
+  set(_PANGROVA_THRIFT_LINKED FALSE)
   foreach(_td ${_THRIFT_SEARCH_DIRS})
     if(EXISTS "${_td}/lib/libthrift.a")
       if(NOT EXISTS "${_td}/include/thrift/TApplicationException.h")
@@ -533,10 +558,27 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
       endif()
       target_include_directories(velox_imported SYSTEM INTERFACE "${_td}/include")
       target_link_libraries(velox_imported INTERFACE "${_td}/lib/libthrift.a")
+      set(_PANGROVA_THRIFT_LINKED TRUE)
       message(STATUS "Thrift: ${_td}/lib/libthrift.a")
       break()
     endif()
   endforeach()
+endif()
+
+# Velox can also resolve Thrift from the dependency prefix that supplied its
+# AWS SDK; the archive and headers are installed together there.
+if(NOT _PANGROVA_THRIFT_LINKED AND _AWS_LIBS_DIR AND EXISTS "${_AWS_LIBS_DIR}/libthrift.a")
+  get_filename_component(_THRIFT_FALLBACK_PREFIX "${_AWS_LIBS_DIR}" DIRECTORY)
+  if(EXISTS "${_THRIFT_FALLBACK_PREFIX}/include/thrift/TApplicationException.h")
+    target_include_directories(velox_imported SYSTEM INTERFACE "${_THRIFT_FALLBACK_PREFIX}/include")
+  endif()
+  target_link_libraries(velox_imported INTERFACE "${_AWS_LIBS_DIR}/libthrift.a")
+  message(STATUS "Thrift: ${_AWS_LIBS_DIR}/libthrift.a")
+endif()
+
+# Thrift and s2n resolve against OpenSSL/curl after the static groups above.
+if(NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  target_link_libraries(velox_imported INTERFACE "-lcurl" "-lssl" "-lcrypto")
 endif()
 
 set(VELOX_FOUND TRUE)
