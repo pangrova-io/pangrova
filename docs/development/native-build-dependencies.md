@@ -117,6 +117,16 @@ address assertions with UBSan enabled. The reviewed
 are declared functions without requiring their addresses to be constant
 expressions. Runtime socket calls and both sanitizers remain enabled.
 
+On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
+`$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
+formula's `opt` prefix and adds it to Folly's configure. Folly is also built with
+Homebrew OpenSSL 3.6/4.0, where `ASN1_STRING` is opaque; the reviewed
+`folly-2026.01.05-openssl-asn1.patch` uses the stable
+`ASN1_STRING_get0_data`/`ASN1_STRING_length` accessors instead of direct fields.
+Velox and Folly do not use Boost.Log, and its ASIO backend fails to link against
+the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build omits
+`log` and `log_setup` while keeping every component Velox declares.
+
 ## Disk and Cache Budget
 
 A cold dependency and Velox tree is roughly 30 GB. A standard Ubuntu or macOS

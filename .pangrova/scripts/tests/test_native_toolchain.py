@@ -325,6 +325,13 @@ esac
         self.assertIn('resolve_darwin_libevent "$PANGROVA_BREW"', asan)
         self.assertIn('$VELOX_HOME/deps-install${libevent_prefix:+;$libevent_prefix}', asan)
 
+    def test_macos_bootstrap_skips_boost_log_and_patches_openssl(self):
+        source = BOOTSTRAP.read_text()
+        self.assertIn("--without-log --without-log_setup", source)
+        self.assertIn('folly-2026.01.05-openssl-asn1.patch', source)
+        self.assertLess(source.index('apply_folly_openssl_patch "$DEPENDENCY_DIR/folly"'),
+                        source.index('cmake_install_dir folly'))
+
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
         self.executable(prefix / "bin/clang++", "echo selected-clang")

@@ -147,7 +147,7 @@ check_prerequisites() {
 
 verify_build_tools() {
   log "Verifying existing build tools (no package-manager mutation)"
-  for tool in cmake ninja autoconf automake pkg-config; do
+  for tool in cmake ninja autoconf automake pkg-config patch; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool not found. Install it first."
   done
   if [[ "$OS" == "Darwin" ]]; then
@@ -404,6 +404,16 @@ build_velox() {
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
 
     # Upstream stores archives inside source directories that it deletes on retry.
+    apply_folly_openssl_patch() {
+      local source="$1"
+      local openssl_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch"
+      if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+          -i "$openssl_patch" >/dev/null 2>&1; then
+        patch --dry-run --batch --forward -d "$source" -p1 -i "$openssl_patch"
+        patch --batch --forward -d "$source" -p1 -i "$openssl_patch"
+      fi
+    }
+
     wget_and_untar() {
       local url="$1"
       local dir="$2"
@@ -443,10 +453,25 @@ build_velox() {
       touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
     }
 
+    install_boost() {
+      # Velox and Folly do not use Boost.Log, and its ASIO backend fails to link
+      # against the SDK libc++ with Homebrew Clang on Intel. Install all other
+      # pinned Boost libraries.
+      wget_and_untar \
+        https://github.com/boostorg/boost/releases/download/"${BOOST_VERSION}"/"${BOOST_VERSION}".tar.gz boost
+      (
+        cd "$DEPENDENCY_DIR/boost" || exit 1
+        ./bootstrap.sh --prefix="$INSTALL_PREFIX"
+        ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python \
+          --without-log --without-log_setup
+      )
+    }
+
     install_folly() {
       wget_and_untar \
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
+      apply_folly_openssl_patch "$DEPENDENCY_DIR/folly"
       # Use the formula's opt prefix even if Homebrew leaves it unlinked.
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \

@@ -171,6 +171,12 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
 
 build_asan_folly() {
   if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+    local openssl_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch"
+    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 \
+        -i "$openssl_patch" >/dev/null 2>&1; then
+      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
+      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
+    fi
     local socket_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-socket-function-types.patch"
     if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 -i "$socket_patch" >/dev/null 2>&1; then
       patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"

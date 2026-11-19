@@ -294,7 +294,8 @@ static int (*sendmmsg)(...) = nullptr;
                        "-p1", "-i", str(patch)]
             subprocess.run([*command, "--dry-run", "--forward"], check=True, capture_output=True)
             setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
-            start = setup.index("    if ! patch --dry-run")
+            start = setup.index("    if ! patch --dry-run",
+                                setup.index('    local socket_patch="'))
             patch_step = setup[start:setup.index("    local architecture_flags", start)]
             shell = ('set -euo pipefail\n'
                      f'FOLLY_SOURCE={shlex.quote(str(root / "deps-download/folly"))}\n'
@@ -317,6 +318,31 @@ static int (*sendmmsg)(...) = nullptr;
                          "-x", "c++", "-"], input="#include <type_traits>\n" + declarations + "\n" + checks,
                         text=True, capture_output=True)
                     self.assertEqual(result.returncode == 0, valid, result.stderr)
+
+
+class FollyOpenSslPatchTest(unittest.TestCase):
+    def test_patch_removes_direct_access_to_opaque_asn1_strings(self):
+        patch = ROOT / "pangrova-worker-native/patches/folly-2026.01.05-openssl-asn1.patch"
+        with tempfile.TemporaryDirectory(prefix="folly openssl patch ") as directory:
+            root = Path(directory)
+            source = root / "folly/io/async/ssl/OpenSSLUtils.cpp"
+            source.parent.mkdir(parents=True)
+            source.write_text("""    auto name = sk_GENERAL_NAME_value(altNames, i);
+    if ((addr4 != nullptr || addr6 != nullptr) && name->type == GEN_IPADD) {
+      // Extra const-ness for paranoia
+      unsigned char const* const rawIpStr = name->d.iPAddress->data;
+      auto const rawIpLen = size_t(name->d.iPAddress->length);
+
+      if (rawIpLen == 4 && addr4 != nullptr) {
+        if (::memcmp(rawIpStr, &addr4->sin_addr, rawIpLen) == 0) {
+""")
+            command = ["patch", "--batch", "--forward", "-d", str(root), "-p1", "-i", str(patch)]
+            subprocess.run(command, check=True, capture_output=True)
+            subprocess.run([*command, "--dry-run", "--reverse"], check=True, capture_output=True)
+            patched = source.read_text()
+            self.assertNotIn("iPAddress->data", patched)
+            self.assertIn("ASN1_STRING_get0_data(name->d.iPAddress)", patched)
+            self.assertIn("ASN1_STRING_length(name->d.iPAddress)", patched)
 
 
 if __name__ == "__main__":
