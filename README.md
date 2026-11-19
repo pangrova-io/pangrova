@@ -18,8 +18,8 @@ Paimon lakehouses. It uses Calcite for SQL planning, Velox for native
 execution, and Arrow Flight for data exchange. Vector and full-text retrieval
 are available on specific execution paths; see the capability notes below.
 
-**Try it:** [Start Pangrova](#quick-start), then run the
-[three-row Iceberg example](docs/getting-started/quickstart.md#end-to-end-example-query-iceberg-data).
+**Try it:** [Build and start Pangrova](#quick-start), then run the
+[one-command Iceberg trial](docs/getting-started/quickstart.md#run-the-iceberg-trial-in-one-command).
 The [SQL fixture](examples/iceberg-smoke.sql) creates a local events table and
 aggregates it to two clicks and one purchase.
 

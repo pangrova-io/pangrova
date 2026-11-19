@@ -156,6 +156,30 @@ The response includes a `query_id` and `state`. See [REST API](clients/rest-api.
 bin/pangrova-stop.sh --all
 ```
 
+## Run the Iceberg Trial in One Command
+
+After the [source build](#build-from-source) and [standalone startup](#start-standalone-mode),
+run from the checkout root with Python 3.10+:
+
+```bash
+python3 examples/iceberg-smoke.py --local-standalone-port 8080
+```
+
+Use the port of a **disposable, host-local standalone instance**, with one
+active Worker and no catalogs. Run it on an isolated development machine;
+the script does not start, reconfigure or stop Pangrova. In particular,
+restrict the Java/Flight listeners to a trusted environment before starting
+the development instance; a loopback CLI connection does not isolate the server.
+Do not use a port forwarded to a container, shared cluster or production service.
+
+The script uses a unique catalog and temporary local warehouse. It checks each
+batch SQL result receipt, requires both aggregate rows, and drops only the
+objects it confirmed it created. Expect
+`Iceberg trial passed: click=2, purchase=1`. If a catalog change or cleanup
+cannot be confirmed, the script reports the generated catalog name and keeps
+the diagnostic files for inspection. This is a smoke check, not an installer,
+distributed correctness test or production qualification.
+
 ## End-to-End Example: Query Iceberg Data
 
 Run this example in the CLI against a **local standalone instance** as described
