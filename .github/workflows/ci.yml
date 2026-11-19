@@ -141,14 +141,23 @@ jobs:
           fi
 
       - name: CMake configure
-        run: |
-          source ~/.pangrova/env.sh
-          cmake --preset dev-release
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-configure
+          title: CMake configure failed
+          working-directory: pangrova-worker-native
+          command: |
+            source ~/.pangrova/env.sh
+            cmake --preset dev-release
 
       - name: CMake build
-        run: cmake --build build --target all
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-build
+          title: Native CMake build failed
+          working-directory: pangrova-worker-native
+          command: |
+            cmake --build build --target all
 
       - name: Report compiler cache usage
         run: ccache --show-stats || true
@@ -161,9 +170,13 @@ jobs:
         run: ./.pangrova/scripts/jni-symbol-symmetry.sh
 
       - name: Run native tests (GTest via CTest)
-        run: |
-          python3 bin/run-native-tests.py -- --output-junit test-results.xml
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-tests
+          title: Native tests failed
+          working-directory: pangrova-worker-native
+          command: |
+            python3 bin/run-native-tests.py -- --output-junit test-results.xml
 
       - name: Upload native test results
         if: always()
@@ -604,35 +617,48 @@ jobs:
           fi
 
       - name: CMake configure (${{ matrix.sanitizer.preset }})
-        run: |
-          source ~/.pangrova/env.sh
-          if [[ "${{ matrix.sanitizer.name }}" == "asan" ]]; then
-            source ~/.pangrova/asan-env.sh
-            cmake --preset ${{ matrix.sanitizer.preset }} \
-              -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
-              -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
-              -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
-              -DArrow_DIR="$Arrow_DIR" \
-              -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
-              -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
-              -DProtobuf_DIR="$Protobuf_DIR" \
-              -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
-              -DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX" \
-              -Dabsl_DIR="$absl_DIR"
-          else
-            cmake --preset ${{ matrix.sanitizer.preset }}
-          fi
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-configure
+          title: CMake sanitizer configure failed
+          working-directory: pangrova-worker-native
+          command: |
+            source ~/.pangrova/env.sh
+            if [[ "${{ matrix.sanitizer.name }}" == "asan" ]]; then
+              source ~/.pangrova/asan-env.sh
+              cmake --preset ${{ matrix.sanitizer.preset }} \
+                -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
+                -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
+                -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
+                -DArrow_DIR="$Arrow_DIR" \
+                -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
+                -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
+                -DProtobuf_DIR="$Protobuf_DIR" \
+                -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
+                -DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX" \
+                -Dabsl_DIR="$absl_DIR"
+            else
+              cmake --preset ${{ matrix.sanitizer.preset }}
+            fi
 
       - name: CMake build
-        run: cmake --build build-${{ matrix.sanitizer.name }}
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-build
+          title: Sanitizer CMake build failed
+          working-directory: pangrova-worker-native
+          command: |
+            cmake --build build-${{ matrix.sanitizer.name }}
 
       - name: Run tests with ${{ matrix.sanitizer.name }}
-        run: >-
-          python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}
-          -- --preset ${{ matrix.sanitizer.preset }} --timeout 300
-        working-directory: pangrova-worker-native
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-tests
+          title: Sanitizer tests failed
+          working-directory: pangrova-worker-native
+          command: |
+            python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }} \
+              -- --preset ${{ matrix.sanitizer.preset }} --timeout 300
 
       - name: Upload sanitizer fixture diagnostics
         if: always()

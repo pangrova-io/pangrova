@@ -255,6 +255,15 @@ class StructuralPolicyTest(unittest.TestCase):
         bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
         self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
 
+    def test_native_configure_build_and_tests_publish_filtered_diagnostics(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        action_path = ROOT / '.github/actions/run-native-step/action.yml'
+        action = action_path.read_text()
+        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 6)
+        self.assertIn('bash -e -o pipefail -c "$STEP_COMMAND"', action)
+        self.assertIn("'--- error diagnostics ---'", action)
+        self.assertIn('working-directory: ${{ inputs.working-directory }}', action)
+
     def test_macos_release_builds_dependencies_before_lance_and_configure(self):
         release = (ROOT / '.github/workflows/release.yml').read_text()
         native = release.split('  native-build:\n', 1)[1].split('\n  release:', 1)[0]
