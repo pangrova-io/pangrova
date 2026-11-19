@@ -75,6 +75,29 @@ failure recovery, and upgrade/rollback separately against the
 Label each capability as passed, failed, or unverified; local success and
 green CI alone do not establish production readiness.
 
+### Architecture, module, and engineering-process reviews
+
+Use the same issue and PR loop for improvements discovered during periodic
+reviews. Start with one subsystem or workflow, a concrete observation, its
+production impact, and a check that can establish whether an improvement worked.
+
+| Review track | Evidence to collect before changing code |
+| --- | --- |
+| Architecture | Component ownership, dependency direction, control and data flow, compatibility, and observable failure behavior. |
+| Module | A correctness case or comparable performance and memory baseline for the affected path. |
+| Engineering process | The failed check or slow stage, its frequency and duration, and how to preserve validation coverage. |
+
+Keep focused changes separate from redesigns. For a redesign that changes
+cross-module boundaries or a persistent/public contract, open a design issue
+and link an ADR or design proposal before implementation. Describe the status
+quo and alternatives, compatibility commitments, incremental migration,
+rollback, and acceptance and monitoring criteria. Obtain the applicable
+maintainer approval before implementation; see the
+[architecture rules](.pangrova/rules/architecture.md) and
+[CI gate rules](.pangrova/rules/ci-gates.md). Land independently verifiable
+steps, not an all-or-nothing rewrite. Track outstanding risk or adoption work
+on the parent issue after each merge.
+
 ## Standards and verification
 
 [AGENTS.md](AGENTS.md) is the policy entry point. The canonical rules live in
