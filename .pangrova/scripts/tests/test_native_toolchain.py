@@ -325,9 +325,32 @@ esac
         self.assertIn('resolve_darwin_libevent "$PANGROVA_BREW"', asan)
         self.assertIn('$VELOX_HOME/deps-install${libevent_prefix:+;$libevent_prefix}', asan)
 
-    def test_macos_bootstrap_skips_boost_log_and_patches_openssl(self):
+    def test_macos_boost_installer_passes_component_names_and_preserves_failure(self):
         source = BOOTSTRAP.read_text()
-        self.assertIn("--without-log --without-log_setup", source)
+        installer = 'install_boost() {' + source.split('    install_boost() {', 1)[1].split(
+            '\n    }', 1)[0] + '\n}'
+        boost = self.root / 'dependency sources/boost'
+        boost.mkdir(parents=True)
+        self.executable(boost / 'bootstrap.sh', 'printf "%s\\n" "$@" > "$BOOTSTRAP_TRACE"')
+        self.executable(boost / 'b2', 'printf "%s\\n" "$@" > "$TRACE"; exit "$BUILD_EXIT"')
+        env = dict(self.env, BOOST_VERSION='boost-1.84.0', DEPENDENCY_DIR=str(boost.parent),
+                   INSTALL_PREFIX=str(self.root / 'install prefix'), NPROC='2', SUDO='',
+                   TRACE=str(self.root / 'b2-trace'), BOOTSTRAP_TRACE=str(self.root / 'bootstrap-trace'))
+        for exit_code in (0, 37):
+            with self.subTest(exit_code=exit_code):
+                result = subprocess.run(
+                    ['/bin/bash', '-c', 'set -euo pipefail\nwget_and_untar() { :; }\n' +
+                     installer + '\ninstall_boost\n'], env=dict(env, BUILD_EXIT=str(exit_code)),
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
+                self.assertEqual((self.root / 'bootstrap-trace').read_text().splitlines(),
+                                 [f'--prefix={self.root / "install prefix"}'])
+                self.assertEqual((self.root / 'b2-trace').read_text().splitlines(),
+                                 ['-j2', '-d0', 'install', 'threading=multi', '--without-python',
+                                  '--without-log'])
+
+    def test_macos_bootstrap_patches_openssl_before_folly_configure(self):
+        source = BOOTSTRAP.read_text()
         self.assertIn('folly-2026.01.05-openssl-asn1.patch', source)
         self.assertLess(source.index('apply_folly_openssl_patch "$DEPENDENCY_DIR/folly"'),
                         source.index('cmake_install_dir folly'))

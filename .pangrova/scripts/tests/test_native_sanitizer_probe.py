@@ -336,6 +336,7 @@ class FollyOpenSslPatchTest(unittest.TestCase):
       if (rawIpLen == 4 && addr4 != nullptr) {
         if (::memcmp(rawIpStr, &addr4->sin_addr, rawIpLen) == 0) {
 """)
+            original = source.read_text()
             command = ["patch", "--batch", "--forward", "-d", str(root), "-p1", "-i", str(patch)]
             subprocess.run(command, check=True, capture_output=True)
             subprocess.run([*command, "--dry-run", "--reverse"], check=True, capture_output=True)
@@ -343,6 +344,22 @@ class FollyOpenSslPatchTest(unittest.TestCase):
             self.assertNotIn("iPAddress->data", patched)
             self.assertIn("ASN1_STRING_get0_data(name->d.iPAddress)", patched)
             self.assertIn("ASN1_STRING_length(name->d.iPAddress)", patched)
+            opaque_api = '''#include <cstddef>
+struct asn1_string_st;
+using ASN1_STRING = asn1_string_st;
+extern "C" const unsigned char* ASN1_STRING_get0_data(const ASN1_STRING*);
+extern "C" int ASN1_STRING_length(const ASN1_STRING*);
+struct GENERAL_NAME { union { ASN1_STRING* iPAddress; } d; };
+int inspect(GENERAL_NAME* name) {
+'''
+            for content, valid in ((original, False), (patched, True)):
+                with self.subTest(patched=valid):
+                    access = content[content.index('      unsigned char'):content.index('\n\n      if')]
+                    result = subprocess.run(
+                        ['c++', '-std=c++20', '-Wall', '-Wextra', '-Werror', '-fsyntax-only', '-x', 'c++', '-'],
+                        input=opaque_api + access + '\nreturn rawIpLen ? rawIpStr[0] : 0;\n}\n',
+                        capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, valid, result.stderr)
 
 
 if __name__ == "__main__":

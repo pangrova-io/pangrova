@@ -463,7 +463,7 @@ build_velox() {
         cd "$DEPENDENCY_DIR/boost" || exit 1
         ./bootstrap.sh --prefix="$INSTALL_PREFIX"
         ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python \
-          --without-log --without-log_setup
+          --without-log
       )
     }
 
