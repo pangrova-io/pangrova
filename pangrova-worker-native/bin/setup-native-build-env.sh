@@ -437,6 +437,18 @@ build_velox() {
       touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
     }
 
+    install_folly() {
+      wget_and_untar \
+        "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+        folly
+      # Folly's libevent lookup searches /usr/local and $HOME, not Homebrew's
+      # /opt/homebrew prefix on Apple silicon.
+      cmake_install_dir folly \
+        -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
+        -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
+        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$HOMEBREW_PREFIX"
+    }
+
     install_aws_deps() {
       local aws_source="$DEPENDENCY_DIR/aws-sdk-cpp"
       if [[ ! -d "$aws_source/.git" ]]; then

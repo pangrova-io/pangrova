@@ -108,27 +108,32 @@ runs:
         ensure_tool bison bison
         ensure_tool flex flex
 
-        llvm_prefix=""
-        for formula in llvm llvm@20 llvm@19 llvm@18 llvm@17; do
-          candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
-          [[ -n "$candidate" && "$candidate" != "/" \
-            && "$candidate" != "/usr" && -x "$candidate/bin/clang++" ]] || continue
-          version="$("$candidate/bin/clang++" --version \
-            | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
-          if [[ "${version:-0}" -ge 15 ]]; then
-            llvm_prefix="$candidate"
-            break
-          fi
-        done
+        select_llvm() {
+          local formula candidate version
+          for formula in llvm@17 llvm llvm@18 llvm@19 llvm@20; do
+            candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
+            [[ -n "$candidate" && "$candidate" != "/" \
+              && "$candidate" != "/usr" && -x "$candidate/bin/clang++" ]] || continue
+            version="$("$candidate/bin/clang++" --version \
+              | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
+            if [[ "${version:-0}" -ge 15 ]]; then
+              printf '%s\n' "$candidate"
+              return 0
+            fi
+          done
+          return 1
+        }
+        # Prefer the vetted LLVM 17. A no-bottle install failure falls back to
+        # any installed Clang 15+ so Intel macOS 15 can still build.
+        llvm_prefix="$(select_llvm || true)"
         if [[ -z "$llvm_prefix" ]]; then
-          brew install llvm@17
-          llvm_prefix="$(brew --prefix llvm@17)"
-          version="$("$llvm_prefix/bin/clang++" --version \
-            | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
-          if [[ ! -x "$llvm_prefix/bin/clang++" || "${version:-0}" -lt 15 ]]; then
-            echo "ERROR: Homebrew LLVM 17 did not provide a usable Clang 15+" >&2
-            exit 1
+          if brew install llvm@17; then
+            llvm_prefix="$(select_llvm || true)"
           fi
+        fi
+        if [[ -z "$llvm_prefix" ]]; then
+          echo "ERROR: no usable Homebrew Clang 15+ is installed" >&2
+          exit 1
         fi
         sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
         [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {

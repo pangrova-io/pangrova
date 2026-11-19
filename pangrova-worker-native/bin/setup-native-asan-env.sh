@@ -276,6 +276,9 @@ grep -Eq '^CMAKE_CXX_FLAGS:.*-fsanitize=address' \
 
 # Use the matching SDK's authoritative Arrow external-project source, not a
 # guessed system source or the Release tree which CI may already have retired.
+# Building libvelox does not fetch Arrow (it is not linked into the archive), so
+# materialize and patch the ExternalProject source before consuming it.
+cmake --build "$ASAN_VELOX_BUILD_DIR" --target arrow_ep-patch --parallel "$NPROC"
 arrow_source="$ASAN_VELOX_BUILD_DIR/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep/cpp"
 [[ -f "$arrow_source/CMakeLists.txt" ]] || \
   die "Matching SDK Arrow source missing: $arrow_source"

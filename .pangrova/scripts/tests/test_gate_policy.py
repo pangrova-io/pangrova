@@ -204,6 +204,10 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('PANGROVA_CMAKE_BIN', bootstrap)
         self.assertIn('CMAKE_LAUNCHER_FLAGS', bootstrap)
         self.assertIn('ccache', action)
+        self.assertIn('install_folly() {', bootstrap)
+        self.assertIn('-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$HOMEBREW_PREFIX', bootstrap)
+        self.assertLess(bootstrap.index('install_folly() {'),
+                        bootstrap.index('install_velox_deps'))
         asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
         self.assertIn('PANGROVA_CMAKE_BIN', asan)
         self.assertIn('--check-tools', asan)
@@ -231,10 +235,10 @@ class StructuralPolicyTest(unittest.TestCase):
     def test_native_failures_publish_the_complete_log_tail(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertNotIn("awk 'length {print \"::error::\"", workflow)
-        self.assertEqual(workflow.count('report_failure() {'), 4)
-        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 4)
-        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 4)
-        self.assertEqual(workflow.count('bash -x'), 3)
+        self.assertEqual(workflow.count('report_failure() {'), 6)
+        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 6)
+        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 6)
+        self.assertEqual(workflow.count('bash -x'), 5)
         for marker in ('setup-native-build-env.sh 2>&1', 'setup-native-asan-env.sh 2>&1'):
             self.assertIn(marker, workflow)
 

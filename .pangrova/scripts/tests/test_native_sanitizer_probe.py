@@ -202,6 +202,8 @@ set_target_properties(Folly::folly PROPERTIES
         self.assertLess(setup.index("\nbuild_asan_folly\n"),
                         setup.index("\nconfigure_asan_velox\n"))
         self.assertIn("-DFOLLY_LIBRARY_SANITIZE_ADDRESS=ON", setup)
+        self.assertLess(setup.index("--target arrow_ep-patch"),
+                        setup.index("arrow_source="))
         self.assertIn("-Dfolly_SOURCE=SYSTEM", setup)
         self.assertIn('export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', setup)
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
