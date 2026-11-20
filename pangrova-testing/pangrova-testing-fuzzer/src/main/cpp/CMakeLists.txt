@@ -36,6 +36,12 @@ else()
     set(BUILD_UNITTESTS OFF CACHE BOOL "" FORCE)
     set(BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(duckdb)
+    # DuckDB v1.1.0 vendors fsst, whose header uses the fixed-width integer
+    # aliases without including <stdint.h>. Newer libstdc++ no longer leaks them
+    # through other standard headers, so its only translation unit fails.
+    if(TARGET duckdb_fsst)
+        target_compile_options(duckdb_fsst PRIVATE -include stdint.h)
+    endif()
     target_link_libraries(pangrova_fuzzer PUBLIC duckdb)
     target_include_directories(pangrova_fuzzer PUBLIC
         ${duckdb_SOURCE_DIR}/src/include
