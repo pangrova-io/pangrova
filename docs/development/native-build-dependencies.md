@@ -196,8 +196,9 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   `~/.pangrova/velox/archive-cache` are cached. The whole `~/.pangrova/velox`
   tree is never cached: it cannot fit, and the bootstrap verifies every pinned
   dependency revision so a partial restore is rejected rather than trusted.
-  Binary dependency cache keys include the runner image and toolchain action;
-  they do not fall back to another image or compiler configuration.
+  Binary dependency cache keys include the runner image, toolchain action,
+  bootstrap script and Folly source patches; they do not fall back to another
+  image, compiler configuration or pre-patch dependency tree.
 
 ## Apache Gluten Reference
 
