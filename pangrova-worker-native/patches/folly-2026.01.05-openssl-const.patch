@@ -19,3 +19,17 @@
    });
    return ret;
  }
+--- a/folly/CMakeLists.txt	2026-11-20 20:53:06
++++ b/folly/CMakeLists.txt	2026-11-20 20:53:06
+@@ -30,7 +30,10 @@
+ )
+ 
+ add_subdirectory(debugging/exception_tracer)
+-add_subdirectory(logging/example)
++option(BUILD_EXAMPLES "If enabled, compile the examples." OFF)
++if(BUILD_EXAMPLES)
++  add_subdirectory(logging/example)
++endif()
+ 
+ if (PYTHON_EXTENSIONS)
+   # Create tree of symbolic links in structure required for successful
