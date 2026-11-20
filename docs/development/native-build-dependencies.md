@@ -150,6 +150,9 @@ longer compiles, and its example/benchmark targets fail to link on Intel
 macOS. The bootstrap patches that Folly source and disables its examples and
 benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the pinned dependency sources
 are reused instead of re-downloaded on non-interactive runners.
+On macOS the Folly build also selects the documented pre-libc++ 19 exception
+construction path because Homebrew LLVM headers are newer than the runner
+libc++abi; the same define is applied when Pangrova rebuilds Folly itself.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that

@@ -228,7 +228,8 @@ ensure_folly_compiler_abi() {
     -DCMAKE_INSTALL_PREFIX="$VELOX_DIR/deps-install" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \
-    -DBUILD_TESTS=OFF
+    -DBUILD_TESTS=OFF \
+    -DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0"
   cmake --build "$folly_source/_build-pangrova" --target install -j "$NPROC"
   nm -gU "$folly_archive" 2>/dev/null | \
     grep 'NSt3__13pmr15memory_resource' >/dev/null || \
@@ -488,6 +489,7 @@ build_velox() {
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
+        -DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0" \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
     }
 
