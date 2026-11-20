@@ -553,7 +553,7 @@ if(VELOX_BUILD_DIR)
   if(EXISTS "${_VELOX_HELPER}")
     execute_process(
       COMMAND bash -c
-        "source '${_VELOX_HELPER}' && get_cxx_flags \"$ENV{CPU_TARGET}\""
+        "export OS=${CMAKE_SYSTEM_NAME}; source '${_VELOX_HELPER}' && get_cxx_flags \"$ENV{CPU_TARGET}\""
       OUTPUT_VARIABLE _VELOX_CPU_FLAGS
       ERROR_QUIET
       OUTPUT_STRIP_TRAILING_WHITESPACE)
