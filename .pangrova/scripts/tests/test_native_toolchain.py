@@ -355,6 +355,11 @@ esac
         self.assertIn('folly-2026.01.05-openssl-const.patch', source)
         self.assertLess(source.index('apply_folly_source_patches "$DEPENDENCY_DIR/folly"'),
                         source.index('cmake_install_dir folly'))
+        const_patch = (ROOT / 'pangrova-worker-native/patches/'
+                       'folly-2026.01.05-openssl-const.patch').read_text()
+        for patched_file in ('folly/io/async/ssl/OpenSSLUtils.cpp',
+                             'folly/ssl/OpenSSLCertUtils.cpp'):
+            self.assertIn(patched_file, const_patch)
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
