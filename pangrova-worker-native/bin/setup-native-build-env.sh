@@ -435,20 +435,23 @@ build_velox() {
       case "$1" in
         wangle)
           printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/wangle-2026.01.05-openssl-const.patch" ;;
+        fizz)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/fizz-2026.01.05-openssl-const.patch" ;;
       esac
     }
 
     apply_dependency_source_patches() {
       local dir="$1"
-      local dependency_patch
-      dependency_patch="$(dependency_source_patch "$dir")"
-      [[ -n "$dependency_patch" ]] || return 0
       local source="$DEPENDENCY_DIR/$dir"
-      if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
-          -i "$dependency_patch" >/dev/null 2>&1; then
-        patch --dry-run --batch --forward -d "$source" -p1 -i "$dependency_patch"
-        patch --batch --forward -d "$source" -p1 -i "$dependency_patch"
-      fi
+      local dependency_patch
+      while IFS= read -r dependency_patch; do
+        [[ -n "$dependency_patch" ]] || continue
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$dependency_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$dependency_patch"
+          patch --batch --forward -d "$source" -p1 -i "$dependency_patch"
+        fi
+      done < <(dependency_source_patch "$dir")
     }
 
     wget_and_untar() {

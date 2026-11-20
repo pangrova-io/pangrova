@@ -150,8 +150,9 @@ macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
 `X509_EXTENSION_get_data` no longer compile, and its example/benchmark targets
 fail to link on Intel macOS. The bootstrap applies both reviewed Folly source
 patches (ASN.1 accessors and the OpenSSL 3.6 const results in `OpenSSLUtils.cpp`
-and `OpenSSLCertUtils.cpp`) before configure, and patches Wangle's
-`SSLUtil.cpp` const result right after its sources are extracted,
+and `OpenSSLCertUtils.cpp`) before configure, and patches the Wangle and Fizz
+const results (`SSLUtil.cpp`, `CertUtil.h`) right after their sources are
+extracted,
 disables its examples and benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the
 pinned dependency sources are reused instead of re-downloaded on non-interactive
 runners.
