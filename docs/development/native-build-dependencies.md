@@ -139,6 +139,11 @@ only in the build rules, not the cache. Pangrova asks the same helper for that
 baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
+Native test runs build the Java fixture with the project reactor, which
+resolves the locally published Iceberg candidate. CI installs that candidate
+through the shared Iceberg SDK composite action before the native suite, as the
+Java jobs already do.
+
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's `X509_get_subject_name` assignment no
 longer compiles, and its example/benchmark targets fail to link on Intel

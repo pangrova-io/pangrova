@@ -62,6 +62,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Cache native deps + Velox
         uses: actions/cache@v4
         with:
@@ -486,6 +489,9 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Cache native deps + Velox
         uses: actions/cache@v4
