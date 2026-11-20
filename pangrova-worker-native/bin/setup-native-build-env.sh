@@ -417,14 +417,18 @@ build_velox() {
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
 
     # Upstream stores archives inside source directories that it deletes on retry.
-    apply_folly_openssl_patch() {
+    apply_folly_source_patches() {
       local source="$1"
-      local openssl_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch"
-      if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
-          -i "$openssl_patch" >/dev/null 2>&1; then
-        patch --dry-run --batch --forward -d "$source" -p1 -i "$openssl_patch"
-        patch --batch --forward -d "$source" -p1 -i "$openssl_patch"
-      fi
+      local folly_patch
+      for folly_patch in \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"; do
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$folly_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$folly_patch"
+          patch --batch --forward -d "$source" -p1 -i "$folly_patch"
+        fi
+      done
     }
 
     wget_and_untar() {
@@ -484,7 +488,7 @@ build_velox() {
       wget_and_untar \
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
-      apply_folly_openssl_patch "$DEPENDENCY_DIR/folly"
+      apply_folly_source_patches "$DEPENDENCY_DIR/folly"
       # Use the formula's opt prefix even if Homebrew leaves it unlinked.
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \

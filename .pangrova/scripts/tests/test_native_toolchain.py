@@ -349,10 +349,11 @@ esac
                                  ['-j2', '-d0', 'install', 'threading=multi', '--without-python',
                                   '--without-log'])
 
-    def test_macos_bootstrap_patches_openssl_before_folly_configure(self):
+    def test_macos_bootstrap_patches_folly_sources_before_configure(self):
         source = BOOTSTRAP.read_text()
         self.assertIn('folly-2026.01.05-openssl-asn1.patch', source)
-        self.assertLess(source.index('apply_folly_openssl_patch "$DEPENDENCY_DIR/folly"'),
+        self.assertIn('folly-2026.01.05-openssl-const.patch', source)
+        self.assertLess(source.index('apply_folly_source_patches "$DEPENDENCY_DIR/folly"'),
                         source.index('cmake_install_dir folly'))
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):

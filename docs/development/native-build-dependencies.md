@@ -147,9 +147,11 @@ Java jobs already do.
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's `X509_get_subject_name` assignment no
 longer compiles, and its example/benchmark targets fail to link on Intel
-macOS. The bootstrap patches that Folly source and disables its examples and
-benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the pinned dependency sources
-are reused instead of re-downloaded on non-interactive runners.
+macOS. The bootstrap applies both reviewed Folly source patches (ASN.1
+accessors and the const `X509_get_subject_name` result) before configure,
+disables its examples and benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the
+pinned dependency sources are reused instead of re-downloaded on non-interactive
+runners.
 On macOS the Folly build also selects the documented pre-libc++ 19 exception
 construction path because Homebrew LLVM headers are newer than the runner
 libc++abi; the same define is applied when Pangrova rebuilds Folly itself.
