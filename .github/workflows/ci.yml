@@ -72,7 +72,7 @@ jobs:
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
             ~/.pangrova/velox/archive-cache
-          key: pangrova-native-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-native-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
@@ -500,7 +500,7 @@ jobs:
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
             ~/.pangrova/velox/archive-cache
-          key: pangrova-native-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-native-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache ASan Velox + ABI dependencies
         if: matrix.sanitizer.name == 'asan'

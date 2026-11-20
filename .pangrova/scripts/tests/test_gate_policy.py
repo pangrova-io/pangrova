@@ -380,7 +380,8 @@ class RuntimeScopeTest(unittest.TestCase):
                       if item['name'] == 'linux-x86_64')
         self.assertEqual(keys[0].replace('${{ matrix.platform.runner }}', runner), keys[1])
         self.assertIn("hashFiles('.github/actions/setup-native-build/action.yml', "
-                      "'pangrova-worker-native/bin/setup-native-build-env.sh')", keys[0])
+                      "'pangrova-worker-native/bin/setup-native-build-env.sh', "
+                      "'pangrova-worker-native/patches/*')", keys[0])
         for cache in caches:
             self.assertNotIn('restore-keys:', cache)
 
