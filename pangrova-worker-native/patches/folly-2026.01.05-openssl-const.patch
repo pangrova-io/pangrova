@@ -1,0 +1,21 @@
+--- a/folly/io/async/ssl/OpenSSLUtils.cpp	2026-11-20 20:49:42
++++ b/folly/io/async/ssl/OpenSSLUtils.cpp	2026-11-20 20:49:42
+@@ -284,7 +284,7 @@
+   if (x509 == nullptr) {
+     return "";
+   }
+-  X509_NAME* subject = X509_get_subject_name(x509);
++  X509_NAME* subject = const_cast<X509_NAME*>(X509_get_subject_name(x509));
+   char buf[ub_common_name + 1];
+   int length =
+       X509_NAME_get_text_by_NID(subject, NID_commonName, buf, sizeof(buf));
+@@ -339,7 +339,8 @@
+   forEachX509(b, [&](auto&& name) {
+     // X509_get_subject_name borrows the X509_NAME, so we must dup it.
+     ret.push_back(
+-        X509NameUniquePtr(X509_NAME_dup(X509_get_subject_name(name.get()))));
++        X509NameUniquePtr(X509_NAME_dup(
++            const_cast<X509_NAME*>(X509_get_subject_name(name.get())))));
+   });
+   return ret;
+ }

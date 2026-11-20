@@ -387,6 +387,18 @@ build_velox() {
   fi
   cd "$VELOX_DIR"
   bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/apply-velox-patches.sh" apply "$VELOX_DIR"
+
+  # Velox's own dependency build downloads and compiles Folly. Apply the
+  # reviewed Folly source fix and skip its examples, which fail to link on
+  # Intel macOS, before that build runs. PROMPT_ALWAYS_RESPOND keeps the
+  # pinned sources instead of re-downloading them on non-interactive CI.
+  export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
+  export PANGROVA_FOLLY_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"
+  local folly_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-common-build.patch"
+  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
+    git -C "$VELOX_DIR" apply --check "$folly_setup_patch"
+    git -C "$VELOX_DIR" apply "$folly_setup_patch"
+  fi
   # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
   # on platforms that do require the separate library.
   local atomic_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-darwin-atomic-link.patch"

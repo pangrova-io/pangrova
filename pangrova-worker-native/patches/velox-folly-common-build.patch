@@ -1,0 +1,16 @@
+--- a/scripts/setup-common.sh	2026-11-20 20:49:42
++++ b/scripts/setup-common.sh	2026-11-20 20:49:42
+@@ -48,7 +48,12 @@
+ 
+ function install_folly {
+   wget_and_untar https://github.com/facebook/folly/archive/refs/tags/"${FB_OS_VERSION}".tar.gz folly
+-  local FOLLY_FLAGS=(-DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF -DFOLLY_HAVE_INT128_T=ON)
++  if [[ -n "${PANGROVA_FOLLY_PATCH:-}" && -f "${PANGROVA_FOLLY_PATCH}" ]]; then
++    if ! patch -R --dry-run -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}" >/dev/null 2>&1; then
++      patch -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}"
++    fi
++  fi
++  local FOLLY_FLAGS=(-DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF -DFOLLY_HAVE_INT128_T=ON)
+   # When folly is static, use static gflags to avoid dual gflags flag
+   # registration when .so plugins are dlopen'd (both the binary and plugin
+   # would register the same flags in a shared gflags registry).

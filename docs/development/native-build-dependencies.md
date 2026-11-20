@@ -133,6 +133,19 @@ projection header follows the same rule through `physical_type_manifest.py`.
 The connector header includes `<cstddef>` and `<cstdint>` directly instead of
 relying on transitive includes from each translation unit.
 
+Velox compiles with a CPU baseline chosen from its own scripts
+(`-msse4.2`/`-mavx2` on x86, `-march=armv8-a+crc+crypto` on ARM) and records it
+only in the build rules, not the cache. Pangrova asks the same helper for that
+baseline and applies it to every consumer of Velox SIMD headers; without it,
+`xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
+
+Velox's own dependency build also compiles Folly in `velox/deps-download`. On
+macOS with OpenSSL 3.6 or newer, Folly's `X509_get_subject_name` assignment no
+longer compiles, and its example/benchmark targets fail to link on Intel
+macOS. The bootstrap patches that Folly source and disables its examples and
+benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the pinned dependency sources
+are reused instead of re-downloaded on non-interactive runners.
+
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
 Rust and C dependencies place inside their static archives. Pangrova builds

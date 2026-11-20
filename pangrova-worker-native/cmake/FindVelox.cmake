@@ -543,6 +543,28 @@ endif()
 target_compile_definitions(velox_imported INTERFACE NDEBUG)
 message(STATUS "Velox ABI compat: NDEBUG forced (Velox built in Release mode)")
 
+# 8b) Velox compiles with a CPU baseline recorded in its CMakeCache
+# (-msse4.2/-mavx2 on x86, -march=armv8-a+crc+crypto on ARM). Consumers that
+# include Velox SIMD headers must use the same xsimd default architecture;
+# otherwise crc32U64 instantiates for sse2 where Velox only defines sse4_2.
+if(VELOX_BUILD_DIR)
+  get_filename_component(_VELOX_SOURCE_DIR "${VELOX_BUILD_DIR}/../.." ABSOLUTE)
+  set(_VELOX_HELPER "${_VELOX_SOURCE_DIR}/scripts/setup-helper-functions.sh")
+  if(EXISTS "${_VELOX_HELPER}")
+    execute_process(
+      COMMAND bash -c
+        "source '${_VELOX_HELPER}' && get_cxx_flags \"$ENV{CPU_TARGET}\""
+      OUTPUT_VARIABLE _VELOX_CPU_FLAGS
+      ERROR_QUIET
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(_VELOX_CPU_FLAGS MATCHES "-m")
+      separate_arguments(_VELOX_SIMD_FLAGS UNIX_COMMAND "${_VELOX_CPU_FLAGS}")
+      target_compile_options(velox_imported INTERFACE ${_VELOX_SIMD_FLAGS})
+      message(STATUS "Velox SIMD baseline: ${_VELOX_SIMD_FLAGS}")
+    endif()
+  endif()
+endif()
+
 # 9) Apache Thrift (required by Velox Hive connector — force-loaded from libvelox.a)
 # Thrift is built by Arrow's ExternalProject during Velox build.
 if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
