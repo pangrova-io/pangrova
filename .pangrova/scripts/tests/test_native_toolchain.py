@@ -360,6 +360,11 @@ esac
         for patched_file in ('folly/io/async/ssl/OpenSSLUtils.cpp',
                              'folly/ssl/OpenSSLCertUtils.cpp'):
             self.assertIn(patched_file, const_patch)
+        self.assertIn('wangle-2026.01.05-openssl-const.patch', source)
+        self.assertIn('apply_dependency_source_patches "$dir"', source)
+        wangle_patch = (ROOT / 'pangrova-worker-native/patches/'
+                        'wangle-2026.01.05-openssl-const.patch').read_text()
+        self.assertIn('wangle/ssl/SSLUtil.cpp', wangle_patch)
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"

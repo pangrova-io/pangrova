@@ -431,6 +431,26 @@ build_velox() {
       done
     }
 
+    dependency_source_patch() {
+      case "$1" in
+        wangle)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/wangle-2026.01.05-openssl-const.patch" ;;
+      esac
+    }
+
+    apply_dependency_source_patches() {
+      local dir="$1"
+      local dependency_patch
+      dependency_patch="$(dependency_source_patch "$dir")"
+      [[ -n "$dependency_patch" ]] || return 0
+      local source="$DEPENDENCY_DIR/$dir"
+      if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+          -i "$dependency_patch" >/dev/null 2>&1; then
+        patch --dry-run --batch --forward -d "$source" -p1 -i "$dependency_patch"
+        patch --batch --forward -d "$source" -p1 -i "$dependency_patch"
+      fi
+    }
+
     wget_and_untar() {
       local url="$1"
       local dir="$2"
@@ -447,6 +467,7 @@ build_velox() {
       mkdir -p "$DEPENDENCY_DIR/$dir"
       tar -xz --strip-components=1 --no-same-owner \
         -f "$archive" -C "$DEPENDENCY_DIR/$dir"
+      apply_dependency_source_patches "$dir"
     }
 
     install_fbthrift() {
