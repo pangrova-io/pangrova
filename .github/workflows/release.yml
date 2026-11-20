@@ -80,14 +80,14 @@ jobs:
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
             ~/.pangrova/velox/archive-cache
-          key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache compiler results (macOS)
         if: "!matrix.platform.docker-build"
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Set up native build tools (macOS)
         if: "!matrix.platform.docker-build"
