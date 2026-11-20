@@ -456,6 +456,11 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertNotIn('schedule:', reference)
         self.assertNotIn('  fuzzer:', self.workflow)
 
+    def test_scheduled_benchmark_requires_provisioned_fleet(self):
+        benchmark = (ROOT / '.github/workflows/nightly-tpc-benchmark.yml').read_text()
+        self.assertIn("if: github.event_name != 'schedule' || vars.TPC_BENCHMARK_CONFIG_DIR != ''",
+                      benchmark)
+
     def result(self, runtime='false', performance='false', native=None, pr=True, overrides=None):
         # Execute the workflow's actual final-check program with synthetic GitHub
         # results. This verifies skip/failure semantics without copying its logic.

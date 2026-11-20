@@ -823,7 +823,10 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 The scheduled benchmark is `.github/workflows/nightly-tpc-benchmark.yml`. It runs
 daily on `[self-hosted, benchmark, linux, x86_64]` under an exclusive hardware
 lease and also supports `workflow_dispatch` inputs for workload, scale factor,
-streams, and profile.
+streams, and profile. The schedule is skipped until the repository variable
+`TPC_BENCHMARK_CONFIG_DIR` is set, so an unprovisioned fleet never leaves a run
+queued forever in the exclusive hardware group; a manual dispatch still runs and
+fails loudly on missing configuration.
 
 The workflow:
 
