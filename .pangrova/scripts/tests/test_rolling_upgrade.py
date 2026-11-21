@@ -13,7 +13,8 @@ SCRIPT = ROOT / "bin" / "pangrova-rolling-upgrade.sh"
 
 
 class RollingUpgradeTest(unittest.TestCase):
-    def run_upgrade(self, backup_exit=0, existing_backup=False, missing_library=False, quoted_paths=False):
+    def run_upgrade(self, backup_exit=0, existing_backup=False, missing_library=False, quoted_paths=False,
+                    failed_phase=""):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             release = root / ("release's stage" if quoted_paths else "release")
@@ -27,6 +28,18 @@ case "${@: -1}" in
   mkdir\\ *lib.backup*)
     [ "$BACKUP_EXIT" = 0 ] || exit "$BACKUP_EXIT"
     exec bash -c "${@: -1}"
+    ;;
+  *pangrova-stop.sh*)
+    [ "$FAILED_PHASE" != stop ] || exit 1
+    if [ "$FAILED_PHASE" = rollback-stop ] && grep -q '^rsync ' "$SSH_TRACE"; then
+      exit 1
+    fi
+    ;;
+  rsync\\ *)
+    [ "$FAILED_PHASE" != rollback-stop ] && [ "$FAILED_PHASE" != rollback-start ] || exit 1
+    ;;
+  *pangrova-worker.sh*)
+    [ "$FAILED_PHASE" != rollback-start ] || exit 1
     ;;
 esac
 exit 0
@@ -53,7 +66,7 @@ exit 0
                 capture_output=True, text=True, timeout=10, check=False,
                 env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}",
                      "PANGROVA_HOME": str(install), "SSH_TRACE": str(trace),
-                     "BACKUP_EXIT": str(backup_exit)},
+                     "BACKUP_EXIT": str(backup_exit), "FAILED_PHASE": failed_phase},
             )
             files = sorted(str(path.relative_to(backup)) for path in backup.rglob("*"))
             return result, trace.read_text(encoding="utf-8").splitlines(), files
@@ -85,6 +98,28 @@ exit 0
         self.assertEqual(["current.jar"], files)
         self.assertIn("pangrova-stop.sh --worker", commands[1])
         self.assertTrue(commands[2].startswith("rsync "), commands)
+
+    def test_stop_failure_preserves_backup_without_deploying(self):
+        result, commands, files = self.run_upgrade(failed_phase="stop")
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("aborting before replacing libraries", result.stdout)
+        self.assertEqual(2, len(commands), commands)
+        self.assertEqual(["current.jar"], files)
+
+    def test_rollback_stop_failure_preserves_backup_without_overwriting_libraries(self):
+        result, commands, files = self.run_upgrade(failed_phase="rollback-stop")
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("aborting rollback before restoring libraries", result.stdout)
+        self.assertEqual(4, len(commands), commands)
+        self.assertIn("pangrova-stop.sh --worker", commands[-1])
+        self.assertEqual(["current.jar"], files)
+
+    def test_rollback_start_failure_reports_an_incomplete_rollback(self):
+        result, commands, _ = self.run_upgrade(failed_phase="rollback-start")
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("libraries restored, but restart failed", result.stdout)
+        self.assertNotIn("Rollback complete", result.stdout)
+        self.assertIn("pangrova-worker.sh --daemon", commands[-1])
 
     def test_quoted_paths_reach_backup_deploy_and_cleanup_as_single_arguments(self):
         result, commands, files = self.run_upgrade(quoted_paths=True)

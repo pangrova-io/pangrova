@@ -197,9 +197,10 @@ upgrade_node() {
 
     # Step 2: Stop the node
     log "  Stopping ${role} on ${host}..."
-    run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}" 2>/dev/null || {
-        log "  WARN: Stop command failed. Node may already be stopped."
-    }
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}"; then
+        log "  ERROR: Stop failed on ${host}; aborting before replacing libraries. Backup retained."
+        return 1
+    fi
 
     # Step 3: Deploy new lib/ (only replace binaries; config and logs are preserved)
     log "  Deploying new lib/ from ${NEW_VERSION_DIR}/lib/ ..."
@@ -250,19 +251,23 @@ rollback_node() {
 
     log "  Rolling back ${role} at ${host_port}..."
 
-    run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}" 2>/dev/null || true
-
-    if run_ssh "$host" "test -d ${remote_home}/lib.backup" 2>/dev/null; then
-        run_ssh "$host" "rm -rf -- ${remote_home}/lib && mv -- ${remote_home}/lib.backup ${remote_home}/lib" 2>/dev/null || {
-            log "  ERROR: Rollback failed for ${host}. Manual intervention required."
-            return 1
-        }
-        run_ssh "$host" "${remote_home}/bin/pangrova-${role}.sh --daemon" 2>/dev/null || true
-        log "  Rollback complete for ${role} at ${host_port}."
-    else
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}"; then
+        log "  ERROR: Stop failed on ${host}; aborting rollback before restoring libraries. Backup retained."
+        return 1
+    fi
+    if ! run_ssh "$host" "test -d ${remote_home}/lib.backup"; then
         log "  ERROR: No lib.backup found on ${host}. Manual intervention required."
         return 1
     fi
+    if ! run_ssh "$host" "rm -rf -- ${remote_home}/lib && mv -- ${remote_home}/lib.backup ${remote_home}/lib"; then
+        log "  ERROR: Rollback failed for ${host}. Manual intervention required."
+        return 1
+    fi
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-${role}.sh --daemon"; then
+        log "  ERROR: Previous libraries restored, but restart failed on ${host}. Manual intervention required."
+        return 1
+    fi
+    log "  Rollback complete for ${role} at ${host_port}."
 }
 
 # --- Pre-flight: verify Coordinator API is reachable ---
