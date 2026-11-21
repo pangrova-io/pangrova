@@ -249,29 +249,33 @@ class FilteredArtifactRetrievalExecutionTest : public ::testing::Test {
   void rejectActualFault(uint64_t grant) {
     auto budget = std::make_shared<resource::TaskObjectReadBudget>(grant);
     std::atomic<size_t> delivered{0};
-    auto task = sdk::exec::Task::create("failed-filtered-parquet", sdk::core::PlanFragment{plan("keep", budget)}, 0,
-        sdk::core::QueryCtx::create(pangrova::jni::globalExecutor().get(), sdk::core::QueryConfig(
-            {{"require_function_registry_snapshot", "true"}}, sdk::exec::FunctionRegistrySnapshot::capture())),
-        sdk::exec::Task::ExecutionMode::kParallel,
-        [&](sdk::RowVectorPtr batch, bool, sdk::ContinueFuture*) {
-          if (batch) delivered.fetch_add(batch->size());
-          return sdk::exec::BlockingReason::kNotBlocked;
-        });
-    auto release = folly::makeGuard([&] {
-      budget->requestCancel();
-      task->requestCancel().wait();
-      budget->stopAndDrain();
-      auto deleted = task->taskDeletionFuture();
-      task.reset();
-      deleted.wait();
-    });
-    task->addSplit("qualify", sdk::exec::Split{
-        std::make_shared<PangrovaConnectorSplit>(PangrovaVeloxConnector::kConnectorId, sourceSplit())});
-    task->noMoreSplits("qualify");
-    task->start(2);
-    task->taskCompletionFuture().wait();
-    ASSERT_TRUE(task->error());
-    ASSERT_EQ(task->state(), sdk::exec::TaskState::kFailed);
+    {
+      auto task = sdk::exec::Task::create("failed-filtered-parquet", sdk::core::PlanFragment{plan("keep", budget)}, 0,
+          sdk::core::QueryCtx::create(pangrova::jni::globalExecutor().get(), sdk::core::QueryConfig(
+              {{"require_function_registry_snapshot", "true"}}, sdk::exec::FunctionRegistrySnapshot::capture())),
+          sdk::exec::Task::ExecutionMode::kParallel,
+          [&](sdk::RowVectorPtr batch, bool, sdk::ContinueFuture*) {
+            if (batch) delivered.fetch_add(batch->size());
+            return sdk::exec::BlockingReason::kNotBlocked;
+          });
+      // The failed task can publish its state while another driver is still
+      // releasing a read. Inspect resource ownership after the real drain.
+      auto release = folly::makeGuard([&] {
+        budget->requestCancel();
+        task->requestCancel().wait();
+        budget->stopAndDrain();
+        auto deleted = task->taskDeletionFuture();
+        task.reset();
+        deleted.wait();
+      });
+      task->addSplit("qualify", sdk::exec::Split{
+          std::make_shared<PangrovaConnectorSplit>(PangrovaVeloxConnector::kConnectorId, sourceSplit())});
+      task->noMoreSplits("qualify");
+      task->start(2);
+      task->taskCompletionFuture().wait();
+      ASSERT_TRUE(task->error());
+      ASSERT_EQ(task->state(), sdk::exec::TaskState::kFailed);
+    }
     EXPECT_EQ(delivered.load(), 0);
     EXPECT_LE(budget->requestedBytes(), grant);
     EXPECT_EQ(budget->activeReads(), 0);

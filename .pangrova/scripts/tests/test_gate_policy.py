@@ -367,6 +367,16 @@ class RuntimeScopeTest(unittest.TestCase):
             '\n  jmh-benchmarks:', 1)[0]
         self.assertIn(f'    runs-on: {runner}\n', sanitizer)
 
+    def test_native_fixture_jobs_restore_maven_before_building(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        for start, end in (('native-build', 'java-build'), ('native-sanitizers', 'jmh-benchmarks')):
+            job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
+            with self.subTest(job=start):
+                jdk = job.split('- name: Set up Native fixture JDK\n', 1)[1].split('\n      - ', 1)[0]
+                self.assertIn('cache: maven', jdk)
+                self.assertEqual(job.count('actions/setup-java@'), 1)
+                self.assertLess(job.index('cache: maven'), job.index('Build pinned Iceberg SDK'))
+
     @staticmethod
     def _cache_steps(section):
         steps = re.split(r'\n      - name: ', section)[1:]
