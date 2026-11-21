@@ -160,10 +160,8 @@ endif()
 set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
   "Isolated ASan Folly install prefix for sanitized native builds")
 
-# Ubuntu's libgflags-dev exposes only a non-PIC static archive, which cannot be
-# linked into a shared object. Resolve the runtime shared gflags on Linux so
-# every gflags link (Velox, Folly, the native library) uses position-independent
-# code instead of failing with a relocation error at link time.
+# Ubuntu's gflags static archive is not position-independent. Resolve the
+# shared library for Folly's transitive link into the native shared object.
 function(_pangrova_shared_gflags out)
   find_library(_pangrova_gflags_shared
     NAMES gflags.so.2.2 gflags.so.2 gflags
@@ -186,7 +184,8 @@ function(_pangrova_prefer_shared_gflags)
   if(NOT _pangrova_gflags_shared_lib)
     return()
   endif()
-  foreach(_gflags_target IN ITEMS gflags::gflags gflags_static gflags_shared)
+  foreach(_gflags_target IN ITEMS
+      gflags gflags_static gflags_shared gflags::gflags gflags::gflags_static gflags::gflags_shared)
     if(TARGET ${_gflags_target})
       get_target_property(_gflags_alias ${_gflags_target} ALIASED_TARGET)
       get_target_property(_gflags_type ${_gflags_target} TYPE)
@@ -195,6 +194,13 @@ function(_pangrova_prefer_shared_gflags)
           AND NOT _gflags_type STREQUAL "INTERFACE_LIBRARY")
         set_target_properties(${_gflags_target} PROPERTIES
           IMPORTED_LOCATION "${_pangrova_gflags_shared_lib}")
+        # CMake prefers the package's configuration-specific locations.
+        get_property(_gflags_configs TARGET ${_gflags_target} PROPERTY IMPORTED_CONFIGURATIONS)
+        foreach(_gflags_config IN LISTS _gflags_configs)
+          string(TOUPPER "${_gflags_config}" _gflags_config)
+          set_property(TARGET ${_gflags_target} PROPERTY IMPORTED_LOCATION_${_gflags_config}
+            "${_pangrova_gflags_shared_lib}")
+        endforeach()
       endif()
     endif()
   endforeach()
@@ -415,17 +421,13 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
   endif()
 endif()
 
-# 6) glog + gflags (prefer shared to avoid dual-registration of gflags globals)
-if(_DEPS_INSTALL AND PANGROVA_PRODUCTION_BUILD)
-  if(APPLE)
-    find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
-  else()
-    _pangrova_shared_gflags(_PRODUCTION_GFLAGS)
-    if(NOT _PRODUCTION_GFLAGS)
-      find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
-    endif()
+# 6) glog + gflags
+if(PANGROVA_PRODUCTION_BUILD)
+  set(_production_gflags "${PANGROVA_DEPS_PREFIX}/lib/libgflags.a")
+  if(NOT EXISTS "${_production_gflags}")
+    message(FATAL_ERROR "Linux production requires the PIC gflags archive: ${_production_gflags}")
   endif()
-  target_link_libraries(velox_imported INTERFACE "${_PRODUCTION_GFLAGS}")
+  target_link_libraries(velox_imported INTERFACE "${_production_gflags}")
 endif()
 
 if(_DEPS_INSTALL AND NOT PANGROVA_PRODUCTION_BUILD)
@@ -457,17 +459,19 @@ if(NOT APPLE)
   string(FIND "${_velox_libs}" "glog" _glog_linked)
   if(_glog_linked EQUAL -1)
     find_library(_SYS_GLOG NAMES glog QUIET)
-    _pangrova_shared_gflags(_SYS_GFLAGS)
-    if(NOT _SYS_GFLAGS)
-      find_library(_SYS_GFLAGS NAMES gflags QUIET)
-    endif()
     if(_SYS_GLOG)
       target_link_libraries(velox_imported INTERFACE ${_SYS_GLOG})
       message(STATUS "glog (system): ${_SYS_GLOG}")
     endif()
-    if(_SYS_GFLAGS)
-      target_link_libraries(velox_imported INTERFACE ${_SYS_GFLAGS})
-      message(STATUS "gflags (system): ${_SYS_GFLAGS}")
+    if(NOT PANGROVA_PRODUCTION_BUILD)
+      _pangrova_shared_gflags(_SYS_GFLAGS)
+      if(NOT _SYS_GFLAGS)
+        find_library(_SYS_GFLAGS NAMES gflags QUIET)
+      endif()
+      if(_SYS_GFLAGS)
+        target_link_libraries(velox_imported INTERFACE ${_SYS_GFLAGS})
+        message(STATUS "gflags (system): ${_SYS_GFLAGS}")
+      endif()
     endif()
   endif()
 endif()

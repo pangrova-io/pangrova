@@ -69,6 +69,11 @@ RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrov
     SKIP_VELOX=1 pangrova-worker-native/bin/setup-native-build-env.sh
 COPY pangrova-worker-native/patches/velox-codeload-archives.patch /workspace/pangrova-worker-native/patches/velox-codeload-archives.patch
 COPY pangrova-worker-native/patches/velox-darwin-atomic-link.patch /workspace/pangrova-worker-native/patches/velox-darwin-atomic-link.patch
+COPY pangrova-worker-native/patches/velox-folly-common-build.patch \
+     pangrova-worker-native/patches/velox-folly-alignment-build.patch \
+     pangrova-worker-native/patches/folly-2026.01.05-openssl-const.patch \
+     pangrova-worker-native/patches/folly-2026.01.05-spookyhash-alignment.patch \
+     /workspace/pangrova-worker-native/patches/
 COPY pangrova-worker-native/bin/prepare-aws-sdk-source.sh /workspace/pangrova-worker-native/bin/prepare-aws-sdk-source.sh
 # Use one pinned binary distribution rather than Velox's unversioned installer.
 # Keep this layer after the native dependency archives so changing the bootstrap
@@ -125,6 +130,9 @@ RUN set -eu; \
     fetch_source simdjson-4.1.0 \
         https://codeload.github.com/simdjson/simdjson/tar.gz/refs/tags/v4.1.0 \
         78115e37b2e88ec63e6ae20bb148063a9112c55bcd71404c8572078fd8a6ac3e CMakeLists.txt; \
+    fetch_source gflags-2.2.2 \
+        https://codeload.github.com/gflags/gflags/tar.gz/refs/tags/v2.2.2 \
+        34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf CMakeLists.txt; \
     fetch_source json-3.11.3 \
         https://codeload.github.com/nlohmann/json/tar.gz/refs/tags/v3.11.3 \
         0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406 CMakeLists.txt; \
@@ -133,6 +141,16 @@ RUN set -eu; \
     cmake --install /tmp/pangrova-nlohmann-json-build; \
     test -f "$PANGROVA_DEPS_PREFIX/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake"; \
     rm -r /tmp/pangrova-nlohmann-json-build
+
+# Ubuntu's libgflags.a is not PIC. Production JNI embeds a matching static build.
+RUN cmake -S "$PANGROVA_DEPS_PREFIX/src/gflags-2.2.2" -B /tmp/pangrova-gflags-build -GNinja \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PANGROVA_DEPS_PREFIX" \
+        -DGFLAGS_LIBRARY_INSTALL_DIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DGFLAGS_BUILD_STATIC_LIBS=ON -DGFLAGS_BUILD_SHARED_LIBS=OFF \
+        -DGFLAGS_BUILD_gflags_nothreads_LIB=OFF '-DGFLAGS_NAMESPACE=google;gflags' \
+    && cmake --build /tmp/pangrova-gflags-build \
+    && cmake --install /tmp/pangrova-gflags-build \
+    && rm -r /tmp/pangrova-gflags-build
 
 FROM builder AS native-build
 ENV RUSTUP_TOOLCHAIN=1.98.1
