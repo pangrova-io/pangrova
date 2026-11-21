@@ -556,8 +556,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs: change-scope
     if: needs.change-scope.outputs.native == 'true'
-    env:
-      UBSAN_OPTIONS: suppressions=${{ github.workspace }}/pangrova-worker-native/ubsan-suppressions.txt:print_stacktrace=1
     strategy:
       fail-fast: false
       matrix:
