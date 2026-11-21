@@ -63,6 +63,9 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
+The same check requires the Homebrew Bison executable to satisfy Velox's
+minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
+keg when its executable is missing.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
@@ -86,9 +89,9 @@ The bootstrap enforces four dependency contracts.
 
 - Ubuntu's packaged static gflags archive is not position-independent. Linux
   development and sanitizer builds link the shared library, including Folly's
-  configuration-specific CMake imports. The production image builds Velox's
-  pinned gflags version as PIC and links its static archive from the production
-  dependency prefix.
+  configuration-specific CMake imports and absolute archive paths in imported
+  interfaces. The production image builds Velox's pinned gflags version as
+  PIC and links its static archive from the production dependency prefix.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
@@ -96,9 +99,15 @@ The bootstrap enforces four dependency contracts.
   Velox consumes the libraries, not those tools.
 - The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
   the regular, production and instrumented builds. The byte order and hash
-  values stay compatible with the pinned upstream version.
+  values stay compatible with the pinned upstream version. The Darwin
+  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
+  is missing or differs from the reviewed patch.
 
 ## Sanitizer Dependency Chain
+
+Flight shuffle copies misaligned binary offset buffers before Arrow accesses
+them and retains the page payload buffers. Together with the Folly short-tail
+patch, this keeps both paths covered by the existing sanitizer presets.
 
 AddressSanitizer needs matching instrumentation across the runtime and the
 libraries whose headers participate in its memory access. The
@@ -156,9 +165,10 @@ baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
 Native test runs build the Java fixture with the project reactor, which
-resolves the locally published Iceberg candidate. CI installs that candidate
-through the shared Iceberg SDK composite action before the native suite, as the
-Java jobs already do.
+resolves the locally published Iceberg candidate. Native and sanitizer jobs
+restore the Maven dependency cache with their fixture JDK setup, before the
+Iceberg SDK action publishes the pinned candidate locally. The reactor still
+builds the fixture from the checked-out source.
 
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
@@ -211,6 +221,10 @@ the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
 `--without-log` to omit both `boost_log` and `boost_log_setup` while keeping every
 component Velox declares. `log_setup` is a target within the `log` component, not a
 valid B2 component selector.
+
+Direct and sanitizer builds use the LZ4 codeload archive for Arrow Flight
+when no `ARROW_LZ4_URL` override is provided. Arrow checks the fixed archive
+SHA-256. The production Docker builder preseeds the same verified archive.
 
 ## Disk and Cache Budget
 

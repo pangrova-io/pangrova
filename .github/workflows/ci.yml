@@ -56,6 +56,7 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
+          cache: maven
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
@@ -275,13 +276,6 @@ jobs:
           RESOURCE_DIR=pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
           mkdir -p "${RESOURCE_DIR}"
           cp pangrova-worker-native/build/libpangrova_native.${{ matrix.platform.lib-ext }} "${RESOURCE_DIR}/"
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
 
       - name: Install classifier JAR to local repo
         run: |
@@ -572,6 +566,7 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
+          cache: maven
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
