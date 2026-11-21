@@ -190,15 +190,22 @@ function(find_library variable)
   set(${{variable}} "{shared}" PARENT_SCOPE)
 endfunction()
 {self.contract}
+set(PANGROVA_PRODUCTION_BUILD OFF)
+add_library(folly INTERFACE)
+add_library(Folly::folly ALIAS folly)
+target_link_libraries(folly INTERFACE "{self.root / 'libgflags.a'}")
 _pangrova_prefer_shared_gflags()
 file(GENERATE OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt"
   CONTENT "$<TARGET_FILE:gflags::gflags>")
+file(GENERATE OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/folly-gflags-path.txt"
+  CONTENT "$<TARGET_PROPERTY:Folly::folly,INTERFACE_LINK_LIBRARIES>")
 """)
         build = self.root / "build"
         result = subprocess.run(["cmake", "-S", str(self.root), "-B", str(build),
                                  "-DCMAKE_BUILD_TYPE=Release"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((build / "gflags-path.txt").read_text(), str(shared))
+        self.assertEqual((build / "folly-gflags-path.txt").read_text(), str(shared))
 
     def test_linux_production_links_only_the_canonical_gflags_archive(self):
         source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
