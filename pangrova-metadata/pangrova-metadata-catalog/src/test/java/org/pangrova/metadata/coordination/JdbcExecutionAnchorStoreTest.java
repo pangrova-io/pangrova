@@ -3,6 +3,8 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
@@ -62,6 +64,31 @@ class JdbcExecutionAnchorStoreTest {
             assertThat(store.current(receipt.executionId())).contains(receipt);
         }
         assertThat(store.renewOwned("a", "missing", Duration.ofMinutes(2))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"original-pod", "replacement-pod"})
+    void newProcessClaimsOnlyExpiredOwnershipAndFencesThePreviousIncarnation(String podUid) throws Exception {
+        var lease = Duration.ofMinutes(1);
+        var original = store.tryAcquire("q-1", "original-pod", "original-process", lease).orElseThrow();
+
+        assertThat(store.renewOwned(podUid, "replacement-process", lease)).isEmpty();
+        assertThat(store.claimExpired(podUid, "replacement-process", lease, 1)).isEmpty();
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate(
+                    "UPDATE execution_anchor SET expires_at=clock_timestamp() WHERE execution_id='q-1'"))
+                    .isEqualTo(1);
+        }
+        var claimed = store.claimExpired(podUid, "replacement-process", lease, 1);
+        assertThat(claimed).hasSize(1);
+        var replacement = claimed.get(0);
+        assertThat(replacement.executionId()).isEqualTo(original.executionId());
+        assertThat(replacement.ownerId()).isEqualTo(podUid);
+        assertThat(replacement.ownerIncarnation()).isEqualTo("replacement-process");
+        assertThat(replacement.fencingToken()).isGreaterThan(original.fencingToken());
+        assertThat(store.yield(original)).isFalse();
+        assertThat(store.current("q-1")).contains(replacement);
     }
 
     @Test
