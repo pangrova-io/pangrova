@@ -86,9 +86,9 @@ The bootstrap enforces four dependency contracts.
 
 - Ubuntu's packaged static gflags archive is not position-independent. Linux
   development and sanitizer builds link the shared library, including Folly's
-  configuration-specific CMake imports. The production image builds Velox's
-  pinned gflags version as PIC and links its static archive from the production
-  dependency prefix.
+  configuration-specific CMake imports and absolute archive paths in imported
+  interfaces. The production image builds Velox's pinned gflags version as
+  PIC and links its static archive from the production dependency prefix.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
@@ -96,9 +96,15 @@ The bootstrap enforces four dependency contracts.
   Velox consumes the libraries, not those tools.
 - The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
   the regular, production and instrumented builds. The byte order and hash
-  values stay compatible with the pinned upstream version.
+  values stay compatible with the pinned upstream version. The Darwin
+  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
+  is missing or differs from the reviewed patch.
 
 ## Sanitizer Dependency Chain
+
+Flight shuffle copies misaligned binary offset buffers before Arrow accesses
+them and retains the page payload buffers. Together with the Folly short-tail
+patch, this keeps both paths covered by the existing sanitizer presets.
 
 AddressSanitizer needs matching instrumentation across the runtime and the
 libraries whose headers participate in its memory access. The
@@ -211,6 +217,10 @@ the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
 `--without-log` to omit both `boost_log` and `boost_log_setup` while keeping every
 component Velox declares. `log_setup` is a target within the `log` component, not a
 valid B2 component selector.
+
+Direct and sanitizer builds use the LZ4 codeload archive for Arrow Flight
+when no `ARROW_LZ4_URL` override is provided. Arrow checks the fixed archive
+SHA-256. The production Docker builder preseeds the same verified archive.
 
 ## Disk and Cache Budget
 

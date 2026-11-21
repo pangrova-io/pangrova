@@ -288,6 +288,35 @@ ensure_darwin_snappy "$PREFIX"
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("Pinned Snappy package is incomplete", result.stderr)
 
+    def test_darwin_folly_requires_archive_and_current_alignment_stamp(self):
+        source = BOOTSTRAP.read_text()
+        name = "darwin_folly_has_alignment_patch"
+        function = name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}", 1)[0] + "\n}"
+        prefix = self.root / "cached dependency prefix"
+        (prefix / "lib").mkdir(parents=True)
+        stamp = prefix / ".pangrova-folly-alignment"
+        archive = prefix / "lib/libfolly.a"
+        command = function + f'\n{name} "$1" current-digest'
+
+        for saved_digest, has_archive, reuse in (
+            (None, True, False), ("old-digest", True, False),
+            ("current-digest", False, False), ("current-digest", True, True),
+        ):
+            with self.subTest(saved_digest=saved_digest, has_archive=has_archive):
+                if saved_digest is None:
+                    stamp.unlink(missing_ok=True)
+                else:
+                    stamp.write_text(saved_digest + "\n")
+                if has_archive:
+                    archive.touch()
+                else:
+                    archive.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", "-eu", "-c", command, "bash", prefix],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode == 0, reuse, result.stderr)
+
     def darwin_libevent(self, mode, fixture):
         prefix = self.root / "brew formula"
         trace = self.root / "brew-log"
