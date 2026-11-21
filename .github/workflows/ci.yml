@@ -231,6 +231,10 @@ jobs:
       - name: Verify JNI symbol symmetry
         run: ./.pangrova/scripts/jni-symbol-symmetry.sh
 
+      - name: Prepare Docker for macOS Native tests
+        if: runner.os == 'macOS'
+        run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
+
       - name: Run native tests (GTest via CTest)
         uses: ./.github/actions/run-native-step
         with:
@@ -296,6 +300,23 @@ jobs:
           path: pangrova-worker-native/build/libpangrova_native.*
           retention-days: 1
 
+      - name: Stage Java Native test runtime
+        if: matrix.platform.name == 'linux-x86_64'
+        run: |
+          set -euo pipefail
+          runtime_dir=$(mktemp -d "$RUNNER_TEMP/java-native-test-runtime.XXXXXXXX")
+          bash .pangrova/scripts/stage-java-native-test-runtime.sh "$NATIVE_LIB_DIR" "$runtime_dir"
+          tar -czf "$RUNNER_TEMP/java-native-test-runtime.tar.gz" -C "$runtime_dir" .
+
+      - name: Upload Java Native test runtime
+        if: matrix.platform.name == 'linux-x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-native-test-runtime-linux-x86_64
+          path: ${{ runner.temp }}/java-native-test-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload classifier JAR
         uses: actions/upload-artifact@v4
         with:
@@ -305,7 +326,7 @@ jobs:
 
   java-build:
     name: Java Build (JDK ${{ matrix.java }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: native-build
     strategy:
       fail-fast: false
@@ -334,6 +355,8 @@ jobs:
           name: native-bundle-linux-x86_64
           path: native-bundle-jar
 
+      - uses: ./.github/actions/restore-java-native-test-runtime
+
       - name: Verify artifacts
         run: |
           ls -la ${{ env.NATIVE_LIB_DIR }}/libpangrova_native.*
@@ -361,9 +384,11 @@ jobs:
             -Dpackaging=jar
 
       - name: Compile and run daily filtered tests
-        run: mvn -B verify -Pnative-runtime -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
-        env:
-          LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
+        run: |
+          export LD_LIBRARY_PATH="$NATIVE_LIB_DIR:$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/lib"
+          mvn -B verify -Pnative-runtime -pl '!pangrova-native-bundle' \
+            -Djava.library.path="$NATIVE_LIB_DIR" \
+            -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool"
 
       - name: Retain same-source CLI for benchmark transport checks
         if: matrix.java == '17'
@@ -376,7 +401,7 @@ jobs:
 
   production-regression:
     name: Production image and full regression (JDK 17)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [change-scope, native-build, native-sanitizers]
     if: >-
       always() && !cancelled() && needs.change-scope.outputs.runtime == 'true' &&
@@ -387,6 +412,8 @@ jobs:
       PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/restore-java-native-test-runtime
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
@@ -442,6 +469,7 @@ jobs:
       - name: Run full regression
         run: |
           mvn -B -Pnative-runtime,full-regression verify -pl '!pangrova-native-bundle' \
+            -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool" \
             -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
             -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
@@ -464,6 +492,7 @@ jobs:
             mvn -B -Pnative-runtime,full-regression \
               -pl pangrova-testing/pangrova-testing-integration-tests \
               -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
+              -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool" \
               -Dpangrova.e2e.file.backend="$file_backend" \
               -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
               -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
