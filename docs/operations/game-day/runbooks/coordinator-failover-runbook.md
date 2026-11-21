@@ -23,7 +23,7 @@ description: "Diagnose and recover from coordinator failover"
 
 ## Decision Tree
 
-![Coordinator appears down?](/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
+![Coordinator appears down?](../../../../website/static/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
 
 ---
 
@@ -93,12 +93,12 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
 ```bash
 NEW_LEADER="coordinator-2"  # replace with actual new leader
 
-# Run a simple query to confirm the new leader is serving
+# Check whether the new Coordinator accepts a SQL submission
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -X POST "http://${NEW_LEADER}:8080/v1/query/submit" \
   -d '{"query": "SELECT 1"}')
-echo "Simple query: HTTP ${STATUS}"  # Expected: 200
+echo "SELECT 1 submission: HTTP ${STATUS}"  # Expected: 200
 
 # Confirm worker count matches expected
 curl -s "http://${NEW_LEADER}:8080/api/workers" | \
@@ -121,15 +121,19 @@ for q in stuck:
     print(f'  {q[\"queryId\"]}: {q[\"status\"]}')
 "
 
-# Test metadata access with a second query
+# Check whether the Coordinator accepts a metadata query submission
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -X POST "http://${NEW_LEADER}:8080/v1/query/submit" \
   -d '{"query": "SHOW SCHEMAS"}')
-echo "SHOW SCHEMAS: HTTP ${STATUS}"  # Expected: 200
+echo "SHOW SCHEMAS submission: HTTP ${STATUS}"  # Expected: 200
 ```
 
 ---
+
+These HTTP checks do not verify metadata reads, SQL completion, or result
+delivery. Verify query recovery separately with a catalog-backed query and
+consume its expected result through the client.
 
 ## Step 4: Client Notification
 
@@ -155,7 +159,7 @@ ssh "${FAILED_COORDINATOR}" "
   TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
   ARCHIVE=/tmp/coordinator-crash-\${TIMESTAMP}.tar.gz
   tar czf \"\${ARCHIVE}\" \
-    /var/log/pangrova/pangrova-coordinator*.log \
+    /var/log/pangrova/coordinator*.log \
     /var/log/pangrova/gc-coordinator.log \
     /var/log/pangrova/heapdump-coordinator*.hprof 2>/dev/null \
     /var/log/syslog 2>/dev/null || true
@@ -211,8 +215,10 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
 
 - [ ] Exactly 1 LEADER elected; all other coordinators are STANDBY
 - [ ] All workers registered with the new LEADER as ACTIVE (`GET /api/workers`)
-- [ ] Simple SQL query returns HTTP 200 on the new LEADER (`POST /v1/query/submit`)
-- [ ] `SHOW SCHEMAS` query returns HTTP 200
+- [ ] `POST /v1/query/submit` returns HTTP 200 for `SELECT 1` and `SHOW SCHEMAS`
+  (submission response only)
+- [ ] A new catalog-backed query finishes and the client consumes its expected
+  result; record the elapsed time from fault injection separately
 - [ ] Previously-failed coordinator rejoined as STANDBY
 - [ ] No queries stuck in RUNNING/SUBMITTED after orphan reclamation
 - [ ] Monitoring alerts cleared in Grafana/Alertmanager

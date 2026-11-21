@@ -20,7 +20,11 @@ Data versioning statements: time travel queries, branch and tag management, snap
 
 ## Time Travel
 
-**FOR SYSTEM_TIME AS OF (timestamp-based):**
+**FOR SYSTEM_TIME AS OF (currently a numeric snapshot identifier):**
+
+Despite the clause name, the current resolver does not perform wall-clock timestamp
+lookup. Supply an actual snapshot identifier from the table's snapshot metadata;
+the numeric IDs below are illustrative.
 
 ```sql
 SELECT event_id, event_type, amount
@@ -127,7 +131,7 @@ SELECT * FROM prod.analytics.events VERSION AS OF TAG 'release_v1';
 -- Query at a specific snapshot version
 SELECT * FROM prod.analytics.events FOR SYSTEM_VERSION AS OF 1234567890;
 
--- Query at a specific timestamp
+-- SYSTEM_TIME currently resolves a numeric snapshot identifier, not a timestamp.
 SELECT * FROM prod.analytics.events FOR SYSTEM_TIME AS OF 123456789;
 ```
 

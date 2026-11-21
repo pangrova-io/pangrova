@@ -5,12 +5,19 @@ import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
+import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.common.file.CopyFileCommitBinding;
 import org.pangrova.common.file.CopyFilePublication;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +58,10 @@ import java.util.UUID;
  *     commit_fingerprint VARCHAR(64) NOT NULL,
  *     owner_id VARCHAR(255),
  *     owner_incarnation VARCHAR(255),
- *     execution_fencing_token BIGINT NOT NULL DEFAULT 0
+ *     execution_fencing_token BIGINT NOT NULL DEFAULT 0,
+ *     cdc_stream_id VARCHAR(255),
+ *     cdc_source_epoch VARCHAR(255),
+ *     cdc_offset_ranges JSONB
  * )
  * }</pre>
  */
@@ -59,6 +69,7 @@ import java.util.UUID;
 public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcWriteCommitJournal.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final String INSERT_ENTRY =
             "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
@@ -66,8 +77,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
                     + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
-                    + "copy_claim_digest, copy_table_uuid) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, cdc_offset_ranges) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb) "
                     + "ON CONFLICT (query_id) DO NOTHING";
 
     private static final String UPDATE_STATE =
@@ -86,7 +97,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
                     + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
-                    + "copy_claim_digest, copy_table_uuid "
+                    + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, "
+                    + "cdc_offset_ranges::text "
                     + "FROM write_commit_journal WHERE query_id = ?";
 
     private static final String SELECT_PENDING_PREFIX =
@@ -95,7 +107,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
                     + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
-                    + "copy_claim_digest, copy_table_uuid "
+                    + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, "
+                    + "cdc_offset_ranges::text "
                     + "FROM write_commit_journal WHERE state = 'PENDING' AND query_id IN (";
 
     private static final String DELETE_ENTRY =
@@ -181,12 +194,22 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 ps.setNull(parameter++, java.sql.Types.CHAR);
                 ps.setNull(parameter++, java.sql.Types.BIGINT);
                 ps.setNull(parameter++, java.sql.Types.CHAR);
-                ps.setNull(parameter, java.sql.Types.OTHER);
+                ps.setNull(parameter++, java.sql.Types.OTHER);
             } else {
                 ps.setString(parameter++, copyFile.fileKey());
                 ps.setLong(parameter++, copyFile.loadGeneration());
                 ps.setString(parameter++, copyFile.claimDigest());
-                ps.setObject(parameter, UUID.fromString(copyFile.tableUuid()));
+                ps.setObject(parameter++, UUID.fromString(copyFile.tableUuid()));
+            }
+            CdcSourceIdentity cdcSource = entry.cdcSource();
+            if (cdcSource == null) {
+                ps.setNull(parameter++, java.sql.Types.VARCHAR);
+                ps.setNull(parameter++, java.sql.Types.VARCHAR);
+                ps.setNull(parameter, java.sql.Types.OTHER);
+            } else {
+                ps.setString(parameter++, cdcSource.streamId());
+                ps.setString(parameter++, cdcSource.sourceEpoch());
+                ps.setString(parameter, encodeCdcRanges(cdcSource));
             }
             int inserted = ps.executeUpdate();
             if (inserted == 0) {
@@ -603,7 +626,55 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 rs.getString("owner_id"),
                 rs.getString("owner_incarnation"),
                 rs.getLong("execution_fencing_token"),
-                readPublication(rs), readCopyFile(rs));
+                readPublication(rs), readCopyFile(rs), readCdcSource(rs));
+    }
+
+    private static CdcSourceIdentity readCdcSource(ResultSet result) throws SQLException {
+        String streamId = result.getString("cdc_stream_id");
+        if (streamId == null) {
+            return null;
+        }
+        try {
+            JsonNode root = JSON.readTree(result.getString("cdc_offset_ranges"));
+            if (root == null || !root.isArray() || root.isEmpty()) {
+                throw new SQLException("CDC source identity has no offset ranges");
+            }
+            List<CdcSourceIdentity.OffsetRange> ranges = new ArrayList<>();
+            for (JsonNode node : root) {
+                if (!node.isObject() || node.size() != 4
+                        || !node.path("topic").isTextual()
+                        || !node.path("partition").isIntegralNumber()
+                        || !node.path("partition").canConvertToInt()
+                        || !node.path("startOffset").isIntegralNumber()
+                        || !node.path("startOffset").canConvertToLong()
+                        || !node.path("endOffset").isIntegralNumber()
+                        || !node.path("endOffset").canConvertToLong()) {
+                    throw new SQLException("CDC source identity has an invalid offset range");
+                }
+                ranges.add(new CdcSourceIdentity.OffsetRange(node.path("topic").asText(),
+                        node.path("partition").asInt(), node.path("startOffset").asLong(),
+                        node.path("endOffset").asLong()));
+            }
+            return new CdcSourceIdentity(streamId, result.getString("cdc_source_epoch"), ranges);
+        } catch (JsonProcessingException | IllegalArgumentException failure) {
+            throw new SQLException("CDC source identity is not canonical", failure);
+        }
+    }
+
+    private static String encodeCdcRanges(CdcSourceIdentity cdcSource) {
+        ArrayNode ranges = JSON.createArrayNode();
+        for (CdcSourceIdentity.OffsetRange range : cdcSource.ranges()) {
+            ObjectNode node = ranges.addObject();
+            node.put("topic", range.topic());
+            node.put("partition", range.partition());
+            node.put("startOffset", range.startOffset());
+            node.put("endOffset", range.endOffset());
+        }
+        try {
+            return JSON.writeValueAsString(ranges);
+        } catch (JsonProcessingException impossible) {
+            throw new IllegalStateException("Unexpected in-memory CDC range encoding failure", impossible);
+        }
     }
 
     private static CopyFileCommitBinding readCopyFile(ResultSet result) throws SQLException {

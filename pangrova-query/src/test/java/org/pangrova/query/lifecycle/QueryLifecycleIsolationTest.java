@@ -1,5 +1,4 @@
 package org.pangrova.query.lifecycle;
-
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;
@@ -44,7 +43,6 @@ class QueryLifecycleIsolationTest {
             assertThat(stateType.getMethod("getState").invoke(state).toString()).isEqualTo("FINISHED");
             assertThat(stateType.getMethod("physicalCleanupApplied").invoke(state)).isEqualTo(false);
             for (String forbidden : List.of(
-                    "org.pangrova.coordinator.query.QueryManager",
                     "org.pangrova.coordinator.query.QueryStateMachine",
                     "org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",

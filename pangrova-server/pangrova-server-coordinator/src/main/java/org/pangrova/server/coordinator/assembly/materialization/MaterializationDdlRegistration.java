@@ -1,6 +1,9 @@
 package org.pangrova.server.coordinator.assembly.materialization;
 
+import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
 import org.pangrova.coordinator.materialization.KernelDynamicTableService;
 import org.pangrova.coordinator.materialization.KernelMaterializationObservabilityService;
@@ -99,8 +102,15 @@ public final class MaterializationDdlRegistration {
         factory.registerTask(ShowMaterializationGcHistoryStatement.class,
                 observability::listGcHistory);
         factory.registerTask(CreateContinuousQueryStatement.class, (statement, context) -> {
-            throw new UnsupportedOperationException(
-                    "Continuous Query materialization is not implemented");
+            Duration interval = statement.refreshInterval();
+            if (interval.isZero() || interval.isNegative()) {
+                throw new IllegalArgumentException(
+                        "Continuous Query REFRESH EVERY requires a positive interval");
+            }
+            return dynamicTables.create(new CreateDynamicTableStatement(
+                    statement.name(), statement.query(), interval,
+                    Optional.of(org.pangrova.parser.api.enums.RefreshMode.FULL),
+                    Optional.empty(), Map.of(), Optional.empty()), context);
         });
         return kernels;
     }

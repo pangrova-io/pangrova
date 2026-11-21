@@ -3,7 +3,7 @@ package org.pangrova.coordinator.scheduler;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.common.enums.MemoryPressure;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;

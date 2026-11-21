@@ -46,6 +46,7 @@ public record IcebergOutputTableHandle(
     public static final String MODE_INSERT = "INSERT";
     public static final String MODE_OVERWRITE = "OVERWRITE";
     public static final String MODE_DELETE = "DELETE";
+    public static final String MODE_MERGE = "MERGE";
 
     /**
      * Compact constructor with validation.
@@ -59,7 +60,8 @@ public record IcebergOutputTableHandle(
         partitionSpecJson = partitionSpecJson == null ? "{}" : partitionSpecJson;
         if (!MODE_INSERT.equals(writeMode)
                 && !MODE_OVERWRITE.equals(writeMode)
-                && !MODE_DELETE.equals(writeMode)) {
+                && !MODE_DELETE.equals(writeMode)
+                && !MODE_MERGE.equals(writeMode)) {
             throw new IllegalArgumentException("Unsupported Iceberg write mode: " + writeMode);
         }
         overwriteScope = overwriteScope == null ? IcebergOverwriteScope.NONE : overwriteScope;
@@ -108,5 +110,12 @@ public record IcebergOutputTableHandle(
     @Override
     public java.util.OptionalLong writeBaseSnapshotId() {
         return java.util.OptionalLong.of(baseSnapshotId);
+    }
+
+    @Override
+    public java.util.Optional<org.pangrova.connector.api.metadata.table.TableIdentity> tableIdentity() {
+        return java.util.Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
+                "ICEBERG", tableUuid, tableLocation,
+                org.pangrova.common.util.DigestUtils.sha256Hex(schemaJson)));
     }
 }

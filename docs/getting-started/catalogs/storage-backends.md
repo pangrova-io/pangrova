@@ -18,8 +18,8 @@ Both connectors support multiple storage backends:
 properties:
   warehouse: "s3://my-bucket/warehouse"
   s3.endpoint: "https://s3.amazonaws.com"
-  s3.access-key-id: "${ENV:AWS_ACCESS_KEY_ID}"
-  s3.secret-access-key: "${ENV:AWS_SECRET_ACCESS_KEY}"
+  s3.access-key-id: "${AWS_ACCESS_KEY_ID}"
+  s3.secret-access-key: "${AWS_SECRET_ACCESS_KEY}"
 ```
 
 ### HDFS

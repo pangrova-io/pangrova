@@ -157,7 +157,7 @@ class SubmitTaskRequestSymmetryTest {
                 attempt.getTaskId(), attempt.getQueryOrJobId(),
                 attempt.getStageId(), attempt.getPartitionId(), "OUTPUT",
                 "worker-1", "FINISHED", stats, null,
-                new WriteResultDescriptor(List.of(), 5, 50, new byte[0]),
+                new WriteResultDescriptor(List.of(), 5, 50, new byte[0], java.util.List.of()),
                 1L, System.currentTimeMillis(), null, null,
                 TaskAttemptDescriptor.from(attempt));
     }

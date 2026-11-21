@@ -66,7 +66,7 @@ class RestDtoImmutabilityTest {
     void writeResultDataFilesIsDefensivelyCopied() {
         List<DataFile> mutable = new ArrayList<>(List.of(
                 new DataFile("/a.parquet", 100, 10, "p=1")));
-        WriteResultDescriptor wr = new WriteResultDescriptor(mutable, 10, 100, new byte[0]);
+        WriteResultDescriptor wr = new WriteResultDescriptor(mutable, 10, 100, new byte[0], java.util.List.of());
 
         mutable.add(new DataFile("/b.parquet", 200, 20, "p=2"));
 
@@ -77,7 +77,7 @@ class RestDtoImmutabilityTest {
 
     @Test
     void writeResultNullDataFilesBecomesEmptyList() {
-        WriteResultDescriptor wr = new WriteResultDescriptor(null, 0, 0, new byte[0]);
+        WriteResultDescriptor wr = new WriteResultDescriptor(null, 0, 0, new byte[0], java.util.List.of());
         assertThat(wr.dataFiles()).isEmpty();
     }
 

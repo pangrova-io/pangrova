@@ -5,7 +5,8 @@ description: "L2_DISTANCE, COSINE_DISTANCE, INNER_PRODUCT similarity functions"
 
 # Vector Functions
 
-SIMD-optimized distance functions for vector similarity search. All functions follow the convention that **lower values indicate greater similarity**.
+Vector distance functions use **lower values for greater similarity**.
+`COSINE_SIMILARITY` is the exception: higher values indicate greater similarity.
 
 ---
 

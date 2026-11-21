@@ -19,23 +19,45 @@ final class VectorDistanceSqlFunction extends SqlFunction {
 
     @Override
     public boolean checkOperandTypes(SqlCallBinding binding, boolean throwOnFailure) {
+        if (binding.getOperandCount() != 2) {
+            return super.checkOperandTypes(binding, throwOnFailure);
+        }
         RelDataType left = binding.getOperandType(0);
         RelDataType right = binding.getOperandType(1);
+        if (textLiteral(binding, 1)) {
+            // Query-text shorthand: the planner rewrites this literal to AI_EMBED(...,'QUERY').
+            if (!numericArrayOrNull(left)) {
+                if (throwOnFailure) throw binding.newValidationSignatureError();
+                return false;
+            }
+            castArrayOperand(binding, 0, floatingType(left, right));
+            return true;
+        }
         if (!numericArrayOrNull(left) || !numericArrayOrNull(right)) {
             if (throwOnFailure) throw binding.newValidationSignatureError();
             return false;
         }
         SqlTypeName element = floatingType(left, right);
-        for (int index = 0; index < 2; index++) {
-            RelDataType original = binding.getOperandType(index);
-            RelDataType component = original.getComponentType();
-            var factory = binding.getTypeFactory();
-            var scalar = factory.createTypeWithNullability(factory.createSqlType(element),
-                    component == null || component.isNullable());
-            var target = factory.createTypeWithNullability(factory.createArrayType(scalar, -1), original.isNullable());
-            SqlOperandCasts.cast(binding, index, target);
-        }
+        castArrayOperand(binding, 0, element);
+        castArrayOperand(binding, 1, element);
         return true;
+    }
+
+    private static boolean textLiteral(SqlCallBinding binding, int index) {
+        RelDataType type = binding.getOperandType(index);
+        return SqlTypeUtil.inCharFamily(type)
+                && binding.isOperandLiteral(index, true)
+                && !binding.isOperandNull(index, true);
+    }
+
+    private static void castArrayOperand(SqlCallBinding binding, int index, SqlTypeName element) {
+        RelDataType original = binding.getOperandType(index);
+        RelDataType component = original.getComponentType();
+        var factory = binding.getTypeFactory();
+        var scalar = factory.createTypeWithNullability(factory.createSqlType(element),
+                component == null || component.isNullable());
+        var target = factory.createTypeWithNullability(factory.createArrayType(scalar, -1), original.isNullable());
+        SqlOperandCasts.cast(binding, index, target);
     }
 
     private static boolean numericArrayOrNull(RelDataType type) {

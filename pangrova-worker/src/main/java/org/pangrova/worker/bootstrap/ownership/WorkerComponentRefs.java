@@ -56,6 +56,7 @@ public final class WorkerComponentRefs {
     private NativeMetricsPublisher nativeMetricsPublisher;
     private ShuffleBufferManager shuffleBufferManager;
     private AutoCloseable cdcConsumer;
+    private org.pangrova.worker.execution.WorkerExecutedTaskBackend workerExecutedTaskBackend;
     private volatile int resultServerPort = -1;
 
     // -- Accessors --
@@ -205,6 +206,15 @@ public final class WorkerComponentRefs {
 
     public void setCdcConsumer(AutoCloseable v) {
         this.cdcConsumer = v;
+    }
+
+    public org.pangrova.worker.execution.WorkerExecutedTaskBackend workerExecutedTaskBackend() {
+        return workerExecutedTaskBackend;
+    }
+
+    public void setWorkerExecutedTaskBackend(
+            org.pangrova.worker.execution.WorkerExecutedTaskBackend v) {
+        this.workerExecutedTaskBackend = v;
     }
 
     public int resultServerPort() {

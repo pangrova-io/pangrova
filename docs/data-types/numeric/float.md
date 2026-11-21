@@ -43,7 +43,7 @@ produce a rounded binary value. Use `DECIMAL` when equality and exact sums matte
 |-----------|---------------|--------------|
 | Apache Iceberg | `FLOAT` | `FLOAT` |
 | Apache Paimon | `FLOAT` | `FLOAT` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow single-precision floating point | `FLOAT` retained in managed catalog metadata |
 
 ## Example
 

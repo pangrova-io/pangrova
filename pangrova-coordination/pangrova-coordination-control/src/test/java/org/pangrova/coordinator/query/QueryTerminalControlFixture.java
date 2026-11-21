@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -16,7 +18,7 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
@@ -43,7 +45,14 @@ final class QueryTerminalControlFixture implements AutoCloseable {
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()), tracker,
                 null, null, null, 0L), null, null);
         manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
-                null, null, null, null, null, null, null, null, journal, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), readerPins, clock::get);
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                        null, null, null, dispatcher, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        journal, null),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), readerPins, clock::get);
     }
 
     String registerRunningQuery() {

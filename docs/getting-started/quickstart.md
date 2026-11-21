@@ -63,20 +63,44 @@ the services' protocol classes.
 
 Standalone mode runs both Coordinator and Worker in a single JVM — ideal for development and testing.
 
-### Set Up Environment (Optional)
+### Configure the Runtime
+
+The shipped `etc/standalone.yml` is a reference template, not a zero-configuration
+runnable profile. Copy it to a local file and supply the deployment prerequisites:
+
+| Setting | Required preparation |
+|---|---|
+| `coordinator.internal-auth-secret` / `worker.internal-auth-secret` | The same secret of at least 32 UTF-8 bytes, supplied through explicit YAML environment placeholders |
+| `metadata.jdbc-url`, `metadata.jdbc-username`, `metadata.jdbc-password` | A reachable PostgreSQL authority and an account allowed to initialize its schema |
+| `security.enabled`, `security.auth.type` | Configure authentication and provision the required authority; `NOOP` accepts unauthenticated users and is only for isolated development |
+| `tenant.enabled` | Keep `false` with `NOOP`; multi-tenancy requires a real authenticator and provisioned membership |
+| `worker.advertised-host` | A concrete non-loopback address reachable by the Coordinator and client |
+| `worker.shuffle.service.spill-directory` | An existing, writable absolute directory with space for the configured quota and headroom |
+| `indexing.enabled` | Disable for a first relational query, or supply the required `-Dpangrova.index.basePath` and index runtime prerequisites |
+
+See [Coordinator configuration](../configuration/coordinator.md),
+[Worker configuration](../configuration/worker.md), and
+[Security configuration](../configuration/security.md) for the complete settings.
+The production JVM configuration is loaded by default and currently requests a
+16 GiB heap; do not mistake the launcher's smaller fallback for the loaded value.
+For a smaller development host, explicitly size the JVM, leaving room for Native
+execution and the database:
 
 ```bash
-# If JAVA_HOME is not already set
 export JAVA_HOME=/path/to/jdk-17
-
-# Customize JVM memory (default: 2g-8g heap + 4g direct memory)
-# export PANGROVA_JAVA_OPTS="-Xms1g -Xmx4g -XX:MaxDirectMemorySize=2g"
+export PANGROVA_JAVA_OPTS="-Xms1g -Xmx4g -XX:MaxDirectMemorySize=2g --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
 ```
+
+These illustrative JVM limits are not a whole-host memory guarantee. The
+standalone launcher does not append the Arrow module-access flags automatically,
+so retain them when overriding its JVM options.
 
 ### Launch
 
+Pass the configured copy explicitly:
+
 ```bash
-bin/pangrova-standalone.sh
+bin/pangrova-standalone.sh --config /path/to/standalone-local.yml
 ```
 
 You should see output like:
@@ -89,12 +113,23 @@ Starting Pangrova Standalone (Coordinator + Worker)...
   JVM_CONFIG:      /path/to/pangrova/etc/jvm-coordinator.config (loaded)
 ```
 
-By default, the Coordinator listens on port **8080**. Verify it is running:
+The Coordinator listens on port **8080** by default. Check HTTP liveness first:
+
+```bash
+curl -fsS http://localhost:8080/v1/health/live
+# Output: {"live":true}
+```
+
+After a Worker has registered and a catalog has been created, check readiness:
 
 ```bash
 bin/pangrova-health-check.sh localhost:8080
-# Output: healthy
 ```
+
+The `/v1/health` readiness endpoint can return HTTP 503 before those
+prerequisites are met. A fresh instance without a catalog can be live but not
+ready. Liveness alone does not prove Native execution, authorization, or a
+successful SQL query.
 
 ### Using a Custom Configuration
 
@@ -107,7 +142,7 @@ The standalone config must contain both `coordinator.*` and `worker.*` sections.
 ### Running as a Daemon
 
 ```bash
-bin/pangrova-standalone.sh --daemon
+bin/pangrova-standalone.sh --config /path/to/standalone-local.yml --daemon
 # PID written to logs/standalone.pid
 ```
 
@@ -122,7 +157,7 @@ tail -f logs/standalone.out
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `ERROR: Java 17+ required` | Wrong JDK version | Set `JAVA_HOME` to JDK 17+ |
-| `ERROR: No JARs found` | Build not run | Run `mvn clean package -DskipTests` |
+| `ERROR: No packaged standalone runtime` | Packaged application or resolved runtime classpath is missing | Run `mvn clean package -DskipTests` after building native prerequisites |
 | `ERROR: Standalone already running` | Previous instance still alive | Run `bin/pangrova-stop.sh --all` |
 | `Port 8080 already in use` | Another process on port 8080 | `lsof -i :8080` to find it, or change port in `etc/standalone.yml` |
 
@@ -258,7 +293,9 @@ service ports and uses a development authentication mode that accepts
 unauthenticated clients. Do not expose it to untrusted networks. For the local
 warehouse SQL example above, use standalone mode.
 
-From the repository root, prepare a local environment file:
+Follow [Docker deployment](../deployment/docker.md) to prepare the image and
+required database password/internal secret before starting Compose. From the
+repository root, prepare a local environment file:
 
 ```bash
 cd deploy/docker
@@ -305,19 +342,20 @@ docker compose down
 
 ---
 
-## Distribution Layout
+## Packaged Runtime Layout
 
-When Pangrova is packaged as a binary distribution, the directory structure is:
-
-![pangrova-{version}/](/img/diagrams/generated/quickstart-23-f2bcbe9fac.svg)
+The release workflow does not assemble a runnable binary tarball. For the
+current launch paths, use the [source build](#build-from-source) or the
+[Docker image build](../deployment/docker.md#docker--build-image-from-source).
+If you stage a packaged runtime, the launchers expect this layout:
 
 | Directory | Purpose |
 |-----------|---------|
-| `bin/` | All executable scripts for starting, stopping, and managing the cluster |
-| `config/` | Configuration templates; copy and modify for your environment |
-| `lib/` | Application JAR files loaded onto the classpath at startup |
-| `logs/` | Runtime log files and `.pid` files for daemon processes |
-| `data/` | Local storage for spill-to-disk, native engine cache, and temporary data |
+| `bin/` | Launcher scripts for starting, stopping, and managing the cluster |
+| `etc/` | Default launcher configuration directory; override with `PANGROVA_CONF_DIR` |
+| `lib/<role>/` | Application and dependency JARs and an ordered `classpath.list` for `coordinator`, `worker`, or `standalone` |
+| `cli/` | One `pangrova-client-cli-*-exec.jar`, separate from the service classpaths |
+| `logs/` | Default directory for daemon logs and PID files |
 
 ## Next Steps
 

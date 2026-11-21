@@ -290,7 +290,9 @@ infrastructure provisioning remain explicit operator prerequisites.
 `.github/workflows/nightly-tpc-benchmark.yml` holds an exclusive hardware lease,
 builds the canonical same-source image, runs both suites sequentially and retains
 90-day artifacts on success and failure. Configure repository variable
-`TPC_BENCHMARK_CONFIG_DIR` to the private configuration directory. Missing
+`TPC_BENCHMARK_CONFIG_DIR` to the private configuration directory; the scheduled
+run is skipped while that variable is unset so an unprovisioned fleet never
+occupies the lease indefinitely. Missing
 configuration, references, capacity or calibration fails explicitly. The job does
 not generate reference truth or replace baselines automatically. For external
 Trino/Spark comparisons, stop competing engines and run their manifests sequentially

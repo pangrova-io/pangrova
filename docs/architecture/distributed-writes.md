@@ -368,7 +368,48 @@ Old active/committed records without complete source checkpoints cannot be safel
 reconstructed and explicitly block recovery until reconciled against actual
 source and catalog history. The migration never substitutes a stream ID for a topic.
 
-### CDC Repair Contract (Proposed, Not Implemented)
+### CDC Repair Contract (Identity Implemented, Execution Pending)
+
+The durable write intent now binds tenant, stream ID, source ownership epoch, exact
+topic/partition offset ranges, target table UUID, base snapshot, and canonical output
+binding, and derives a distinct CDC contract fingerprint from that identity. Migration
+`V116__cdc_write_commit_identity.sql` persists the source identity with the journal and
+rejects later mutation. The Worker completion path accepts a CDC result only as a successful
+`WORKER_EXECUTED` report with `WORKER_TASK_COMPLETED` drain evidence and no Native task
+statistics; Native task reports keep their existing `NATIVE` contract. When a Coordinator
+hosts both streaming and query roles, the streaming scheduler selects the supervised Worker
+CDC runtime and disables the local Coordinator pipeline; leadership loss blocks publication
+and offset acknowledgement. A reusable Worker
+range ingestor seeks each admitted partition start, filters records to the exact intervals,
+decodes and stages each batch, and returns commit fragments without publishing the catalog
+or acknowledging source offsets. Empty polls probe exact source end offsets and only complete
+an interval when the log proves no record remains; sources without exact ends stay fail-closed
+on the idle deadline. The admission allocator splits partition intervals into deterministic
+bounded ranges and groups them into Worker tasks without dropping gaps; one task may carry
+multiple disjoint intervals from the same partition. The protocol exposes one canonical successful Worker-executed receipt
+builder, and the Coordinator report validator recognizes the CDC task type with complete
+1-of-1 task coverage. The Worker composition root can install a JVM CDC backend that binds the
+task's catalog resources, opens the Kafka source from deployment configuration, and stages
+delete/insert fragments through the exact task-bound output handle without publishing.
+Every staged fragment travels in the Worker write-result envelope and is collected by the
+Coordinator's write tracker. Coordinator now has a canonical CDC task-request factory and a
+journal-ordered publication coordinator: intent, connector publication, COMMITTED marker,
+then source acknowledgement. CDC write authority is explicit: a stream must declare
+`cdc.write.privileges`, and allocation reuses the existing write-authority resolver and
+connector output-handle allocation before the source identity enters the journal. A canonical
+binding factory now binds the authorized allocation, exact ranges, target table UUID, base
+snapshot, and source epoch into the dispatched task; its pre-commit identity remains distinct
+from the final fragment-bearing journal fingerprint. Kafka exposes its exact partition
+inventory, and the task planner derives bounded ranges from committed offsets plus current log
+ends while retaining the end offsets that may be acknowledged only after publication. A
+dedicated CDC terminal-report registry updates task state without entering SQL/DML completion,
+and the intent factory binds collected fragments plus the CDC source into the PENDING journal
+record. Both connectors now expose an atomic CDC merge mode: Iceberg uses row-delta
+fragments, and Paimon preserves `UPDATE_BEFORE`/`UPDATE_AFTER` row kinds in one MERGE
+commit fragment. A live acceptance test now drives real Kafka records through two independent
+Worker CDC backends into one Paimon merge. It terminates one backend before it reports a terminal
+state and proves the crashed attempt neither publishes nor acknowledges offsets, while the retry
+publishes exactly once and acknowledges only after publication.
 
 One source batch must bind tenant,
 stream ID, source ownership epoch, exact topic/partition offset ranges, target table UUID,

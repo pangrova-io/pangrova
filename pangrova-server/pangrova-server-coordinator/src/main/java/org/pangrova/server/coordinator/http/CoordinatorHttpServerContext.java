@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.http;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource;

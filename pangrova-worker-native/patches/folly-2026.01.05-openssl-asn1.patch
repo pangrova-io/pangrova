@@ -1,0 +1,15 @@
+diff --git a/folly/io/async/ssl/OpenSSLUtils.cpp b/folly/io/async/ssl/OpenSSLUtils.cpp
+--- a/folly/io/async/ssl/OpenSSLUtils.cpp
++++ b/folly/io/async/ssl/OpenSSLUtils.cpp
+@@ -122,8 +122,9 @@
+     auto name = sk_GENERAL_NAME_value(altNames, i);
+     if ((addr4 != nullptr || addr6 != nullptr) && name->type == GEN_IPADD) {
+       // Extra const-ness for paranoia
+-      unsigned char const* const rawIpStr = name->d.iPAddress->data;
+-      auto const rawIpLen = size_t(name->d.iPAddress->length);
++      unsigned char const* const rawIpStr =
++          ASN1_STRING_get0_data(name->d.iPAddress);
++      auto const rawIpLen = size_t(ASN1_STRING_length(name->d.iPAddress));
+
+       if (rawIpLen == 4 && addr4 != nullptr) {
+         if (::memcmp(rawIpStr, &addr4->sin_addr, rawIpLen) == 0) {

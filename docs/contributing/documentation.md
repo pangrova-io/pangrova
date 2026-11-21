@@ -64,6 +64,10 @@ Sources of truth, in descending order:
 - Add YAML front matter with a concise `title` and `description` to every published Markdown file.
 - Use exactly one level-one heading matching the title.
 - Prefer relative links ending in `.md`; the website build validates targets and anchors.
+- Reference images by a relative path to `website/static/img/`, not a site-root
+  `/img/` URL. For example, a page in `docs/architecture/` uses
+  `../../website/static/img/diagrams/planning-stack.svg`. Relative paths work in
+  both GitHub Markdown previews and the website, including its `/pangrova/` base path.
 - Mark shell, SQL, YAML, Java, and C++ fences with a language.
 - Use tables only for exact mappings; use prose for rationale and constraints.
 - Keep examples executable and free of real credentials, personal paths, and unverified output.
@@ -89,3 +93,6 @@ cd ..
 
 The website treats broken routes and Markdown links as build failures. When renaming a document,
 update source comments, README links, the sidebar, and every relative link in the same change.
+Preview the production build with `pnpm serve` and check search results as well as
+images and navigation. The search index uses filename hashing so its URL also
+works with the preview server's `/pangrova/` base path.

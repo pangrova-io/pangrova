@@ -15,7 +15,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

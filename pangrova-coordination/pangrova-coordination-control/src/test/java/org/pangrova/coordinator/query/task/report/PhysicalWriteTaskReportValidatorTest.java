@@ -90,7 +90,7 @@ class PhysicalWriteTaskReportValidatorTest {
 
     private static TaskStatusReport report(SubmitTaskRequest request, byte[] fragment) {
         var attempt = request.taskRequest().getAttempt();
-        var write = fragment == null ? null : new WriteResultDescriptor(List.of(), 0, 0, fragment);
+        var write = fragment == null ? null : new WriteResultDescriptor(List.of(), 0, 0, fragment, java.util.List.of());
         return new TaskStatusReport(attempt.getTaskId(), attempt.getQueryOrJobId(), 0, 0, "WRITE", "worker",
                 "FINISHED", null, null, write, 1, 1, null, null, TaskAttemptDescriptor.from(attempt), null);
     }

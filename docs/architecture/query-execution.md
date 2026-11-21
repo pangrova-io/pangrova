@@ -35,12 +35,14 @@ Capture preserves a valid current parent or creates a distinct unsampled root ev
 when telemetry export is disabled. Asynchronous execution activates/closes its
 scope on the execution thread; no originating thread scope is retained. Query API
 loads without the SDK, Coordinator, Worker, Client DTOs or provider implementations.
-QueryManager and execution orchestration still reside in the transitional
-Coordinator implementation; extracting this value does not complete Query Core.
+QueryManager and its lifecycle orchestration now live in `pangrova-query`'s
+runtime package behind explicit execution, admission, audit, journal and tenant
+ports; the Coordinator supplies the adapters. Query API still loads without the
+SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ## 1. End-to-End Query Flow
 
-![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](/img/diagrams/query-execution-flow.svg)
+![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 
@@ -94,7 +96,7 @@ replace Planner validation.
 
 ### 2.1 The Role of Calcite in Pangrova
 
-![SQL Query](/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
+![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
 **Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.
 
@@ -105,7 +107,7 @@ function call. Native binding then checks the exact argument and result signatur
 it does not guess an implicit conversion. Exact DECIMAL arithmetic retains its
 DECIMAL arguments and precision/scale contract.
 
-![Serialization timing and location:](/img/diagrams/generated/query-execution-02-27cbbf704f.svg)
+![Serialization timing and location:](../../website/static/img/diagrams/generated/query-execution-02-27cbbf704f.svg)
 
 ### 2.2 Schema Hierarchy
 
@@ -142,7 +144,7 @@ admits a name available on an eligible Worker; exact kind/URN/signature, build
 identity and placement admission still run for the selected execution target.
 An empty or invalid Worker inventory fails instead of substituting defaults.
 
-![Pangrova Optimization Rules](/img/diagrams/generated/query-execution-03-d9e61ca9e9.svg)
+![Pangrova Optimization Rules](../../website/static/img/diagrams/generated/query-execution-03-d9e61ca9e9.svg)
 
 ### 2.4 Cost Model
 
@@ -162,7 +164,7 @@ public class PangrovaCostModel implements RelOptCostFactory {
 
 ### 3.1 Stage Division Example
 
-![SQL: SELECT c.name, SUM(o.amount)](/img/diagrams/generated/query-execution-05-e9d1263e7c.svg)
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-05-e9d1263e7c.svg)
 
 Correlated subqueries that remain as Calcite's
 `org.apache.calcite.rel.logical.LogicalCorrelate` after
@@ -256,7 +258,7 @@ merge join rules require at least one equijoin key; a non-equijoin predicate
 continues through the supported logical join conversion path.
 
 Format conversion paths:
-![Native Velox Pipeline (RowVector)](/img/diagrams/generated/query-execution-06-8a6912bd82.svg)
+![Native Velox Pipeline (RowVector)](../../website/static/img/diagrams/generated/query-execution-06-8a6912bd82.svg)
 
 Key performance points:
 - The Arrow C Data bridge does not make the current result or shuffle network path zero-copy
@@ -292,11 +294,11 @@ The Coordinator executes no data-processing operators. All Output Stages (includ
 
 Using `SELECT * FROM orders ORDER BY amount LIMIT 10` as an example:
 
-![Planner-generated Stage DAG](/img/diagrams/generated/query-execution-07-1fd429c5ec.svg)
+![Planner-generated Stage DAG](../../website/static/img/diagrams/generated/query-execution-07-1fd429c5ec.svg)
 
 A more complex example — `SELECT c.name, SUM(o.amount) FROM orders o JOIN customers c ON o.cid = c.id GROUP BY c.name LIMIT 100`:
 
-![Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)](/img/diagrams/generated/query-execution-08-18fdcb8a9e.svg)
+![Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)](../../website/static/img/diagrams/generated/query-execution-08-18fdcb8a9e.svg)
 
 #### 3.3.3 REST API Definitions
 
@@ -773,7 +775,7 @@ Exchange pull flow after the Output Worker starts:
 5. Once all upstream Sources complete, the Exchange Operator marks the input as finished
 ```
 
-![Output Worker                      Compute Worker](/img/diagrams/generated/query-execution-22-af8a736534.svg)
+![Output Worker                      Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
 
 **Result pull (Client → Output Worker)**
 
@@ -840,7 +842,7 @@ public class PangrovaFlightProducer extends NoOpFlightProducer {
 
 **Happy Path**
 
-![Timeline →](/img/diagrams/generated/query-execution-25-0346494d36.svg)
+![Timeline →](../../website/static/img/diagrams/generated/query-execution-25-0346494d36.svg)
 
 **Scheduling timing constraints**
 
@@ -853,7 +855,7 @@ public class PangrovaFlightProducer extends NoOpFlightProducer {
 
 **State machines**
 
-![State maintained by the Coordinator:](/img/diagrams/generated/query-execution-26-94b1707bb4.svg)
+![State maintained by the Coordinator:](../../website/static/img/diagrams/generated/query-execution-26-94b1707bb4.svg)
 
 State transition rules:
 
@@ -878,7 +880,7 @@ State transition rules:
 
 **Compute Task failure → reschedule**
 
-![A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):](/img/diagrams/generated/query-execution-27-08fb7f4de5.svg)
+![A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):](../../website/static/img/diagrams/generated/query-execution-27-08fb7f4de5.svg)
 
 Key decisions:
 - After the Output Worker receives UpdateExchangeSources, it must discard all already-pulled data and restart
@@ -887,7 +889,7 @@ Key decisions:
 
 **Output Worker crash → reschedule**
 
-![Output Worker crash:](/img/diagrams/generated/query-execution-28-c4e4293647.svg)
+![Output Worker crash:](../../website/static/img/diagrams/generated/query-execution-28-c4e4293647.svg)
 
 Key decisions:
 - Upstream Compute Tasks are unaffected and keep running (the Shuffle Buffer retains data)
@@ -908,15 +910,15 @@ If the new Output Worker connects before the retention timeout, it resumes pulli
 
 **Client disconnect → timeout cleanup**
 
-![Client abnormal disconnect:](/img/diagrams/generated/query-execution-29-84898f7df7.svg)
+![Client abnormal disconnect:](../../website/static/img/diagrams/generated/query-execution-29-84898f7df7.svg)
 
 If the Client reconnects before the timeout:
 
-![Client          Output Worker](/img/diagrams/generated/query-execution-30-2caf1a63e3.svg)
+![Client          Output Worker](../../website/static/img/diagrams/generated/query-execution-30-2caf1a63e3.svg)
 
 **Memory pressure → Spill + backpressure**
 
-![Output Worker memory pressure:](/img/diagrams/generated/query-execution-31-d5bcc40086.svg)
+![Output Worker memory pressure:](../../website/static/img/diagrams/generated/query-execution-31-d5bcc40086.svg)
 
 **Error classification and retry policy**
 
@@ -933,7 +935,7 @@ If the Client reconnects before the timeout:
 
 Retry decision flow:
 
-![Task FAILED](/img/diagrams/generated/query-execution-32-917c09cb72.svg)
+![Task FAILED](../../website/static/img/diagrams/generated/query-execution-32-917c09cb72.svg)
 
 #### 3.3.7 Exchange Data Pull
 
@@ -956,7 +958,7 @@ provide backpressure without a Java `addBatch` bridge.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
-![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
+![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
 **Output Worker selection algorithm**
 
@@ -990,7 +992,7 @@ Output Tasks appear not only at the final output; intermediate Stages also have 
 
 **Three-tier Stage example**
 
-![SQL: SELECT c.name, SUM(o.amount)](/img/diagrams/generated/query-execution-35-e4e3e43479.svg)
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-35-e4e3e43479.svg)
 
 The TaskDescriptor content of each Stage:
 
@@ -1015,7 +1017,7 @@ The TaskDescriptor content of each Stage:
 
 The Shuffle Buffer on the Compute Worker is responsible for buffering data produced by the Velox Pipeline, waiting for downstream tasks to pull it.
 
-![Compute Worker Shuffle Buffer](/img/diagrams/generated/query-execution-36-75a6259321.svg)
+![Compute Worker Shuffle Buffer](../../website/static/img/diagrams/generated/query-execution-36-75a6259321.svg)
 
 #### 3.3.10 Worker-Only Relational Result Path
 
@@ -1169,7 +1171,7 @@ Greedy file-split balancing does not establish either distribution property.
 
 ### 4.1 Pipeline Structure
 
-![Task](/img/diagrams/generated/query-execution-40-d1899ae8f8.svg)
+![Task](../../website/static/img/diagrams/generated/query-execution-40-d1899ae8f8.svg)
 
 ### 4.2 Pipeline Parallelism Calculation
 
@@ -1224,13 +1226,13 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 
 ## 5. Dynamic Filtering
 
-![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
+![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
 ## 6. Write Path Design
 
 ### 6.1 Read/Write Separation Architecture
 
-![Read/Write Separation](/img/diagrams/generated/query-execution-43-63870d9f9f.svg)
+![Read/Write Separation](../../website/static/img/diagrams/generated/query-execution-43-63870d9f9f.svg)
 
 ### 6.2 INSERT Flow
 
@@ -1322,7 +1324,7 @@ try {
 
 ### 7.1 Core Principles
 
-![Single Source of Truth](/img/diagrams/generated/query-execution-46-d1859933b0.svg)
+![Single Source of Truth](../../website/static/img/diagrams/generated/query-execution-46-d1859933b0.svg)
 
 | Principle | Description | Implementation |
 |------|------|----------|
@@ -1364,11 +1366,11 @@ Step 3: The Native layer reads based on the snapshot
 
 ### 7.3 Snapshot Isolation Guarantee
 
-![Timeline:](/img/diagrams/generated/query-execution-48-8c994b4e0c.svg)
+![Timeline:](../../website/static/img/diagrams/generated/query-execution-48-8c994b4e0c.svg)
 
 ### 7.4 Cache Invalidation Strategy
 
-![Coordinator Cluster](/img/diagrams/generated/query-execution-49-3f67d13e65.svg)
+![Coordinator Cluster](../../website/static/img/diagrams/generated/query-execution-49-3f67d13e65.svg)
 
 ## 8. Custom SQL Extensions
 
@@ -1474,11 +1476,11 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 10.2 Snapshot Reference Counting
 
-![Snapshot Reference Counting](/img/diagrams/generated/query-execution-54-d7cd58cfd3.svg)
+![Snapshot Reference Counting](../../website/static/img/diagrams/generated/query-execution-54-d7cd58cfd3.svg)
 
 ### 10.3 Cross-Table Transaction Note
 
-![Cross-Table Transaction](/img/diagrams/generated/query-execution-55-b6cc1a7324.svg)
+![Cross-Table Transaction](../../website/static/img/diagrams/generated/query-execution-55-b6cc1a7324.svg)
 
 ---
 
@@ -1486,7 +1488,7 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 11.1 Native Version Management
 
-![Native Version Management](/img/diagrams/generated/query-execution-56-a737c0fc81.svg)
+![Native Version Management](../../website/static/img/diagrams/generated/query-execution-56-a737c0fc81.svg)
 
 ```java
 /**
@@ -1520,11 +1522,11 @@ public class NativeVersionChecker {
 
 ### 11.2 Protocol-Epoch Upgrade
 
-![Protocol-Epoch Upgrade Procedure](/img/diagrams/generated/query-execution-58-1a108db81b.svg)
+![Protocol-Epoch Upgrade Procedure](../../website/static/img/diagrams/generated/query-execution-58-1a108db81b.svg)
 
 ### 11.3 Dynamic Configuration
 
-![Dynamic Configuration](/img/diagrams/generated/query-execution-59-71e6a48e9d.svg)
+![Dynamic Configuration](../../website/static/img/diagrams/generated/query-execution-59-71e6a48e9d.svg)
 
 ```java
 /**
@@ -1567,7 +1569,7 @@ public class DynamicConfigManager {
 
 ### 12.1 Syntax Category Overview
 
-![Data Lake SQL Syntax Coverage](/img/diagrams/generated/query-execution-61-1f67d114d1.svg)
+![Data Lake SQL Syntax Coverage](../../website/static/img/diagrams/generated/query-execution-61-1f67d114d1.svg)
 
 The table is a syntax overview, not a distributed conformance certificate.
 As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
@@ -1580,12 +1582,12 @@ certified; see the [Roadmap](../getting-started/roadmap.md).
 
 ### 12.2 DDL Syntax
 
-![--](/img/diagrams/generated/query-execution-62-22db13a87e.svg)
+![--](../../website/static/img/diagrams/generated/query-execution-62-22db13a87e.svg)
 
 
 ### 12.3 DML Syntax
 
-![--](/img/diagrams/generated/query-execution-63-845b6dcf70.svg)
+![--](../../website/static/img/diagrams/generated/query-execution-63-845b6dcf70.svg)
 
 ### 12.4 Time Travel Queries
 
@@ -1607,16 +1609,16 @@ SELECT * FROM catalog.db.orders
 
 ### 12.5 Table Maintenance Syntax
 
-![--](/img/diagrams/generated/query-execution-65-4523f0e214.svg)
+![--](../../website/static/img/diagrams/generated/query-execution-65-4523f0e214.svg)
 
 
 ### 12.6 Snapshot and Branch Management
 
-![--](/img/diagrams/generated/query-execution-66-4b14100a59.svg)
+![--](../../website/static/img/diagrams/generated/query-execution-66-4b14100a59.svg)
 
 ### 12.7 System Operation Syntax
 
-![--](/img/diagrams/generated/query-execution-67-bd8223a28b.svg)
+![--](../../website/static/img/diagrams/generated/query-execution-67-bd8223a28b.svg)
 
 
 ---
@@ -1625,7 +1627,7 @@ SELECT * FROM catalog.db.orders
 
 ### 13.1 Design Goals
 
-![Table Maintenance SPI Design](/img/diagrams/generated/query-execution-68-cfe92a0068.svg)
+![Table Maintenance SPI Design](../../website/static/img/diagrams/generated/query-execution-68-cfe92a0068.svg)
 
 
 ### 13.2 TableMaintenance Interface
@@ -1688,7 +1690,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 14.1 Java/Native Version Compatibility
 
-![Java/Native Version Compatibility Matrix](/img/diagrams/generated/query-execution-69-7b3be80655.svg)
+![Java/Native Version Compatibility Matrix](../../website/static/img/diagrams/generated/query-execution-69-7b3be80655.svg)
 
 ### 14.2 Protocol Version Change Log
 
@@ -1704,7 +1706,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 15.1 Degradation Architecture
 
-![Dynamic Filter Degradation Strategy](/img/diagrams/generated/query-execution-70-99c955ebdb.svg)
+![Dynamic Filter Degradation Strategy](../../website/static/img/diagrams/generated/query-execution-70-99c955ebdb.svg)
 
 ### 15.2 Degradation Implementation
 
@@ -1802,7 +1804,7 @@ For the statistics foundation that AQE depends on, see [query-optimization.md §
 
 ### 16.1 Architecture
 
-![Coordinator](/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
+![Coordinator](../../website/static/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
 
 ### 16.2 Capability 1 — Dynamic Coalescing of Shuffle Partitions
 
@@ -1891,7 +1893,7 @@ function handleSkewedJoin(joinStage: JoinStage, shuffleStats: ShuffleStats):
 
 | Aspect | Without AQE | With AQE |
 |--------|-------------|----------|
-| Performance | Fixed plan; fragile with imperfect stats | Self-corrects; 2-5× improvement for skewed/misestimated queries |
+| Performance | Fixed plan; may be fragile with imperfect statistics | Can correct skew or misestimation between stages; gains require workload measurement |
 | Complexity | Simple — plan once, execute | Medium — Coordinator tracks shuffle stats and re-plans between stages |
 | Risk | High — wrong plan decisions unrecoverable | Low — AQE only improves; worst case is no change |
 | Latency overhead | None | ~50-100 ms per shuffle stage boundary |
@@ -1936,7 +1938,7 @@ The following metrics from [14 §3](./observability.md) are emitted by query exe
 
 Query execution emits the following spans (see [14 §4](./observability.md) for span schema):
 
-![query.execute                              (Coordinator, SERVER)](/img/diagrams/generated/query-execution-77-55ebfa4691.svg)
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/query-execution-77-55ebfa4691.svg)
 
 ### 17.3 Log Events
 
@@ -1961,7 +1963,7 @@ For the embedded shuffle architecture (current default), see §3.3.9 (Shuffle Bu
 
 ### 18.1 Architecture
 
-![Node](/img/diagrams/generated/query-execution-78-0f286c8a72.svg)
+![Node](../../website/static/img/diagrams/generated/query-execution-78-0f286c8a72.svg)
 
 ### 18.2 Shuffle Service API
 

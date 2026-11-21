@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.materialization;
 
+import org.pangrova.query.runtime.QueryManager;
+
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 import org.pangrova.query.api.enums.QueryState;
 
@@ -18,7 +20,6 @@ import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.query.api.session.QuerySession;
