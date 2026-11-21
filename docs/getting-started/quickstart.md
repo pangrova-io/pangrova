@@ -222,7 +222,8 @@ it drops the table, unregisters the catalog, and removes its temporary
 warehouse, including the schema directory. Expect
 `Iceberg trial passed: click=2, purchase=1`. If a catalog change or cleanup
 cannot be confirmed, the script reports the generated catalog name and keeps
-the diagnostic files for inspection. This is a smoke check, not an installer,
+the diagnostic files for inspection. When both the trial and cleanup fail, the
+script reports both errors. This is a smoke check, not an installer,
 distributed correctness test or production qualification.
 
 ## End-to-End Example: Query Iceberg Data

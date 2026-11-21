@@ -128,10 +128,16 @@ def run(root, port, catalog):
             # scoped evidence instead of guessing and issuing destructive cleanup.
             can_remove_work = False
             if not ambiguous_create:
-                if confirmed_creates == len(CREATE_PREFIXES):
-                    execute(root, work, port, "drop-table", f"DROP TABLE {catalog}.demo.events\n", token)
-                if confirmed_creates:
-                    execute(root, work, port, "drop-catalog", f"DROP CATALOG {catalog}\n", token)
+                trial_failure = sys.exc_info()[1]
+                try:
+                    if confirmed_creates == len(CREATE_PREFIXES):
+                        execute(root, work, port, "drop-table", f"DROP TABLE {catalog}.demo.events\n", token)
+                    if confirmed_creates:
+                        execute(root, work, port, "drop-catalog", f"DROP CATALOG {catalog}\n", token)
+                except Exception:
+                    if trial_failure is not None:
+                        print(f"Trial failed before cleanup: {trial_failure}", file=sys.stderr)
+                    raise
                 can_remove_work = True
     finally:
         if can_remove_work:

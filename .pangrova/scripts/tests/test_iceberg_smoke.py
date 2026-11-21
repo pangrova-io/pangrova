@@ -31,11 +31,11 @@ if mode == "authenticated":
     assert sys.argv[sys.argv.index("--token-env") + 1] == "PANGROVA_ICEBERG_TRIAL_TOKEN"
     assert os.environ["PANGROVA_ICEBERG_TRIAL_TOKEN"] == "fixture-token"
     assert "fixture-token" not in sys.argv
-if mode == "insert failure" and sql.startswith(b"INSERT"):
+if mode in ("insert failure", "insert and cleanup failure") and sql.startswith(b"INSERT"):
     sys.exit("injected insert error")
 if mode == "ambiguous create" and sql.startswith(b"CREATE SCHEMA"):
     sys.exit("injected create error")
-if mode == "cleanup failure" and sql.startswith(b"DROP TABLE"):
+if mode in ("cleanup failure", "insert and cleanup failure") and sql.startswith(b"DROP TABLE"):
     sys.exit("injected cleanup error")
 result = "...| event_type | cnt |\\n| click | 2 |\\n| purchase | 1 |\\n2 rows\\n"
 if mode == "bad result":
@@ -171,6 +171,13 @@ class IcebergSmokeTest(unittest.TestCase):
         self.assertIn("Unexpected Iceberg result", result.stderr)
         self.assertIn("DROP CATALOG", self.queries())
         self.assertEqual(list((self.root / "tmp").iterdir()), [])
+
+    def test_failed_cleanup_retains_the_original_trial_failure(self):
+        result = self.run_trial("insert and cleanup failure")
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("statement-4 failed: injected insert error", result.stderr)
+        self.assertIn("drop-table failed: injected cleanup error", result.stderr)
+        self.assertIn("files retained", result.stderr)
 
 
 if __name__ == "__main__":
