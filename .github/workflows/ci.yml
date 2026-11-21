@@ -231,6 +231,10 @@ jobs:
       - name: Verify JNI symbol symmetry
         run: ./.pangrova/scripts/jni-symbol-symmetry.sh
 
+      - name: Prepare Docker for macOS Native tests
+        if: runner.os == 'macOS'
+        run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
+
       - name: Run native tests (GTest via CTest)
         uses: ./.github/actions/run-native-step
         with:

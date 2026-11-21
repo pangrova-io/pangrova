@@ -74,6 +74,10 @@ Locally, build the `pangrova_lance_fixture_tool` Native target before running
 the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
 default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 
+On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
+through a temporary Lima Docker VM with loopback port forwarding. The Native
+test binary and its Java fixture broker run on the macOS host.
+
 ### 1.3 Matching AddressSanitizer Dependencies
 
 ASan must use one compiler and a matching instrumented dependency cohort. Using
