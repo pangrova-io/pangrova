@@ -850,6 +850,10 @@ bin/pangrova-health-check.sh --help
 bin/pangrova-stop.sh --help
 ```
 
+The reference rolling-upgrade script requires a fresh `lib.backup/` on each
+node. If creation or copying fails, the rollout stops before stopping that
+node. Inspect any existing or partial backup before retrying.
+
 ## 8. System Bootstrap Sequence
 
 This section defines the complete bootstrap sequence for an Pangrova cluster, from cold start to accepting queries, including external dependencies, startup order, health checks, and readiness determination.

@@ -10,7 +10,7 @@
 # Performs a rolling upgrade of the Pangrova cluster:
 #   1. Pre-flight: verify Coordinator is reachable and cluster is healthy
 #   2. Workers first (sequentially), then Coordinators
-#   3. Each node: stop → replace lib/ → start → health check
+#   3. Each node: back up lib/ → stop → replace lib/ → start → health check
 #   4. On failure: automatic rollback of the failed node
 #
 # NOTE: This is a reference implementation that assumes SSH access to all
@@ -32,7 +32,8 @@ Usage: $(basename "$0") [OPTIONS]
 Perform a rolling upgrade of the Pangrova cluster.
 
 Upgrade order: Workers first, then Coordinators.
-Each node is stopped, its lib/ directory replaced, restarted, and health-checked.
+Each node's lib/ directory is backed up before the node is stopped, upgraded,
+restarted, and health-checked. A backup failure stops the rollout.
 If a node fails health check after upgrade, it is automatically rolled back.
 
 Required Options:
@@ -179,8 +180,9 @@ upgrade_node() {
 
     # Step 1: Backup current lib/ (only binaries, not logs or config)
     log "  Backing up lib/ on ${host}..."
-    run_ssh "$host" "cp -r ${PANGROVA_HOME}/lib ${PANGROVA_HOME}/lib.backup" 2>/dev/null || {
-        log "  WARN: lib/ backup via SSH failed (host=${host}). Skipping backup."
+    run_ssh "$host" "mkdir \"${PANGROVA_HOME}/lib.backup\" && cp -pR \"${PANGROVA_HOME}/lib/.\" \"${PANGROVA_HOME}/lib.backup/\"" || {
+        log "  ERROR: lib/ backup failed on ${host}. Stopping the rollout before changing the node."
+        return 1
     }
 
     # Step 2: Stop the node
