@@ -82,16 +82,21 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
-Three dependency contracts are enforced at configure time:
+The bootstrap enforces four dependency contracts.
 
-- Ubuntu's `libgflags-dev` ships only a non-PIC static archive. `FindVelox.cmake`
-  resolves the runtime shared `libgflags.so.2.2` for every gflags link so
-  `libpangrova_native.so` never embeds non-relocatable code.
+- Ubuntu's packaged static gflags archive is not position-independent. Linux
+  development and sanitizer builds link the shared library, including Folly's
+  configuration-specific CMake imports. The production image builds Velox's
+  pinned gflags version as PIC and links its static archive from the production
+  dependency prefix.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
   builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
   Velox consumes the libraries, not those tools.
+- The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
+  the regular, production and instrumented builds. The byte order and hash
+  values stay compatible with the pinned upstream version.
 
 ## Sanitizer Dependency Chain
 
@@ -170,11 +175,10 @@ runners.
 The exception patch is a source change because libc++ redefines its own
 availability macro, so a `-D` override is ignored and the newer
 `__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
-macOS builds also pin Homebrew `openssl@3` (installing it when the image only
-ships `openssl@4`) because OpenSSL 4 removed APIs that other vendored code
-still calls, and they build Arrow with `ARROW_WITH_THRIFT=OFF`: thrift's SSL
-transport no longer compiles against the OpenSSL 3.5+ const return types and
-Arrow Parquet is disabled, so nothing in this install consumes it.
+macOS builds pin Homebrew `openssl@3` because vendored code uses APIs removed
+in OpenSSL 4. The Arrow 18 bootstrap disables Thrift and the ArrowTesting
+targets. The production Velox build uses Arrow IPC and Flight without linking
+ArrowTesting, which requires a Boost.Process target from the Thrift path.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
