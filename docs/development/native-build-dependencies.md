@@ -198,11 +198,11 @@ formula's `opt` prefix and adds it to Folly's configure. OpenSSL 4.0 makes
 `ASN1_STRING` opaque (OpenSSL 3.6 still exposes the structure); the reviewed
 `folly-2026.01.05-openssl-asn1.patch` uses the stable
 `ASN1_STRING_get0_data`/`ASN1_STRING_length` accessors instead of direct fields.
-Velox and Folly do not use Boost.Log, and its ASIO backend fails to link against
-the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
-`--without-log` to omit both `boost_log` and `boost_log_setup` while keeping every
-component Velox declares. `log_setup` is a target within the `log` component, not a
-valid B2 component selector.
+The Intel bootstrap builds the pinned Boost source with the selected Clang and
+the libc++ headers from `SDKROOT`. It links a C++ exception probe against the
+system libc++, then links and runs a Boost.Log probe using the installed library.
+A warm Intel prefix without Boost.Log rebuilds Boost before checking the installed
+library. Darwin arm64 retains its existing `--without-log` component selection.
 
 ## Disk and Cache Budget
 

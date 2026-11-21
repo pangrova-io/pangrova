@@ -333,7 +333,7 @@ esac
         boost.mkdir(parents=True)
         self.executable(boost / 'bootstrap.sh', 'printf "%s\\n" "$@" > "$BOOTSTRAP_TRACE"')
         self.executable(boost / 'b2', 'printf "%s\\n" "$@" > "$TRACE"; exit "$BUILD_EXIT"')
-        env = dict(self.env, BOOST_VERSION='boost-1.84.0', DEPENDENCY_DIR=str(boost.parent),
+        env = dict(self.env, ARCH='arm64', BOOST_VERSION='boost-1.84.0', DEPENDENCY_DIR=str(boost.parent),
                    INSTALL_PREFIX=str(self.root / 'install prefix'), NPROC='2', SUDO='',
                    TRACE=str(self.root / 'b2-trace'), BOOTSTRAP_TRACE=str(self.root / 'bootstrap-trace'))
         for exit_code in (0, 37):

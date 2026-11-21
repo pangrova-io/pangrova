@@ -555,16 +555,17 @@ build_velox() {
     }
 
     install_boost() {
-      # Velox and Folly do not use Boost.Log, and its ASIO backend fails to link
-      # against the SDK libc++ with Homebrew Clang on Intel. Install all other
-      # pinned Boost libraries.
       wget_and_untar \
         https://github.com/boostorg/boost/releases/download/"${BOOST_VERSION}"/"${BOOST_VERSION}".tar.gz boost
       (
         cd "$DEPENDENCY_DIR/boost" || exit 1
-        ./bootstrap.sh --prefix="$INSTALL_PREFIX"
-        ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python \
-          --without-log
+        if [[ "$ARCH" == x86_64 ]]; then
+          SUDO="$SUDO" bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/darwin-x86-boost.sh" \
+            --build "$INSTALL_PREFIX" "$NPROC"
+        else
+          ./bootstrap.sh --prefix="$INSTALL_PREFIX"
+          ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python --without-log
+        fi
       )
     }
 
@@ -607,6 +608,9 @@ build_velox() {
       run_and_time install_aws_deps
     fi
     if [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" ]]; then
+      if [[ "$ARCH" == x86_64 && ! -f "$INSTALL_PREFIX/lib/libboost_log.dylib" ]]; then
+        run_and_time install_boost
+      fi
       run_and_time install_xsimd
       run_and_time install_stemmer
       run_and_time install_arrow
@@ -616,6 +620,9 @@ build_velox() {
       run_and_time install_faiss
     else
       install_velox_deps
+    fi
+    if [[ "$ARCH" == x86_64 ]]; then
+      bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/darwin-x86-boost.sh" --check-log "$INSTALL_PREFIX"
     fi
   elif [[ "$OS" == "Linux" ]]; then
     local archive_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-codeload-archives.patch"
@@ -912,6 +919,10 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  if [[ "$OS" == Darwin && "$ARCH" == x86_64 && "$SKIP_VELOX" != 1 &&
+        "$PANGROVA_NATIVE_BUILD_PHASE" != arrow-flight ]]; then
+    bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/darwin-x86-boost.sh" --check-runtime
+  fi
   mkdir -p "$WORK_DIR" "$DEPS_PREFIX"
 
   if [[ "$SKIP_DEPS" != "1" ]]; then
