@@ -185,6 +185,11 @@ selects `ld.lld` when it is installed; lld inserts range-extension thunks and th
 link also passes `--undefined-version` because the JNI version script names
 optional entry points. CI installs `lld` on Linux for this purpose.
 
+On Linux, Native and sanitizer builds use the shared gflags library for
+Folly's transitive link. Both the default and configuration-specific CMake
+import locations select it, so a Release link does not pull Ubuntu's
+non-position-independent static archive into the JNI shared library.
+
 When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
 dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
 static AWS archives in a linker rescan group and appends the s2n, stemmer and

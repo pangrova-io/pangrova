@@ -160,10 +160,8 @@ endif()
 set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
   "Isolated ASan Folly install prefix for sanitized native builds")
 
-# Ubuntu's libgflags-dev exposes only a non-PIC static archive, which cannot be
-# linked into a shared object. Resolve the runtime shared gflags on Linux so
-# every gflags link (Velox, Folly, the native library) uses position-independent
-# code instead of failing with a relocation error at link time.
+# Ubuntu's gflags static archive is not position-independent. Resolve the
+# shared library for Folly's transitive link into the native shared object.
 function(_pangrova_shared_gflags out)
   find_library(_pangrova_gflags_shared
     NAMES gflags.so.2.2 gflags.so.2 gflags
@@ -186,7 +184,8 @@ function(_pangrova_prefer_shared_gflags)
   if(NOT _pangrova_gflags_shared_lib)
     return()
   endif()
-  foreach(_gflags_target IN ITEMS gflags::gflags gflags_static gflags_shared)
+  foreach(_gflags_target IN ITEMS
+      gflags gflags_static gflags_shared gflags::gflags gflags::gflags_static gflags::gflags_shared)
     if(TARGET ${_gflags_target})
       get_target_property(_gflags_alias ${_gflags_target} ALIASED_TARGET)
       get_target_property(_gflags_type ${_gflags_target} TYPE)
@@ -195,6 +194,13 @@ function(_pangrova_prefer_shared_gflags)
           AND NOT _gflags_type STREQUAL "INTERFACE_LIBRARY")
         set_target_properties(${_gflags_target} PROPERTIES
           IMPORTED_LOCATION "${_pangrova_gflags_shared_lib}")
+        # CMake prefers the package's configuration-specific locations.
+        get_property(_gflags_configs TARGET ${_gflags_target} PROPERTY IMPORTED_CONFIGURATIONS)
+        foreach(_gflags_config IN LISTS _gflags_configs)
+          string(TOUPPER "${_gflags_config}" _gflags_config)
+          set_property(TARGET ${_gflags_target} PROPERTY IMPORTED_LOCATION_${_gflags_config}
+            "${_pangrova_gflags_shared_lib}")
+        endforeach()
       endif()
     endif()
   endforeach()

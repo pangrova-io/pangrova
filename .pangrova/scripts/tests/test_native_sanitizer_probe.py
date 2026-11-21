@@ -175,6 +175,31 @@ set_target_properties(Folly::folly PROPERTIES
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_linux_release_consumer_uses_the_shared_gflags_import(self):
+        shared = self.root / "libgflags.so"
+        (self.root / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.20)
+project(GflagsContract NONE)
+set(APPLE FALSE)
+set(PANGROVA_PRODUCTION_BUILD ON)
+add_library(gflags::gflags STATIC IMPORTED)
+set_target_properties(gflags::gflags PROPERTIES
+  IMPORTED_CONFIGURATIONS RELEASE
+  IMPORTED_LOCATION_RELEASE "{self.root / 'libgflags.a'}")
+function(find_library variable)
+  set(${{variable}} "{shared}" PARENT_SCOPE)
+endfunction()
+{self.contract}
+_pangrova_prefer_shared_gflags()
+file(GENERATE OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt"
+  CONTENT "$<TARGET_FILE:gflags::gflags>")
+""")
+        build = self.root / "build"
+        result = subprocess.run(["cmake", "-S", str(self.root), "-B", str(build),
+                                 "-DCMAKE_BUILD_TYPE=Release"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((build / "gflags-path.txt").read_text(), str(shared))
+
     def test_dependency_globs_cannot_reintroduce_release_folly(self):
         source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
         for variable in ("_DEPS_INSTALL_LIBS", "_VENDORED_LIBS", "_INSTALL_PREFIX_LIBS"):
