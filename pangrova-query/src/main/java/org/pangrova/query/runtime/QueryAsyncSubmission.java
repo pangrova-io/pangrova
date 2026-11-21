@@ -1,4 +1,4 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.query.runtime;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -16,8 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.execution.task.DispatchResult;
+import org.pangrova.query.lifecycle.QueryExecutionPort;
+import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.slf4j.Logger;
@@ -26,13 +26,13 @@ import org.slf4j.LoggerFactory;
 /** Owns asynchronous submission of the same query dispatch path, never a second executor. */
 final class QueryAsyncSubmission {
     private static final Logger LOG = LoggerFactory.getLogger(QueryAsyncSubmission.class);
-    private final QueryDispatcher dispatcher;
+    private final QueryExecutionPort dispatcher;
     private final AsyncSubmitConfig config;
     private final ExecutorService executor;
     private final FailureHandler failureHandler;
     private final ResultHandler resultHandler;
 
-    QueryAsyncSubmission(QueryDispatcher dispatcher, AsyncSubmitConfig config, ExecutorService executor,
+    QueryAsyncSubmission(QueryExecutionPort dispatcher, AsyncSubmitConfig config, ExecutorService executor,
                          FailureHandler failureHandler, ResultHandler resultHandler) {
         this.dispatcher = dispatcher;
         this.config = config;
@@ -68,7 +68,7 @@ final class QueryAsyncSubmission {
                             context.session().traceContext().traceId(), context.session().traceContext().spanId());
                     org.pangrova.observability.logging.LogContext.setQueryId(context.queryId());
                     resultHandler.accept(context.queryId(), context.state(),
-                            dispatcher.execute(context.state(), context.sql(), context.session()));
+                            dispatcher.dispatch(context.state(), context.sql(), context.session()));
                 } catch (RuntimeException | Error failure) {
                     context.failure().set(failure);
                     LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
@@ -146,7 +146,7 @@ final class QueryAsyncSubmission {
 
     @FunctionalInterface
     interface ResultHandler {
-        void accept(String queryId, QueryStateMachine state, DispatchResult result);
+        void accept(String queryId, QueryStateMachine state, QueryDispatchOutcome result);
     }
 
     private record Context(

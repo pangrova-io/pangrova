@@ -20,7 +20,7 @@ import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
 import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.api.enums.AuthenticatorHealthStatus;
-import org.pangrova.security.auth.builtin.BypassAuthenticator;
+import org.pangrova.security.auth.BypassAuthenticator;
 import org.pangrova.security.auth.ldap.LdapAuthenticator;
 import org.pangrova.security.auth.oauth2.OAuth2Authenticator;
 

@@ -9,7 +9,7 @@ import net.jqwik.api.Tag;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 
 import java.util.ArrayList;
 import java.util.List;

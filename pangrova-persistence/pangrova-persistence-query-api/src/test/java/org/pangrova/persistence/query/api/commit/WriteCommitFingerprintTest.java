@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
@@ -115,7 +116,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null, null))
+                null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match");
     }
@@ -154,7 +155,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null, null);
+                null, null, null);
 
         binding[0] = 99;
         entry.writeOutputBinding()[0] = 88;
@@ -185,6 +186,48 @@ class WriteCommitFingerprintTest {
     }
 
     @Test
+    void cdcIdentityIsCanonicalAndBindsEverySourceCoordinate() {
+        List<byte[]> fragments = List.of(new byte[]{1});
+        CdcSourceIdentity.OffsetRange first = new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20);
+        CdcSourceIdentity.OffsetRange second = new CdcSourceIdentity.OffsetRange("orders", 1, 30, 40);
+        CdcSourceIdentity reordered = new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(second, first));
+        CdcSourceIdentity canonical = new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(first, second));
+
+        String baseline = cdcFingerprint(canonical, fragments);
+        assertThat(baseline).isEqualTo(cdcFingerprint(reordered, fragments))
+                .isNotEqualTo(fingerprint(fragments));
+        assertThat(cdcFingerprint(new CdcSourceIdentity("stream-2", "epoch-1",
+                List.of(first)), fragments)).isNotEqualTo(baseline);
+        assertThat(cdcFingerprint(new CdcSourceIdentity("stream-1", "epoch-2",
+                List.of(first)), fragments)).isNotEqualTo(baseline);
+        assertThat(cdcFingerprint(new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 10, 21))), fragments))
+                .isNotEqualTo(baseline);
+        assertThat(reordered.ranges()).containsExactly(first, second);
+    }
+
+    @Test
+    void cdcIdentityRejectsOverlappingRangesOnOnePartition() {
+        CdcSourceIdentity.OffsetRange first = new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20);
+        CdcSourceIdentity.OffsetRange overlapping = new CdcSourceIdentity.OffsetRange("orders", 0, 19, 30);
+        CdcSourceIdentity.OffsetRange adjacent = new CdcSourceIdentity.OffsetRange("orders", 0, 20, 30);
+
+        assertThatThrownBy(() -> new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(first, overlapping))).isInstanceOf(IllegalArgumentException.class);
+        assertThatCode(() -> new CdcSourceIdentity("stream-1", "epoch-1",
+                List.of(first, adjacent))).doesNotThrowAnyException();
+    }
+
+    private static String cdcFingerprint(CdcSourceIdentity cdcSource, List<byte[]> fragments) {
+        return WriteCommitFingerprint.compute(
+                new WriteCommitFingerprint.Intent("q1", "tenant-a", "iceberg", "sales.orders",
+                        "OVERWRITE", 10L, WRITE_BINDING, "alice",
+                        receipt(), null, cdcSource), fragments);
+    }
+
+    @Test
     void publicationEvidenceCannotReplaceAnExistingIdentityOrChangeFingerprint() {
         var fragments = List.of(new byte[]{1});
         String fingerprint = fingerprint(fragments);
@@ -206,7 +249,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null, null);
+                null, null, null);
         var publication = new org.pangrova.connector.api.commit.NativeWriteFinalization(
                 org.pangrova.connector.api.enums.NativeWriteCommitOutcome.COMMITTED, 11, new byte[32]);
         var published = intent.withPublication(publication);

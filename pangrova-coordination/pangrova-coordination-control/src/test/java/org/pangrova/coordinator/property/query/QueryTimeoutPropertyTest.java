@@ -12,7 +12,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.query.api.error.QueryFailure;
@@ -102,7 +102,7 @@ class QueryTimeoutPropertyTest {
                 new org.pangrova.observability.noop.NoOpTracingProvider());
         var compiler = new org.pangrova.planner.analysis.SqlCompiler();
         var scheduler = new org.pangrova.scheduler.placement.TaskScheduler(
-                new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
+                new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var orchestrator = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

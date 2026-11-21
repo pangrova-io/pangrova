@@ -19,6 +19,7 @@ enum TaskKind {
   TASK_KIND_BACKGROUND_BUILD = 5;
   TASK_KIND_BACKGROUND_VALIDATE = 6;
   TASK_KIND_BACKGROUND_EXPORT = 7;
+  TASK_KIND_CDC_INGEST = 8;
 }
 
 message PartitionValue {
@@ -106,6 +107,35 @@ message TaskRequest {
   // Table-level schema descriptors referenced by FileSplitDetail.schema_descriptor_ref.
   // Only the exact descriptor objects are deduplicated; split identity stays inline.
   repeated SchemaEvolution schema_descriptors = 21;
+  // Exact bounded CDC source range and connector write authority. Worker-local
+  // source credentials never enter this message.
+  CdcIngestBinding cdc_ingest = 22;
+}
+
+// One bounded Worker-side CDC ingest attempt. The binding is admitted once and
+// never reopened by a late source batch.
+message CdcIngestBinding {
+  string stream_id = 1;
+  string tenant_id = 2;
+  string source_ownership_epoch = 3;
+  string source_provider = 4;
+  string format_id = 5;
+  repeated CdcSourceRange ranges = 6;
+  WriteOutputBinding write = 7;
+  // Durable commit intent identity; the fingerprint binds the exact ranges,
+  // target base snapshot and fragment bytes.
+  string commit_intent_id = 8;
+  Checksum commit_identity_sha256 = 9;
+  string target_table_uuid = 10;
+  sint64 base_snapshot_id = 11;
+}
+
+message CdcSourceRange {
+  string topic = 1;
+  int32 partition = 2;
+  sint64 start_offset = 3;
+  // Exclusive upper bound.
+  sint64 end_offset = 4;
 }
 
 message WorkerLocalCopyInput {

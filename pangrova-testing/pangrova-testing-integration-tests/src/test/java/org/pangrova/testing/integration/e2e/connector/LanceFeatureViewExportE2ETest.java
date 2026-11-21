@@ -19,7 +19,7 @@ import org.pangrova.ai.control.evaluation.EvaluationRun;
 import org.pangrova.ai.control.enums.EvaluationRunState;
 import org.pangrova.ai.control.enums.EvaluationSubjectType;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

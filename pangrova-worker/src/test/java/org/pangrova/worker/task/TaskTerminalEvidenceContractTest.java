@@ -4,8 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ErrorClass;
+import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.ExecutionError;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.ResourceUsage;
+import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
@@ -88,6 +91,74 @@ class TaskTerminalEvidenceContractTest {
         var cancelled = base.setState(TaskState.TASK_STATE_CANCELLED).setError(error).build();
         assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, cancelled.toByteArray()))
                 .isEqualTo(cancelled);
+    }
+
+    @Test
+    void workerExecutedCdcReportRequiresTheExactJvmCompletionReceipt() {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true).toBuilder()
+                .setTaskKind(TaskKind.TASK_KIND_CDC_INGEST).build();
+        var valid = TaskReport.newBuilder().setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
+                .build();
+
+        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, valid.toByteArray()))
+                .isEqualTo(valid);
+        var rejected = new TaskReport[] {
+                valid.toBuilder().setAttempt(request.getAttempt().toBuilder()
+                        .setTaskId("other-task")).build(),
+                valid.toBuilder().setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE).build(),
+                valid.toBuilder().setExecutionDrainState(
+                        ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build(),
+                valid.toBuilder().setState(TaskState.TASK_STATE_FAILED).build(),
+                valid.toBuilder().setNativeTaskStats(NativeTaskStats.getDefaultInstance()).build()
+        };
+        for (var report : rejected) {
+            assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+                    request, report.toByteArray()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("JVM completion authority");
+        }
+    }
+
+    @Test
+    void workerExecutedCdcFailureRequiresTheNoNativeOwnerReceipt() {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true).toBuilder()
+                .setTaskKind(TaskKind.TASK_KIND_CDC_INGEST).build();
+        var error = ExecutionError.newBuilder()
+                .setErrorClass(ErrorClass.ERROR_CLASS_INTERNAL)
+                .setCode("CDC_INGEST_FAILED").setMessage("source unavailable")
+                .setFailedComponent("worker-cdc").build();
+        var valid = TaskReport.newBuilder().setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FAILED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED)
+                .setExecutionDrainState(
+                        ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
+                .setError(error).build();
+
+        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, valid.toByteArray()))
+                .isEqualTo(valid);
+        var wrongDrain = valid.toBuilder().setExecutionDrainState(
+                ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED).build();
+        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+                request, wrongDrain.toByteArray()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JVM completion authority");
+    }
+
+    @Test
+    void nativeTaskRejectsWorkerExecutedSuccessReceipt() {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true);
+        var forged = TaskReport.newBuilder().setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
+                .build();
+        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+                request, forged.toByteArray()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("terminal task authority");
     }
 
     @Test

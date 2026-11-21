@@ -75,6 +75,23 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void acceptsWorkerExecutedCdcCompletionReceipt() {
+        SubmitTaskRequest request = request("CDC_INGEST", List.of());
+        TaskReport status = TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setExecutionDrainState(org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
+                .setCoverage(completeCoverage())
+                .build();
+
+        assertThat(validator.validate(report(request, status), request))
+                .contains(status);
+    }
+
+    @Test
     void rejectsAReportFromAnotherPhysicalWorkerIncarnation() {
         var physical = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
                 "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
@@ -646,6 +663,7 @@ class CanonicalTaskReportValidatorTest {
             case "BACKGROUND_BUILD" -> TaskKind.TASK_KIND_BACKGROUND_BUILD;
             case "BACKGROUND_EXPORT" -> TaskKind.TASK_KIND_BACKGROUND_EXPORT;
             case "WRITE" -> TaskKind.TASK_KIND_WRITE;
+            case "CDC_INGEST" -> TaskKind.TASK_KIND_CDC_INGEST;
             default -> TaskKind.TASK_KIND_READ;
         };
         TaskRequest canonical = TaskRequest.newBuilder()
@@ -697,6 +715,7 @@ class CanonicalTaskReportValidatorTest {
             case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
             case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
             case TASK_KIND_WRITE -> "WRITE";
+            case TASK_KIND_CDC_INGEST -> "CDC_INGEST";
             default -> "COMPUTE";
         };
     }

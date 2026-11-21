@@ -44,13 +44,44 @@ public final class GeneratedMutationFixture {
     public static LogicalTableModify plan(String sql) { return plan(sql, definition(), false); }
 
     public static LogicalTableModify plan(String sql, GeneratedColumnDefinition definition, boolean ast) {
+        var planner = planner(definition);
+        return (LogicalTableModify) (ast ? planner.planFromAst(new AntlrSqlParser().parse(sql)) : planner.plan(sql)).plan();
+    }
+
+    /** Compiles a query against the generated-column fixture and serializes it for hint assertions. */
+    public static org.pangrova.planner.analysis.SqlCompiler queryCompiler(
+            GeneratedColumnDefinition definition) {
+        return new org.pangrova.planner.analysis.SqlCompiler(planner(definition),
+                new org.pangrova.planner.substrait.SubstraitConverter(),
+                new org.pangrova.planner.substrait.SubstraitPlanSerializer());
+    }
+
+    /** Compiles a query against the same table shape without generated-column metadata. */
+    public static org.pangrova.planner.analysis.SqlCompiler queryCompilerWithoutAutoEmbedding() {
+        var root = root();
+        var schema = root.getSubSchema("catalog", true).getSubSchema("schema", true);
+        schema.add("documents", new DeclaredTable(new ConnectorTableMetadata(
+                new SchemaTableName("schema", "documents"),
+                List.of("id", "tenant", "title", "body", "vector"), columns(), Map.of())));
+        return new org.pangrova.planner.analysis.SqlCompiler(
+                new PangrovaPlanner(root, List.of("catalog", "schema")),
+                new org.pangrova.planner.substrait.SubstraitConverter(),
+                new org.pangrova.planner.substrait.SubstraitPlanSerializer());
+    }
+
+    private static PangrovaPlanner planner(GeneratedColumnDefinition definition) {
+        var root = root();
+        var schema = root.getSubSchema("catalog", true).getSubSchema("schema", true);
+        schema.add("documents", new DeclaredTable(metadata(definition)));
+        return new PangrovaPlanner(root, List.of("catalog", "schema"));
+    }
+
+    private static CalciteSchema root() {
         var root = CalciteSchema.createRootSchema(false);
         var schema = root.add("catalog", new AbstractSchema()).add("schema", new AbstractSchema());
-        schema.add("documents", new DeclaredTable(metadata(definition)));
         schema.add("source_rows", new DeclaredTable(new ConnectorTableMetadata(new SchemaTableName("schema", "source_rows"),
                 List.of("id", "tenant", "title", "body"), columns().subList(0, 4), Map.of())));
-        var planner = new PangrovaPlanner(root, List.of("catalog", "schema"));
-        return (LogicalTableModify) (ast ? planner.planFromAst(new AntlrSqlParser().parse(sql)) : planner.plan(sql)).plan();
+        return root;
     }
 
     public static ConnectorTableMetadata metadata(GeneratedColumnDefinition definition) {

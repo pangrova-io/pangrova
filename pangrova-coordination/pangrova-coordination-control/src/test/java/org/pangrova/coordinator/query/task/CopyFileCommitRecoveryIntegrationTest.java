@@ -122,7 +122,7 @@ class CopyFileCommitRecoveryIntegrationTest {
             WriteCommitEntry intent = new WriteCommitEntry(EXECUTION, "lake", "db.items",
                     WriteCommitState.PENDING, 1_000L, fragments, "INSERT", fingerprint,
                     "tenant-a", "alice", receipt, baseSnapshot, binding, fingerprint,
-                    null, null, 0L, null, claim.commitBinding());
+                    null, null, 0L, null, claim.commitBinding(), null);
             journal.recordIntent(intent);
 
             // The catalog commit succeeds, then the coordinator dies before writing

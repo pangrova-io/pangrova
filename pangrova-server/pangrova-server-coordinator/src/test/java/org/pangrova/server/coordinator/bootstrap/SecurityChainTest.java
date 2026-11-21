@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.transport.http.client.HttpClientFactory;
@@ -302,11 +303,11 @@ class SecurityChainTest extends ContainerTestBase {
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.noop.NoOpTracingProvider()),
                 new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
+                        new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 workerManager, taskTracker, null, null, null, 0L));
         var orchestrator = new org.pangrova.coordinator.query.execution.QueryDispatcher(
                 deps, null, null);
-        var queryManager = new org.pangrova.coordinator.query.QueryManager(
+        var queryManager = new org.pangrova.query.runtime.QueryManager(
                 org.pangrova.coordinator.testinfra.QueryManagerTestContexts.minimal(
                         orchestrator, new org.pangrova.observability.noop.NoOpTracingProvider()));
         var receiver = new org.pangrova.coordinator.query.task.TaskStatusReceiver(

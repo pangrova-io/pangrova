@@ -219,6 +219,11 @@ public final class WorkerBootstrap {
         return refs.resultServerPort();
     }
 
+    /** Worker-local catalog resolver installed before task startup. */
+    public org.pangrova.worker.catalog.CatalogResourceResolver catalogResourceResolver() {
+        return refs.catalogResourceResolver();
+    }
+
     public TaskManager getTaskManager() {
         return refs.taskManager();
     }
@@ -238,6 +243,21 @@ public final class WorkerBootstrap {
                 throw new IllegalStateException("Worker CDC consumer already installed");
             }
             refs.setCdcConsumer(consumer);
+        } finally {
+            lifecycle.configured();
+        }
+    }
+
+    /** Installs the exact Worker-JVM execution backend before task manager startup. */
+    public void setWorkerExecutedTaskBackend(
+            org.pangrova.worker.execution.WorkerExecutedTaskBackend backend) {
+        lifecycle.beginConfiguration();
+        try {
+            if (refs.workerExecutedTaskBackend() != null) {
+                throw new IllegalStateException("Worker-executed task backend already installed");
+            }
+            refs.setWorkerExecutedTaskBackend(
+                    checkNotNull(backend, "backend must not be null"));
         } finally {
             lifecycle.configured();
         }

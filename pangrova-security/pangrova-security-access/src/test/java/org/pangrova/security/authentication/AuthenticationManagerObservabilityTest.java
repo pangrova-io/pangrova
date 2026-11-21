@@ -13,7 +13,7 @@ import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
 import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.api.enums.AuthenticatorHealthStatus;
-import org.pangrova.security.auth.builtin.BypassAuthenticator;
+import org.pangrova.security.auth.BypassAuthenticator;
 
 /**
  * Validates: Requirements 2.54 — Auth failure observability and degradation strategy.

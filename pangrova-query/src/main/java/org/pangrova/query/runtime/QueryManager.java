@@ -1,4 +1,4 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.query.runtime;
 
 import org.pangrova.query.retention.QueryRetentionScheduler;
 
@@ -28,14 +28,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.query.api.retention.ReaderPinLifecycle;
 import org.pangrova.query.retention.ReaderPinRenewal;
-import org.pangrova.execution.task.DispatchResult;
+import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.tracing.Span;
@@ -47,7 +45,6 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.logging.LogContext;
-import org.pangrova.security.tenant.TenantQueryGuard;
 
 @ThreadSafe
 public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler,
@@ -59,19 +56,18 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
     private final QueryRegistry queries = new QueryRegistry();
     private final QueryTerminalCleanup terminalCleanup;
-    private final QueryAdmission admission;
-    @javax.annotation.concurrent.GuardedBy("itself")
+    private final org.pangrova.query.lifecycle.QueryAdmissionPort admission;
     private final ReentrantReadWriteLock queryLifecycleLock = new ReentrantReadWriteLock();
-    private final QueryDispatcher queryDispatcher;
+    private final org.pangrova.query.lifecycle.QueryExecutionPort queryDispatcher;
     private final TracingProvider tracingProvider;
     private final ExecutionTraceContextFactory traceContexts;
-    private final TenantQueryGuard tenantGuard;
+    private final org.pangrova.query.lifecycle.TenantAdmissionPort tenantAdmission;
     private final QueryRetentionScheduler cleanupScheduler;
-    private final QueryAuditDispatcher auditBridge;
+    private final org.pangrova.query.lifecycle.QueryAuditPort auditBridge;
     private final LongCounter querySubmitCounter;
     private final QueryTerminalEvents terminalEvents;
     private volatile boolean draining;
-    private final QueryJournalLifecycle journalLifecycle;
+    private final org.pangrova.query.lifecycle.QueryJournalLifecyclePort journalLifecycle;
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
     private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
@@ -86,11 +82,13 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this(deps, readerPins, System::nanoTime);
     }
 
-    QueryManager(QueryManagerContext deps, LongSupplier nanoClock) {
+    /** Creates a manager with an injected monotonic clock and no reader-pin owner. */
+    public QueryManager(QueryManagerContext deps, LongSupplier nanoClock) {
         this(deps, Optional.empty(), nanoClock);
     }
 
-    QueryManager(QueryManagerContext deps, Optional<ReaderPinLifecycle> readerPins, LongSupplier nanoClock) {
+    /** Creates a manager with the exact reader-pin owner and monotonic clock. */
+    public QueryManager(QueryManagerContext deps, Optional<ReaderPinLifecycle> readerPins, LongSupplier nanoClock) {
         java.util.Objects.requireNonNull(nanoClock, "nanoClock");
         this.readerPinLifecycle = java.util.Objects.requireNonNull(readerPins, "readerPins");
         this.readerPinRenewal = readerPins.map(lifecycle ->
@@ -98,7 +96,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.queryDispatcher = java.util.Objects.requireNonNull(deps.queryDispatcher(), "queryDispatcher");
         this.tracingProvider = deps.tracingProvider();
         this.traceContexts = deps.traceContexts();
-        this.tenantGuard = QueryAdmission.tenantGuard(deps, queries.states());
+        this.tenantAdmission = deps.tenantAdmission();
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, nanoClock);
@@ -106,12 +104,9 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions);
-        this.auditBridge = new QueryAuditDispatcher(
-                QueryAuditDispatcher.createAuditEmitter(deps.auditEmitter(), deps.queryAuditService()),
-                deps.lineageEmitter(),
-                deps.queryDispatcher(), deps.eventDispatcher());
-        this.admission = new QueryAdmission(deps.resilienceRegistry(), deps.throttlingService());
-        this.journalLifecycle = new QueryJournalLifecycle(deps.stateJournal(), auditBridge);
+        this.auditBridge = java.util.Objects.requireNonNull(deps.audit(), "audit");
+        this.admission = java.util.Objects.requireNonNull(deps.admission(), "admission");
+        this.journalLifecycle = deps.journal();
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
@@ -238,9 +233,9 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             return executeQueryAsync(queryId, sql, enriched, sm);
         }
 
-        DispatchResult result;
+        QueryDispatchOutcome result;
         try {
-            result = queryDispatcher.execute(sm, sql, enriched);
+            result = queryDispatcher.dispatch(sm, sql, enriched);
         } catch (RuntimeException failure) {
             failQuery(queryId, new QueryFailure(
                     "INTERNAL_ERROR", failure.getClass().getSimpleName(),
@@ -293,7 +288,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         journalLifecycle.registerListener(queryId, sm);
     }
 
-    private void applyDispatchResult(String queryId, QueryStateMachine sm, DispatchResult result) {
+    private void applyDispatchResult(String queryId, QueryStateMachine sm, QueryDispatchOutcome result) {
         if (result != null) {
             sm.setResultEndpoint(result.resultEndpoint());
         }
@@ -303,8 +298,8 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     }
 
     private QuerySession enrichWithTenant(QuerySession session) {
-        String tenantId = tenantGuard != null
-                ? tenantGuard.checkAndResolve(session.userIdentity())
+        String tenantId = tenantAdmission != null
+                ? tenantAdmission.resolveTenant(session.userIdentity(), queries.states())
                 : (session.tenantId() != null && !session.tenantId().isBlank()
                         ? session.tenantId() : "default");
         return session.withTenantId(tenantId);
@@ -372,7 +367,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         }
         var operation = queryDispatcher.enterQueryMetadataOperation(queryId);
         try {
-            if (journalLifecycle.journal().latestQueryEvent(queryId).isPresent()) sm.retainJournalOwnership();
+            if (journalLifecycle.hasLatestEvent(queryId)) sm.retainJournalOwnership();
             if (sm.isTerminal()) sm.claimTerminalEffects();
         } finally {
             operation.close();
@@ -385,8 +380,8 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         queryDispatcher.markRecoveredIssuanceUnresolved(queryId);
     }
 
-    public QueryStateJournal getStateJournal() {
-        return journalLifecycle.journal();
+    public org.pangrova.query.lifecycle.QueryStateJournalPort getStateJournal() {
+        return journalLifecycle;
     }
 
     public int getActiveQueryCount() {
@@ -490,10 +485,10 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
     /** Advances exact-attempt seals even when their query is still running. */
     public void retryPendingTaskCancellations() {
-        queryDispatcher.cancelRetrier().retryPendingCancels();
+        queryDispatcher.retryPendingCancels();
     }
 
-    void retryPendingTerminalCompletions() {
+    public void retryPendingTerminalCompletions() {
         readerPinRenewal.ifPresent(ReaderPinRenewal::renewDue);
         terminalCleanup.retryPending();
     }
@@ -551,7 +546,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     }
 
     private static QuerySubmissionResult buildResponse(
-            String queryId, QueryStateMachine sm, DispatchResult result, List<String> columnNames) {
+            String queryId, QueryStateMachine sm, QueryDispatchOutcome result, List<String> columnNames) {
         var endpoint = (result != null)
                 ? result.resultEndpoint()
                 : sm.getResultEndpoint().orElse(null);

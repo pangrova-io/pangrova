@@ -1,4 +1,4 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.query.runtime;
 
 import org.pangrova.query.lifecycle.QueryTerminalCleanup;
 
@@ -12,12 +12,13 @@ import org.slf4j.LoggerFactory;
 /** Emits logical terminal telemetry once; no event constitutes physical cleanup evidence. */
 final class QueryTerminalEvents {
     private static final Logger LOG = LoggerFactory.getLogger(QueryTerminalEvents.class);
-    private final QueryAuditDispatcher audit;
-    private final QueryAdmission admission;
+    private final org.pangrova.query.lifecycle.QueryAuditPort audit;
+    private final org.pangrova.query.lifecycle.QueryAdmissionPort admission;
     private final LongCounter completed;
     private final LongCounter failed;
 
-    QueryTerminalEvents(QueryAuditDispatcher audit, QueryAdmission admission,
+    QueryTerminalEvents(org.pangrova.query.lifecycle.QueryAuditPort audit,
+            org.pangrova.query.lifecycle.QueryAdmissionPort admission,
             LongCounter completed, LongCounter failed) {
         this.audit = audit;
         this.admission = admission;

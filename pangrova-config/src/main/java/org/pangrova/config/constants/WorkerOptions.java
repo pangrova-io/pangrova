@@ -407,6 +407,13 @@ public final class WorkerOptions {
             .withDescription("Enable CDC (Change Data Capture) processing on this worker")
             .build();
 
+    public static final ConfigOption<String> CDC_KAFKA_BOOTSTRAP_SERVERS =
+            ConfigOptions.key("worker.cdc.kafka.bootstrap-servers")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Kafka bootstrap servers for Worker-side bounded CDC ingestion")
+            .build();
+
     public static final ConfigOption<Boolean> SECURITY_ENABLED = CommonOptions.SECURITY_ENABLED;
 
     // ---- AI invocation governance ----

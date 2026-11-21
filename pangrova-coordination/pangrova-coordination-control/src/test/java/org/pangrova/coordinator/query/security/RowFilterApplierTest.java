@@ -6,7 +6,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;

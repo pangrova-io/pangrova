@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -140,7 +141,7 @@ class QueryManagerCleanupTest {
         org.pangrova.planner.analysis.SqlCompiler compiler = new org.pangrova.planner.analysis.SqlCompiler();
         org.pangrova.scheduler.placement.TaskScheduler scheduler =
                 new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
+                        new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

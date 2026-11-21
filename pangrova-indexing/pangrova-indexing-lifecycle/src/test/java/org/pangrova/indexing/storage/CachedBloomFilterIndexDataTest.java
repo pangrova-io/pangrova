@@ -1,7 +1,7 @@
 package org.pangrova.indexing.storage;
 
-import org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData;
-import org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider;
+import org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData;
+import org.pangrova.indexing.strategies.bloom.provider.BloomFilterStrategyProvider;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.api.enums.IndexType;

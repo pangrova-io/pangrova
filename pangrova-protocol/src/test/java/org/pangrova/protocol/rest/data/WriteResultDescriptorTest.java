@@ -10,12 +10,12 @@ class WriteResultDescriptorTest {
     @Test
     void metadataOwnershipSurvivesInputAndAccessorMutation() {
         byte[] bytes = {1, 2, 3};
-        var result = new WriteResultDescriptor(List.of(), 0, 0, bytes);
+        var result = new WriteResultDescriptor(List.of(), 0, 0, bytes, java.util.List.of());
         int hash = result.hashCode();
         bytes[0] = 8;
         result.commitMetadata()[1] = 9;
         assertThat(result.commitMetadata()).containsExactly(1, 2, 3);
         assertThat(result.hashCode()).isEqualTo(hash);
-        assertThat(result).isEqualTo(new WriteResultDescriptor(List.of(), 0, 0, new byte[] {1, 2, 3}));
+        assertThat(result).isEqualTo(new WriteResultDescriptor(List.of(), 0, 0, new byte[] {1, 2, 3}, java.util.List.of()));
     }
 }

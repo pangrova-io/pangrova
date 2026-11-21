@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -20,7 +22,7 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.query.api.error.QueryFailure;
@@ -62,8 +64,15 @@ class QueryAdmissionCircuitBreakerTest {
         QueryDispatcher dispatcher = buildDispatcher();
         QueryManagerContext ctx = new QueryManagerContext(
                 dispatcher, TestObservability.TRACING,
-                null, null, null, null, null, null,
-                resilienceRegistry, null, new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(
+                        resilienceRegistry, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                        null, null, null, dispatcher, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         queryManager = new QueryManager(ctx);
     }
 

@@ -82,7 +82,7 @@ artifacts:
 
   pangrova-materialization-strategies-builtin:
     path: pangrova-materialization/pangrova-materialization-strategies-builtin
-    moduleName: org.pangrova.materialization.strategies.builtin
+    moduleName: org.pangrova.materialization.strategy
     packageRoots: [org.pangrova.materialization.strategy]
     exports: [org.pangrova.materialization.strategy]
     allowedImports: [pangrova-common, pangrova-materialization-api, pangrova-connector-api]
@@ -162,8 +162,8 @@ artifacts:
   pangrova-query:
     path: pangrova-query
     moduleName: org.pangrova.query
-    packageRoots: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
-    exports: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
+    packageRoots: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
+    exports: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
     allowedImports: [pangrova-governance-api, pangrova-execution-api, pangrova-parser, pangrova-connector-api, pangrova-common, pangrova-transport-http, pangrova-security-api, pangrova-scheduler-api, pangrova-types, pangrova-observability-api]
     forbiddenImports: [pangrova-coordination-control, pangrova-worker, pangrova-metadata-catalog, pangrova-planner, pangrova-observability-sdk, pangrova-persistence-generation-postgresql, pangrova-persistence-query-postgresql, pangrova-persistence-query-memory, pangrova-persistence-table-postgresql, pangrova-persistence-table-memory, pangrova-persistence-file-postgresql]
     providers: {}
@@ -503,9 +503,9 @@ artifacts:
   pangrova-streaming-pipeline:
     path: pangrova-streaming/pangrova-streaming-pipeline
     moduleName: org.pangrova.streaming.pipeline
-    packageRoots: [org.pangrova.streaming.enums, org.pangrova.streaming.exception, org.pangrova.streaming.aggregation, org.pangrova.streaming.cdc, org.pangrova.streaming.commit, org.pangrova.streaming.coordinator, org.pangrova.streaming.maintenance, org.pangrova.streaming.pipeline, org.pangrova.streaming.query, org.pangrova.streaming.watermark]
+    packageRoots: [org.pangrova.streaming.enums, org.pangrova.streaming.exception, org.pangrova.streaming.aggregation, org.pangrova.streaming.cdc, org.pangrova.streaming.commit, org.pangrova.streaming.coordinator, org.pangrova.streaming.maintenance, org.pangrova.streaming.pipeline, org.pangrova.streaming.watermark]
     testPackageRoots: [org.pangrova.streaming.property]
-    exports: [org.pangrova.streaming.enums, org.pangrova.streaming.exception, org.pangrova.streaming.aggregation, org.pangrova.streaming.cdc, org.pangrova.streaming.commit, org.pangrova.streaming.coordinator, org.pangrova.streaming.maintenance, org.pangrova.streaming.pipeline, org.pangrova.streaming.query, org.pangrova.streaming.watermark]
+    exports: [org.pangrova.streaming.enums, org.pangrova.streaming.exception, org.pangrova.streaming.aggregation, org.pangrova.streaming.cdc, org.pangrova.streaming.commit, org.pangrova.streaming.coordinator, org.pangrova.streaming.maintenance, org.pangrova.streaming.pipeline, org.pangrova.streaming.watermark]
     allowedImports: [pangrova-streaming-api, pangrova-common, pangrova-types, pangrova-batch, pangrova-parser, pangrova-observability-api, pangrova-connector-api]
     forbiddenImports: [pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-persistence-streaming-postgresql, pangrova-coordination-control, pangrova-worker]
     providers: {}
@@ -521,9 +521,18 @@ artifacts:
       org.pangrova.streaming.api.source.CdcSourceFactory:
         - org.pangrova.streaming.source.kafka.KafkaCdcSourceFactory
 
+  pangrova-streaming-worker:
+    path: pangrova-streaming/pangrova-streaming-worker
+    moduleName: org.pangrova.streaming.worker
+    packageRoots: [org.pangrova.streaming.worker]
+    exports: [org.pangrova.streaming.worker]
+    allowedImports: [pangrova-worker, pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-protocol, pangrova-common, pangrova-batch, pangrova-types, pangrova-connector-api, pangrova-observability-api]
+    forbiddenImports: [pangrova-coordination-control, pangrova-planner, pangrova-metadata-catalog, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-persistence-streaming-postgresql]
+    providers: {}
+
   pangrova-streaming-formats-builtin:
     path: pangrova-streaming/pangrova-streaming-formats-builtin
-    moduleName: org.pangrova.streaming.formats.builtin
+    moduleName: org.pangrova.streaming.format
     packageRoots: [org.pangrova.streaming.format]
     exports: [org.pangrova.streaming.format]
     allowedImports: [pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-common]
@@ -792,7 +801,7 @@ artifacts:
     moduleName: org.pangrova.server.worker
     packageRoots: [org.pangrova.server.worker]
     exports: [org.pangrova.server.worker]
-    allowedImports: [pangrova-server-bootstrap, pangrova-worker, pangrova-config, pangrova-observability-sdk, pangrova-shuffle-api, pangrova-security-access]
+    allowedImports: [pangrova-server-bootstrap, pangrova-worker, pangrova-config, pangrova-observability-sdk, pangrova-shuffle-api, pangrova-security-access, pangrova-protocol, pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-streaming-worker, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin]
     forbiddenImports: [pangrova-coordination-control, pangrova-server-coordinator, pangrova-planner]
     providers: {}
 
@@ -827,8 +836,8 @@ artifacts:
   pangrova-observability-api:
     path: pangrova-observability/pangrova-observability-api
     moduleName: org.pangrova.observability.api
-    packageRoots: [org.pangrova.observability.api]
-    exports: [org.pangrova.observability.api]
+    packageRoots: [org.pangrova.observability.api, org.pangrova.observability.logging]
+    exports: [org.pangrova.observability.api, org.pangrova.observability.logging]
     allowedImports: [pangrova-common]
     forbiddenImports: [pangrova-query, pangrova-observability-sdk, pangrova-coordination-control, pangrova-worker, pangrova-planner]
     providers: {}
@@ -836,8 +845,8 @@ artifacts:
   pangrova-observability-instrumentation:
     path: pangrova-observability/pangrova-observability-instrumentation
     moduleName: org.pangrova.observability.instrumentation
-    packageRoots: [org.pangrova.observability.logging, org.pangrova.observability.metrics, org.pangrova.observability.profiling]
-    exports: [org.pangrova.observability.logging, org.pangrova.observability.metrics, org.pangrova.observability.profiling]
+    packageRoots: [org.pangrova.observability.metrics, org.pangrova.observability.profiling]
+    exports: [org.pangrova.observability.metrics, org.pangrova.observability.profiling]
     allowedImports: [pangrova-common, pangrova-observability-api]
     forbiddenImports: [pangrova-query, pangrova-observability-sdk, pangrova-coordination-control, pangrova-worker, pangrova-planner]
     providers: {}
@@ -862,14 +871,14 @@ artifacts:
 
   pangrova-scheduler-strategies-builtin:
     path: pangrova-scheduler/pangrova-scheduler-strategies-builtin
-    moduleName: org.pangrova.scheduler.strategies.builtin
-    packageRoots: [org.pangrova.scheduler.builtin]
-    exports: [org.pangrova.scheduler.builtin]
+    moduleName: org.pangrova.scheduler.strategies
+    packageRoots: [org.pangrova.scheduler.strategies]
+    exports: [org.pangrova.scheduler.strategies]
     allowedImports: [pangrova-scheduler-api]
     forbiddenImports: [pangrova-scheduler-policy, pangrova-protocol, pangrova-security-access, pangrova-coordination-control, pangrova-worker]
     providers:
       org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory:
-        - org.pangrova.scheduler.builtin.placement.LoadBalancedStrategyFactory
+        - org.pangrova.scheduler.strategies.placement.LoadBalancedStrategyFactory
 
   pangrova-connector-api:
     path: pangrova-connector/pangrova-connector-api
@@ -909,9 +918,9 @@ artifacts:
 
   pangrova-security-policy-builtin:
     path: pangrova-security/pangrova-security-policy-builtin
-    moduleName: org.pangrova.security.policy.builtin
-    packageRoots: [org.pangrova.security.policy.builtin]
-    exports: [org.pangrova.security.policy.builtin]
+    moduleName: org.pangrova.security.policy
+    packageRoots: [org.pangrova.security.policy]
+    exports: [org.pangrova.security.policy]
     allowedImports: [pangrova-common, pangrova-persistence-security-api, pangrova-security-api, pangrova-file]
     forbiddenImports: [pangrova-security-access, pangrova-coordination-control, pangrova-worker]
     providers: {}
@@ -928,14 +937,14 @@ artifacts:
 
   pangrova-security-auth-builtin:
     path: pangrova-security/pangrova-security-auth-builtin
-    moduleName: org.pangrova.security.auth.builtin
-    packageRoots: [org.pangrova.security.auth.builtin]
-    exports: [org.pangrova.security.auth.builtin]
+    moduleName: org.pangrova.security.auth
+    packageRoots: [org.pangrova.security.auth]
+    exports: [org.pangrova.security.auth]
     allowedImports: [pangrova-security-api]
     forbiddenImports: [pangrova-security-access, pangrova-coordination-control, pangrova-worker]
     providers:
       org.pangrova.security.api.authentication.AuthenticatorFactory:
-        - org.pangrova.security.auth.builtin.BypassAuthenticatorFactory
+        - org.pangrova.security.auth.BypassAuthenticatorFactory
 
   pangrova-security-secret-env:
     path: pangrova-security/pangrova-security-secret-env
@@ -1053,22 +1062,22 @@ artifacts:
 
   pangrova-indexing-strategies-builtin:
     path: pangrova-indexing/pangrova-indexing-strategies-builtin
-    moduleName: org.pangrova.indexing.builtin
-    packageRoots: [org.pangrova.indexing.builtin]
-    exports: [org.pangrova.indexing.builtin]
+    moduleName: org.pangrova.indexing.strategies
+    packageRoots: [org.pangrova.indexing.strategies]
+    exports: [org.pangrova.indexing.strategies]
     allowedImports: [pangrova-common, pangrova-connector-api, pangrova-indexing-api, pangrova-indexing-codec]
     forbiddenImports: [pangrova-indexing-lifecycle, pangrova-coordination-control, pangrova-worker, pangrova-planner, pangrova-persistence-generation-postgresql]
     providers:
       org.pangrova.indexing.api.strategy.IndexStrategyProvider:
-        - org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider
-        - org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider
-        - org.pangrova.indexing.builtin.gin.provider.GinStrategyProvider
-        - org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider
-        - org.pangrova.indexing.builtin.ngram.provider.NGramBloomStrategyProvider
-        - org.pangrova.indexing.builtin.prefix.provider.PrefixStrategyProvider
-        - org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider
-        - org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider
-        - org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider
+        - org.pangrova.indexing.strategies.bloom.provider.BloomFilterStrategyProvider
+        - org.pangrova.indexing.strategies.btree.provider.BTreeStrategyProvider
+        - org.pangrova.indexing.strategies.gin.provider.GinStrategyProvider
+        - org.pangrova.indexing.strategies.hash.provider.HashStrategyProvider
+        - org.pangrova.indexing.strategies.ngram.provider.NGramBloomStrategyProvider
+        - org.pangrova.indexing.strategies.prefix.provider.PrefixStrategyProvider
+        - org.pangrova.indexing.strategies.rtree.provider.RTreeStrategyProvider
+        - org.pangrova.indexing.strategies.sparse.provider.SparseStrategyProvider
+        - org.pangrova.indexing.strategies.bitmap.provider.BitmapStrategyProvider
 
   pangrova-shuffle-api:
     path: pangrova-shuffle/pangrova-shuffle-api

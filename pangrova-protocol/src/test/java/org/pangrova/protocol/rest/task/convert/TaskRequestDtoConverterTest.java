@@ -68,6 +68,20 @@ class TaskRequestDtoConverterTest {
     }
 
     @Test
+    void cdcIngestProjectsToItsWorkerTaskTypeWithoutAPlan() {
+        var canonical = CanonicalTaskRequestTestFixture.builder(
+                "task-cdc", "q-cdc", TaskKind.TASK_KIND_CDC_INGEST, new byte[0]).build();
+
+        TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(
+                SubmitTaskRequest.from(canonical));
+
+        assertThat(descriptor.taskType()).isEqualTo("CDC_INGEST");
+        assertThat(descriptor.splits()).isEmpty();
+        assertThat(((TaskRequestDtoConverter.SerializedPlanFragment)
+                descriptor.planFragment()).planBytes()).isEmpty();
+    }
+
+    @Test
     void toResourceLimitMapsCanonicalGrantAndNeverAcceptsCoordinatorPath() {
         TaskResourceLimit result = TaskRequestDtoConverter.toResourceLimit(
                 grant(4096, 8, 8192));
