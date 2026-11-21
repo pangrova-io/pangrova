@@ -39,9 +39,15 @@ jobs:
 
 
           def summarize(jobs):
-              rows = {"Failing jobs": [], "Report failures": [], "Aggregate check": []}
+              rows = {"Failing jobs": [], "Incomplete jobs": [], "Report failures": [], "Aggregate check": []}
               for job in jobs:
-                  if job.get("conclusion") != "failure":
+                  conclusion = job.get("conclusion")
+                  if conclusion in {"cancelled", "timed_out", "startup_failure", "action_required", "stale"}:
+                      rows["Incomplete jobs"].append((
+                          int(job["id"]), safe_label(job["name"]), conclusion.replace("_", " ")
+                      ))
+                      continue
+                  if conclusion != "failure":
                       continue
                   name = safe_label(job["name"])
                   job_id = int(job["id"])
@@ -51,18 +57,24 @@ jobs:
                   )
                   if name == "Validation result":
                       rows["Aggregate check"].extend(
-                          (job_id, name, step) for step in (failed or [None])
+                          (job_id, name, step_detail(step)) for step in (failed or [None])
                       )
                       continue
                   primary = None
                   for step in failed:
                       if step["name"] == "Publish native test report":
-                          rows["Report failures"].append((job_id, name, step))
+                          rows["Report failures"].append((job_id, name, step_detail(step)))
                       elif primary is None:
                           primary = step
                   if primary is not None or not failed:
-                      rows["Failing jobs"].append((job_id, name, primary))
+                      rows["Failing jobs"].append((job_id, name, step_detail(primary)))
               return rows
+
+
+          def step_detail(step):
+              if step is None:
+                  return "no failed step reported"
+              return f"step {int(step['number'])}: {safe_label(step['name'])}"
 
 
           def main():
@@ -110,11 +122,7 @@ jobs:
                   lines += ["", f"## {title}"]
                   if not rows:
                       lines.append("None in the retrieved job metadata.")
-                  for job_id, name, step in rows:
-                      detail = (
-                          f"step {int(step['number'])}: {safe_label(step['name'])}"
-                          if step else "no failed step reported"
-                      )
+                  for job_id, name, detail in rows:
                       lines.append(f"- [{name}]({base}/job/{job_id}): {detail}")
               with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
                   summary.write("\n".join(lines) + "\n")
