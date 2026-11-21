@@ -634,7 +634,14 @@ build_velox() {
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
-    [[ -n "$OPENSSL_PREFIX" ]] && velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    if [[ -n "$OPENSSL_PREFIX" ]]; then
+      velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+      velox_prefix_path+=";$OPENSSL_PREFIX"
+      # Arrow's ExternalProject sub-builds do not inherit -D flags; the
+      # environment is what keeps their find_package(OpenSSL) on openssl@3
+      # instead of Homebrew's default openssl@4.
+      export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
+    fi
     [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
