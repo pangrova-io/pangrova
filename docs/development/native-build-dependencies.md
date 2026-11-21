@@ -102,6 +102,12 @@ The bootstrap enforces four dependency contracts.
 
 ## Sanitizer Dependency Chain
 
+UBSan suppresses alignment reports only for pinned third-party symbols
+(`pangrova-worker-native/ubsan-suppressions.txt`: Folly's SpookyHash and
+Arrow's binary-array offset accessors, which read packed buffers by design).
+Pangrova translation units keep the full alignment check; the list is
+re-audited on dependency bumps.
+
 AddressSanitizer needs matching instrumentation across the runtime and the
 libraries whose headers participate in its memory access. The
 [LLVM ASan guide](https://clang.llvm.org/docs/AddressSanitizer.html) requires
