@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "specifications": {
+    "tpch": "3.0.1",
+    "tpcds": "4.0.0"
+  },
+  "classification": "tpc-derived-engineering",
+  "note": "Pinned community tool sources; not the current official tool releases. Official certification requires version-aligned official archives and a separate audit.",
+  "tools": {
+    "tpch": {
+      "url": "https://codeload.github.com/electrum/tpch-dbgen/tar.gz/32f1c1b92d1664dba542e927d23d86ffa57aa253",
+      "commit": "32f1c1b92d1664dba542e927d23d86ffa57aa253",
+      "sha256": "01d8a4fa0fff4be83a9f43dbdc5a69f560d34f5ff0b4dbff1fc3a5320baf6318",
+      "version": "2.14.0"
+    },
+    "tpcds": {
+      "url": "https://codeload.github.com/gregrahn/tpcds-kit/tar.gz/5a3a81796992b725c2a8b216767e142609966752",
+      "commit": "5a3a81796992b725c2a8b216767e142609966752",
+      "sha256": "985838de3519a994ff047008d058370d2845fa589edb0f85b28af1d8490ada80",
+      "version": "2.10.0"
+    }
+  }
+}

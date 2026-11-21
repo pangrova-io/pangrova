@@ -1,12 +1,15 @@
 package org.pangrova.worker.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+import org.pangrova.transport.flight.TransportServer;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.pangrova.spi.transport.DataProducer;
-import org.pangrova.spi.transport.TransportServerConfig;
-import org.pangrova.spi.transport.DataTicket;
-import org.pangrova.spi.transport.ResultTooLargeException;
+import org.pangrova.protocol.transport.DataProducer;
+import org.pangrova.protocol.transport.TransportServerConfig;
+import org.pangrova.protocol.transport.DataTicket;
+import org.pangrova.protocol.exception.ResultTooLargeException;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -42,7 +45,7 @@ class TransportClientResultSizeLimitTest {
         allocator = new RootAllocator(Long.MAX_VALUE);
         // First call returns data, subsequent calls return empty (EOF)
         ConcurrentHashMap<String, Boolean> consumed = new ConcurrentHashMap<>();
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             String qid = ticket.queryId();
             if (consumed.putIfAbsent(qid, Boolean.TRUE) != null) {
                 return new byte[0]; // EOF after first delivery
@@ -68,7 +71,7 @@ class TransportClientResultSizeLimitTest {
 
         // Set a very small limit (1KB) so the large result triggers it
         try (TransportClient client = new TransportClient("localhost", server.getPort(), 1024)) {
-            DataTicket ticket = new DataTicket("large-q", "large-q", 0, DataTicket.TicketType.RESULT);
+            DataTicket ticket = new DataTicket("large-q", "large-q", 0, DataTicketType.RESULT);
 
             assertThatThrownBy(() -> client.doGet(ticket))
                     .isInstanceOf(IllegalStateException.class)
@@ -82,7 +85,7 @@ class TransportClientResultSizeLimitTest {
         data.put("small-q", smallIpc);
 
         try (TransportClient client = new TransportClient("localhost", server.getPort())) {
-            DataTicket ticket = new DataTicket("small-q", "small-q", 0, DataTicket.TicketType.RESULT);
+            DataTicket ticket = new DataTicket("small-q", "small-q", 0, DataTicketType.RESULT);
             byte[] result = client.doGet(ticket);
             assertThat(result).isNotNull();
             assertThat(result.length).isGreaterThan(0);

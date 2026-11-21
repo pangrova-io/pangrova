@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DOCS_DIR="${REPO_ROOT}/docs/architecture"
+DOCS_DIR="${PANGROVA_DOC_CLASS_REFS_DIR:-${REPO_ROOT}/docs/architecture}"
 
 if [ ! -d "$DOCS_DIR" ]; then
     echo "⚠️  docs/architecture/ directory not found — skipping class reference check."
@@ -26,19 +26,92 @@ fi
 # are the assertions that readers are most likely to interpret as repository types.
 # Pattern: starts with uppercase, contains at least one lowercase, length >= 4,
 # no spaces, no dots (excludes package names), no parens (excludes method calls).
-# Uses -E (extended regex) for portability across GNU and BSD grep.
+# A reference is skipped only when that occurrence is itself recorded as removed
+# or migrated ("retired `X`", "removed the `X`", "`X` was removed", "| Removed ..."
+# disposition cells). Other
+# active types on the same line are still checked.
 extract_class_refs() {
-    for doc in "$DOCS_DIR"/*.md; do
-        if head -n 30 "$doc" | grep -Eiq 'Status.*(Draft|Target architecture)'; then
+    python3 - "$DOCS_DIR" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+status = re.compile(r'Status.*(Draft|Target architecture)', re.I)
+design = re.compile(
+    r'proposed|planned|target design|remaining work|new (class|component)'
+    r'|phase [0-9]|does not exist|not implemented', re.I)
+reference = re.compile(r'`([A-Z][A-Za-z0-9]{3,})`')
+removed_before = re.compile(r'\b(retired|removed|deleted|former|legacy|old)\s*$', re.I)
+removed_verb_before = re.compile(
+    r'\b(removed|deleted|retired|moved to|migrated to|merged into)\b[^,.;|]{0,12}$', re.I)
+removed_after = re.compile(
+    r'^\s*(was|is|were|are|has been|have been)\s+(retired|removed|deleted)\b', re.I)
+disposition_verb = re.compile(r'^(removed|deleted|retired|moved|migrated|merged)\b', re.I)
+sentence_stop = re.compile(r'[.;](?=\s|$)')
+
+
+def cell_spans(line):
+    spans = []
+    start = 0
+    for index, char in enumerate(line):
+        if char == '|':
+            spans.append((start, index))
+            start = index + 1
+    spans.append((start, len(line)))
+    return spans
+
+
+def sentence_bounds(line, start, end):
+    stops = [match.end() for match in sentence_stop.finditer(line, 0, start)]
+    following = sentence_stop.search(line, end)
+    return (stops[-1] if stops else 0), (following.start() if following else len(line))
+
+
+active = {}
+for doc in sorted(root.glob('*.md')):
+    text = doc.read_text(encoding='utf-8')
+    if status.search('\n'.join(text.splitlines()[:30])):
+        continue
+    text = re.sub(r'^```.*?^```', '', text, flags=re.S | re.M)
+    for line in text.splitlines():
+        if design.search(line):
             continue
-        fi
-        awk '/^```/{in_fence = !in_fence; next} !in_fence{print}' "$doc"
-    done \
-        | grep -ivE 'proposed|planned|target design|remaining work|new (class|component)|phase [0-9]|does not exist|not implemented' \
-        | grep -ohE '`[A-Z][a-zA-Z0-9]{3,}`' 2>/dev/null \
-        | sed 's/`//g' \
-        | grep -E '[a-z]' \
-        | sort -u
+        table = line.lstrip().startswith('|')
+        spans = cell_spans(line) if table else None
+        if spans:
+            spans = [span for span in spans if span[1] > span[0]]
+        for match in reference.finditer(line):
+            name = match.group(1)
+            if not re.search('[a-z]', name):
+                continue
+            if table:
+                cell_index, (cell_start, cell_end) = next(
+                    (index, span) for index, span in enumerate(spans)
+                    if span[0] <= match.start() <= span[1])
+                cell = line[cell_start:cell_end]
+                local_start = match.start() - cell_start
+                local_end = match.end() - cell_start
+                prefix = cell[max(0, local_start - 24):local_start]
+                suffix = cell[local_end:local_end + 24]
+                historical = bool(
+                    removed_before.search(prefix)
+                    or removed_verb_before.search(prefix)
+                    or removed_after.search(suffix))
+                if not historical and cell_index == 0 and len(spans) > 1:
+                    disposition = line[spans[1][0]:spans[1][1]].strip()
+                    historical = bool(disposition_verb.search(disposition))
+            else:
+                begin, end = sentence_bounds(line, match.start(), match.end())
+                prefix = line[max(begin, match.start() - 24):match.start()]
+                suffix = line[match.end():min(end, match.end() + 24)]
+                historical = bool(
+                    removed_before.search(prefix)
+                    or removed_verb_before.search(prefix)
+                    or removed_after.search(suffix))
+            active[name] = active.get(name, False) or not historical
+print('\n'.join(sorted(name for name, is_active in active.items() if is_active)))
+PY
 }
 
 # Known non-class identifiers to skip (keywords, acronyms, config names)
@@ -77,9 +150,14 @@ is_excluded() {
         # JDK types and common third-party API types
         AtomicReference|CompletableFuture|ConcurrentHashMap|CopyOnWriteArrayList)
             return 0 ;;
-        ScheduledExecutorService|Semaphore|ServiceLoader|Closeable|Exception)
+        ScheduledExecutorService|Semaphore|ServiceLoader|Closeable|AutoCloseable|Exception)
             return 0 ;;
         IllegalStateException|UnsupportedOperationException)
+            return 0 ;;
+        IllegalArgumentException|WebApplicationException|ForbiddenException|FlightRuntimeException)
+            return 0 ;;
+        # Third-party observability API types, not Pangrova implementations
+        Meter|Tracer)
             return 0 ;;
         RelNode|LogicalTableModify|LogicalValues|TableModify|TableScan|CalciteSchema)
             return 0 ;;
@@ -102,6 +180,9 @@ is_excluded() {
             return 0 ;;
         ShuffleReader|ShuffleWriter)
             return 0 ;;
+        # Third-party and reference examples, not Pangrova repository types
+        FlightProducer|RelCollation|AbstractCatalog|Supplier)
+            return 0 ;;
         *)
             return 1 ;;
     esac
@@ -111,22 +192,33 @@ is_excluded() {
 # scanned the repository for every referenced name, including large generated
 # and dependency directories, which made this gate impractical on real docs.
 build_symbol_index() {
-    {
-        rg --no-filename --only-matching \
-            '(class|struct|interface|enum|record|message)[[:space:]]+[A-Z][A-Za-z0-9]*' \
-            "$REPO_ROOT" \
-            --glob '*.java' --glob '*.proto' --glob '*.h' --glob '*.hpp' \
-            --glob '*.cc' --glob '*.cpp' \
-            --glob '!**/target/**' --glob '!website/node_modules/**' \
-            --glob '!website/build/**' --glob '!website/.docusaurus/**' \
-            --glob '!.git/**' 2>/dev/null \
-            | awk '{print $2}'
-        rg --files "$REPO_ROOT" \
-            -g '*.java' -g '*.proto' -g '*.h' -g '*.hpp' -g '*.cc' -g '*.cpp' \
-            -g '!**/target/**' -g '!website/node_modules/**' -g '!website/build/**' \
-            -g '!website/.docusaurus/**' -g '!.git/**' \
-            | awk -F/ '{name=$NF; sub(/\.[^.]+$/, "", name); print name}'
-    } | sort -u
+    python3 - "$REPO_ROOT" <<'PY'
+import pathlib
+import re
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+files = subprocess.check_output(
+    ['git', '-C', str(root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+extensions = {'.java', '.proto', '.h', '.hpp', '.cc', '.cpp'}
+declaration = re.compile(r'\b(?:class|struct|interface|enum|record|message)\s+([A-Z][A-Za-z0-9]*)')
+symbols = set()
+for raw in files.split(b'\0'):
+    if not raw:
+        continue
+    path = pathlib.Path(raw.decode('utf-8', errors='surrogateescape'))
+    if (path.suffix not in extensions or 'target' in path.parts
+            or any(part.startswith('.') for part in path.parts)
+            or path.parts[:2] in (('website', 'node_modules'), ('website', 'build'))):
+        continue
+    source = root / path
+    if source.is_symlink() or not source.is_file():
+        continue
+    symbols.add(path.stem)
+    symbols.update(declaration.findall(source.read_text(encoding='utf-8', errors='replace')))
+print('\n'.join(sorted(symbols)))
+PY
 }
 
 class_exists() {

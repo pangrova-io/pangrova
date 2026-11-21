@@ -2,8 +2,8 @@ package org.pangrova.planner.property.substrait;
 
 import io.substrait.plan.Plan;
 import net.jqwik.api.*;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlanResult;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlanResult;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.type.RelDataType;

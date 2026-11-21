@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1026" height="836" viewBox="0 0 1026 836" role="img">
+<rect width="1026" height="836" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1024.5" height="834.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * ConnectorSession — SPI-level session passed to all Connector methods.</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> * Authoritative field definition (see also connectors.md §1.2).</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">public interface ConnectorSession {</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    String getIdentity();              // authenticated user principal</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">    String getCatalogName();           // catalog this session is scoped to</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    Optional&lt;String&gt; getSchema();      // current default schema (if set)</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">    String getTimeZone();              // session timezone (IANA format)</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    Locale getLocale();                // session locale</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    Map&lt;String, String&gt; getProperties(); // connector-specific session properties</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve"> * SessionContext.toConnectorSession() — field mapping:</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve"> *</text>
+<path d="M343.4 342.0 L343.4 353.0 L354.4 347.5 z" fill="#D97706"/>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve"> *   SessionContext field          ConnectorSession field</text>
+<line x1="81.0" y1="366.5" x2="90.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="366.5" x2="99.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="99.8" y1="366.5" x2="109.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="366.5" x2="118.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="366.5" x2="128.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="366.5" x2="137.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="137.4" y1="366.5" x2="146.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="146.8" y1="366.5" x2="156.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="156.2" y1="366.5" x2="165.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="165.6" y1="366.5" x2="175.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="175.0" y1="366.5" x2="184.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="184.4" y1="366.5" x2="193.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="193.8" y1="366.5" x2="203.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="203.2" y1="366.5" x2="212.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="212.6" y1="366.5" x2="222.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="222.0" y1="366.5" x2="231.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="231.4" y1="366.5" x2="240.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="240.8" y1="366.5" x2="250.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="250.2" y1="366.5" x2="259.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="259.6" y1="366.5" x2="269.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="269.0" y1="366.5" x2="278.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="278.4" y1="366.5" x2="287.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="287.8" y1="366.5" x2="297.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="297.2" y1="366.5" x2="306.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="306.6" y1="366.5" x2="316.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="316.0" y1="366.5" x2="325.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="325.4" y1="366.5" x2="334.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="334.8" y1="366.5" x2="344.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="344.2" y1="366.5" x2="353.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="353.6" y1="366.5" x2="363.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="363.0" y1="366.5" x2="372.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="372.4" y1="366.5" x2="381.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="381.8" y1="366.5" x2="391.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="391.2" y1="366.5" x2="400.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="400.6" y1="366.5" x2="410.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="410.0" y1="366.5" x2="419.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="419.4" y1="366.5" x2="428.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="428.8" y1="366.5" x2="438.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="366.5" x2="447.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="366.5" x2="457.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="457.0" y1="366.5" x2="466.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="466.4" y1="366.5" x2="475.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="475.8" y1="366.5" x2="485.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="485.2" y1="366.5" x2="494.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="494.6" y1="366.5" x2="504.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="504.0" y1="366.5" x2="513.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="513.4" y1="366.5" x2="522.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="522.8" y1="366.5" x2="532.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="532.2" y1="366.5" x2="541.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="541.6" y1="366.5" x2="551.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="551.0" y1="366.5" x2="560.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="560.4" y1="366.5" x2="569.8" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="569.8" y1="366.5" x2="579.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve"> *</text>
+<path d="M334.0 380.0 L334.0 391.0 L345.0 385.5 z" fill="#D97706"/>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve"> *   identity.getUser()           getIdentity()</text>
+<path d="M334.0 399.0 L334.0 410.0 L345.0 404.5 z" fill="#D97706"/>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve"> *   currentCatalog               getCatalogName()</text>
+<path d="M334.0 418.0 L334.0 429.0 L345.0 423.5 z" fill="#D97706"/>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve"> *   currentSchema                getSchema()</text>
+<path d="M362.2 437.0 L362.2 448.0 L373.2 442.5 z" fill="#D97706"/>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve"> *   sessionProperties["timezone"]   getTimeZone()</text>
+<path d="M362.2 456.0 L362.2 467.0 L373.2 461.5 z" fill="#D97706"/>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve"> *   sessionProperties["locale"]     getLocale()</text>
+<path d="M362.2 475.0 L362.2 486.0 L373.2 480.5 z" fill="#D97706"/>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve"> *   connectorProperties(catalog)    getProperties()</text>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve"> * Fields NOT propagated (filtered for SPI isolation):</text>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve"> *   - tenantId        (tenant context is enforced at MetadataService level, not leaked to connectors)</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve"> *   - securityToken   (connectors use their own auth; engine token is not forwarded)</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve"> *   - queryId         (not relevant to connector operations)</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve"> *   - transactionId   (managed by ConnectorTransactionHandle, not session)</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">public ConnectorSession toConnectorSession() {</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">    return new ConnectorSessionImpl(</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">        this.identity.getUser(),</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">        this.currentCatalog,</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">        Optional.ofNullable(this.currentSchema),</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">        this.getProperty("timezone", ZoneId.systemDefault().getId()),</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">        this.getProperty("locale", Locale.getDefault()),</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">        this.getConnectorProperties(this.currentCatalog));</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

@@ -12,23 +12,39 @@
     <name>Pangrova BOM</name>
     <description>Bill of Materials and parent POM for Pangrova distributed query engine</description>
 
-    <!-- Module dependency order: common -> spi -> [protocol, observability] -->
+    <!-- Module dependency order: common -> types -> spi -> [protocol, observability] -->
     <modules>
+        <module>pangrova-execution</module>
         <module>pangrova-common</module>
+        <module>pangrova-types</module>
+        <module>pangrova-function</module>
+        <module>pangrova-batch</module>
+        <module>pangrova-persistence</module>
         <module>pangrova-config</module>
-        <module>pangrova-spi</module>
+        <module>pangrova-cache</module>
+
+        <module>pangrova-materialization</module>
         <module>pangrova-shuffle</module>
         <module>pangrova-parser</module>
         <module>pangrova-planner</module>
         <module>pangrova-protocol</module>
         <module>pangrova-observability</module>
-        <module>pangrova-resilience</module>
+
+        <module>pangrova-generation</module>
+        <module>pangrova-query</module>
+        <module>pangrova-scheduler</module>
         <module>pangrova-operations</module>
-        <module>pangrova-resource</module>
-        <module>pangrova-coordinator</module>
+        <module>pangrova-coordination</module>
+        <module>pangrova-filesystem</module>
         <module>pangrova-worker</module>
+        <module>pangrova-table</module>
+        <module>pangrova-file</module>
+        <module>pangrova-schema-migrations</module>
         <module>pangrova-metadata</module>
+        <module>pangrova-semantic</module>
+        <module>pangrova-ai</module>
         <module>pangrova-connector</module>
+        <module>pangrova-server</module>
         <module>pangrova-standalone</module>
         <module>pangrova-security</module>
         <module>pangrova-streaming</module>
@@ -51,19 +67,23 @@
         <calcite.version>1.42.0</calcite.version>
         <avatica.version>1.28.0</avatica.version>
         <arrow.version>19.0.0</arrow.version>
-        <substrait.version>0.23.0</substrait.version>
+        <substrait.version>0.95.0</substrait.version>
         <!-- gRPC >= 1.76.0 required: the protoc-gen-grpc-java osx-aarch_64 artifacts
              before it are x86_64-only binaries that cannot execute on arm64 macOS
              hosts without Rosetta 2; 1.76.0 ships a universal (x86_64+arm64) binary. -->
         <grpc.version>1.76.0</grpc.version>
-        <protobuf.version>4.33.4</protobuf.version>
+        <protobuf.version>4.35.1</protobuf.version>
         <netty.version>4.1.114.Final</netty.version>
         <guava.version>32.1.3-jre</guava.version>
-        <jackson.version>2.16.0</jackson.version>
+        <!-- Manage every Jackson component through the same compatible BOM. -->
+        <jackson.version>2.18.6</jackson.version>
         <jetty.version>11.0.18</jetty.version>
         <jersey.version>4.0.2</jersey.version>
+        <httpclient4.version>4.5.14</httpclient4.version>
+        <httpclient5.version>5.6.4</httpclient5.version>
 
         <!-- Observability dependencies -->
+        <opentelemetry.proto.version>1.0.0-alpha</opentelemetry.proto.version>
         <opentelemetry.version>1.32.0</opentelemetry.version>
         <micrometer.version>1.12.0</micrometer.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -72,14 +92,24 @@
         <!-- Testing dependencies -->
         <junit.version>6.1.3</junit.version>
         <assertj.version>3.24.2</assertj.version>
-        <testcontainers.version>2.0.5</testcontainers.version>
+        <!--
+          The reactor still uses the Testcontainers 1.x module coordinates
+          (for example org.testcontainers:mysql and org.testcontainers:kafka).
+          Testcontainers 2.x moved these modules to technology-specific group
+          IDs, so importing its BOM while keeping the 1.x coordinates makes a
+          clean build impossible. Keep the compatible release line until the
+          module-coordinate migration is performed atomically across the repo.
+        -->
+        <testcontainers.version>1.21.3</testcontainers.version>
         <jqwik.version>1.8.2</jqwik.version>
         <awaitility.version>4.2.2</awaitility.version>
 
         <!-- Connector dependencies -->
-        <iceberg.version>1.11.0</iceberg.version>
+        <iceberg.version>1.11.0-pangrova-schema-candidate4</iceberg.version>
+        <avro.version>1.12.1</avro.version>
         <paimon.version>1.4.1</paimon.version>
         <hadoop.version>3.3.6</hadoop.version>
+        <yetus.audience.version>0.12.0</yetus.audience.version>
 
         <!-- JWT -->
         <jjwt.version>0.12.3</jjwt.version>
@@ -88,7 +118,6 @@
         <flyway.version>9.22.3</flyway.version>
         <postgresql.version>42.7.4</postgresql.version>
         <hikaricp.version>5.1.0</hikaricp.version>
-        <h2.version>2.2.224</h2.version>
         <!-- A-HA-01: quorum-replicated coordination backend (Apache Curator + ZooKeeper) to remove the single-JDBC coordination SPOF -->
         <curator.version>5.9.0</curator.version>
         <zookeeper.version>3.8.4</zookeeper.version>
@@ -97,6 +126,7 @@
 
         <!-- Lineage -->
         <openlineage.version>1.12.0</openlineage.version>
+        <commons-lang3.version>3.21.0</commons-lang3.version>
 
         <!-- Bitmap -->
         <roaringbitmap.version>1.3.0</roaringbitmap.version>
@@ -108,6 +138,7 @@
         <!-- Infrastructure -->
         <tomcat-annotations-api.version>6.0.53</tomcat-annotations-api.version>
         <awssdk.version>2.25.16</awssdk.version>
+        <oss-sdk.version>0.6.1</oss-sdk.version>
         <findsecbugs.version>1.13.0</findsecbugs.version>
 
         <!-- Resilience4j -->
@@ -124,11 +155,24 @@
 
         <!-- JaCoCo agent arg (empty when coverage profile is inactive) -->
         <jacoco.agent.argLine></jacoco.agent.argLine>
+        <pangrova.e2e.excludedGroups>routing-integration,native-required,performance,e2e</pangrova.e2e.excludedGroups>
+        <pangrova.e2e.excludedClasses>**/e2e/**/*PropertyTest.java</pangrova.e2e.excludedClasses>
+        <pangrova.worker.excludedTestGroups>native-required</pangrova.worker.excludedTestGroups>
+        <pangrova.coordinator.excludedTestGroups>native-required</pangrova.coordinator.excludedTestGroups>
+        <pangrova.metadata.excludedTestGroups>integration</pangrova.metadata.excludedTestGroups>
 
         <!-- Plugin versions -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-resources-plugin.version>3.4.0</maven-resources-plugin.version>
+        <maven-dependency-plugin.version>3.7.0</maven-dependency-plugin.version>
+        <maven-jar-plugin.version>3.5.0</maven-jar-plugin.version>
         <maven-surefire-plugin.version>3.2.2</maven-surefire-plugin.version>
         <maven-checkstyle-plugin.version>3.3.1</maven-checkstyle-plugin.version>
+        <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
+        <exec-maven-plugin.version>3.6.4</exec-maven-plugin.version>
+        <pangrova.function-contract.python>python3</pangrova.function-contract.python>
+        <!-- All real SDK fixture consumers use the same explicitly built Native tool. -->
+        <pangrova.lance.fixture.tool>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build/pangrova_lance_fixture_tool</pangrova.lance.fixture.tool>
         <checkstyle.version>10.12.7</checkstyle.version>
         <spotbugs-maven-plugin.version>4.8.3.1</spotbugs-maven-plugin.version>
         <spotbugs.version>4.8.3</spotbugs.version>
@@ -142,6 +186,69 @@
 
     <dependencyManagement>
         <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-materialization-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId><version>${project.version}</version></dependency>
+
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-memory</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-cache-redis</artifactId><version>${project.version}</version></dependency>            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-codec</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-postgresql</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-postgresql</artifactId><version>${project.version}</version></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-postgresql</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-memory</artifactId><version>${project.version}</version></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-memory</artifactId><version>${project.version}</version></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-api</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-postgresql</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-memory</artifactId><version>${project.version}</version></dependency>
+
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-binding</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-local</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-codec</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-access</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secrets</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-builtin</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-ldap</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-oauth2</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-policy-builtin</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-env</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-file</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-kms-aws</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-memory</artifactId><version>${project.version}</version></dependency>
+
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-codec</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-scheduler-strategies-builtin</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-scheduler-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-http</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-flight</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-bootstrap</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-worker</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-coordinator</artifactId><version>${project.version}</version></dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-generation-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!-- Core dependencies -->
             <dependency>
                 <groupId>org.apache.calcite</groupId>
@@ -233,24 +340,11 @@
                 <version>${guava.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-annotations</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.datatype</groupId>
-                <artifactId>jackson-datatype-jsr310</artifactId>
-                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
             <!-- Jetty (embedded HTTP server) -->
@@ -326,6 +420,16 @@
                 <version>${slf4j.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>${httpclient4.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.client5</groupId>
+                <artifactId>httpclient5</artifactId>
+                <version>${httpclient5.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
@@ -392,6 +496,43 @@
             </dependency>
 
             <!-- Internal modules -->
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-strategies-builtin</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId><version>${project.version}</version></dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-generation-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-coordination-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-function-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-jdbc-support</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-batch</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-types</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-common</artifactId>
@@ -404,22 +545,43 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-coordinator</artifactId>
+                <artifactId>pangrova-persistence-generation-postgresql</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-spi</artifactId>
+                <artifactId>pangrova-coordination-control</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-materialization-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-shuffle-core</artifactId>
+                <artifactId>pangrova-materialization-lifecycle</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-shuffle-celeborn</artifactId>
+                <artifactId>pangrova-materialization-strategies-builtin</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-materialization-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-shuffle-exchange</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-shuffle-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -427,9 +589,51 @@
                 <artifactId>pangrova-protocol</artifactId>
                 <version>${project.version}</version>
             </dependency>
+
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-instrumentation</artifactId><version>${project.version}</version></dependency>
+            <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-noop</artifactId><version>${project.version}</version></dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-observability</artifactId>
+                <artifactId>pangrova-observability-sdk</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-generation-codec</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-generation-workflow</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-query</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-scheduler-policy</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-table</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-file</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-coordination-zookeeper</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -449,7 +653,84 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-metadata</artifactId>
+                <artifactId>pangrova-schema-migrations</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-metadata-catalog</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-semantic</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-semantic-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+<dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-http</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-qwen</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-openai</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-filesystem-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-filesystem-local</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-filesystem-s3</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-filesystem-oss</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>alibabacloud-oss-v2</artifactId>
+                <version>${oss-sdk.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-control</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-ai-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -460,6 +741,13 @@
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-connector-paimon</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- Apache Iceberg -->
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-lance</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -489,6 +777,12 @@
                 <artifactId>iceberg-arrow</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
+            <!-- Iceberg manifest APIs require modern Avro; Hadoop's shorter path must not select 1.7.7. -->
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
 
             <!-- Apache Parquet (compile-time access for Iceberg Parquet reader API) -->
             <dependency>
@@ -498,10 +792,36 @@
             </dependency>
 
             <!-- Apache Hadoop (required by Iceberg/Paimon filesystem catalogs) -->
+            <!-- The older transitive annotation POM unconditionally requires JDK 8 tools.jar. -->
+            <dependency>
+                <groupId>org.apache.yetus</groupId>
+                <artifactId>audience-annotations</artifactId>
+                <version>${yetus.audience.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
+                <!-- Filesystem clients do not own the process HTTP server or logging backend.
+                     Keep the javax.ws.rs API used by WebHDFS; exclude only conflicting servers/bindings. -->
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-server</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-reload4j</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -512,6 +832,24 @@
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client-core</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-server</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-servlet</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-log4j12</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-reload4j</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- Apache Paimon -->
@@ -526,26 +864,9 @@
                 <version>${paimon.version}</version>
             </dependency>
 
-
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-resilience</artifactId>
-                <version>${project.version}</version>
-            </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-operations</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-resource</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-security</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -555,22 +876,88 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-pipeline</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-source-kafka</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-formats-builtin</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-streaming-memory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-governance</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-indexing</artifactId>
+                <artifactId>pangrova-governance-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-transport</artifactId>
+                <artifactId>pangrova-governance-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-client-rest</artifactId>
+                <artifactId>pangrova-governance-lineage-log</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-governance-lineage-openlineage</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-governance-quality-sql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-governance-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-indexing-lifecycle</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-client-http</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-transport-client</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -585,7 +972,7 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-common</artifactId>
+                <artifactId>pangrova-testing-kit</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -596,22 +983,17 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-benchmark</artifactId>
+                <artifactId>pangrova-testing-benchmark</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-e2e</artifactId>
+                <artifactId>pangrova-testing-integration-tests</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-fuzzer</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-chaos</artifactId>
+                <artifactId>pangrova-testing-fuzzer</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -648,6 +1030,13 @@
                 <groupId>io.openlineage</groupId>
                 <artifactId>openlineage-java</artifactId>
                 <version>${openlineage.version}</version>
+            </dependency>
+
+            <!-- OpenLineage HTTP uses StringUtils but SDK 1.12 omits its runtime dependency. -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
             </dependency>
 
             <!-- Database: PostgreSQL JDBC -->
@@ -747,6 +1136,21 @@
             <plugins>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven-dependency-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven-resources-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven-jar-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven-compiler-plugin.version}</version>
                     <configuration>
@@ -754,7 +1158,11 @@
                         <target>${maven.compiler.target}</target>
                         <release>${maven.compiler.source}</release>
                         <forceJavacCompilerUse>true</forceJavacCompilerUse>
-                        <useIncrementalCompilation>false</useIncrementalCompilation>
+                        <!-- Protobuf generation rewrites generated sources on every run. Compile
+                             the full affected source set so hand-written DTOs and generated v2
+                             types cannot leave a mixed/stale output directory. Source-by-source
+                             incremental compilation produced incomplete protocol classpaths. -->
+                        <useIncrementalCompilation>true</useIncrementalCompilation>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -768,8 +1176,11 @@
                         </includes>
                         <excludes>
                             <exclude>**/*IntegrationTest.java</exclude>
+                            <!-- jqwik ignores tag filters; full regression overrides
+                                 this with "none" so E2E property tests run there. -->
+                            <exclude>${pangrova.e2e.excludedClasses}</exclude>
                         </excludes>
-                        <argLine>${jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                        <argLine>@{jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
                         <!-- Single forked JVM reused across test classes.
                              reuseForks=false (one JVM per test class) causes
                              intermittent failures with JUnit Platform + jqwik
@@ -798,6 +1209,7 @@
                              docker-java defaults to 1.32 which is rejected. -->
                         <systemPropertyVariables>
                             <api.version>1.44</api.version>
+                            <pangrova.lance.fixture.tool>${pangrova.lance.fixture.tool}</pangrova.lance.fixture.tool>
                         </systemPropertyVariables>
                     </configuration>
                 </plugin>
@@ -814,6 +1226,7 @@
                     </dependencies>
                     <configuration>
                         <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                        <violationSeverity>error</violationSeverity>
                         <suppressionsLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/suppressions.xml</suppressionsLocation>
                         <consoleOutput>true</consoleOutput>
                         <failsOnError>true</failsOnError>
@@ -892,9 +1305,49 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>${module.name}</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>sbom</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.cyclonedx</groupId>
+                        <artifactId>cyclonedx-maven-plugin</artifactId>
+                        <version>2.8.2</version>
+                        <executions>
+                            <execution>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>makeAggregateBom</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <outputFormat>json</outputFormat>
+                            <outputName>bom</outputName>
+                            <schemaVersion>1.5</schemaVersion>
+                            <includeTestScope>false</includeTestScope>
+                            <projectType>application</projectType>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <profile>
             <id>integration-test</id>
             <build>
@@ -975,9 +1428,9 @@
             measure test suite effectiveness (kills/survivors per mutation).
 
             Usage:
-              mvn -pl pangrova-planner     -Pmutation org.pitest:pitest-maven:mutationCoverage
-              mvn -pl pangrova-coordinator -Pmutation org.pitest:pitest-maven:mutationCoverage
-              mvn -pl pangrova-resource    -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-planner -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-coordination/pangrova-coordination-control -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl :pangrova-scheduler-policy -Pmutation org.pitest:pitest-maven:mutationCoverage
 
             Reports land in target/pit-reports/ (HTML + XML). Aim for >=60% mutation
             score on core decision-heavy code (planner rules, coordinator state
@@ -1074,6 +1527,35 @@
                                 <include>**/*E2E*.java</include>
                             </includes>
                             <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Explicit release regression: process-owning Native tests run in isolated JVMs. -->
+        <profile>
+            <id>full-regression</id>
+            <properties>
+                <pangrova.e2e.excludedGroups>native-runtime-owner</pangrova.e2e.excludedGroups>
+                <pangrova.e2e.excludedClasses>none</pangrova.e2e.excludedClasses>
+                <pangrova.worker.excludedTestGroups>none</pangrova.worker.excludedTestGroups>
+                <pangrova.coordinator.excludedTestGroups>none</pangrova.coordinator.excludedTestGroups>
+                <pangrova.metadata.excludedTestGroups>none</pangrova.metadata.excludedTestGroups>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups combine.self="override"/>
+                            <excludedGroups>${pangrova.e2e.excludedGroups}</excludedGroups>
+                            <includes combine.self="override">
+                                <include>**/*Test.java</include>
+                            </includes>
+                            <excludes combine.self="override">
                                 <exclude>none</exclude>
                             </excludes>
                         </configuration>

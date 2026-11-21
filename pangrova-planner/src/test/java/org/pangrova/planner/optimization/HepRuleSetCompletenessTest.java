@@ -1,7 +1,7 @@
 package org.pangrova.planner.optimization;
 
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlanResult;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlanResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;

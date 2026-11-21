@@ -1,0 +1,42 @@
+package org.pangrova.security.auth.oauth2;
+
+import org.pangrova.security.api.exception.TokenValidationException;
+
+import java.time.Instant;
+
+/**
+ * Validates JWT claims (issuer, expiration, audience) using strongly-typed {@link JwtClaims}.
+ */
+final class JwtClaimValidator {
+
+    private JwtClaimValidator() {}
+
+    static void validateIssuer(JwtClaims claims, String expectedIssuer) {
+        String issuer = claims.issuer();
+        if (issuer == null || !issuer.equals(expectedIssuer)) {
+            throw new TokenValidationException("Token issuer mismatch");
+        }
+    }
+
+    static void validateExpiration(JwtClaims claims) {
+        long expSeconds = claims.expiration();
+        if (expSeconds == 0L) {
+            throw new TokenValidationException("Token missing expiration claim");
+        }
+        if (Instant.ofEpochSecond(expSeconds).isBefore(Instant.now())) {
+            throw new TokenValidationException("Token expired");
+        }
+    }
+
+    static void validateAudience(JwtClaims claims, String expectedAudience) {
+        if (expectedAudience == null || expectedAudience.isBlank()) {
+            return;
+        }
+        if (claims.audiences().isEmpty()) {
+            throw new TokenValidationException("Token missing audience claim");
+        }
+        if (!claims.audiences().contains(expectedAudience)) {
+            throw new TokenValidationException("Token audience mismatch");
+        }
+    }
+}

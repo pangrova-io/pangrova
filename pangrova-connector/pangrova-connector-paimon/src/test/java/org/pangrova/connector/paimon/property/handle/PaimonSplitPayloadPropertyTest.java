@@ -7,13 +7,17 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.connector.paimon.handle.PaimonLsmLevel;
+import org.pangrova.connector.paimon.handle.PaimonPhysicalFile;
+import org.pangrova.connector.paimon.handle.PaimonLsmFile;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Property tests verifying Paimon split payload correctness for native reader contract.
@@ -22,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>COW splits carry real file paths (not tableName) in proto</li>
  *   <li>MOR splits carry populated lsm_levels with real file paths</li>
- *   <li>resolveFilePath falls back to tableName only when primaryFilePath is empty</li>
+ *   <li>Missing physical metadata is rejected instead of treating a table name as a file</li>
  * </ul>
  */
 class PaimonSplitPayloadPropertyTest {
@@ -31,12 +35,12 @@ class PaimonSplitPayloadPropertyTest {
     void cowSplitProtoCarriesRealFilePath(
             @ForAll("cowSplits") PaimonSplit split) throws Exception {
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.getFilePath())
+        assertThat(info.getOpaqueLocation())
                 .as("COW split file_path must be the physical file, not tableName")
                 .isEqualTo(split.primaryFilePath());
-        assertThat(info.getFilePath())
+        assertThat(info.getOpaqueLocation())
                 .doesNotContain(" ")
                 .startsWith("/");
     }
@@ -45,39 +49,36 @@ class PaimonSplitPayloadPropertyTest {
     void morSplitProtoHasPopulatedLsmLevels(
             @ForAll("morSplits") PaimonSplit split) throws Exception {
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.getPaimonInfo().getLsmLevelsList())
+        assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getLsmLevelsList())
                 .as("MOR split must have populated lsm_levels")
                 .isNotEmpty();
-        assertThat(info.getPaimonInfo().getLsmLevelsList())
+        assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getLsmLevelsList())
                 .allSatisfy(level -> {
-                    assertThat(level.getFilePathsList()).isNotEmpty();
-                    assertThat(level.getFilePathsList())
-                            .allSatisfy(path -> assertThat(path).startsWith("/"));
+                    assertThat(level.getFilesList()).isNotEmpty();
+                    assertThat(level.getFilesList())
+                            .allSatisfy(file -> assertThat(file.getOpaqueLocation()).startsWith("/"));
                     assertThat(level.getTotalRecordCount()).isPositive();
                 });
-        assertThat(info.getPaimonInfo().getNeedsMerge()).isTrue();
+        assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getNeedsMerge()).isTrue();
     }
 
     @Property(tries = 10)
-    void resolveFilePathFallsBackToTableNameWhenEmpty(
-            @ForAll("fallbackSplits") PaimonSplit split) throws Exception {
-        byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
-
-        assertThat(info.getFilePath())
-                .as("When primaryFilePath is empty, file_path should fall back to tableName")
-                .isEqualTo(split.tableName());
+    void rejectsMissingPhysicalFilePath(@ForAll("cowSplits") PaimonSplit split) {
+        assertThatThrownBy(() -> new PaimonPhysicalFile(
+                "", "parquet", split.primaryFile().fileSize(), split.rowCount(), 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exact path and format");
     }
 
     @Property(tries = 10)
-    void splitProtoAlwaysHasTableName(@ForAll("allSplits") PaimonSplit split) throws Exception {
+    void splitProtoAlwaysHasSourceIdentity(@ForAll("allSplits") PaimonSplit split) throws Exception {
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.getTableName())
-                .as("table_name must always be set in proto")
+        assertThat(info.getSourceId())
+                .as("source_id must always be set in the generic split envelope")
                 .isEqualTo(split.tableName())
                 .isNotEmpty();
     }
@@ -93,10 +94,11 @@ class PaimonSplitPayloadPropertyTest {
         ).as((tableName, filePath, rowCount) -> new PaimonSplit(
                 tableName, 0L, rowCount,
                 0, List.of(), "DEDUPLICATE", "NONE",
-                1L, 0L, 0L, "FULL", List.of(),
-                false, false, "",
+                1L, 0L, 0L, "APPEND", List.of(),
+                false, false,
                 Map.of(), false, Map.of(),
-                List.of(), List.of(), filePath));
+                List.of(), List.of(), new PaimonPhysicalFile(filePath, "parquet", 4096, rowCount, 0),
+                new org.pangrova.connector.paimon.handle.PaimonMergePolicy(false, false)));
     }
 
     @Provide
@@ -112,25 +114,12 @@ class PaimonSplitPayloadPropertyTest {
             return new PaimonSplit(
                     tableName, 0L, rowCount,
                     0, List.of("id"), "DEDUPLICATE", "NONE",
-                    1L, 0L, 0L, "FULL", levels,
-                    true, false, "",
+                    1L, 0L, 0L, "PRIMARY_KEY", levels,
+                    true, false,
                     Map.of(), false, Map.of(),
-                    List.of(), List.of(), primaryPath);
+                    List.of(), List.of(), new PaimonPhysicalFile(primaryPath, "parquet", 8192, rowCount, 0),
+                    new org.pangrova.connector.paimon.handle.PaimonMergePolicy(false, false));
         });
-    }
-
-    @Provide
-    Arbitrary<PaimonSplit> fallbackSplits() {
-        return Combinators.combine(
-                tableNames(),
-                Arbitraries.longs().between(1, 100_000)
-        ).as((tableName, rowCount) -> new PaimonSplit(
-                tableName, 0L, rowCount,
-                -1, List.of(), "DEDUPLICATE", "NONE",
-                0L, 0L, 0L, "FULL", List.of(),
-                false, false, "",
-                Map.of(), false, Map.of(),
-                List.of(), List.of(), ""));
     }
 
     @Provide
@@ -159,6 +148,9 @@ class PaimonSplitPayloadPropertyTest {
                 Arbitraries.integers().between(0, 6),
                 physicalFilePaths().list().ofMinSize(1).ofMaxSize(5),
                 Arbitraries.longs().between(1, 50_000)
-        ).as(PaimonLsmLevel::new);
+        ).as((level, paths, rows) -> new PaimonLsmLevel(level, paths.stream().map(path ->
+                new PaimonLsmFile(new PaimonPhysicalFile(path, "parquet", 4096, rows, 0),
+                        0, rows - 1, null, List.of(), List.of()))
+                .toList(), rows));
     }
 }

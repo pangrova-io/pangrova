@@ -1,103 +1,96 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.enums.ReportedTaskState;
+import org.pangrova.worker.enums.TaskAdmissionReason;
+import org.pangrova.worker.exception.TaskAdmissionException;
+import org.pangrova.worker.task.report.TaskStatusReporter;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.spi.execution.TaskStatus;
+import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
+import org.pangrova.worker.enums.TaskState;
+import org.pangrova.worker.task.state.TaskStateTransitions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
  * Worker-side task lifecycle manager with state machine enforcement.
- *
  * <p>Concurrency strategy: ConcurrentHashMap for task registry,
- * AtomicReference per-task state, AtomicLong for ID generation,
- * volatile for completion callback.</p>
+ * AtomicReference per state, AtomicLong IDs, and volatile callbacks.</p>
  */
 @ThreadSafe
 public class TaskManager implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskManager.class);
 
-    /** Maximum number of tracked tasks to prevent unbounded memory growth. */
     static final int MAX_TRACKED_TASKS = 50_000;
 
-    /**
-     * Worker task states with defined transition rules.
-     */
-    public enum TaskState {
-        RECEIVED, INITIALIZING, RUNNING, FINISHING, FINISHED, FAILED, CANCELLED
+    final WorkerTaskRegistry tasks = new WorkerTaskRegistry(MAX_TRACKED_TASKS);
+
+    /** Bounded exact admissions survive task-resource cleanup until their deadlines. */
+    final TaskAdmissionRegistry taskAdmissions = new TaskAdmissionRegistry(
+            MAX_TRACKED_TASKS, java.time.Clock.systemUTC());
+    private final org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation;
+
+    public org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerExecutionIdentity() {
+        var identity = admissionIncarnation.identity();
+        return new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                identity.ownershipDomainId(), identity.incarnationId());
     }
 
-    private static final Map<TaskState, Set<TaskState>> TRANSITIONS = Map.ofEntries(
-            Map.entry(TaskState.RECEIVED, Set.of(TaskState.INITIALIZING)),
-            Map.entry(TaskState.INITIALIZING, Set.of(TaskState.RUNNING, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.RUNNING, Set.of(TaskState.FINISHING, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.FINISHING, Set.of(TaskState.FINISHED, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.FINISHED, Set.of()),
-            Map.entry(TaskState.FAILED, Set.of()),
-            Map.entry(TaskState.CANCELLED, Set.of())
-    );
+    void verifyWorkerExecutionIdentity(org.pangrova.protocol.v2.TaskAttemptId attempt) {
+        if (!attempt.hasWorkerExecutionIdentity()
+                || !attempt.getWorkerExecutionIdentity().equals(workerExecutionIdentity().toProto())) {
+            throw new TaskAdmissionException(TaskAdmissionReason.IDENTITY_CONFLICT,
+                    "Task target does not match this Worker execution incarnation");
+        }
+    }
 
-    final ConcurrentHashMap<String, TaskInfo> tasks = new ConcurrentHashMap<>();
-    final AtomicLong taskIdCounter = new AtomicLong(0);
+    boolean retiredWorkerExecutionIdentity(org.pangrova.protocol.v2.TaskAttemptId attempt) {
+        if (!attempt.hasWorkerExecutionIdentity()) return false;
+        var identity = org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(
+                attempt.getWorkerExecutionIdentity());
+        return admissionIncarnation.isRetired(new org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity(
+                identity.admissionDomainId(), identity.incarnationId()));
+    }
 
-    /** Maps coordinator-assigned taskId → worker-generated taskId for submission dedup. */
-    final ConcurrentHashMap<String, String> coordinatorTaskIndex = new ConcurrentHashMap<>();
-
-    /**
-     * Resolves the worker-internal task ID for a given coordinator-assigned task ID.
-     * The worker-internal ID is used as the native task_id in OutputBufferManager
-     * and the result server, so result fetch tickets must use this ID.
-     *
-     * @param coordinatorTaskId the coordinator-assigned task ID
-     * @return the worker task ID, or null if not found
-     */
+    /** Resolves the admitted local execution/result ID, or null if not admitted. */
     public String resolveWorkerTaskId(String coordinatorTaskId) {
         if (coordinatorTaskId == null) {
             return null;
         }
-        return coordinatorTaskIndex.get(coordinatorTaskId);
+        return taskAdmissions.resolve(coordinatorTaskId);
     }
 
     final TaskLifecycleManager lifecycleManager;
     final TaskStatusCollector statusCollector;
     final TaskLifecycleManager.LifecycleCallback lifecycleCallback;
-    private final org.pangrova.spi.execution.TaskExecutor taskExecutor;
+    private final org.pangrova.worker.execution.TaskExecutor taskExecutor;
     private final TaskManagerContext deps;
 
-    /** Per-tenant quota enforcement on the execution hot path. */
     volatile TenantExecutionQuotaEnforcer quotaEnforcer;
 
     /**
      * Injects the NativeWriteExecutor for per-task commit metadata isolation.
      * Called during bootstrap after the write executor is constructed.
      */
-    public void setWriteExecutor(org.pangrova.worker.jni.write.NativeWriteExecutor executor) {
+    public void setWriteExecutor(org.pangrova.worker.write.NativeWriteExecutor executor) {
         if (statusCollector != null) {
             statusCollector.setWriteExecutor(executor);
         }
+        if (lifecycleManager != null) {
+            lifecycleManager.setWriteExecutor(executor);
+        }
     }
-
-    /**
-     * Optional retry executor consulted by failure handlers to determine whether
-     * a transient task failure should be retried with backoff. Injected during
-     * bootstrap; null means retries are disabled.
-     */
-    private volatile TaskRetryExecutor retryExecutor;
 
     /**
      * Optional cancellation propagator that fans a cancel signal across every
@@ -106,7 +99,6 @@ public class TaskManager implements AutoCloseable {
      */
     volatile QueryCancellationPropagator cancellationPropagator;
 
-    /** Optional callback invoked with queryId when a task completes successfully. */
     private volatile Consumer<String> completionCallback;
 
     volatile TaskStatusReporter autoFinishReporter;
@@ -115,6 +107,11 @@ public class TaskManager implements AutoCloseable {
 
     final TaskDrainExecutor drainExecutor;
     private final TaskSubmissionHandler submissionHandler;
+    private final WorkerTaskCancellation cancellation;
+    private final TaskAdmissionControl admissionControl = new TaskAdmissionControl(this);
+    private volatile SourcePreparationControl sourcePreparationControl;
+    private final ControlEpochFence controlEpochFence = new ControlEpochFence();
+    private final ExecutionOwnerFence executionOwnerFence = new ExecutionOwnerFence();
 
     /**
      * Full wiring constructor — accepts all dependencies via parameter object.
@@ -123,7 +120,10 @@ public class TaskManager implements AutoCloseable {
      * @param workerId           identifier of this worker node for status reporting
      * @param minAllocationRatio minimum allocated/requested ratio (0.0–1.0); task rejected if below
      */
-    public TaskManager(TaskManagerContext deps, String workerId, double minAllocationRatio) {
+    public TaskManager(TaskManagerContext deps, String workerId, double minAllocationRatio,
+                       org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation) {
+        this.admissionIncarnation = checkNotNull(admissionIncarnation, "admissionIncarnation");
+        admissionIncarnation.claimAuthority("worker-task-admission");
         checkNotNull(deps, "deps must not be null");
         checkNotNull(workerId, "workerId must not be null");
         this.deps = deps;
@@ -144,6 +144,7 @@ public class TaskManager implements AutoCloseable {
         this.drainExecutor = new TaskDrainExecutor(tasks, lifecycleManager,
                 taskId -> cancelTask(taskId));
         this.submissionHandler = new TaskSubmissionHandler(this);
+        this.cancellation = new WorkerTaskCancellation(tasks, lifecycleManager, lifecycleCallback);
     }
 
     /**
@@ -152,7 +153,12 @@ public class TaskManager implements AutoCloseable {
      * and HTTP routing are needed, without native engine execution.
      */
     public static TaskManager forHttpWiringOnly() {
-        return new TaskManager("http-wiring-worker");
+        try {
+            return new TaskManager(org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                    java.nio.file.Files.createTempDirectory("pangrova-http-wiring-admission-")));
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
     }
 
     /**
@@ -162,23 +168,32 @@ public class TaskManager implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (deps != null) {
-            deps.completionMonitorExecutor().shutdownNow();
-        }
-        if (taskExecutor instanceof AutoCloseable ac) {
-            try {
-                ac.close();
-            } catch (Exception e) {
-                LOG.warn("event=task_executor_close_error error={}", e.getMessage());
-            }
-        }
+        drainExecutor.beginDraining();
+        TaskAdmissionRollback.release(
+                () -> {
+                    var preparation = sourcePreparationControl;
+                    if (preparation == null) return;
+                    try {
+                        preparation.close();
+                    } catch (Exception failure) {
+                        throw new IllegalStateException("Source preparation shutdown has not joined", failure);
+                    }
+                },
+                () -> {
+                    for (TaskInfo info : tasks.values()) info.retryCleanup();
+                },
+                taskAdmissions::sealAndAwaitAdmissions,
+                () -> TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
+                        java.util.List.copyOf(tasks.values())));
+        if (deps == null) admissionIncarnation.closeAfterDrain(() -> {});
     }
 
     /**
      * Internal constructor for state-machine-only mode (no execution pipeline).
      */
-    private TaskManager(String workerId) {
-        checkNotNull(workerId, "workerId must not be null");
+    TaskManager(org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation) {
+        this.admissionIncarnation = checkNotNull(admissionIncarnation, "admissionIncarnation");
+        admissionIncarnation.claimAuthority("worker-task-admission");
         this.deps = null;
         this.lifecycleManager = null;
         this.statusCollector = null;
@@ -187,6 +202,7 @@ public class TaskManager implements AutoCloseable {
         this.drainExecutor = new TaskDrainExecutor(tasks, null,
                 taskId -> cancelTask(taskId));
         this.submissionHandler = new TaskSubmissionHandler(this);
+        this.cancellation = new WorkerTaskCancellation(tasks, lifecycleManager, lifecycleCallback);
     }
 
     /**
@@ -201,19 +217,6 @@ public class TaskManager implements AutoCloseable {
     }
 
     /**
-     * Injects the {@link TaskRetryExecutor} used to evaluate whether a transient
-     * task failure should be retried. Called during bootstrap; idempotent.
-     */
-    public void setRetryExecutor(TaskRetryExecutor executor) {
-        this.retryExecutor = executor;
-    }
-
-    /** Returns the injected retry executor, or null if none configured. */
-    public TaskRetryExecutor retryExecutor() {
-        return retryExecutor;
-    }
-
-    /**
      * Injects the {@link QueryCancellationPropagator} used to fan cancel signals
      * across tasks belonging to the same query.
      */
@@ -221,10 +224,32 @@ public class TaskManager implements AutoCloseable {
         this.cancellationPropagator = propagator;
     }
 
-    /** Returns the injected cancellation propagator, or null if none configured. */
     public QueryCancellationPropagator cancellationPropagator() {
         return cancellationPropagator;
     }
+
+    /** Binds one Worker-owned source runtime before its private HTTP listener starts. */
+    public synchronized void configureSourcePreparations(org.pangrova.worker.copy.CopyStageLeases leases) {
+        if (sourcePreparationControl != null) {
+            if (!sourcePreparationControl.uses(leases)) {
+                throw new IllegalStateException("Source runtime is already bound");
+            }
+            return;
+        }
+        var pool = deps == null ? null : deps.nodeMemoryPool();
+        if (deps != null && pool == null) {
+            throw new IllegalStateException("Source preparation requires node memory admission");
+        }
+        sourcePreparationControl = new SourcePreparationControl(this, leases, pool);
+    }
+
+    public org.pangrova.protocol.v2.SourcePreparationResult prepareSource(
+            org.pangrova.protocol.rest.copy.PrepareCopySourceRequest request) throws java.io.IOException {
+        var preparation = java.util.Objects.requireNonNull(sourcePreparationControl, "Source preparation runtime");
+        return preparation.execute(request);
+    }
+
+    SourcePreparationControl sourcePreparations() { return sourcePreparationControl; }
 
     public String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
         return submissionHandler.submitTask(descriptor, request);
@@ -234,12 +259,65 @@ public class TaskManager implements AutoCloseable {
         return submissionHandler.submitTask(descriptor);
     }
 
+    /**
+     * Enables fail-closed Coordinator epoch validation for all subsequent task
+     * admissions. Production Worker bootstrap calls this before exposing the
+     * task HTTP endpoint whenever a Coordinator URL is configured.
+     */
+    public void requireControlEpochHandshake() {
+        controlEpochFence.requireHandshake();
+    }
+
+    /**
+     * Observes an epoch received over the authenticated registration/heartbeat
+     * control channel. Epochs advance monotonically and can never be rolled back.
+     */
+    public void observeControlEpoch(long epoch) {
+        controlEpochFence.observe(epoch);
+    }
+
+    /** Rejects admission when the request does not carry the active control epoch. */
+    public void verifyControlEpochForAdmission(Long epoch) {
+        controlEpochFence.verify(epoch);
+    }
+
+    void verifyExistingCleanupControlEpoch(long epoch) {
+        controlEpochFence.verifyExistingCleanup(epoch);
+    }
+
+    /** Rejects task admission when its exact query or job owner does not match. */
+    public void verifyExecutionOwnerForAdmission(SubmitTaskRequest request) {
+        var attempt = request.taskRequest().getAttempt();
+        executionOwnerFence.verify(
+                attempt.getQueryOrJobId(),
+                org.pangrova.protocol.rest.task.ExecutionOwnerIdentity.from(
+                        attempt.getExecutionOwner()));
+    }
+
+    /** Applies the same execution-owner fence to metadata publication commands. */
+    public void verifyExecutionOwnerForControl(
+            String executionId, org.pangrova.protocol.v2.ExecutionOwnerIdentity identity) {
+        executionOwnerFence.verify(executionId,
+                org.pangrova.protocol.rest.task.ExecutionOwnerIdentity.from(identity));
+    }
+
     public TaskCancelResult cancelTask(String taskId) {
-        return submissionHandler.cancelTask(taskId);
+        return cancellation.cancelTask(taskId);
+    }
+
+    /** Seals an exact canonical admission; empty means real resource exit remains unproven. */
+    public Optional<org.pangrova.protocol.v2.TaskReport> sealAdmission(
+            org.pangrova.protocol.v2.TaskAdmissionSealRequest request) {
+        return admissionControl.seal(request);
+    }
+
+    /** Checks the physical admission deadline before ticket creation or any resource acquisition. */
+    public void verifyAdmissionDeadline(long deadlineEpochMs) {
+        taskAdmissions.requireUnexpired(deadlineEpochMs);
     }
 
     public void releaseTaskExecutor(String taskId) {
-        submissionHandler.releaseTaskExecutor(taskId);
+        cancellation.releaseTaskExecutor(taskId);
     }
 
     /**
@@ -261,13 +339,7 @@ public class TaskManager implements AutoCloseable {
         this.completionCallback = callback;
     }
 
-    /**
-     * Enables auto-finish mode for forHttpWiringOnly instances. When set,
-     * tasks submitted via {@link #submitTask(TaskDescriptor, SubmitTaskRequest)}
-     * are automatically advanced to FINISHED and reported through the given
-     * reporter. This closes the Coordinator→Worker→Coordinator lifecycle loop
-     * in environments without a native executor.
-     */
+    /** Enables state-machine-only reporting; this mode supplies no Native execution evidence. */
     public void setAutoFinishReporter(TaskStatusReporter reporter) {
         this.autoFinishReporter = reporter;
     }
@@ -284,8 +356,16 @@ public class TaskManager implements AutoCloseable {
     }
 
     /**
-     * Drains running tasks and waits for completion. Called during Worker shutdown.
+     * Permanently rejects new admission/publication after this process loses membership.
+     * Does not block the heartbeat callback or claim existing executions have drained.
+     * Existing task cleanup, status and output release remain available.
      */
+    public void fenceAdmission() {
+        taskAdmissions.closeAdmissions();
+        drainExecutor.beginDraining();
+    }
+
+    /** Drains running tasks and waits for completion during Worker shutdown. */
     public void drainAndWait() {
         drainExecutor.drainAndWait();
     }
@@ -305,11 +385,11 @@ public class TaskManager implements AutoCloseable {
     }
 
     /**
-     * Returns the current SPI-level state of a task.
+     * Returns the observable state of a registered task.
      * External code should use this instead of accessing TaskStateMapper directly.
      */
-    public Optional<TaskStatus.TaskState> getTaskSpiState(String taskId) {
-        return getTaskState(taskId).map(TaskStateMapper::toSpiState);
+    public Optional<ReportedTaskState> getReportedTaskState(String taskId) {
+        return getTaskState(taskId).map(TaskStateMapper::toReportedState);
     }
 
     /**
@@ -323,12 +403,40 @@ public class TaskManager implements AutoCloseable {
         return OptionalLong.of(info.executorHandle());
     }
 
+    /** Snapshot of completed Native scalar-index decisions in retained task records. */
+    public IndexSplitTotals getNativeIndexSplitTotals() {
+        long evaluated = 0;
+        long skipped = 0;
+        for (TaskInfo info : tasks.values()) {
+            byte[] bytes = info.terminalTaskStats();
+            if (bytes == null || bytes.length == 0) {
+                continue;
+            }
+            try {
+                var stats = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(bytes);
+                evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
+                skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
+            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+                throw new IllegalStateException("Captured NativeTaskStats is malformed", malformed);
+            }
+        }
+        return new IndexSplitTotals(evaluated, skipped);
+    }
+
+    public record IndexSplitTotals(long evaluated, long skipped) {}
+
     /**
      * Returns the per-task shuffle server port, or 0 if no shuffle server was started.
      */
     public int getShufflePort(String taskId) {
         TaskInfo info = tasks.get(taskId);
         return info != null ? info.shufflePort() : 0;
+    }
+
+    public Optional<org.pangrova.shuffle.api.ShuffleServerHandle> getShuffleServerHandle(
+            String taskId) {
+        TaskInfo info = tasks.get(taskId);
+        return Optional.ofNullable(info == null ? null : info.shuffleServerHandle());
     }
 
     /**
@@ -340,15 +448,8 @@ public class TaskManager implements AutoCloseable {
      * @return the shared TaskExecutor, or empty if TaskManager is in
      *         state-machine-only mode (no execution pipeline)
      */
-    public Optional<org.pangrova.spi.execution.TaskExecutor> getSharedNativeExecutor() {
+    public Optional<org.pangrova.worker.execution.TaskExecutor> getSharedNativeExecutor() {
         return Optional.ofNullable(taskExecutor);
-    }
-
-    /**
-     * Returns the vector search result buffer, or null if no execution pipeline is configured.
-     */
-    public org.pangrova.worker.execution.VectorSearchResultBuffer getVectorResultBuffer() {
-        return lifecycleManager != null ? lifecycleManager.getVectorResultBuffer() : null;
     }
 
     /**
@@ -379,7 +480,10 @@ public class TaskManager implements AutoCloseable {
      */
     public int cleanupTerminalTasks(java.time.Duration retention) {
         return TaskCleanupScheduler.cleanupTerminalTasks(
-                tasks, retention, this::removeCoordinatorIndex);
+                tasks, retention, info -> {
+                    drainExecutor.releaseTerminalTask(info);
+                    removeCoordinatorIndex(info);
+                }, drainExecutor::resultResourcesDrained);
     }
 
     /**
@@ -393,10 +497,7 @@ public class TaskManager implements AutoCloseable {
     }
 
     void removeCoordinatorIndex(TaskInfo info) {
-        SubmitTaskRequest req = info.request();
-        if (req != null && req.taskId() != null && !req.taskId().isBlank()) {
-            coordinatorTaskIndex.remove(req.taskId());
-        }
+        admissionControl.completed(info);
     }
 
     private void notifyCompletion(String queryId) {
@@ -438,8 +539,7 @@ public class TaskManager implements AutoCloseable {
         // could bypass validation.
         while (true) {
             TaskState current = info.getState();
-            Set<TaskState> allowed = TRANSITIONS.getOrDefault(current, Set.of());
-            if (!allowed.contains(target)) {
+            if (!TaskStateTransitions.isAllowed(current, target)) {
                 LOG.warn("event=invalid_task_transition taskId={} from={} to={}", taskId, current, target);
                 return false;
             }
@@ -459,11 +559,16 @@ public class TaskManager implements AutoCloseable {
                 || state == TaskState.CANCELLED;
     }
 
-    /** Deregisters the task from cancellation tracking and signals the drain executor. */
     private void onTerminalTransition(TaskInfo info, String taskId) {
         QueryCancellationPropagator prop = cancellationPropagator;
         if (prop != null) {
             prop.deregisterTask(info.queryId(), taskId);
+        }
+        boolean hasLiveTask = tasks.values().stream()
+                .filter(task -> task.queryId().equals(info.queryId()))
+                .anyMatch(task -> !isTerminalState(task.getState()));
+        if (!hasLiveTask) {
+            executionOwnerFence.retire(info.queryId());
         }
         drainExecutor.signalTerminalTransition();
     }

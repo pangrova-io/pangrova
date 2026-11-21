@@ -1,5 +1,7 @@
 package org.pangrova.planner.cost;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +47,7 @@ public final class IndexCostFactor {
      * @param filterColumns columns used in WHERE predicates
      * @return cost multiplier in [MIN_COST_MULTIPLIER, 1.0]
      */
-    public double computeCostMultiplier(String tableName, Set<String> filterColumns) {
+    public double computeCostMultiplier(QualifiedTableName tableName, Set<String> filterColumns) {
         if (filterColumns == null || filterColumns.isEmpty()) {
             return 1.0;
         }
@@ -82,6 +84,6 @@ public final class IndexCostFactor {
          * @param column    filter column name
          * @return skip ratio in [0.0, 1.0]
          */
-        double getSkipRatio(String tableName, String column);
+        double getSkipRatio(QualifiedTableName tableName, String column);
     }
 }

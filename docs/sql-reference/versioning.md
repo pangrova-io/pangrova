@@ -20,7 +20,11 @@ Data versioning statements: time travel queries, branch and tag management, snap
 
 ## Time Travel
 
-**FOR SYSTEM_TIME AS OF (timestamp-based):**
+**FOR SYSTEM_TIME AS OF (currently a numeric snapshot identifier):**
+
+Despite the clause name, the current resolver does not perform wall-clock timestamp
+lookup. Supply an actual snapshot identifier from the table's snapshot metadata;
+the numeric IDs below are illustrative.
 
 ```sql
 SELECT event_id, event_type, amount
@@ -103,6 +107,11 @@ USE BRANCH branch_name ON table_name;
 USE BRANCH MAIN ON table_name;  -- Switch back to main
 ```
 
+The Coordinator checks the authenticated user's table SELECT privilege, tenant visibility and the selected branch head. Each subsequent query resolves that branch to an exact snapshot. An explicit time-travel clause overrides the session selection on that table. Iceberg supports named branch reads. Paimon rejects branch selection because its snapshots are scoped to a branch.
+
+The JDBC connection and CLI client retain the server's `branch_selection` acknowledgement. REST clients send the returned branch name in `session_properties` under `branch.routing.<table>` for subsequent requests. MAIN returns a null branch and removes that entry. Independent connections retain their own selections. The route applies to reads, including query sources within writes.
+
+
 ### SHOW BRANCHES / SHOW TAGS
 
 ```sql
@@ -122,9 +131,14 @@ SELECT * FROM prod.analytics.events VERSION AS OF TAG 'release_v1';
 -- Query at a specific snapshot version
 SELECT * FROM prod.analytics.events FOR SYSTEM_VERSION AS OF 1234567890;
 
--- Query at a specific timestamp
+-- SYSTEM_TIME currently resolves a numeric snapshot identifier, not a timestamp.
 SELECT * FROM prod.analytics.events FOR SYSTEM_TIME AS OF 123456789;
 ```
+
+For Paimon tables, `VERSION AS OF TAG` resolves an existing Paimon tag to its
+fixed snapshot before planning the scan. An unknown tag fails the query; it
+does not read the current table state. Paimon branch references are not
+supported by this connector.
 
 ---
 
@@ -161,6 +175,10 @@ SHOW PARTITIONS FROM table_name;
 ```
 
 Returns partition information for the table.
+
+`SHOW PARTITIONS` is rewritten to the authorized `$partitions` system-table scan.
+`SHOW SNAPSHOTS`, `SHOW FILES`, and `SHOW MANIFESTS` use the authorized
+system-table scan path for supported connectors.
 
 **Example:**
 

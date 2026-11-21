@@ -1,17 +1,16 @@
 # Default owners
-* @pangrova-project/maintainers
+* @pangrova/maintainers
 
 # Core modules
-/pangrova-spi/ @pangrova-project/core
-/pangrova-planner/ @pangrova-project/core
-/pangrova-substrait/ @pangrova-project/core
+/pangrova-planner/ @pangrova/core
+/pangrova-protocol/ @pangrova/core
 
 # Native
-/pangrova-worker-native/ @pangrova-project/native
+/pangrova-worker-native/ @pangrova/native
 
 # Connectors
-/pangrova-connector-*/ @pangrova-project/connectors
+/pangrova-connector/ @pangrova/connectors
 
 # Documentation
-/docs/ @pangrova-project/docs
-*.md @pangrova-project/docs
+/docs/ @pangrova/docs
+*.md @pangrova/docs

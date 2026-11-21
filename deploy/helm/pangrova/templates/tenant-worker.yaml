@@ -46,6 +46,8 @@ spec:
         component: worker
         tenant: {{ .name }}
     spec:
+      securityContext:
+        fsGroup: {{ $root.Values.worker.fsGroup }}
       containers:
         - name: worker
           image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
@@ -65,8 +67,17 @@ spec:
               value: /opt/pangrova/logs
             - name: PANGROVA_JAVA_OPTS
               value: {{ $root.Values.worker.javaOpts | quote }}
-            - name: WORKER_COORDINATOR_URL
-              value: "http://pangrova-coordinator.{{ $root.Values.namespace }}.svc.cluster.local:8080"
+            - name: PANGROVA_COORDINATOR_URL
+              value: "http://pangrova-coordinator-bootstrap.{{ $root.Values.namespace }}.svc.cluster.local:8080"
+            - name: PANGROVA_ADVERTISED_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PANGROVA_INTERNAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.internalAuth.existingSecret | quote }}
+                  key: internal-auth-secret
             - name: PANGROVA_TENANT_ID
               value: {{ .name | quote }}
           readinessProbe:
@@ -78,7 +89,7 @@ spec:
             failureThreshold: {{ $root.Values.worker.readinessProbe.failureThreshold }}
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: http
             initialDelaySeconds: {{ $root.Values.worker.livenessProbe.initialDelaySeconds }}
             periodSeconds: {{ $root.Values.worker.livenessProbe.periodSeconds }}
@@ -91,11 +102,15 @@ spec:
               subPath: worker.yml
             - name: logs
               mountPath: /opt/pangrova/logs
+            - name: data
+              mountPath: /opt/pangrova/data
       volumes:
         - name: config
           configMap:
             name: pangrova-worker-config
         - name: logs
+          emptyDir: {}
+        - name: data
           emptyDir: {}
 ---
 apiVersion: v1

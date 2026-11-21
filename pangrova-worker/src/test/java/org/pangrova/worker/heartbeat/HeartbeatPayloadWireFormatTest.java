@@ -12,12 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * ensuring Worker → Coordinator heartbeat round-trip compatibility.
  */
 class HeartbeatPayloadWireFormatTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
     void serializationUsesSnakeCaseFieldNames() throws Exception {
-        HeartbeatPayload payload = new HeartbeatPayload("w-1", "LOW", 0.75, 3, 4096L);
+        HeartbeatPayload payload = new HeartbeatPayload("w-1", "LOW", 0.75, 3, 4096L, HEARTBEAT_IDENTITY);
         String json = mapper.writeValueAsString(payload);
         JsonNode node = mapper.readTree(json);
 
@@ -30,7 +32,7 @@ class HeartbeatPayloadWireFormatTest {
 
     @Test
     void roundTripPreservesAllFields() throws Exception {
-        HeartbeatPayload original = new HeartbeatPayload("w-42", "HIGH", 0.95, 8, 1_048_576L);
+        HeartbeatPayload original = new HeartbeatPayload("w-42", "HIGH", 0.95, 8, 1_048_576L, HEARTBEAT_IDENTITY);
         byte[] bytes = mapper.writeValueAsBytes(original);
         HeartbeatPayload restored = mapper.readValue(bytes, HeartbeatPayload.class);
 
@@ -46,6 +48,7 @@ class HeartbeatPayloadWireFormatTest {
         String json = """
                 {
                   "worker_id": "w-7",
+                  "worker_execution_identity": {"admission_domain_id": "00000000-0000-0000-0000-0000000000d1", "incarnation_id": "00000000-0000-0000-0000-0000000000e1"},
                   "memory_pressure": "NONE",
                   "cpu_utilization": 0.1,
                   "running_task_count": 0,

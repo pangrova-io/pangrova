@@ -92,7 +92,7 @@ class PangrovaConfigurationPropertyTest {
         try {
             config.toMap().put("injected", "bad");
             // If no exception, fail
-            assertThat(true).as("toMap() should be unmodifiable").isFalse();
+            throw new AssertionError("toMap() should be unmodifiable");
         } catch (UnsupportedOperationException e) {
             // expected
         }

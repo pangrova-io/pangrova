@@ -33,8 +33,4 @@ public interface QuerySnapshotRegistry {
      */
     Optional<Long> getPinnedSnapshot(String queryId, String schema, String table);
 
-    /**
-     * Cleans up all pinned snapshots for a completed query.
-     */
-    void cleanupQuery(String queryId);
 }

@@ -155,6 +155,18 @@ class PangrovaConfigurationTest {
     }
 
     @Test
+    void invalidBooleanCannotDisableConfiguredSecurity() {
+        var option = org.pangrova.config.constants.CommonOptions.SECURITY_ENABLED;
+        var valid = PangrovaConfiguration.fromYaml(Map.of(option.key(), " TRUE "));
+        assertThat(valid.getBoolean(option)).isTrue();
+        for (String invalid : java.util.List.of("treu", "0", "")) {
+            var config = PangrovaConfiguration.fromYaml(Map.of(option.key(), invalid));
+            assertThatThrownBy(() -> config.getBoolean(option)).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining(option.key());
+        }
+    }
+
+    @Test
     void getBooleanReturnsValue() {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of("enabled", "true"));
         ConfigOption<Boolean> opt = ConfigOptions.key("enabled").booleanType().defaultValue(false).build();

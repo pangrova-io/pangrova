@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1092" height="2242" viewBox="0 0 1092 2242" role="img">
+<rect width="1092" height="2242" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1090.5" height="2240.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">// ConnectorFactory - connector factory</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">public interface ConnectorFactory {</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">    String getName();</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">    Connector create(String catalogName, Map&lt;String, String&gt; config, ConnectorContext context);</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">// Connector - main connector interface</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">public interface Connector {</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">    ConnectorMetadata getMetadata(ConnectorSession session);</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    ConnectorSplitManager getSplitManager();</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    ConnectorPageSourceProvider getPageSourceProvider();</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    default ConnectorPageSinkProvider getPageSinkProvider() {</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Write not supported");</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">    default ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly) {</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">        return ConnectorTransactionHandle.empty();</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">    default void commit(ConnectorTransactionHandle transaction) {}</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">    default void rollback(ConnectorTransactionHandle transaction) {}</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">    default void shutdown() {}</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">// ConnectorMetadata - metadata interface</text>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">public interface ConnectorMetadata {</text>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">    // Schema operations</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">    List&lt;String&gt; listSchemaNames(ConnectorSession session);</text>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve">    void createSchema(ConnectorSession session, String schemaName, Map&lt;String, Object&gt; properties);</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">    void dropSchema(ConnectorSession session, String schemaName);</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">    // Table operations</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">    List&lt;SchemaTableName&gt; listTables(ConnectorSession session, Optional&lt;String&gt; schemaName);</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">    ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">    ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table);</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">    Map&lt;String, ColumnHandle&gt; getColumnHandles(ConnectorSession session, ConnectorTableHandle table);</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">    // DDL operations</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">    void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting);</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">    void dropTable(ConnectorSession session, ConnectorTableHandle table);</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">    void renameTable(ConnectorSession session, ConnectorTableHandle table, SchemaTableName newTableName);</text>
+<text x="34.0" y="807.7" fill="#1F2937" xml:space="preserve">    // Statistics</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">    TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table);</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">    // Predicate pushdown</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">    default Optional&lt;ConstraintApplicationResult&lt;ConnectorTableHandle&gt;&gt;</text>
+<text x="34.0" y="902.7" fill="#1F2937" xml:space="preserve">            applyFilter(ConnectorSession session, ConnectorTableHandle table, Constraint constraint) {</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">        return Optional.empty();</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">    // Projection pushdown</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">    default Optional&lt;ProjectionApplicationResult&lt;ConnectorTableHandle&gt;&gt;</text>
+<text x="34.0" y="1016.7" fill="#1F2937" xml:space="preserve">            applyProjection(ConnectorSession session, ConnectorTableHandle table,</text>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">                            List&lt;ConnectorExpression&gt; projections, Map&lt;String, ColumnHandle&gt; assignments) {</text>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve">        return Optional.empty();</text>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">}</text>
+<line x1="62.2" y1="1126.5" x2="71.6" y2="1126.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="71.6" y1="1126.5" x2="81.0" y2="1126.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="635.6" y1="1126.5" x2="645.0" y2="1126.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="645.0" y1="1126.5" x2="654.4" y2="1126.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">//    ConnectorMetadata Sub-Interface Proposal (ISP Compliance)</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">//</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">//</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">// The monolithic ConnectorMetadata (14+ methods, 5 responsibility areas) violates</text>
+<text x="34.0" y="1206.7" fill="#1F2937" xml:space="preserve">// Interface Segregation Principle. Read-only connectors must implement DDL methods</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">// they don't support. Proposed decomposition for future migration:</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">//</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">//   ConnectorSchemaProvider:     listSchemaNames, createSchema, dropSchema</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">//   ConnectorTableProvider:      listTables, getTableHandle, getTableMetadata, getColumnHandles</text>
+<text x="34.0" y="1301.7" fill="#1F2937" xml:space="preserve">//   ConnectorDdlHandler:         createTable, dropTable, renameTable          (optional)</text>
+<text x="34.0" y="1320.7" fill="#1F2937" xml:space="preserve">//   ConnectorStatisticsProvider: getTableStatistics                           (optional)</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">//   ConnectorPushdownHandler:    applyFilter, applyProjection                 (optional)</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">//</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">// Connector interface would expose:</text>
+<text x="34.0" y="1396.7" fill="#1F2937" xml:space="preserve">//   getSchemaProvider():     ConnectorSchemaProvider       (required)</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">//   getTableProvider():      ConnectorTableProvider        (required)</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">//   getDdlHandler():         Optional&lt;ConnectorDdlHandler&gt;</text>
+<text x="34.0" y="1453.7" fill="#1F2937" xml:space="preserve">//   getStatisticsProvider(): Optional&lt;ConnectorStatisticsProvider&gt;</text>
+<text x="34.0" y="1472.7" fill="#1F2937" xml:space="preserve">//   getPushdownHandler():    Optional&lt;ConnectorPushdownHandler&gt;</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">//</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">// Migration: ConnectorMetadata remains as a convenience base class implementing</text>
+<text x="34.0" y="1529.7" fill="#1F2937" xml:space="preserve">// all sub-interfaces with default UnsupportedOperationException for optional methods.</text>
+<text x="34.0" y="1548.7" fill="#1F2937" xml:space="preserve">// New connectors can implement only the required sub-interfaces.</text>
+<text x="34.0" y="1586.7" fill="#1F2937" xml:space="preserve">// ConnectorSplitManager - split manager</text>
+<text x="34.0" y="1605.7" fill="#1F2937" xml:space="preserve">public interface ConnectorSplitManager {</text>
+<text x="34.0" y="1624.7" fill="#1F2937" xml:space="preserve">    ConnectorSplitSource getSplits(</text>
+<text x="34.0" y="1643.7" fill="#1F2937" xml:space="preserve">            ConnectorTransactionHandle transaction,</text>
+<text x="34.0" y="1662.7" fill="#1F2937" xml:space="preserve">            ConnectorSession session,</text>
+<text x="34.0" y="1681.7" fill="#1F2937" xml:space="preserve">            ConnectorTableHandle table,</text>
+<text x="34.0" y="1700.7" fill="#1F2937" xml:space="preserve">            DynamicFilter dynamicFilter,</text>
+<text x="34.0" y="1719.7" fill="#1F2937" xml:space="preserve">            Constraint constraint);</text>
+<text x="34.0" y="1738.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="1776.7" fill="#1F2937" xml:space="preserve">// ConnectorPageSourceProvider - data reading</text>
+<text x="34.0" y="1795.7" fill="#1F2937" xml:space="preserve">public interface ConnectorPageSourceProvider {</text>
+<text x="34.0" y="1814.7" fill="#1F2937" xml:space="preserve">    ConnectorPageSource createPageSource(</text>
+<text x="34.0" y="1833.7" fill="#1F2937" xml:space="preserve">            ConnectorTransactionHandle transaction,</text>
+<text x="34.0" y="1852.7" fill="#1F2937" xml:space="preserve">            ConnectorSession session,</text>
+<text x="34.0" y="1871.7" fill="#1F2937" xml:space="preserve">            ConnectorSplit split,</text>
+<text x="34.0" y="1890.7" fill="#1F2937" xml:space="preserve">            ConnectorTableHandle table,</text>
+<text x="34.0" y="1909.7" fill="#1F2937" xml:space="preserve">            List&lt;ColumnHandle&gt; columns,</text>
+<text x="34.0" y="1928.7" fill="#1F2937" xml:space="preserve">            DynamicFilter dynamicFilter);</text>
+<text x="34.0" y="1947.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="1985.7" fill="#1F2937" xml:space="preserve">// ConnectorPageSinkProvider - data writing</text>
+<text x="34.0" y="2004.7" fill="#1F2937" xml:space="preserve">public interface ConnectorPageSinkProvider {</text>
+<text x="34.0" y="2023.7" fill="#1F2937" xml:space="preserve">    ConnectorPageSink createPageSink(</text>
+<text x="34.0" y="2042.7" fill="#1F2937" xml:space="preserve">            ConnectorTransactionHandle transaction,</text>
+<text x="34.0" y="2061.7" fill="#1F2937" xml:space="preserve">            ConnectorSession session,</text>
+<text x="34.0" y="2080.7" fill="#1F2937" xml:space="preserve">            ConnectorOutputTableHandle outputTableHandle);</text>
+<text x="34.0" y="2118.7" fill="#1F2937" xml:space="preserve">    ConnectorPageSink createPageSink(</text>
+<text x="34.0" y="2137.7" fill="#1F2937" xml:space="preserve">            ConnectorTransactionHandle transaction,</text>
+<text x="34.0" y="2156.7" fill="#1F2937" xml:space="preserve">            ConnectorSession session,</text>
+<text x="34.0" y="2175.7" fill="#1F2937" xml:space="preserve">            ConnectorInsertTableHandle insertTableHandle);</text>
+<text x="34.0" y="2194.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

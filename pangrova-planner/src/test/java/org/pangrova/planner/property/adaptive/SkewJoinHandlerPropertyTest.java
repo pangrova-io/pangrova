@@ -3,11 +3,11 @@ package org.pangrova.planner.property.adaptive;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.ShuffleStageStats;
 import org.pangrova.planner.adaptive.SkewJoinHandler;
-import org.pangrova.planner.adaptive.SkewResult;
+import org.pangrova.planner.api.adaptive.SkewResult;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -23,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SkewJoinHandlerPropertyTest {
 
-    private final SkewJoinHandler handler = new SkewJoinHandler();
+    private final SkewJoinHandler handler = new SkewJoinHandler(
+            new org.pangrova.shuffle.skew.MedianSkewDetector());
 
     /**
      * Property 1: Every skewed partition exceeds median × threshold AND minBytes.

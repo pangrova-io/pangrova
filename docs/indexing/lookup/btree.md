@@ -26,7 +26,7 @@ USING BTREE;
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `btree.page_size` | `4096` | Index page size in bytes |
+| `btree.page_size` | `4096` | Maximum keys per B-tree page |
 | `btree.store_positions` | `false` | Store row positions in leaf entries for direct row access |
 
 ## Query Behavior

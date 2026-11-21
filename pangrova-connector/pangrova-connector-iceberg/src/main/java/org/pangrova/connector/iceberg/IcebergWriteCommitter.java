@@ -1,18 +1,21 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.concurrent.RetryingCommitWrapper;
+import org.pangrova.connector.iceberg.exception.CommitNotificationException;
+
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
+import org.pangrova.connector.api.enums.CommitEventType;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.apache.iceberg.expressions.Expression;
-import org.apache.iceberg.expressions.Expressions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,13 +23,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * Executes the commit leg of the Iceberg distributed write path: aggregates
@@ -38,41 +34,15 @@ final class IcebergWriteCommitter {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergWriteCommitter.class);
 
-    /**
-     * F-CONNECTOR-07: Bounded ceiling on the commit executor to prevent
-     * unbounded thread creation under bursts of concurrent
-     * {@code executeCommitWithTimeout} calls. Each commit runs the catalog
-     * commit synchronously on this pool; per-catalog 8 concurrent commits is
-     * sufficient for typical Iceberg deployments and bounds OS thread usage.
-     */
-    private static final int COMMIT_EXECUTOR_MAX_THREADS = 8;
-    private static final int COMMIT_EXECUTOR_QUEUE_CAPACITY = 256;
-    private static final long COMMIT_EXECUTOR_KEEP_ALIVE_SECONDS = 60L;
-    private static final long NANOS_PER_MILLISECOND = 1_000_000L;
-
-    private final RetryingCommitWrapper commitRetry = RetryingCommitWrapper.withDefaults(
-            e -> e instanceof CommitFailedException);
-    private final CatalogExceptionClassifier exceptionClassifier = new CatalogExceptionClassifier();
-    private final long commitTimeoutMs;
-    private final ExecutorService commitExecutor;
+    private final IcebergCommitExecutor commitExecutor;
     private final IcebergCommitNotifier notifier;
+    private final Catalog catalog;
 
-    IcebergWriteCommitter(String catalogName, long commitTimeoutMs, IcebergCommitNotifier notifier) {
-        this.commitTimeoutMs = commitTimeoutMs;
+    IcebergWriteCommitter(Catalog catalog, String catalogName, long commitTimeoutMs,
+            IcebergCommitNotifier notifier) {
+        this.catalog = catalog;
         this.notifier = notifier;
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                COMMIT_EXECUTOR_MAX_THREADS,
-                COMMIT_EXECUTOR_MAX_THREADS,
-                COMMIT_EXECUTOR_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
-                new ArrayBlockingQueue<>(COMMIT_EXECUTOR_QUEUE_CAPACITY),
-                r -> {
-                    Thread t = new Thread(r, "iceberg-commit-" + catalogName);
-                    t.setDaemon(true);
-                    return t;
-                },
-                new ThreadPoolExecutor.CallerRunsPolicy());
-        executor.allowCoreThreadTimeOut(true);
-        this.commitExecutor = executor;
+        this.commitExecutor = new IcebergCommitExecutor(catalogName, commitTimeoutMs);
     }
 
     /**
@@ -83,32 +53,70 @@ final class IcebergWriteCommitter {
      */
     void finishDistributedWrite(Table icebergTable,
                                 IcebergOutputTableHandle handle,
-                                List<byte[]> fragments) {
+                                List<byte[]> fragments,
+                                String tenantId,
+                                DistributedWriteCommitContext context) {
+        if (!IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
+            ((org.apache.iceberg.HasTableOperations) IcebergDeclarationCommit.bind(
+                    catalog, icebergTable, handle)).operations().current();
+        }
         IcebergCollectedFragments collected =
                 IcebergFragmentParser.collectAllFragments(icebergTable, handle, fragments);
         if (collected.operation() == null) {
-            handleEmptyFragments(icebergTable, handle);
+            handleEmptyFragments(icebergTable, handle, tenantId, context);
             return;
         }
         try {
-            commitCollectedFragments(icebergTable, handle, collected);
+            commitCollectedFragments(icebergTable, handle, collected, tenantId, context);
         } catch (RuntimeException e) {
-            handleCommitFailure(icebergTable, handle, collected, e);
+            handleCommitFailure(icebergTable, handle, collected, e, context);
             throw e;
         }
         LOG.info("event=distributed_write_committed table={}.{}",
                 handle.schemaName(), handle.tableName());
     }
 
-    private void handleEmptyFragments(Table icebergTable, IcebergOutputTableHandle handle) {
-        // No fragments: for OVERWRITE mode, commit an empty overwrite (truncate).
+    /** An explicitly required empty INSERT still needs its own fenced, marker-bearing catalog snapshot. */
+    void ensureEmptyInsertPublication(Table table, IcebergOutputTableHandle handle, List<byte[]> fragments,
+            String tenant, DistributedWriteCommitContext context) {
+        if (IcebergDistributedCommitMarker.isPublished(table, context)) return;
+        var collected = IcebergFragmentParser.collectAllFragments(table, handle, fragments);
+        if (!IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
+                || !collected.dataFiles().isEmpty() || !collected.deleteFiles().isEmpty()) {
+            throw new IllegalStateException("Required nonempty write has no exact published snapshot marker");
+        }
+        commitExecutor.executeIdempotently(table, context, () -> {
+            var append = IcebergDeclarationCommit.bind(catalog, table, handle).newAppend();
+            IcebergDistributedCommitMarker.apply(append, context);
+            IdempotentCommitController.apply(append, context);
+            IcebergSnapshotDeclarations.apply(append, handle);
+            append.commit();
+        });
+        notifyAfterCommit(table, handle, List.of(), CommitEventType.APPEND, tenant, context);
+    }
+
+    private void handleEmptyFragments(
+            Table icebergTable,
+            IcebergOutputTableHandle handle,
+            String tenantId,
+            DistributedWriteCommitContext context) {
+        // Empty OVERWRITE clears only the allocation's static scope, or the whole table if unscoped.
         // For INSERT/DELETE modes, this is a true noop.
         if (IcebergOutputTableHandle.MODE_OVERWRITE.equals(handle.writeMode())) {
             LOG.info("event=distributed_write_empty_overwrite table={}.{}",
                     handle.schemaName(), handle.tableName());
             commitCollectedFragments(icebergTable, handle,
-                    new IcebergCollectedFragments("OVERWRITE", List.of(), List.of()));
+                    new IcebergCollectedFragments("OVERWRITE", List.of(), List.of()),
+                    tenantId, context);
         } else {
+            if (context != null && context.copyFile() != null) {
+                icebergTable.refresh();
+                if (IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
+                    return;
+                }
+                throw new IllegalStateException(
+                        "COPY cannot complete without a marker-bearing Iceberg snapshot");
+            }
             LOG.info("event=distributed_write_noop table={}.{} reason=no_fragments",
                     handle.schemaName(), handle.tableName());
         }
@@ -121,8 +129,10 @@ final class IcebergWriteCommitter {
      * (the commit may have landed), so leave them for maintenance cleanup.
      */
     private void handleCommitFailure(Table icebergTable, IcebergOutputTableHandle handle,
-                                     IcebergCollectedFragments collected, RuntimeException e) {
-        if (e instanceof CommitTimeoutException) {
+                                     IcebergCollectedFragments collected, RuntimeException e,
+                                     DistributedWriteCommitContext context) {
+        if (context != null || e instanceof CommitStateUnknownException
+                || e instanceof CommitNotificationException) {
             LOG.warn("event=distributed_write_commit_timeout_orphans_possible table={}.{} "
                             + "dataFiles={} deleteFiles={} note=left_for_maintenance_cleanup",
                     handle.schemaName(), handle.tableName(),
@@ -151,18 +161,40 @@ final class IcebergWriteCommitter {
 
     /**
      * Deletes rows matching the filter via Iceberg's row-filter delete, committed
-     * with the same timeout and retry protection as distributed writes.
+     * with the same timeout and retry protection as distributed writes. This path
+     * carries no durable commit context, so a timed-out commit whose snapshot
+     * advanced is reported as unknown rather than assumed successful.
      */
-    void deleteByFilter(Table icebergTable, IcebergTableHandle handle, DeleteFilter filter) {
+    void deleteByFilter(
+            Table icebergTable, IcebergTableHandle handle,
+            DeleteFilter filter, String tenantId) {
+        IcebergDeclarationCommit.requireSupported(catalog, icebergTable);
+        IcebergOutputTableHandle declaration = (IcebergOutputTableHandle)
+                IcebergOutputHandles.forDelete(handle, icebergTable);
+        List<String> changed = new ArrayList<>();
+        if (!handle.tableLocation().equals(declaration.tableLocation())) changed.add("location");
+        if (!handle.schemaJson().equals(declaration.schemaJson())) changed.add("schema");
+        if (!handle.partitionSpecJson().equals(declaration.partitionSpecJson())) changed.add("partition spec");
+        if (handle.formatVersion() != declaration.formatVersion()) changed.add("format version");
+        if (!IcebergDeclarationProperties.capture(handle.properties())
+                .equals(declaration.declarationProperties())) {
+            changed.add("properties");
+        }
+        if (!changed.isEmpty()) {
+            throw new IllegalStateException("Iceberg write declaration changed since allocation: "
+                    + handle.schemaName() + "." + handle.tableName() + " (" + String.join(", ", changed) + ")");
+        }
+        Table fencedTable = IcebergDeclarationCommit.bind(catalog, icebergTable, declaration);
         Expression icebergExpr = IcebergDeleteFilterTranslator.toIcebergExpression(
-                filter, icebergTable.schema());
+                filter, fencedTable.schema());
         String tableId = handle.schemaName() + "." + handle.tableName();
         try {
-            executeCommitWithTimeout(() ->
-                    commitRetry.execute(() ->
-                            icebergTable.newDelete()
-                                    .deleteFromRowFilter(icebergExpr)
-                                    .commit()), tableId);
+            commitExecutor.execute(icebergTable, null, () ->
+                    commitExecutor.retry(() -> {
+                        var delete = fencedTable.newDelete().deleteFromRowFilter(icebergExpr);
+                        IcebergSnapshotDeclarations.apply(delete, declaration);
+                        delete.commit();
+                    }), tableId);
         } catch (org.apache.iceberg.exceptions.ValidationException e) {
             throw new UnsupportedOperationException(
                     "Iceberg deleteFromRowFilter cannot handle partial-file filter: " + e.getMessage(), e);
@@ -173,7 +205,7 @@ final class IcebergWriteCommitter {
         icebergTable.refresh();
         Snapshot snapshot = icebergTable.currentSnapshot();
         String snapshotId = snapshot != null ? String.valueOf(snapshot.snapshotId()) : "";
-        notifier.notifyCommit(handle.schemaName(), handle.tableName(),
+        notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(),
                 List.of(), List.of(), snapshotId, CommitEventType.DELETE);
     }
 
@@ -183,25 +215,30 @@ final class IcebergWriteCommitter {
      */
     private void commitCollectedFragments(Table icebergTable,
                                           IcebergOutputTableHandle handle,
-                                          IcebergCollectedFragments collected) {
+                                          IcebergCollectedFragments collected,
+                                          String tenantId,
+                                          DistributedWriteCommitContext context) {
         if (collected.operation() == null) {
             return;
         }
         String tableId = handle.schemaName() + "." + handle.tableName();
         switch (collected.operation()) {
             case "APPEND" ->
-                    executeCommitWithTimeout(() ->
-                            commitAtomicAppend(icebergTable, handle, collected.dataFiles()), tableId);
+                    commitExecutor.execute(icebergTable, context, () ->
+                            commitAtomicAppend(
+                                    icebergTable, handle, collected.dataFiles(), tenantId, context), tableId);
             case "OVERWRITE" ->
-                    executeCommitWithTimeout(() ->
-                            commitAtomicOverwrite(icebergTable, handle, collected.dataFiles()), tableId);
+                    commitExecutor.execute(icebergTable, context, () ->
+                            commitAtomicOverwrite(
+                                    icebergTable, handle, collected.dataFiles(), tenantId, context), tableId);
             case "DELETE" ->
-                    executeCommitWithTimeout(() ->
-                            commitAtomicDelete(icebergTable, handle, collected.deleteFiles()), tableId);
+                    commitExecutor.execute(icebergTable, context, () ->
+                            commitAtomicDelete(
+                                    icebergTable, handle, collected.deleteFiles(), tenantId, context), tableId);
             case "MERGE" ->
-                    executeCommitWithTimeout(() ->
+                    commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicMerge(icebergTable, handle,
-                                    collected.dataFiles(), collected.deleteFiles()), tableId);
+                                    collected.dataFiles(), collected.deleteFiles(), tenantId, context), tableId);
             default -> throw new IllegalStateException(
                     "Unknown operation: " + collected.operation());
         }
@@ -247,101 +284,56 @@ final class IcebergWriteCommitter {
         }
     }
 
-    /**
-     * Executes a commit action with timeout protection. If the catalog commit
-     * hangs beyond commitTimeoutMs, throws CommitTimeoutException which routes
-     * to retry via the transient error path.
-     */
-    private void executeCommitWithTimeout(Runnable commitAction, String tableId) {
-        long startMs = System.nanoTime() / NANOS_PER_MILLISECOND;
-        try {
-            CompletableFuture.runAsync(commitAction, commitExecutor)
-                    .get(commitTimeoutMs, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            long elapsed = (System.nanoTime() / NANOS_PER_MILLISECOND) - startMs;
-            throw new CommitTimeoutException(tableId, elapsed, commitTimeoutMs, e);
-        } catch (ExecutionException e) {
-            handleExecutionFailure(e, tableId);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CommitTimeoutException(tableId, 0, commitTimeoutMs, e);
-        }
-    }
-
-    private void handleExecutionFailure(ExecutionException e, String tableId) {
-        Throwable cause = e.getCause();
-        if (cause instanceof RuntimeException re) {
-            throw re;
-        }
-        throw exceptionClassifier.handleAndClassify(
-                cause instanceof Exception ex ? ex : new RuntimeException(cause),
-                "commit", tableId);
-    }
-
     private void commitAtomicAppend(Table icebergTable,
                                     IcebergOutputTableHandle handle,
-                                    List<DataFile> dataFiles) {
+                                    List<DataFile> dataFiles,
+                                    String tenantId,
+                                    DistributedWriteCommitContext context) {
         if (dataFiles.isEmpty()) {
             return;
         }
-        commitRetry.execute(() -> {
-            icebergTable.refresh();
-            var append = icebergTable.newAppend();
+        commitExecutor.executeIdempotently(icebergTable, context, () -> {
+            var append = IcebergDeclarationCommit.bind(catalog, icebergTable, handle).newAppend();
             for (DataFile df : dataFiles) {
                 append.appendFile(df);
             }
+            IcebergDistributedCommitMarker.apply(append, context);
+            IdempotentCommitController.apply(append, context);
+            IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
         LOG.info("event=distributed_append_committed table={}.{} files={}",
                 handle.schemaName(), handle.tableName(), dataFiles.size());
 
-        notifyAfterCommit(icebergTable, handle, dataFiles, CommitEventType.APPEND);
+        notifyAfterCommit(
+                icebergTable, handle, dataFiles, CommitEventType.APPEND, tenantId, context);
     }
 
     private void commitAtomicOverwrite(Table icebergTable,
                                        IcebergOutputTableHandle handle,
-                                       List<DataFile> dataFiles) {
-        if (dataFiles.isEmpty()) {
-            commitEmptyOverwrite(icebergTable, handle);
-            return;
-        }
-        // F-ICEBERG-01/04: validate from baseSnapshotId to detect concurrent modifications
-        final long baseSnapshotId = handle.baseSnapshotId();
-        commitRetry.execute(() -> {
-            icebergTable.refresh();
-            var overwrite = icebergTable.newReplacePartitions();
-            if (baseSnapshotId != IcebergOutputTableHandle.NO_SNAPSHOT) {
-                overwrite.validateFromSnapshot(baseSnapshotId);
-                overwrite.validateNoConflictingData();
-                overwrite.validateNoConflictingDeletes();
-            }
-            for (DataFile df : dataFiles) {
-                overwrite.addFile(df);
-            }
+                                       List<DataFile> dataFiles,
+                                       String tenantId,
+                                       DistributedWriteCommitContext context) {
+        commitExecutor.executeIdempotently(icebergTable, context, () -> {
+            var overwrite = IcebergOverwriteCommit.build(
+                    IcebergDeclarationCommit.bind(catalog, icebergTable, handle), handle, dataFiles);
+            IcebergDistributedCommitMarker.apply(overwrite, context);
+            IdempotentCommitController.apply(overwrite, context);
+            IcebergSnapshotDeclarations.apply(overwrite, handle);
             overwrite.commit();
         });
         LOG.info("event=distributed_overwrite_committed table={}.{} files={}",
                 handle.schemaName(), handle.tableName(), dataFiles.size());
 
-        notifyAfterCommit(icebergTable, handle, dataFiles, CommitEventType.OVERWRITE);
-    }
-
-    private void commitEmptyOverwrite(Table icebergTable, IcebergOutputTableHandle handle) {
-        commitRetry.execute(() -> {
-            icebergTable.refresh();
-            icebergTable.newDelete()
-                    .deleteFromRowFilter(
-                            Expressions.alwaysTrue())
-                    .commit();
-        });
-        LOG.info("event=distributed_overwrite_empty_committed table={}.{}",
-                handle.schemaName(), handle.tableName());
-        notifyAfterCommit(icebergTable, handle, List.of(), CommitEventType.OVERWRITE);
+        notifyAfterCommit(
+                icebergTable, handle, dataFiles, CommitEventType.OVERWRITE, tenantId, context);
     }
 
     private void commitAtomicDelete(Table icebergTable,
                                     IcebergOutputTableHandle handle,
-                                    List<DeleteFile> deleteFiles) {
+                                    List<DeleteFile> deleteFiles,
+                                    String tenantId,
+                                    DistributedWriteCommitContext context) {
         if (deleteFiles.isEmpty()) {
             return;
         }
@@ -349,9 +341,8 @@ final class IcebergWriteCommitter {
                 icebergTable, handle, deleteFiles);
         // F-ICEBERG-01/04: validate from baseSnapshotId
         final long baseSnapshotId = handle.baseSnapshotId();
-        commitRetry.execute(() -> {
-            icebergTable.refresh();
-            var rowDelta = icebergTable.newRowDelta();
+        commitExecutor.executeIdempotently(icebergTable, context, () -> {
+            var rowDelta = IcebergDeclarationCommit.bind(catalog, icebergTable, handle).newRowDelta();
             if (baseSnapshotId != IcebergOutputTableHandle.NO_SNAPSHOT) {
                 rowDelta.validateFromSnapshot(baseSnapshotId);
                 rowDelta.validateNoConflictingDataFiles();
@@ -360,22 +351,28 @@ final class IcebergWriteCommitter {
             for (DeleteFile df : mergedDeleteFiles) {
                 rowDelta.addDeletes(df);
             }
+            IcebergDistributedCommitMarker.apply(rowDelta, context);
+            IdempotentCommitController.apply(rowDelta, context);
+            IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });
         LOG.info("event=distributed_delete_committed table={}.{} deleteFiles={} afterMerge={}",
                 handle.schemaName(), handle.tableName(), deleteFiles.size(),
                 mergedDeleteFiles.size());
 
-        Snapshot snapshot = icebergTable.currentSnapshot();
+        Snapshot snapshot = committedSnapshot(icebergTable, context);
         String snapshotId = snapshot != null ? String.valueOf(snapshot.snapshotId()) : "";
-        notifier.notifyCommit(handle.schemaName(), handle.tableName(),
-                List.of(), List.of(), snapshotId, CommitEventType.DELETE);
+        notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(),
+                List.of(), List.of(), snapshotId, CommitEventType.DELETE,
+                context != null ? context.commitFingerprint() : null);
     }
 
     private void commitAtomicMerge(Table icebergTable,
                                    IcebergOutputTableHandle handle,
                                    List<DataFile> dataFiles,
-                                   List<DeleteFile> deleteFiles) {
+                                   List<DeleteFile> deleteFiles,
+                                   String tenantId,
+                                   DistributedWriteCommitContext context) {
         if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
             return;
         }
@@ -383,9 +380,8 @@ final class IcebergWriteCommitter {
                 icebergTable, handle, deleteFiles);
         // F-ICEBERG-01/04: validate from baseSnapshotId
         final long baseSnapshotIdMerge = handle.baseSnapshotId();
-        commitRetry.execute(() -> {
-            icebergTable.refresh();
-            var rowDelta = icebergTable.newRowDelta();
+        commitExecutor.executeIdempotently(icebergTable, context, () -> {
+            var rowDelta = IcebergDeclarationCommit.bind(catalog, icebergTable, handle).newRowDelta();
             if (baseSnapshotIdMerge != IcebergOutputTableHandle.NO_SNAPSHOT) {
                 rowDelta.validateFromSnapshot(baseSnapshotIdMerge);
                 rowDelta.validateNoConflictingDataFiles();
@@ -397,13 +393,17 @@ final class IcebergWriteCommitter {
             for (DeleteFile df : mergedDeleteFiles) {
                 rowDelta.addDeletes(df);
             }
+            IcebergDistributedCommitMarker.apply(rowDelta, context);
+            IdempotentCommitController.apply(rowDelta, context);
+            IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });
         LOG.info("event=distributed_merge_committed table={}.{} dataFiles={} deleteFiles={} afterMerge={}",
                 handle.schemaName(), handle.tableName(), dataFiles.size(),
                 deleteFiles.size(), mergedDeleteFiles.size());
 
-        notifyAfterCommit(icebergTable, handle, dataFiles, CommitEventType.DELETE);
+        notifyAfterCommit(
+                icebergTable, handle, dataFiles, CommitEventType.DELETE, tenantId, context);
     }
 
     /**
@@ -479,14 +479,31 @@ final class IcebergWriteCommitter {
     private void notifyAfterCommit(Table icebergTable,
                                    IcebergOutputTableHandle handle,
                                    List<DataFile> dataFiles,
-                                   CommitEventType eventType) {
-        Snapshot snapshot = icebergTable.currentSnapshot();
+                                   CommitEventType eventType,
+                                   String tenantId,
+                                   DistributedWriteCommitContext context) {
+        Snapshot snapshot = committedSnapshot(icebergTable, context);
         String snapshotId = snapshot != null ? String.valueOf(snapshot.snapshotId()) : "";
         List<String> addedPaths = dataFiles.stream()
                 .map(df -> df.path().toString())
                 .toList();
-        notifier.notifyCommit(handle.schemaName(), handle.tableName(),
-                addedPaths, List.of(), snapshotId, eventType);
+        notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(),
+                addedPaths, List.of(), snapshotId, eventType,
+                context != null ? context.commitFingerprint() : null);
+    }
+
+    private static Snapshot committedSnapshot(
+            Table table, DistributedWriteCommitContext context) {
+        if (context == null) {
+            return table.currentSnapshot();
+        }
+        table.refresh();
+        Snapshot snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (snapshot == null) {
+            throw new IllegalStateException(
+                    "Iceberg committed snapshot marker is absent after write completion");
+        }
+        return snapshot;
     }
 
     /** Result of partitioning delete files into DV groups and pass-through files. */

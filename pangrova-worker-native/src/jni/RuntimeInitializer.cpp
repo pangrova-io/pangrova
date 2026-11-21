@@ -1,30 +1,18 @@
 // Copyright (c) Pangrova contributors. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-// RuntimeInitializer.cpp — Thin delegation layer.
-//
-// All runtime state and lifecycle logic now lives in NativeEngineLifecycle
-// (Task 4, native-jvm-reuse). The free functions declared in
-// RuntimeInitializer.h are preserved for backward compatibility — every
-// existing caller (JniBridge.cpp, NativeCommandDispatcher.cpp, tests)
-// continues to work without changes.
-//
-// This file retains only:
-//   - parseNativeConfig()       — pure config parsing (no state)
-//   - buildFileSystemConfigMap() — pure config builder (no state)
-//   - Thin wrappers that delegate to NativeEngineLifecycle::instance()
+// Composes process-wide Flight admission and executor-handle draining around
+// the engine's Velox lifecycle. Configuration parsing does not own runtime state.
 
 #include "jni/RuntimeInitializer.h"
+#include "command/resource/HandleRegistry.h"
+#include "command/flight/FlightServerRegistry.h"
 
-#include "velox/runtime/NativeEngineLifecycle.h"
+#include <stdexcept>
 
-// Conditionally include generated proto header when available.
-#if __has_include("pangrova/native/protocol/v1/memory.pb.h")
-#include "pangrova/native/protocol/v1/memory.pb.h"
-#define PANGROVA_HAS_PROTO 1
-#else
-#define PANGROVA_HAS_PROTO 0
-#endif
+#include "engine/velox/runtime/NativeEngineLifecycle.h"
+
+#include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::jni {
 
@@ -38,9 +26,12 @@ NativeRuntimeConfig parseNativeConfig(const std::vector<uint8_t>& data) {
     return config;
   }
 
-#if PANGROVA_HAS_PROTO
-  pangrova::native::protocol::v1::NativeConfig proto;
-  if (proto.ParseFromArray(data.data(), static_cast<int>(data.size()))) {
+  pangrova::protocol::v2::RuntimeInitConfig proto;
+  if (!proto.ParseFromArray(data.data(), static_cast<int>(data.size()))) {
+    throw std::invalid_argument(
+        "Invalid canonical v2 RuntimeInitConfig payload");
+  }
+  {
     if (proto.max_memory_bytes() > 0) {
       config.max_memory_bytes = proto.max_memory_bytes();
     }
@@ -56,6 +47,23 @@ NativeRuntimeConfig parseNativeConfig(const std::vector<uint8_t>& data) {
     }
     if (!proto.ssd_cache_path().empty()) {
       config.ssd_cache_path = proto.ssd_cache_path();
+    }
+    if (proto.artifact_cache_bytes() > 0) {
+      config.artifact_cache_bytes = proto.artifact_cache_bytes();
+    }
+    if (!proto.artifact_cache_path().empty()) {
+      config.artifact_cache_path = proto.artifact_cache_path();
+    }
+    if (proto.artifact_index_memory_bytes() > 0) {
+      config.artifact_index_memory_bytes =
+          proto.artifact_index_memory_bytes();
+    }
+    if (config.cache_enabled &&
+        (config.artifact_cache_path.empty() ||
+         config.artifact_cache_bytes <= 0 ||
+         config.artifact_index_memory_bytes <= 0)) {
+      throw std::invalid_argument(
+          "Enabled Native cache requires positive artifact SSD and index RAM quotas");
     }
     // Parse filesystem authentication fields.
     if (!proto.s3_endpoint().empty()) {
@@ -121,8 +129,37 @@ NativeRuntimeConfig parseNativeConfig(const std::vector<uint8_t>& data) {
       config.spill_directory = proto.spill_directory();
       config.spill_enabled = proto.spill_enabled();
     }
+    config.shuffle_retention_bytes = proto.shuffle_retention_bytes();
+    config.shuffle_transit_bytes = proto.shuffle_transit_bytes();
+    config.shuffle_spill_bytes = proto.shuffle_spill_bytes();
+    config.shuffle_spill_files = proto.shuffle_spill_files();
+    config.shuffle_spill_directory = proto.shuffle_spill_directory();
+
+    const auto& security = proto.transport_security();
+    config.transport_tls_enabled = security.tls_enabled();
+    config.transport_tls_certificate_chain_path =
+        security.certificate_chain_path();
+    config.transport_tls_private_key_path = security.private_key_path();
+    config.transport_tls_root_ca_path = security.root_ca_path();
+    config.transport_tls_identity = security.tls_identity();
+    const bool has_transport_security_value =
+        !config.transport_tls_certificate_chain_path.empty() ||
+        !config.transport_tls_private_key_path.empty() ||
+        !config.transport_tls_root_ca_path.empty() ||
+        !config.transport_tls_identity.empty();
+    if (!config.transport_tls_enabled && has_transport_security_value) {
+      throw std::invalid_argument(
+          "Transport TLS settings require tls_enabled=true");
+    }
+    if (config.transport_tls_enabled &&
+        (config.transport_tls_certificate_chain_path.empty() ||
+         config.transport_tls_private_key_path.empty() ||
+         config.transport_tls_root_ca_path.empty() ||
+         config.transport_tls_identity.empty())) {
+      throw std::invalid_argument(
+          "Enabled transport TLS requires certificate, private key, root CA and identity");
+    }
   }
-#endif
 
   return config;
 }
@@ -190,17 +227,28 @@ std::unordered_map<std::string, std::string> buildFileSystemConfigMap(
 // Thin delegation wrappers — all state lives in NativeEngineLifecycle
 // ---------------------------------------------------------------------------
 
+namespace {
+void drainExecutorHandles() {
+  HandleRegistry::instance().destroyAll();
+}
+}  // namespace
+
 void initializeVeloxRuntime(const NativeRuntimeConfig& config,
                             JNIEnv* env, jobject allocationListener) {
-  NativeEngineLifecycle::instance().initialize(config, env, allocationListener);
+  FlightServerRegistry::instance().shutdownAll();
+  NativeEngineLifecycle::instance().initialize(config, env, allocationListener, drainExecutorHandles);
+  FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void initializeVeloxRuntime(const NativeRuntimeConfig& config) {
-  NativeEngineLifecycle::instance().initialize(config);
+  FlightServerRegistry::instance().shutdownAll();
+  NativeEngineLifecycle::instance().initialize(config, drainExecutorHandles);
+  FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void shutdownVeloxRuntime() {
-  NativeEngineLifecycle::instance().shutdown();
+  FlightServerRegistry::instance().shutdownAll();
+  NativeEngineLifecycle::instance().shutdown(drainExecutorHandles);
 }
 
 pangrova::velox::VeloxMemoryGovernor* globalVeloxMemoryGovernor() {
@@ -221,6 +269,14 @@ pangrova::velox::TableFunctionRegistry* globalTableFunctionRegistry() {
 
 std::shared_ptr<folly::Executor> globalExecutor() {
   return NativeEngineLifecycle::instance().executor();
+}
+
+std::shared_ptr<folly::Executor> globalIoExecutor() {
+  return NativeEngineLifecycle::instance().ioExecutor();
+}
+
+std::shared_ptr<folly::Executor> globalBlockingIoExecutor() {
+  return NativeEngineLifecycle::instance().blockingIoExecutor();
 }
 
 }  // namespace pangrova::jni

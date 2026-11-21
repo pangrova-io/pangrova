@@ -2,49 +2,48 @@ package org.pangrova.worker.http.endpoint;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-import jakarta.annotation.Nullable;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
-import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.servlet.http.HttpServletRequest;
 import org.pangrova.observability.logging.LogContext;
-import org.pangrova.observability.tracing.NativeTraceExporter;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultProtocol;
+import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
+import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
-import org.pangrova.protocol.rest.task.UpdateExchangeSourcesRequest;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
-import org.pangrova.spi.execution.TaskDescriptor;
+import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
+import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.worker.exchange.source.ExchangeSourceConverter;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
-import org.pangrova.worker.execution.VectorSearchResultBuffer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.worker.task.convert.TaskRequestConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
- * JAX-RS resource for Worker task operations.
- * Exchange source updates are delegated to the {@link ExchangeTransport} SPI.
+ * JAX-RS resource for Worker task operations. Exchange inputs are immutable task-admission
+ * bindings. Runtime filter updates remain control messages, while row-bearing exchange data stays
+ * on the Native Flight data plane.
  */
 @Path("/v1/task")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public final class TaskResource implements Closeable {
 
+    private static final int HTTP_TOO_EARLY = 425;
     private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
 
     private final TaskManager taskManager;
@@ -52,51 +51,105 @@ public final class TaskResource implements Closeable {
     private final ExchangeSourceRegistry exchangeSourceRegistry;
     private final String workerHost;
     private final int transportPort;
-    private final org.pangrova.spi.observability.TracingProvider tracingProvider;
-    @Nullable
-    private final VectorSearchResultBuffer vectorResultBuffer;
+    private final String resultProtocol;
+    private final org.pangrova.worker.result.ResultReadTickets resultTickets;
+    private final org.pangrova.observability.api.tracing.TracingProvider tracingProvider;
 
-    public TaskResource(TaskManager taskManager, ExchangeTransport exchangeTransport,
-                        String workerHost, int transportPort) {
-        this(taskManager, exchangeTransport, new ExchangeSourceRegistry(), workerHost, transportPort, null);
+    public record ResultBinding(
+            String protocol, org.pangrova.worker.result.ResultReadTickets tickets) {}
+
+    /** Creates task endpoints with the supplied actual manager and transport owners. */
+    public TaskResource(
+            TaskManager taskManager,
+            ExchangeTransport exchangeTransport,
+            String workerHost,
+            int transportPort) {
+        this(
+                taskManager,
+                exchangeTransport,
+                new ExchangeSourceRegistry(),
+                workerHost,
+                transportPort,
+                null);
     }
 
-    public TaskResource(TaskManager taskManager, ExchangeTransport exchangeTransport,
-                        ExchangeSourceRegistry exchangeSourceRegistry,
-                        String workerHost, int transportPort,
-                        org.pangrova.spi.observability.TracingProvider tracingProvider) {
-        this(taskManager, exchangeTransport, exchangeSourceRegistry,
-                workerHost, transportPort, tracingProvider, null);
+    /** Creates task endpoints with the supplied actual manager and transport owners. */
+    public TaskResource(
+            TaskManager taskManager,
+            ExchangeTransport exchangeTransport,
+            ExchangeSourceRegistry exchangeSourceRegistry,
+            String workerHost,
+            int transportPort,
+            org.pangrova.observability.api.tracing.TracingProvider tracingProvider) {
+        this(
+                taskManager,
+                exchangeTransport,
+                exchangeSourceRegistry,
+                workerHost,
+                transportPort,
+                tracingProvider,
+                ResultProtocol.GRPC.value());
     }
 
-    /** Creates the resource with all collaborator dependencies. */
-    public TaskResource(TaskManager taskManager, ExchangeTransport exchangeTransport,
-                        ExchangeSourceRegistry exchangeSourceRegistry,
-                        String workerHost, int transportPort,
-                        org.pangrova.spi.observability.TracingProvider tracingProvider,
-                        @Nullable VectorSearchResultBuffer vectorResultBuffer) {
+    /** Creates task endpoints with the supplied actual manager and transport owners. */
+    public TaskResource(
+            TaskManager taskManager,
+            ExchangeTransport exchangeTransport,
+            ExchangeSourceRegistry exchangeSourceRegistry,
+            String workerHost,
+            int transportPort,
+            org.pangrova.observability.api.tracing.TracingProvider tracingProvider,
+            String resultProtocol) {
+        this(
+                taskManager,
+                exchangeTransport,
+                exchangeSourceRegistry,
+                workerHost,
+                transportPort,
+                tracingProvider,
+                new ResultBinding(resultProtocol, null));
+    }
+
+    /** Creates the result-producing resource with explicit process-local signing authority. */
+    public TaskResource(
+            TaskManager taskManager,
+            ExchangeTransport exchangeTransport,
+            ExchangeSourceRegistry exchangeSourceRegistry,
+            String workerHost,
+            int transportPort,
+            org.pangrova.observability.api.tracing.TracingProvider tracingProvider,
+            ResultBinding resultBinding) {
         this.taskManager = checkNotNull(taskManager, "taskManager must not be null");
-        this.exchangeTransport = checkNotNull(exchangeTransport, "exchangeTransport must not be null");
-        this.exchangeSourceRegistry = checkNotNull(exchangeSourceRegistry,
-                "exchangeSourceRegistry must not be null");
+        this.exchangeTransport =
+                checkNotNull(exchangeTransport, "exchangeTransport must not be null");
+        this.exchangeSourceRegistry =
+                checkNotNull(exchangeSourceRegistry, "exchangeSourceRegistry must not be null");
         this.workerHost = checkNotNull(workerHost, "workerHost must not be null");
         this.transportPort = transportPort;
+        this.resultProtocol = ResultProtocol.fromValue(resultBinding.protocol()).value();
+        this.resultTickets = resultBinding.tickets();
         this.tracingProvider = tracingProvider;
-        this.vectorResultBuffer = vectorResultBuffer;
     }
 
     /** Submits a new task for execution. */
     @POST
-    public Response submitTask(SubmitTaskRequest request) {
+    public Response submitTask(SubmitTaskRequest request, @Context HttpServletRequest transport) {
         if (request == null) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "BAD_REQUEST", "USER_ERROR",
-                            "Request body must not be null"))
+                    .entity(
+                            new org.pangrova.common.client.error.ErrorDetail(
+                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
-        LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
-        org.pangrova.spi.observability.Span span = startSpan("task.submit");
+        if (request.copySourceRead() != null && (transport == null || !transport.isSecure())) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(new org.pangrova.common.client.error.ErrorDetail(
+                            "COPY_SECURE_TRANSPORT_REQUIRED", "SECURITY_ERROR",
+                            "COPY private task requires mutual-TLS transport"))
+                    .build();
+        }
+        LogContext.set(CurrentSpanIds.currentTraceId(), CurrentSpanIds.currentSpanId());
+        org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
             return executeSubmit(request);
         } catch (Exception e) {
@@ -107,48 +160,181 @@ public final class TaskResource implements Closeable {
         }
     }
 
+    /** Direct-call compatibility for tests that do not host an HTTP transport. */
+    public Response submitTask(SubmitTaskRequest request) {
+        return submitTask(request, null);
+    }
+
     private Response executeSubmit(SubmitTaskRequest request) {
-        TaskDescriptor descriptor = TaskRequestConverter.toTaskDescriptor(request);
+        // Classify a missing or stale control epoch through the fail-closed
+        // fencing path before full contract validation. This check is pure and
+        // must precede every admission side effect.
+        taskManager.verifyControlEpochForAdmission(
+                request.taskRequest().getAttempt().getControlEpoch());
+        taskManager.verifyAdmissionDeadline(request.taskRequest().getDeadlineEpochMs());
+        // Validate the one canonical contract before any admission side effect.
+        try {
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
+                    request.taskRequest());
+        } catch (IllegalArgumentException invalidRequest) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(new SubmitTaskResponse(false, invalidRequest.getMessage(), null, null, null))
+                    .build();
+        }
+        taskManager.verifyExecutionOwnerForAdmission(request);
+        ResultEndpoint endpoint = resultEndpoint(request.taskRequest());
+        TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
         String workerTaskId = taskManager.submitTask(descriptor, request);
-        int shufflePort = taskManager.getShufflePort(workerTaskId);
-        int effectivePort = shufflePort > 0 ? shufflePort : transportPort;
-        ResultEndpoint endpoint = new ResultEndpoint(
-                workerHost, effectivePort, request.taskId(), ResultProtocol.GRPC.value());
-        SubmitTaskResponse response = new SubmitTaskResponse(true, null, request.taskId(), endpoint);
+        var shuffleEndpoint = taskManager.getShuffleServerHandle(workerTaskId).map(handle ->
+                new ShuffleEndpointDescriptor(handle.host(), handle.port(), handle.tlsIdentity(),
+                        handle.partitionTickets().stream().map(ticket -> new ShufflePartitionTicketDescriptor(
+                                ticket.partitionId(),
+                                java.util.Base64.getEncoder().encodeToString(ticket.signedTicket()),
+                                ticket.expiresAtEpochMs())).toList())).orElse(null);
+        SubmitTaskResponse response =
+                new SubmitTaskResponse(
+                        true,
+                        null,
+                        request.taskRequest().getAttempt().getTaskId(),
+                        endpoint,
+                        shuffleEndpoint);
         return Response.ok(response).build();
     }
 
+    private ResultEndpoint resultEndpoint(org.pangrova.protocol.v2.TaskRequest request) {
+        if (!request.getExecutionOptions().getDirectResultOutput()) return null;
+        if (resultTickets == null) {
+            throw new IllegalStateException(
+                    "Result-producing admission requires signing authority");
+        }
+        return resultTickets.endpoint(request, workerHost, transportPort, resultProtocol);
+    }
+
     private Response handleSubmitError(SubmitTaskRequest request, Exception e) {
-        LOG.error("event=task_submit_failed queryId={} error={}",
-                request.queryId(), e.getMessage(), e);
-        SubmitTaskResponse errorResponse = new SubmitTaskResponse(
-                false, e.getMessage(), null, null);
-        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                .entity(errorResponse)
+        if (e instanceof org.pangrova.worker.exception.TaskAdmissionException admission) {
+            int status = switch (admission.reason()) {
+                case EXPIRED -> Response.Status.REQUEST_TIMEOUT.getStatusCode();
+                case IDENTITY_CONFLICT, SEALED -> Response.Status.CONFLICT.getStatusCode();
+                case CAPACITY, CLOSED ->
+                                Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
+            };
+            return Response.status(status)
+                    .entity(new SubmitTaskResponse(false, admission.getMessage(), null, null, null))
+                    .build();
+        }
+        if (e instanceof org.pangrova.worker.exception.ControlEpochFenceException fenceError) {
+            int status = epochRejectionStatus(fenceError);
+            LOG.warn(
+                    "event=task_submit_epoch_rejected queryId={} reason={} error={}",
+                    queryId(request),
+                    fenceError.reason(),
+                    fenceError.getMessage());
+            return Response.status(status)
+                    .entity(
+                            new SubmitTaskResponse(
+                                    false, fenceError.getMessage(), null, null, null))
+                    .build();
+        }
+        if (e instanceof org.pangrova.worker.exception.ExecutionOwnerFenceException) {
+            LOG.warn(
+                    "event=task_submit_owner_rejected queryId={} error={}",
+                    queryId(request),
+                    e.getMessage());
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(new SubmitTaskResponse(false, e.getMessage(), null, null, null))
+                    .build();
+        }
+        if (e instanceof org.pangrova.common.exception.PangrovaException resourceError
+                && resourceError.getErrorCode()
+                        == org.pangrova.common.enums.PangrovaErrorCode
+                                .RESOURCE_MEMORY_EXCEEDED) {
+            LOG.warn(
+                    "event=task_submit_resource_rejected queryId={} error={}",
+                    queryId(request),
+                    e.getMessage());
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(new SubmitTaskResponse(false, e.getMessage(), null, null, null))
+                    .build();
+        }
+        LOG.error(
+                "event=task_submit_failed queryId={} error={}",
+                queryId(request),
+                e.getMessage(),
+                e);
+        SubmitTaskResponse errorResponse =
+                new SubmitTaskResponse(false, e.getMessage(), null, null, null);
+        return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(errorResponse).build();
+    }
+
+    private static String queryId(SubmitTaskRequest request) {
+        return request.taskRequest().hasAttempt()
+                ? request.taskRequest().getAttempt().getQueryOrJobId()
+                : "unknown";
+    }
+
+    /**
+     * Seals the exact issued admission; only a real canonical drain receipt qualifies as success.
+     */
+    @DELETE
+    @Path("/{taskId}")
+    @Consumes("application/x-protobuf")
+    @Produces("application/x-protobuf")
+    public Response cancelTask(@PathParam("taskId") String taskId, byte[] canonicalSeal) {
+        try {
+            if (canonicalSeal == null || canonicalSeal.length == 0) {
+                throw new IllegalArgumentException("Exact canonical admission seal is required");
+            }
+            var request =
+                    org.pangrova.protocol.v2.TaskAdmissionSealRequest.parseFrom(canonicalSeal);
+            org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.validate(request, taskId);
+            var receipt = taskManager.sealAdmission(request);
+            return receipt.isPresent()
+                    ? Response.ok(receipt.orElseThrow().toByteArray(), "application/x-protobuf")
+                            .build()
+                    : Response.status(Response.Status.ACCEPTED).build();
+        } catch (com.google.protobuf.InvalidProtocolBufferException
+                | IllegalArgumentException failure) {
+            return sealError(Response.Status.BAD_REQUEST, failure);
+        } catch (org.pangrova.worker.exception.TaskAdmissionException failure) {
+            return sealError(
+                    failure.reason()
+                                    == org.pangrova.worker.enums.TaskAdmissionReason
+                                            .CAPACITY
+                            ? Response.Status.SERVICE_UNAVAILABLE
+                            : Response.Status.CONFLICT,
+                    failure);
+        } catch (org.pangrova.worker.exception.ControlEpochFenceException failure) {
+            return sealError(epochRejectionStatus(failure), failure.reason().name(), failure);
+        } catch (org.pangrova.worker.exception.ExecutionOwnerFenceException failure) {
+            return sealError(Response.Status.CONFLICT, failure);
+        } catch (RuntimeException failure) {
+            LOG.error("event=task_admission_seal_failed taskId={}", taskId, failure);
+            return sealError(Response.Status.INTERNAL_SERVER_ERROR, failure);
+        }
+    }
+
+    private static Response sealError(Response.Status status, Exception failure) {
+        return sealError(status.getStatusCode(), status.name(), failure);
+    }
+
+    private static Response sealError(int status, String code, Exception failure) {
+        return Response.status(status)
+                .type(MediaType.APPLICATION_JSON)
+                .entity(
+                        new org.pangrova.common.client.error.ErrorDetail(
+                                code, "SYSTEM_ERROR", failure.getMessage()))
                 .build();
     }
 
-    /** Cancels the task identified by {@code taskId}. */
-    @DELETE
-    @Path("/{taskId}")
-    public Response cancelTask(@PathParam("taskId") String taskId) {
-        org.pangrova.worker.task.TaskCancelResult result = taskManager.cancelTask(taskId);
-        if (result.status() == org.pangrova.worker.task.TaskCancelResult.Status.NOT_FOUND) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "NOT_FOUND", "USER_ERROR",
-                            result.errorMessage()))
-                    .build();
-        }
-        if (!result.isSuccess()) {
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "CONFLICT", "USER_ERROR",
-                            result.errorMessage()))
-                    .build();
-        }
-        LOG.info("event=task_cancelled taskId={}", taskId);
-        return Response.ok().build();
+    private static int epochRejectionStatus(
+            org.pangrova.worker.exception.ControlEpochFenceException failure) {
+        return switch (failure.reason()) {
+            case CONTROL_PLANE_NOT_READY -> Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
+            // No admission/seal side effect: wait for an authenticated heartbeat to observe
+            // this epoch.
+            case EPOCH_AHEAD -> HTTP_TOO_EARLY;
+            default -> Response.Status.CONFLICT.getStatusCode();
+        };
     }
 
     /** Handles an upstream commit notification for a running task. */
@@ -157,112 +343,79 @@ public final class TaskResource implements Closeable {
     public Response onUpstreamCommit(UpstreamCommitNotification notification) {
         if (notification == null) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "BAD_REQUEST", "USER_ERROR",
-                            "Request body must not be null"))
+                    .entity(
+                            new org.pangrova.common.client.error.ErrorDetail(
+                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
         exchangeSourceRegistry.notifyCommit(notification.queryId(), notification.upstreamStageId());
-        LOG.info("event=upstream_commit_received queryId={} upstreamStageId={}",
-                notification.queryId(), notification.upstreamStageId());
+        LOG.info(
+                "event=upstream_commit_received queryId={} upstreamStageId={}",
+                notification.queryId(),
+                notification.upstreamStageId());
         return Response.ok().build();
     }
 
     /** Injects a dynamic filter into a running task. */
     @POST
     @Path("/{taskId}/dynamic-filter")
-    public Response injectDynamicFilter(@PathParam("taskId") String taskId,
-                                        org.pangrova.protocol.rest.task.InjectDynamicFilterRequest request) {
+    public Response injectDynamicFilter(
+            @PathParam("taskId") String taskId,
+            org.pangrova.protocol.rest.task.InjectDynamicFilterRequest request) {
         if (request == null) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "BAD_REQUEST", "USER_ERROR",
-                            "Request body must not be null"))
+                    .entity(
+                            new org.pangrova.common.client.error.ErrorDetail(
+                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
-        OptionalLong handle = taskManager.getExecutorHandle(taskId);
+        String workerTaskId = taskManager.resolveWorkerTaskId(taskId);
+        OptionalLong handle =
+                workerTaskId == null
+                        ? OptionalLong.empty()
+                        : taskManager.getExecutorHandle(workerTaskId);
         if (handle.isEmpty()) {
             return Response.status(Response.Status.CONFLICT)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "CONFLICT", "USER_ERROR",
-                            "Executor not ready for task: " + taskId))
+                    .entity(
+                            new org.pangrova.common.client.error.ErrorDetail(
+                                    "CONFLICT",
+                                    "USER_ERROR",
+                                    "Executor not ready for task: " + taskId))
                     .build();
         }
-        byte[] commandProto = org.pangrova.worker.jni.NativeCommandBuilder.injectDynamicFilter(
-                handle.getAsLong(), request.planNodeId(), request.filterProto());
-        Optional<org.pangrova.spi.execution.TaskExecutor> executor = taskManager.getSharedNativeExecutor();
+        byte[] commandProto =
+                org.pangrova.worker.jni.NativeCommandBuilder.injectRuntimeFilter(
+                        request.planNodeId(), request.filterProto());
+        Optional<org.pangrova.worker.execution.TaskExecutor> executor =
+                taskManager.getSharedNativeExecutor();
         if (executor.isEmpty()) {
-            LOG.warn("event=dynamic_filter_inject_skip taskId={} reason=no_executor", taskId);
-            return Response.ok().build();
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(
+                            new org.pangrova.common.client.error.ErrorDetail(
+                                    "NATIVE_EXECUTOR_UNAVAILABLE",
+                                    "SYSTEM_ERROR",
+                                    "Native executor unavailable for task: " + taskId))
+                    .build();
         }
-        executor.get().executeCommand(handle.getAsLong(), commandProto);
-        LOG.info("event=dynamic_filter_injected taskId={} planNodeId={}", taskId, request.planNodeId());
+        byte[] response = executor.get().executeCommand(handle.getAsLong(), commandProto);
+        org.pangrova.worker.jni.NativeCommandBuilder.requireSuccess(
+                response, "INJECT_DYNAMIC_FILTER task=" + taskId);
+        LOG.info(
+                "event=dynamic_filter_injected taskId={} planNodeId={}",
+                taskId,
+                request.planNodeId());
         return Response.ok().build();
     }
 
-    /** Updates the exchange sources of a running task. */
-    @POST
-    @Path("/{taskId}/exchange-sources")
-    public Response updateExchangeSources(@PathParam("taskId") String taskId,
-                                          UpdateExchangeSourcesRequest request) {
-        OptionalLong handle = taskManager.getExecutorHandle(taskId);
-        if (handle.isEmpty()) {
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "CONFLICT", "USER_ERROR",
-                            "Executor not ready for task: " + taskId))
-                    .build();
-        }
-        List<ExchangeEndpoint> spiSources = ExchangeSourceConverter.toSpiEndpoints(
-                request.exchangeSources());
-        exchangeTransport.addSources(handle.getAsLong(), spiSources);
-        LOG.info("event=exchange_sources_update taskId={} reason={} sourceCount={}",
-                taskId, request.reason(), request.exchangeSources().size());
-        return Response.ok(new ExchangeAckResponse(taskId, true)).build();
-    }
-
-    /** Streams the serialized vector search result of a completed task. */
-    @GET
-    @Path("/{taskId}/vector-result")
-    @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public Response getVectorResult(@PathParam("taskId") String taskId) {
-        if (taskId == null || taskId.isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "BAD_REQUEST", "USER_ERROR",
-                            "taskId must not be blank"))
-                    .build();
-        }
-        if (vectorResultBuffer == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "NOT_FOUND", "SYSTEM_ERROR",
-                            "Vector result buffer not available on this worker"))
-                    .build();
-        }
-        byte[] data = vectorResultBuffer.take(taskId);
-        if (data == null) {
-            LOG.info("event=vector_result_not_found taskId={}", taskId);
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "NOT_FOUND", "USER_ERROR",
-                            "No vector result found for task: " + taskId))
-                    .build();
-        }
-        LOG.info("event=vector_result_fetched taskId={} bytes={}", taskId, data.length);
-        return Response.ok(data).build();
-    }
-
-    record ExchangeAckResponse(String taskId, boolean acknowledged) {}
-
-    private org.pangrova.spi.observability.Span startSpan(String operationName) {
+    private org.pangrova.observability.api.tracing.Span startSpan(String operationName) {
         if (tracingProvider == null) {
             return null;
         }
-        return tracingProvider.startSpan(operationName, org.pangrova.spi.observability.SpanKind.SERVER);
+        return tracingProvider.startSpan(
+                operationName, org.pangrova.observability.api.enums.SpanKind.SERVER);
     }
 
-    private static void endSpan(org.pangrova.spi.observability.Span span) {
+    private static void endSpan(org.pangrova.observability.api.tracing.Span span) {
         if (span != null) {
             span.end();
         }

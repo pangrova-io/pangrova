@@ -1,5 +1,6 @@
 ---
 title: "Testing Framework"
+description: "Test layers, real-dependency policy, fuzzers, benchmarks, chaos tests, and performance baselines"
 sidebar_label: "Testing Framework"
 ---
 
@@ -9,39 +10,9 @@ sidebar_label: "Testing Framework"
 
 ## 1. Testing Framework Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Testing Framework Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core Principles:                                                                       │
-│  • Layered strategy: real environment at all levels; no Test Double / Stub / Mock               │
-│  • No mock frameworks: Mockito/PowerMock/EasyMock and similar are prohibited            │
-│  • Real environment: unit/integration tests use reproducible real dependencies (TestContainers/embedded services)        │
-│  • End-to-end verification: test the complete data flow, not isolated components                                     │
-│                                                                                  │
-│  Design Goals:                                                                       │
-│  • Correctness: discover boundary conditions and exceptions via fuzzers                               │
-│  • Performance baseline: establish a baseline to prevent regressions                                         │
-│  • Regression testing: automated tests to quickly detect regressions                                       │
-│  • Production verification: simulate production to verify stability                                       │
-│                                                                                  │
-│  Test Levels:                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level           │ Scope         │ Tooling           │ Frequency       │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Unit Test       │ Single fn/cls │ JUnit/GoogleTest  │ Every commit    │   │
-│  │  (real deps)     │ No Stub/Mock  │ + TestContainers  │                 │   │
-│  │   see §2)        │               │ / Embedded Service│                 │   │
-│  │  Integration     │ Inter-module  │ TestContainers    │ Every commit    │   │
-│  │  Fuzzing         │ Boundary case │ Custom Fuzzer     │ Daily/weekly    │   │
-│  │  Performance     │ Perf benchmark│ JMH/Benchmark     │ Weekly          │   │
-│  │  E2E             │ End-to-end    │ Custom Framework  │ Every release   │   │
-│  │  Chaos           │ Fault inject  │ Custom + Chaos    │ Monthly         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Testing levels: unit, module integration, end-to-end, native and sanitizer, benchmark and chaos suites, all using real dependencies](../../website/static/img/diagrams/testing-levels.svg)
+
+**Policy:** use a layered real-environment strategy; mocks, stubs, and test doubles are prohibited; verify complete data flow rather than isolated components.
 
 ## 2. Layered Testing Policy
 
@@ -114,59 +85,27 @@ For integration and E2E tests, **no test doubles/stubs/mocks are permitted**. Al
 
 > **Rationale**: Integration tests validate cross-module interactions with real protocols and serialization. Test doubles at this level hide bugs in serialization, network handling, and state management that only surface in production.
 
+`RestCatalogTest` needs real, separately configured catalog services. Set
+`PANGROVA_ICEBERG_REST_CATALOG_URI` to an Iceberg REST endpoint with the
+`default` namespace already created; the service and test workers must be able
+to access the same warehouse files. Set `PANGROVA_PAIMON_REST_CATALOG_URI` and
+`PANGROVA_PAIMON_REST_CATALOG_WAREHOUSE` together for a Paimon REST service;
+the warehouse value identifies the server-side catalog instance. An Iceberg
+REST endpoint cannot serve the Paimon tests. When an endpoint is absent, its
+suite is skipped and does not count as REST catalog validation.
+
 ## 3. Fuzzer Testing Framework
 
 ### 3.1 Fuzzer Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Fuzzer Architecture                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core idea:                                                                       │
-│  • Randomly generate input data and query plans                                 │
-│  • Compare Velox execution results against a reference implementation (e.g. DuckDB) │
-│  • Automatically discover boundary conditions, NULL handling, type coercion, etc. │
-│                                                                                  │
-│  Fuzzer Types:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Expression      │  Test scalar functions, type coercion, NULL handling      │   │
-│  │  │ Fuzzer          │  Generate random expression trees, verify results         │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Aggregation     │  Test aggregate functions, GROUP BY, HAVING               │   │
-│  │  │ Fuzzer          │  Generate random aggregation queries, verify results      │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Join            │  Test various Join types and Join conditions              │   │
-│  │  │ Fuzzer          │  Generate random Join queries, verify Join results        │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Window          │  Test window functions, PARTITION BY, ORDER BY            │   │
-│  │  │ Fuzzer          │  Generate random window queries, verify window results    │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Memory          │  Test memory pressure, Spill, OOM handling                │   │
-│  │  │ Fuzzer          │  Simulate low-memory scenarios, verify Spill correctness  │   │
-│  │  └─────────────────┘                                                    │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Fuzzer Architecture](../../website/static/img/diagrams/generated/testing-02-125d73529a.svg)
 
 
 ### 3.2 Expression Fuzzer
 
 ```cpp
 // ExpressionFuzzer.h - Expression fuzzer
-// Actual path: pangrova-testing/pangrova-test-fuzzer/src/main/cpp/ExpressionFuzzer.h
+// Actual path: pangrova-testing/pangrova-testing-fuzzer/src/main/cpp/ExpressionFuzzer.h
 #pragma once
 
 #include <velox/expression/Expr.h>
@@ -466,54 +405,7 @@ private:
 
 ## 4. Reference Implementation Comparison
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Reference Implementation Comparison                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Comparison strategy:                                                            │
-│  • Use DuckDB as the reference implementation (good SQL-standard compatibility) │
-│  • Compare result-set contents (ignore ordering unless ORDER BY is present)     │
-│  • Compare data types and precision                                             │
-│  • Compare NULL handling behavior                                               │
-│                                                                                  │
-│  Comparison flow:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Random Query Generator                                                 │   │
-│  │         │                                                                │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────┐     ┌─────────────┐                                   │   │
-│  │  │   Pangrova    │     │   DuckDB    │                                   │   │
-│  │  │  (Velox)    │     │ (Reference) │                                   │   │
-│  │  └──────┬──────┘     └──────┬──────┘                                   │   │
-│  │         │                   │                                           │   │
-│  │         ▼                   ▼                                           │   │
-│  │  ┌─────────────┐     ┌─────────────┐                                   │   │
-│  │  │   Result    │     │   Result    │                                   │   │
-│  │  │   Set A     │     │   Set B     │                                   │   │
-│  │  └──────┬──────┘     └──────┬──────┘                                   │   │
-│  │         │                   │                                           │   │
-│  │         └─────────┬─────────┘                                          │   │
-│  │                   ▼                                                     │   │
-│  │            ┌─────────────┐                                             │   │
-│  │            │  Comparator │                                             │   │
-│  │            │             │                                             │   │
-│  │            │ • Row Count │                                             │   │
-│  │            │ • Content   │                                             │   │
-│  │            │ • Types     │                                             │   │
-│  │            │ • NULLs     │                                             │   │
-│  │            └──────┬──────┘                                             │   │
-│  │                   │                                                     │   │
-│  │            ┌──────▼──────┐                                             │   │
-│  │            │   Match?    │                                             │   │
-│  │            │  Yes / No   │                                             │   │
-│  │            └─────────────┘                                             │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Reference Implementation Comparison](../../website/static/img/diagrams/generated/testing-07-28a702fedb.svg)
 
 ```cpp
 // ReferenceEngine.h - reference implementation engine
@@ -573,30 +465,7 @@ private:
 
 ## 5. Performance Testing Framework
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Performance Testing Framework                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test dimensions:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Dimension        │ Metric                  │ Baseline                  │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Throughput       │ rows/sec, bytes/sec     │ TPC-H/TPC-DS             │   │
-│  │  Latency          │ p50, p95, p99           │ Historical baseline       │   │
-│  │  Memory           │ peak, average           │ Configured limit          │   │
-│  │  CPU              │ utilization, cycles     │ Theoretical optimum       │   │
-│  │  I/O              │ read/write bytes        │ Storage bandwidth         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Benchmark suites:                                                               │
-│  • TPC-H (standard OLAP benchmark)                                              │
-│  • TPC-DS (complex OLAP benchmark)                                              │
-│  • Custom micro-benchmarks (single-operator performance)                        │
-│  • Regression benchmarks (comparison against historical versions)               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Performance Testing Framework](../../website/static/img/diagrams/generated/testing-09-ec8d291802.svg)
 
 ```java
 // PerformanceBenchmark.java - performance benchmark
@@ -695,7 +564,7 @@ public class PerformanceBenchmark {
 
 ```java
 // E2ETestFramework.java - end-to-end testing framework
-package org.pangrova.testing.e2e;
+package org.pangrova.testing.integration.e2e;
 
 /**
  * End-to-end testing framework
@@ -783,252 +652,36 @@ public class E2ETestFramework {
 ```
 
 
-## 7. Chaos Testing Framework
+## 7. Distributed failure tests
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Chaos Testing Framework                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Fault injection types:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Fault Type        │ Injection method      │ Expected behavior          │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Worker Crash      │ Kill process          │ Task rescheduled, query succeeds│   │
-│  │  Coordinator Crash │ Kill process          │ After ZK session expiry (~30s) another Coordinator competes to take over the query ([01 §3.5](../architecture/distributed.md)); the query ultimately succeeds but latency increases by 30-60s│   │
+`CoordinatorRestartChaosTest` exercises network isolation, Coordinator restart and Worker loss in Docker. The test checks the supplied image ID and source revision, starts the production Coordinator and Worker roles, then queries their LDAP-protected REST endpoints. PostgreSQL keeps the query journal. Toxiproxy interrupts Worker control traffic until the Coordinator removes the Worker or marks its ID dead. After SIGKILL and restart, a new Coordinator must serve the same FINISHED query and the exact persisted RUNNING state of a second query whose Native terminal report is held. This checks non-HA journal visibility. Killing the only Worker while its terminal report is held must produce a durable FAILED state. After restarting that Worker, another real query must complete with a matching native task receipt.
 
-│  │  Network Partition │ iptables isolation    │ Retry on timeout, eventually succeeds│   │
-│  │  Network Delay     │ tc netem              │ Latency increases, correctness unaffected│   │
-│  │  Disk Full         │ Fill disk             │ Spill fails, graceful degradation│   │
-│  │  Memory Pressure   │ Limit cgroup          │ Triggers Spill, query succeeds│   │
-│  │  CPU Throttle      │ cgroup cpu.cfs_quota  │ Latency increases, correctness unaffected│   │
-│  │  Clock Skew        │ Modify system time    │ Correctness unaffected     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+`IndependentClientCancellationE2ETest` uses a Coordinator and two Worker processes. The relay holds an actual Native terminal task report while `Statement.cancel()` or the packaged CLI timeout cancels the matching query over HTTP. The checks require the same UUID to become CANCELLED. Each client must also have one PostgreSQL query history row with its exact SQL, LDAP principal, tenant and unsuccessful outcome. The security audit must contain one submission and one cancellation event in that order for the same ID. Submission records the already authenticated principal and SQL. The cancellation event records the tenant resolved during admission. The CLI case holds the first FINISHED notification while its real retry proceeds. After PostgreSQL shows that the tenant admission slot was released, it delivers the original delayed notification and requires separate acknowledgements for that superseded notice and the actual Native release receipt. JDBC then consumes a TLS result stream on the same connection, and a fresh CLI query also reads its result. Supply the local role classpaths, CLI and Native manifest used by the independent-process suites.
 
-```java
-// ChaosTestFramework.java - chaos testing framework
-package org.pangrova.testing.chaos;
+Run the same-source Linux image with the release properties `pangrova.e2e.image`, `pangrova.e2e.image-id` and `pangrova.e2e.local.source-commit`. The selected class is `CoordinatorRestartChaosTest`.
 
-/**
- * Chaos testing framework
- * Injects various faults to verify the system's fault-tolerance
- */
-public class ChaosTestFramework {
-    
-    private final TestCluster cluster;
-    private final FaultInjector faultInjector;
-    private final QueryExecutor queryExecutor;
-    
-    /**
-     * Run the chaos test
-     */
-    public ChaosTestReport runChaosTest(ChaosTestConfig config) {
-        ChaosTestReport report = new ChaosTestReport();
-        
-        for (int i = 0; i < config.getIterations(); i++) {
-            // 1. Start background queries
-            List<Future<QueryResult>> queries = startBackgroundQueries(config);
-            
-            // 2. Inject a random fault
-            Fault fault = faultInjector.injectRandomFault(config.getFaultTypes());
-            report.recordFaultInjection(fault);
-            
-            // 3. Wait for a period of time
-            Thread.sleep(config.getFaultDuration().toMillis());
-            
-            // 4. Recover from the fault
-            faultInjector.recover(fault);
-            
-            // 5. Wait for queries to complete
-            List<QueryResult> results = waitForQueries(queries, config.getQueryTimeout());
-            
-            // 6. Validate the results
-            for (QueryResult result : results) {
-                if (result.isSuccess()) {
-                    report.recordSuccess(fault, result);
-                } else if (isExpectedFailure(fault, result)) {
-                    report.recordExpectedFailure(fault, result);
-                } else {
-                    report.recordUnexpectedFailure(fault, result);
-                }
-            }
-        }
-        
-        return report;
-    }
-    
-    /**
-     * Fault injector
-     */
-    public interface FaultInjector {
-        Fault injectWorkerCrash(String workerId);
-        Fault injectCoordinatorCrash(String coordinatorId);
-        Fault injectNetworkPartition(List<String> isolatedNodes);
-        Fault injectNetworkDelay(String node, Duration delay);
-        Fault injectDiskFull(String node);
-        Fault injectMemoryPressure(String node, long limitBytes);
-        void recover(Fault fault);
-    }
-    
-    /**
-     * Fault types
-     */
-    public enum FaultType {
-        WORKER_CRASH,
-        COORDINATOR_CRASH,
-        NETWORK_PARTITION,
-        NETWORK_DELAY,
-        DISK_FULL,
-        MEMORY_PRESSURE,
-        CPU_THROTTLE
-    }
-}
-```
+For scenarios using a dedicated Docker network, `ContainerFaultInjector` implements `FaultInjector` with explicit partition, reconnect, process-kill and clock operations. A test owns its containers and restores its injected fault during cleanup.
 
 ## 8. Test Data Generator
 
-```java
-// TestDataGenerator.java - test data generator
-package org.pangrova.testing.data;
+`org.pangrova.testing.testkit.TestDataGenerator` generates deterministic TPC-H
+rows for integration and validation tests. It covers the eight TPC-H tables and
+supports typed column values; the same seed produces the same rows.
 
-/**
- * Test data generator
- * Generates test data covering various boundary conditions
- */
-public class TestDataGenerator {
-    
-    /**
-     * Generate TPC-H data
-     */
-    public void generateTpchData(String path, double scaleFactor) {
-        // Use TPC-H dbgen to generate data
-        TpchDataGenerator generator = new TpchDataGenerator(scaleFactor);
-        generator.generate(path);
-    }
-    
-    /**
-     * Generate boundary-condition data
-     */
-    public Table generateEdgeCaseData(Schema schema, EdgeCaseConfig config) {
-        List<Row> rows = new ArrayList<>();
-        
-        // 1. Empty table
-        if (config.includeEmptyTable()) {
-            // Return an empty table
-        }
-        
-        // 2. Single row
-        if (config.includeSingleRow()) {
-            rows.add(generateRandomRow(schema));
-        }
-        
-        // 3. All NULL
-        if (config.includeAllNulls()) {
-            rows.add(generateNullRow(schema));
-        }
-        
-        // 4. Boundary values
-        if (config.includeBoundaryValues()) {
-            rows.addAll(generateBoundaryRows(schema));
-        }
-        
-        // 5. Many duplicates
-        if (config.includeDuplicates()) {
-            Row duplicateRow = generateRandomRow(schema);
-            for (int i = 0; i < config.getDuplicateCount(); i++) {
-                rows.add(duplicateRow);
-            }
-        }
-        
-        // 6. Special characters
-        if (config.includeSpecialChars()) {
-            rows.addAll(generateSpecialCharRows(schema));
-        }
-        
-        return Table.of(schema, rows);
-    }
-    
-    /**
-     * Generate boundary-value rows
-     */
-    private List<Row> generateBoundaryRows(Schema schema) {
-        List<Row> rows = new ArrayList<>();
-        
-        for (Column column : schema.getColumns()) {
-            switch (column.getType()) {
-                case INTEGER:
-                    rows.add(rowWithValue(column, Integer.MIN_VALUE));
-                    rows.add(rowWithValue(column, Integer.MAX_VALUE));
-                    rows.add(rowWithValue(column, 0));
-                    rows.add(rowWithValue(column, -1));
-                    break;
-                case BIGINT:
-                    rows.add(rowWithValue(column, Long.MIN_VALUE));
-                    rows.add(rowWithValue(column, Long.MAX_VALUE));
-                    break;
-                case DOUBLE:
-                    rows.add(rowWithValue(column, Double.MIN_VALUE));
-                    rows.add(rowWithValue(column, Double.MAX_VALUE));
-                    rows.add(rowWithValue(column, Double.NaN));
-                    rows.add(rowWithValue(column, Double.POSITIVE_INFINITY));
-                    rows.add(rowWithValue(column, Double.NEGATIVE_INFINITY));
-                    break;
-                case VARCHAR:
-                    rows.add(rowWithValue(column, ""));  // Empty string
-                    rows.add(rowWithValue(column, generateLongString(10000)));  // Long string
-                    break;
-                case DATE:
-                    rows.add(rowWithValue(column, LocalDate.MIN));
-                    rows.add(rowWithValue(column, LocalDate.MAX));
-                    break;
-            }
-        }
-        
-        return rows;
-    }
-}
+```java
+TestDataGenerator generator = new TestDataGenerator(seed);
+List<TypedRow> lineitems = generator.generateTable("lineitem", 1_000);
+
+Map<String, TestDataGenerator.TableSchema> schemas = TestDataGenerator.getSchemas();
 ```
 
+The generator does not invoke external `dbgen`. For scale-factor dataset
+generation, use
+`pangrova-testing/pangrova-testing-benchmark/scripts/generate_tpc_data.py`.
 
 ## 9. CI/CD Integration
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           CI/CD Testing Pipeline                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Pipeline stages:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐  │   │
-│  │  │  Build  │ → │  Unit   │ → │  Integ  │ → │ Fuzzing │ → │  Perf   │  │   │
-│  │  │         │   │  Test   │   │  Test   │   │  (Daily)│   │ (Weekly)│  │   │
-│  │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘  │   │
-│  │       │             │             │             │             │       │   │
-│  │       │             │             │             │             │       │   │
-│  │       ▼             ▼             ▼             ▼             ▼       │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
-│  │  │                    Quality Gate                                  │ │   │
-│  │  │  • Unit Test Coverage > 80%                                     │ │   │
-│  │  │  • No Fuzzer Failures                                           │ │   │
-│  │  │  • Performance Regression < 5%                                  │ │   │
-│  │  │  • No Critical/High Security Issues                             │ │   │
-│  │  └─────────────────────────────────────────────────────────────────┘ │   │
-│  │                                                                       │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Trigger conditions:                                                             │
-│  • Every PR: Build + Unit + Integration                                         │
-│  • Daily: Fuzzing (4 hours)                                                     │
-│  • Weekly: Performance Benchmark                                                │
-│  • Monthly: Chaos Testing                                                       │
-│  • Before release: Full E2E + Chaos + Performance                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![CI/CD Testing Pipeline](../../website/static/img/diagrams/generated/testing-13-b122378b69.svg)
 
 ```yaml
 # .github/workflows/test.yml - example CI test configuration
@@ -1096,90 +749,15 @@ jobs:
 
 ## 10. Testing Best Practices
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Testing Best Practices                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  1. Testing pyramid:                                                             │
-│     • 70% Unit Tests (fast, isolated)                                           │
-│     • 20% Integration Tests (module interactions)                               │
-│     • 10% E2E Tests (end-to-end verification)                                   │
-│                                                                                  │
-│  2. Fuzzer usage principles:                                                     │
-│     • Every new operator must have a corresponding Fuzzer test                  │
-│     • Bugs found by the Fuzzer must have regression tests added                 │
-│     • Regularly run long Fuzzing sessions (4+ hours)                            │
-│                                                                                  │
-│  3. Performance testing principles:                                              │
-│     • Establish a performance baseline and compare before every release         │
-│     • Any performance regression > 5% must be investigated                      │
-│     • Critical paths must have micro-benchmarks                                 │
-│                                                                                  │
-│  4. Test data principles:                                                        │
-│     • Use deterministic seeds to ensure reproducibility                         │
-│     • Cover boundary conditions: NULL, empty, extreme values, special characters│
-│     • Use realistic data distributions (TPC-H/TPC-DS)                           │
-│                                                                                  │
-│  5. Fault testing principles:                                                    │
-│     • Every fault-tolerance mechanism must have a corresponding fault test      │
-│     • After fault injection verify: correctness + recovery time                 │
-│     • Run chaos tests regularly to uncover hidden issues                        │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Testing Best Practices](../../website/static/img/diagrams/generated/testing-15-4794d0e6ce.svg)
 
 ## 11. Testing Module Structure
 
-```
-pangrova-testing/
-├── pangrova-test-common/              # Common test library
-│   ├── src/main/java/
-│   │   ├── data/                    # Test data generation
-│   │   ├── cluster/                 # Test cluster management
-│   │   ├── validation/              # Result validation
-│   │   └── utils/                   # Test utilities
-│   └── pom.xml
-│
-├── pangrova-test-unit/                # Unit tests
-│   ├── src/test/java/
-│   │   ├── parser/                  # SQL parsing tests
-│   │   ├── planner/                 # Optimizer tests
-│   │   ├── connector/               # Connector tests
-│   │   └── execution/               # Execution-layer tests
-│   └── pom.xml
-│
-├── pangrova-test-integration/         # Integration tests
-│   ├── src/test/java/
-│   │   ├── distributed/             # Distributed tests
-│   │   ├── iceberg/                 # Iceberg integration tests
-│   │   └── ha/                      # High-availability tests
-│   └── pom.xml
-│
-├── pangrova-test-fuzzer/              # Fuzzer tests (C++)
-│   ├── expression_fuzzer.cpp
-│   ├── join_fuzzer.cpp
-│   ├── aggregation_fuzzer.cpp
-│   ├── window_fuzzer.cpp
-│   ├── memory_fuzzer.cpp
-│   └── CMakeLists.txt
-│
-├── pangrova-test-benchmark/           # Performance benchmarks
-│   ├── src/main/java/
-│   │   ├── tpch/                    # TPC-H benchmarks
-│   │   ├── tpcds/                   # TPC-DS benchmarks
-│   │   └── micro/                   # Micro-benchmarks
-│   └── pom.xml
-│
-├── pangrova-test-e2e/                 # End-to-end tests
-│   ├── src/test/java/
-│   │   ├── scenarios/               # Test scenarios
-│   │   └── chaos/                   # Chaos tests (co-located with E2E for shared cluster infrastructure; see §7 for ChaosTestFramework details)
-│   └── pom.xml
+![pangrova-testing/](../../website/static/img/diagrams/generated/testing-16-156170721d.svg)
 
-│
-└── pom.xml
-```
+Suite selection is preserved after the merge: E2E runs through `-Pe2e`/`full-regression`,
+the smoke suite through `-Dgroups=smoke`, and the chaos suite through `-Dgroups=chaos`
+or its class names. No suite is selected by module identity any more.
 
 ---
 
@@ -1187,63 +765,11 @@ pangrova-testing/
 
 ### 12.1 TPC-H Benchmark Targets
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         TPC-H Performance Targets                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test environment: 3 Workers, 32 cores / 128GB RAM / NVMe SSD per node          │
-│  Data scale: SF=100 (~100GB of raw data)                                        │
-│                                                                                  │
-│  Query performance targets:                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Query    │ Type              │ Target latency│ Baseline (Trino)         │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Q1       │ Scan + Aggregate  │ < 5s        │ On par or better         │   │
-│  │  Q3       │ 3-table Join + Aggregate│ < 10s       │ On par or better         │   │
-│  │  Q5       │ 6-table Join      │ < 15s       │ On par or better         │   │
-│  │  Q6       │ Pure scan + filter│ < 2s        │ 2x better (Native I/O)   │   │
-│  │  Q9       │ Complex Join + Aggregate│ < 30s       │ On par or better         │   │
-│  │  Q18      │ Large aggregate + TopN│ < 20s       │ On par or better         │   │
-│  │  Q21      │ Complex subquery  │ < 25s       │ On par or better         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Throughput targets:                                                             │
-│  • Scan throughput: > 500 MB/s/node (Parquet, compressed)                       │
-│  • Aggregation throughput: > 100M rows/s/node                                   │
-│  • Join throughput: > 50M rows/s/node (Hash Join)                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![TPC-H Performance Targets](../../website/static/img/diagrams/generated/testing-17-a992681317.svg)
 
 ### 12.2 TPC-DS Benchmark Targets
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         TPC-DS Performance Targets                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Test environment: 5 Workers, 64 cores / 256GB RAM / NVMe SSD per node          │
-│  Data scale: SF=1000 (~1TB of raw data)                                         │
-│                                                                                  │
-│  Query-category targets:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category          │ Query count│ Target p50  │ Target p95  │ Note      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Simple Scan       │ 15        │ < 5s        │ < 10s       │ Single-table scan│   │
-│  │  Simple Join       │ 20        │ < 15s       │ < 30s       │ 2-3 table Join│   │
-│  │  Complex Join      │ 30        │ < 60s       │ < 120s      │ Multi-table Join│   │
-│  │  Subquery          │ 20        │ < 45s       │ < 90s       │ Subquery  │   │
-│  │  Window Function   │ 14        │ < 30s       │ < 60s       │ Window functions│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Overall targets:                                                                │
-│  • All 99 queries pass                                                          │
-│  • Total execution time < 2 hours (Power Run)                                   │
-│  • No OOM or timeout failures                                                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![TPC-DS Performance Targets](../../website/static/img/diagrams/generated/testing-18-780e06b5b1.svg)
 
 ### 12.3 Performance Benchmark Execution Specification
 
@@ -1265,40 +791,14 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 
 #### 12.3.2 Execution Procedure
 
-```
-1. Environment Setup
-   → Provision cluster (Terraform / K8s)
-   → Generate data: dbgen SF=100 / dsdgen SF=1000
-   → Load into Iceberg tables
-   → Run ANALYZE TABLE on all tables
-
-2. Warm-up Phase
-   → Execute each query once (results discarded)
-   → Ensure data cache is populated
-
-3. Power Run (single-stream)
-   → Execute all queries sequentially (Q1..Q22 for TPC-H, Q1..Q99 for TPC-DS)
-   → Record wall-clock time per query
-   → Record peak memory per query
-
-4. Throughput Run (multi-stream, optional)
-   → TPC-H: 4 concurrent streams
-   → TPC-DS: 8 concurrent streams
-   → Record total elapsed time
-
-5. Collect Results
-   → Per-query latency (p50, p95, p99 over 3 runs)
-   → Peak memory usage
-   → Spill bytes (if any)
-   → Total Power Run time
-```
+![1. Environment Setup](../../website/static/img/diagrams/generated/testing-19-cc5c0946e2.svg)
 
 #### 12.3.3 Pass/Fail Criteria
 
 | Criterion | Threshold | Action on Failure |
 |-----------|-----------|-------------------|
 | Query correctness | 100% queries return correct results (vs DuckDB reference) | Block release |
-| Single query regression | Latency increase > 10% vs baseline | Investigate, block if > 20% |
+| Single query regression | Latency increase > 10% vs baseline | Investigate; `tpch-regression-check.sh` fails beyond the checked-in 15% threshold |
 | Total Power Run regression | Total time increase > 5% vs baseline | Investigate, block if > 10% |
 | OOM failure | 0 OOM across all queries | Block release |
 | Spill correctness | Spill results match non-spill results | Block release |
@@ -1309,61 +809,44 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 
 #### 12.3.4 Baseline Management
 
-- Baseline is recorded from the latest release tag (e.g., `v1.2.0`)
-- Baseline is stored in `pangrova-test-benchmark/baselines/{version}.json`
-- Format: `{ "tpch_sf100": { "Q1": { "p50_ms": 4200, "p95_ms": 4800 }, ... } }`
-- Baseline is updated only on release, never on feature branches
+- The versioned baseline lives in
+  `pangrova-testing/pangrova-testing-benchmark/baseline/tpch-performance-baseline.json`
+- It records the scale factor, environment, regression threshold, and per-query
+  `baselineP50Ms`/`baselineP99Ms`
+- `tpch-regression-check.sh` compares a results file against this baseline and
+  rejects missing, uncalibrated, or scale-mismatched measurements
+- Update the baseline only for an intentional performance change or a release,
+  never on an ordinary feature branch
 
 #### 12.3.5 CI Integration
 
-```yaml
-# .github/workflows/benchmark.yml
-name: Performance Benchmark
+The scheduled benchmark is `.github/workflows/nightly-tpc-benchmark.yml`. It runs
+daily on `[self-hosted, benchmark, linux, x86_64]` under an exclusive hardware
+lease and also supports `workflow_dispatch` inputs for workload, scale factor,
+streams, and profile. The schedule is skipped until the repository variable
+`TPC_BENCHMARK_CONFIG_DIR` is set, so an unprovisioned fleet never leaves a run
+queued forever in the exclusive hardware group; a manual dispatch still runs and
+fails loudly on missing configuration.
 
-on:
-  schedule:
-    - cron: '0 2 * * 0'  # Weekly Sunday 02:00 UTC
-  workflow_dispatch:       # Manual trigger
+The workflow:
 
-jobs:
-  tpch-benchmark:
-    runs-on: [self-hosted, benchmark]
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Cluster
-        run: ./bin/benchmark/setup-cluster.sh --workers=3 --profile=tpch
-      - name: Generate TPC-H Data
-        run: ./bin/benchmark/generate-tpch.sh --sf=100
-      - name: Run TPC-H Power Run
-        run: ./bin/benchmark/run-tpch.sh --runs=3 --output=results/tpch.json
-      - name: Regression Check
-        run: |
-          ./bin/benchmark/check-regression.sh \
-            --baseline=baselines/latest.json \
-            --current=results/tpch.json \
-            --threshold=0.05
-      - name: Upload Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-results
-          path: results/
-      - name: Teardown
-        if: always()
-        run: ./bin/benchmark/teardown-cluster.sh
-```
+1. Validates the dedicated-host configuration in `TPC_CONFIG_DIR`.
+2. Builds the canonical same-source production image and verifies its source label.
+3. Runs each selected suite with
+   `pangrova-testing/pangrova-testing-benchmark/scripts/run_tpc_job.py`, which
+   records results under `tpc-results/`.
+4. Stops any cluster recorded in a `cluster-state.json` even when the job was
+   interrupted.
+5. Uploads result JSON/JSONL artifacts.
+
+Run the regression comparison against the checked-in baseline with
+`pangrova-testing/pangrova-testing-benchmark/scripts/tpch-regression-check.sh
+<results-json>`. The script fails when a query exceeds the baseline threshold or
+when measurements are missing, uncalibrated, or scale-mismatched.
 
 #### 12.3.6 Regression Detection Rules
 
-```
-For each query Q:
-  regression_ratio = (current_p50 - baseline_p50) / baseline_p50
-
-  if regression_ratio > 0.20:  → FAIL (block merge/release)
-  if regression_ratio > 0.10:  → WARN (require investigation, add to report)
-  if regression_ratio > 0.05:  → INFO (log, no action required)
-  if regression_ratio < -0.10: → NOTE (performance improvement, update baseline candidate)
-```
+![For each query Q:](../../website/static/img/diagrams/generated/testing-20-96bf89dbf0.svg)
 
 Regression is evaluated on p50 latency from 3 consecutive runs. If variance across runs exceeds 15%, the result is marked `UNSTABLE` and requires re-run.
 
@@ -1437,61 +920,11 @@ This section defines the end-to-end integration test scenarios that verify cross
 
 #### IT-01: Single-table scan end-to-end
 
-```
-Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client
-
-Preconditions:
-  - 1 Coordinator + 1 Worker
-  - Iceberg table (Parquet, 100K rows)
-
-Test steps:
-  1. Client submits SELECT * FROM iceberg.db.orders WHERE amount > 100 LIMIT 10
-  2. Coordinator: Parse → Optimize → Fragment (single Stage) → Schedule to Worker
-  3. Worker: JNI → Velox Scan → Filter → Project → Arrow C Data → Flight → Client
-  4. Client verifies result row count ≤ 10, all amount > 100
-
-Verification points:
-  - [02] Substrait Plan is serialized/deserialized correctly
-  - [03] Native Parquet Reader reads correctly + filter pushdown
-  - [04] ConnectorSplitManager generates correct Splits
-  - [07] CatalogRegistry resolves table metadata correctly
-
-Pass criteria:
-  - Results match the DuckDB reference implementation
-  - No memory leaks (Native ASAN clean)
-```
+![Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client](../../website/static/img/diagrams/generated/testing-22-a63ebf982b.svg)
 
 #### IT-02: Distributed Join + Shuffle
 
-```
-Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness
-
-Preconditions:
-  - 1 Coordinator + 3 Workers
-  - Iceberg tables: orders (1M rows), customers (100K rows)
-
-Test steps:
-  1. Client submits:
-     SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.customer_id = c.id
-     GROUP BY c.name
-  2. Coordinator builds a 3-Stage DAG:
-     Stage 2: Scan orders → Partial Agg → Exchange(REPARTITION)
-     Stage 1: Scan customers → Exchange(REPARTITION)
-     Stage 0: HashJoin → Final Agg → Output
-  3. Workers perform Shuffle (Arrow Flight)
-  4. Output Worker aggregates results and returns them to the Client
-
-Verification points:
-  - [02] Stage DAG is partitioned correctly, Exchange types are correct
-  - [01] Shuffle data is transferred correctly via Arrow Flight
-  - [06] Memory is fairly allocated across Tasks
-  - [03] Native HashJoin + Agg results are correct
-
-Pass criteria:
-  - Results match the DuckDB reference implementation
-  - No Shuffle data loss or duplication
-```
+![Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness](../../website/static/img/diagrams/generated/testing-23-49a1b1af7a.svg)
 
 #### IT-03: Output Task result return
 
@@ -1537,7 +970,7 @@ Verification points:
   - [01 §3.5] Deletion of the ZK ephemeral node triggers a CHILD_REMOVED event
   - [01 §3.5] acquireOwnership() wins the contention
   - [01 §4.4] QueryCheckpoint is restored correctly from PostgreSQL
-  - [08] Error code COORDINATOR_UNAVAILABLE (4203) is reported correctly
+  - [08] Error code TRANSPORT-0001 (TRANSPORT_CONNECTION_FAILED) is reported correctly
 
 Pass criteria:
   - The query ultimately succeeds (latency may increase, but results are correct)
@@ -1563,7 +996,7 @@ Test steps:
 Verification points:
   - [01 §4.2] Split-level retry (not Task-level)
   - [01 §4.1] Results of completed Splits are reused, not recomputed
-  - [08] Error code WORKER_UNAVAILABLE (4204) is reported correctly
+  - [08] Error code WORKER-0002 (WORKER_LOST) is reported correctly
 
 Pass criteria:
   - The query ultimately succeeds
@@ -1614,8 +1047,8 @@ Test steps:
 
 Verification points:
   - [10 §2] CDC Consumer parses Debezium messages correctly
-  - [10 §3] TableWriter transactional commit (two-phase)
-  - [02 §6] The write-path Java TableWriter works correctly
+  - [10 §3] CDC two-phase commit through CdcWriteSink
+  - [02 §6] The Worker Native write path commits through ConnectorPageSink
   - [04] Iceberg Connector incremental queries are correct
 
 Pass criteria:
@@ -1652,32 +1085,7 @@ Pass criteria:
 
 ### 13.3 Integration Test Infrastructure
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Integration Test Infrastructure                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  TestContainers environment:                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Container          │ Purpose                 │ Scenarios               │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  MinIO              │ S3-compatible storage   │ IT-01 ~ IT-08           │   │
-│  │  ZooKeeper          │ Service registration, leader election│ IT-04, IT-05            │   │
-│  │  PostgreSQL         │ Query state, Catalog persistence│ IT-04, IT-08            │   │
-│  │  Redis              │ Metadata cache          │ IT-10                   │   │
-│  │  Kafka              │ CDC messages            │ IT-07                   │   │
-│  │  Pangrova Coordinator │ Control plane           │ All                     │   │
-│  │  Pangrova Worker      │ Data plane              │ All                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Test frameworks:                                                                │
-│  • JUnit 5 + TestContainers                                                     │
-│  • DuckDB as the reference implementation (result comparison)                   │
-│  • Fault injection: Toxiproxy (network partition, latency injection)            │
-│  • Memory checking: Native ASAN/LSAN                                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Integration Test Infrastructure](../../website/static/img/diagrams/generated/testing-30-acd2d636b4.svg)
 
 ### 13.4 CI Integration
 
@@ -1784,7 +1192,7 @@ See [14 §7](../architecture/observability.md) for structured logging format.
 
 | Check | Command | Expected |
 |-------|---------|----------|
-| Total wall-clock | `time mvn test` (in pangrova-test-e2e) | < 5 min |
+| Total wall-clock | `time mvn test` (in pangrova-testing-integration-tests) | < 5 min |
 | Single fork | `grep -c "Forking command line" log` | 1 |
 | No SIGSEGV | `grep -i "SIGSEGV\|signal 11" log` | No matches |
 | No OOM | `grep -i "OutOfMemoryError" log` | No matches |

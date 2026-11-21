@@ -1,0 +1,50 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/capability.proto";
+import "pangrova/protocol/v2/common.proto";
+import "pangrova/protocol/v2/execution_binding.proto";
+
+enum GenerationState {
+  GENERATION_STATE_UNSPECIFIED = 0;
+  GENERATION_STATE_STAGING = 1;
+  GENERATION_STATE_VALIDATING = 2;
+  GENERATION_STATE_ACTIVE = 3;
+  GENERATION_STATE_QUARANTINED = 4;
+  GENERATION_STATE_RETIRED = 5;
+}
+
+message IndexGenerationRef {
+  string search_service_id = 1;
+  string index_id = 2;
+  string generation = 3;
+  string source_snapshot = 4;
+}
+
+message QualityMetric {
+  string name = 1;
+  double value = 2;
+  string evaluation_dataset_version = 3;
+}
+
+message IndexManifest {
+  IndexGenerationRef ref = 1;
+  GenerationState state = 2;
+  CapabilityRef build_capability = 3;
+  CapabilityRef query_capability = 4;
+  bytes schema_fingerprint = 5;
+  bytes analyzer_fingerprint = 6;
+  repeated ArtifactObject artifacts = 7;
+  ArtifactObject corpus_statistics = 8;
+  repeated QualityMetric quality = 9;
+  uint64 source_data_timestamp_ms = 10;
+  uint64 created_at_epoch_ms = 11;
+  Checksum manifest_checksum = 12;
+  ArtifactFormatRef format = 13;
+  repeated NamedValue properties = 14;
+  repeated string stable_key_fields = 15;
+  uint64 publication_epoch = 16;
+}

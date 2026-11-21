@@ -1,7 +1,10 @@
 package org.pangrova.connector.iceberg.read;
 
+import org.pangrova.connector.iceberg.exception.UnsupportedIcebergExpressionException;
+
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +22,7 @@ import io.substrait.proto.ExpressionReference;
 import io.substrait.proto.FunctionArgument;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.SimpleExtensionDeclaration;
-import io.substrait.proto.SimpleExtensionURI;
+import io.substrait.proto.SimpleExtensionURN;
 import io.substrait.proto.Type;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.And;
@@ -48,10 +51,12 @@ public final class IcebergExpressionToSubstrait {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergExpressionToSubstrait.class);
 
-    private static final String FUNCTIONS_COMPARISON_URI = "/functions_comparison.yaml";
-    private static final String FUNCTIONS_BOOLEAN_URI = "/functions_boolean.yaml";
-    private static final int COMPARISON_URI_ANCHOR = 1;
-    private static final int BOOLEAN_URI_ANCHOR = 2;
+    private static final String FUNCTIONS_COMPARISON_URN =
+            "extension:io.substrait:functions_comparison";
+    private static final String FUNCTIONS_BOOLEAN_URN =
+            "extension:io.substrait:functions_boolean";
+    private static final int COMPARISON_URN_ANCHOR = 1;
+    private static final int BOOLEAN_URN_ANCHOR = 2;
 
     private static final Map<String, Integer> FUNCTION_REFS = new HashMap<>();
     private static int nextFunctionRef = 1;
@@ -97,7 +102,7 @@ public final class IcebergExpressionToSubstrait {
             }
             byte[] serialized = buildExtendedExpression(substraitExpr, tableSchema);
             return Optional.of(serialized);
-        } catch (UnsupportedExpressionException e) {
+        } catch (UnsupportedIcebergExpressionException e) {
             LOG.debug("event=unsupported_iceberg_expression expression={}", residual, e);
             return Optional.empty();
         }
@@ -115,14 +120,15 @@ public final class IcebergExpressionToSubstrait {
         if (expr instanceof Not not) {
             Expression child = convertExpression(not.child(), schema, fieldIdToIndex);
             if (child == null) {
-                throw new UnsupportedExpressionException("NOT operand not convertible");
+                throw new UnsupportedIcebergExpressionException("NOT operand not convertible");
             }
             return buildUnaryBooleanFunction("not", child);
         }
         if (expr instanceof BoundPredicate<?> predicate) {
             return convertPredicate(predicate, schema, fieldIdToIndex);
         }
-        throw new UnsupportedExpressionException("Unsupported expression type: " + expr.getClass().getSimpleName());
+        throw new UnsupportedIcebergExpressionException("Unsupported expression type: "
+                + expr.getClass().getSimpleName());
     }
 
     private Expression convertBinaryBoolean(String name,
@@ -133,7 +139,7 @@ public final class IcebergExpressionToSubstrait {
         Expression left = convertExpression(leftOperand, schema, fieldIdToIndex);
         Expression right = convertExpression(rightOperand, schema, fieldIdToIndex);
         if (left == null || right == null) {
-            throw new UnsupportedExpressionException(name.toUpperCase() + " operand not convertible");
+            throw new UnsupportedIcebergExpressionException(name.toUpperCase(Locale.ROOT) + " operand not convertible");
         }
         return buildBooleanFunction(name, left, right);
     }
@@ -144,7 +150,7 @@ public final class IcebergExpressionToSubstrait {
         int fieldId = predicate.ref().fieldId();
         Integer columnIndex = fieldIdToIndex.get(fieldId);
         if (columnIndex == null) {
-            throw new UnsupportedExpressionException("Field ID not found in schema: " + fieldId);
+            throw new UnsupportedIcebergExpressionException("Field ID not found in schema: " + fieldId);
         }
         Types.NestedField field = schema.findField(fieldId);
         Type substraitType = mapIcebergType(field.type());
@@ -158,7 +164,7 @@ public final class IcebergExpressionToSubstrait {
         if (predicate instanceof BoundSetPredicate<?> setPred) {
             return convertSetPredicate(setPred, columnIndex, substraitType);
         }
-        throw new UnsupportedExpressionException(
+        throw new UnsupportedIcebergExpressionException(
                 "Unsupported predicate type: " + predicate.getClass().getSimpleName());
     }
 
@@ -169,7 +175,7 @@ public final class IcebergExpressionToSubstrait {
         return switch (predicate.op()) {
             case IS_NULL -> buildUnaryComparisonFunction("is_null", fieldRef);
             case NOT_NULL -> buildUnaryComparisonFunction("is_not_null", fieldRef);
-            default -> throw new UnsupportedExpressionException(
+            default -> throw new UnsupportedIcebergExpressionException(
                     "Unsupported unary op: " + predicate.op());
         };
     }
@@ -188,7 +194,7 @@ public final class IcebergExpressionToSubstrait {
             case LT_EQ -> "lte";
             case GT -> "gt";
             case GT_EQ -> "gte";
-            default -> throw new UnsupportedExpressionException(
+            default -> throw new UnsupportedIcebergExpressionException(
                     "Unsupported comparison op: " + predicate.op());
         };
         return buildComparisonFunction(functionName, fieldRef, literalExpr, substraitType);
@@ -199,7 +205,7 @@ public final class IcebergExpressionToSubstrait {
                                            Type substraitType) {
         if (predicate.op() != org.apache.iceberg.expressions.Expression.Operation.IN
                 && predicate.op() != org.apache.iceberg.expressions.Expression.Operation.NOT_IN) {
-            throw new UnsupportedExpressionException("Unsupported set op: " + predicate.op());
+            throw new UnsupportedIcebergExpressionException("Unsupported set op: " + predicate.op());
         }
 
         Expression fieldRef = buildFieldReference(columnIndex, substraitType);
@@ -302,6 +308,10 @@ public final class IcebergExpressionToSubstrait {
         if (value == null) {
             return Literal.newBuilder().setNull(substraitType).build();
         }
+        Literal temporal = IcebergTemporalSubstrait.literal(value, substraitType);
+        if (temporal != null) {
+            return temporal;
+        }
         Literal scalar = convertScalarLiteral(value);
         if (scalar != null) {
             return scalar;
@@ -310,7 +320,8 @@ public final class IcebergExpressionToSubstrait {
         if (complex != null) {
             return complex;
         }
-        throw new UnsupportedExpressionException("Unsupported literal type: " + value.getClass().getSimpleName());
+        throw new UnsupportedIcebergExpressionException("Unsupported literal type: "
+                + value.getClass().getSimpleName());
     }
 
     private Literal convertScalarLiteral(Object value) {
@@ -397,12 +408,12 @@ public final class IcebergExpressionToSubstrait {
                     .setDate(Type.Date.newBuilder()
                             .setNullability(Type.Nullability.NULLABILITY_NULLABLE).build())
                     .build();
-            case TIMESTAMP -> Type.newBuilder()
-                    .setTimestamp(Type.Timestamp.newBuilder()
-                            .setNullability(Type.Nullability.NULLABILITY_NULLABLE).build())
-                    .build();
+            case TIMESTAMP -> IcebergTemporalSubstrait.timestampType(
+                    ((Types.TimestampType) icebergType).shouldAdjustToUTC(), 6);
+            case TIMESTAMP_NANO -> IcebergTemporalSubstrait.timestampType(
+                    ((Types.TimestampNanoType) icebergType).shouldAdjustToUTC(), 9);
             case DECIMAL -> mapDecimalType((Types.DecimalType) icebergType);
-            default -> throw new UnsupportedExpressionException(
+            default -> throw new UnsupportedIcebergExpressionException(
                     "Unsupported Iceberg type for Substrait mapping: " + icebergType);
         };
     }
@@ -419,23 +430,24 @@ public final class IcebergExpressionToSubstrait {
     private byte[] buildExtendedExpression(Expression expr, Schema tableSchema) {
         ExtendedExpression.Builder builder = ExtendedExpression.newBuilder();
 
-        builder.addExtensionUris(SimpleExtensionURI.newBuilder()
-                .setExtensionUriAnchor(COMPARISON_URI_ANCHOR)
-                .setUri(FUNCTIONS_COMPARISON_URI)
+        builder.addExtensionUrns(SimpleExtensionURN.newBuilder()
+                .setExtensionUrnAnchor(COMPARISON_URN_ANCHOR)
+                .setUrn(FUNCTIONS_COMPARISON_URN)
                 .build());
-        builder.addExtensionUris(SimpleExtensionURI.newBuilder()
-                .setExtensionUriAnchor(BOOLEAN_URI_ANCHOR)
-                .setUri(FUNCTIONS_BOOLEAN_URI)
+        builder.addExtensionUrns(SimpleExtensionURN.newBuilder()
+                .setExtensionUrnAnchor(BOOLEAN_URN_ANCHOR)
+                .setUrn(FUNCTIONS_BOOLEAN_URN)
                 .build());
 
         for (Map.Entry<String, Integer> entry : FUNCTION_REFS.entrySet()) {
             String funcName = entry.getKey();
             int ref = entry.getValue();
-            int uriAnchor = isComparisonFunction(funcName) ? COMPARISON_URI_ANCHOR : BOOLEAN_URI_ANCHOR;
+            int urnAnchor = isComparisonFunction(funcName)
+                    ? COMPARISON_URN_ANCHOR : BOOLEAN_URN_ANCHOR;
             builder.addExtensions(SimpleExtensionDeclaration.newBuilder()
                     .setExtensionFunction(
                             SimpleExtensionDeclaration.ExtensionFunction.newBuilder()
-                                    .setExtensionUriReference(uriAnchor)
+                                    .setExtensionUrnReference(urnAnchor)
                                     .setFunctionAnchor(ref)
                                     .setName(funcName)
                                     .build())
@@ -475,9 +487,4 @@ public final class IcebergExpressionToSubstrait {
         return map;
     }
 
-    private static final class UnsupportedExpressionException extends RuntimeException {
-        UnsupportedExpressionException(String message) {
-            super(message);
-        }
-    }
 }

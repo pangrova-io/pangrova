@@ -1,8 +1,10 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.ConnectionPoolConfig;
-import org.pangrova.client.rest.RetryPolicy;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.transport.client.security.ResultTransportSecurity;
+import org.pangrova.common.client.session.ConnectionPoolConfig;
+import org.pangrova.common.client.session.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,10 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * JDBC Driver for Pangrova distributed query engine.
@@ -31,29 +29,30 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>URL format: {@code jdbc:pangrova://<host>:<port>[/<catalog>][?property=value]}</p>
  *
- * <p>R10.5: A single {@link HttpClient} is shared across all JDBC connections
- * created by this driver, avoiding per-connection thread pool overhead.
- * The shared client is created lazily on first connection and shut down
- * when the driver is deregistered.</p>
+ * <p>A single system-trust {@link HttpClient} is shared across JDBC connections,
+ * avoiding per-connection thread pool overhead. Connections with an explicit
+ * HTTPS trust store own their configured client; trust policies are never shared.
+ * The shared client is created lazily on first connection. Explicit executor
+ * shutdown preserves failed owners; driver deregistration does not yet transfer
+ * or retire existing connection leases.</p>
  */
 public final class PangrovaDriver implements Driver {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaDriver.class);
     private static final int DEFAULT_HTTP_CLIENT_POOL_SIZE = 4;
     private static final Set<String> KNOWN_PROPERTIES = Set.of(
-            "token", "ssl", "sslTrustStore", "sslTrustStorePassword",
+            "token", "user", "password", "ssl", "sslTrustStore", "sslTrustStorePassword",
+            "resultTlsRootCa", "resultTlsCertificateChain", "resultTlsPrivateKey",
             "failover", "retries", "connectTimeoutMs", "requestTimeoutMs",
             "poolSize");
-    private static final Set<String> SECURITY_PREFIXES = Set.of("ssl", "auth");
+    private static final Set<String> SECURITY_PREFIXES = Set.of("ssl", "auth", "resultTls");
 
     /**
      * Shared HttpClient instance across all JDBC connections.
      * Lazily initialized on first {@link #connect} call.
      * Thread-safe: HttpClient is immutable after construction.
      */
-    private static volatile HttpClient sharedHttpClient;
-    private static volatile ExecutorService sharedExecutor;
-    private static final Object CLIENT_LOCK = new Object();
+    private static final JdbcSharedHttpOwner SHARED_HTTP_OWNER = new JdbcSharedHttpOwner();
 
     static {
         try {
@@ -73,13 +72,16 @@ public final class PangrovaDriver implements Driver {
             JdbcConnectionParams params = JdbcUrlParser.parse(url);
             Map<String, String> mergedProps = mergeProperties(params.properties(), info);
             validateProperties(mergedProps);
-
             int poolSize = parsePoolSize(mergedProps);
-            HttpClient client = getOrCreateSharedHttpClient(poolSize);
+
             PangrovaRestClient.Builder builder = PangrovaRestClient.builder()
                     .coordinatorHost(params.host())
-                    .coordinatorPort(params.port())
-                    .httpClient(client);
+                    .coordinatorPort(params.port());
+            if (!mergedProps.containsKey("sslTrustStore")) {
+                builder.httpClient(SHARED_HTTP_OWNER.get(poolSize, mergedProps.containsKey("poolSize")));
+            } else {
+                builder.httpExecutorThreads(poolSize);
+            }
             applyProperties(builder, params.host(), params.port(), mergedProps);
 
             PangrovaRestClient restClient = builder.build();
@@ -135,6 +137,13 @@ public final class PangrovaDriver implements Driver {
 
     private static void applyAuthAndTlsProperties(PangrovaRestClient.Builder builder,
                                                    Map<String, String> props) {
+        boolean basic = props.containsKey("user") || props.containsKey("password");
+        if (basic && props.containsKey("token")) {
+            throw new IllegalArgumentException("Bearer token and Basic credentials are mutually exclusive");
+        }
+        if (basic) {
+            builder.authentication(ClientAuthentication.basic(props.get("user"), props.get("password")));
+        }
         if (props.containsKey("token")) {
             builder.bearerToken(props.get("token"));
         }
@@ -147,6 +156,13 @@ public final class PangrovaDriver implements Driver {
         if (props.containsKey("sslTrustStorePassword")) {
             builder.trustStorePassword(props.get("sslTrustStorePassword"));
         }
+        builder.resultTransportSecurity(new ResultTransportSecurity(false,
+                materialPath(props.get("resultTlsRootCa")), materialPath(props.get("resultTlsCertificateChain")),
+                materialPath(props.get("resultTlsPrivateKey"))));
+    }
+
+    private static java.nio.file.Path materialPath(String value) {
+        return value == null ? null : java.nio.file.Path.of(value);
     }
 
     private static void applyTimeoutProperties(PangrovaRestClient.Builder builder,
@@ -206,9 +222,15 @@ public final class PangrovaDriver implements Driver {
         }
         return new DriverPropertyInfo[]{
                 propInfo("token", current.get("token"), "Bearer token for authentication"),
+                propInfo("user", current.get("user"), "Username for Basic authentication"),
+                propInfo("password", current.get("password"), "Password for Basic authentication"),
                 propInfo("ssl", current.get("ssl"), "Enable TLS (true/false)"),
                 propInfo("sslTrustStore", current.get("sslTrustStore"), "Path to trust store"),
                 propInfo("sslTrustStorePassword", current.get("sslTrustStorePassword"), "Trust store password"),
+                propInfo("resultTlsRootCa", current.get("resultTlsRootCa"), "PEM result-channel trust roots"),
+                propInfo("resultTlsCertificateChain", current.get("resultTlsCertificateChain"),
+                        "PEM result client certificate chain"),
+                propInfo("resultTlsPrivateKey", current.get("resultTlsPrivateKey"), "PEM result client private key"),
                 propInfo("failover", current.get("failover"), "Comma-separated backup host:port endpoints"),
                 propInfo("retries", current.get("retries"), "Max retry attempts"),
                 propInfo("connectTimeoutMs", current.get("connectTimeoutMs"), "Connect timeout in milliseconds"),
@@ -245,70 +267,25 @@ public final class PangrovaDriver implements Driver {
     }
 
     /**
-     * Returns the shared HttpClient, creating it lazily if needed.
-     * Thread-safe via double-checked locking on {@link #CLIENT_LOCK}.
-     */
-    private static HttpClient getOrCreateSharedHttpClient(int poolSize) {
-        HttpClient client = sharedHttpClient;
-        if (client != null) {
-            return client;
-        }
-        synchronized (CLIENT_LOCK) {
-            if (sharedHttpClient == null) {
-                int effectivePoolSize = poolSize > 0 ? poolSize : DEFAULT_HTTP_CLIENT_POOL_SIZE;
-                AtomicInteger counter = new AtomicInteger();
-                sharedExecutor = Executors.newFixedThreadPool(effectivePoolSize, r -> {
-                    Thread t = new Thread(r, "pangrova-jdbc-http-" + counter.getAndIncrement());
-                    t.setDaemon(true);
-                    return t;
-                });
-                sharedHttpClient = HttpClient.newBuilder()
-                        .executor(sharedExecutor)
-                        .build();
-                LOG.info("event=shared_http_client_created poolSize={}", effectivePoolSize);
-            }
-            return sharedHttpClient;
-        }
-    }
-
-    /**
-     * Shuts down the shared HttpClient executor.
-     * Called during driver deregistration or JVM shutdown.
+     * Explicitly drains the shared HTTP executor; failure retains its owner for retry.
+     * This is not automatically invoked by driver deregistration or JVM shutdown.
      */
     static void shutdownSharedClient() {
-        synchronized (CLIENT_LOCK) {
-            ExecutorService exec = sharedExecutor;
-            if (exec != null) {
-                shutdownExecutor(exec);
-                sharedHttpClient = null;
-                sharedExecutor = null;
-                LOG.info("event=shared_http_client_shutdown");
-            }
-        }
-    }
-
-    private static void shutdownExecutor(ExecutorService exec) {
-        exec.shutdown();
-        try {
-            if (!exec.awaitTermination(5, TimeUnit.SECONDS)) {
-                exec.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            exec.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        SHARED_HTTP_OWNER.close();
+        LOG.info("event=shared_http_executor_terminated");
     }
 
     private static int parsePoolSize(Map<String, String> props) {
         String value = props.get("poolSize");
-        if (value == null || value.isEmpty()) {
+        if (value == null) {
             return DEFAULT_HTTP_CLIENT_POOL_SIZE;
         }
         try {
-            return Integer.parseInt(value);
+            int threads = Integer.parseInt(value);
+            if (threads < 1) throw new IllegalArgumentException("poolSize must be a positive integer");
+            return threads;
         } catch (NumberFormatException e) {
-            LOG.warn("Invalid poolSize '{}', using default {}", value, DEFAULT_HTTP_CLIENT_POOL_SIZE);
-            return DEFAULT_HTTP_CLIENT_POOL_SIZE;
+            throw new IllegalArgumentException("poolSize must be a positive integer", e);
         }
     }
 }

@@ -1,8 +1,10 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.adaptive.SkewResult;
+
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SkewJoinHandlerTest {
 
     private static final long MB = 1024L * 1024;
-    private final SkewJoinHandler handler = new SkewJoinHandler();
+    private final SkewJoinHandler handler = new SkewJoinHandler(
+            new org.pangrova.shuffle.skew.MedianSkewDetector());
 
     @Test
     void emptyPartitions_returnsNoSkew() {

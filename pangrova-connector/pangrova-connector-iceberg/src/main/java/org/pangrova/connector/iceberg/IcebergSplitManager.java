@@ -3,20 +3,27 @@ package org.pangrova.connector.iceberg;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergSystemTableSplit;
+import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergManifestTableSplit;
+import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergFileTableSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.FixedSplitSource;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
+import org.pangrova.connector.runtime.scan.FixedSplitSource;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnMapping;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.IncrementalAppendScan;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Catalog;
@@ -40,7 +47,12 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSplitManager.class);
     private static final Duration DEFAULT_MANIFEST_CACHE_TTL = Duration.ofMinutes(5);
-    private static final int DEFAULT_MANIFEST_CACHE_MAX_SIZE = 1000;
+    // Each entry is a whole table's split list, so bounding entry COUNT left heap
+    // unbounded: one entry can hold millions of splits. Bound estimated bytes.
+    private static final long DEFAULT_MANIFEST_CACHE_MAX_WEIGHT = 64L * 1024 * 1024;
+    // Conservative per-split heap estimate (path, partition values, delete files,
+    // object overhead). Column mappings are shared per scan and excluded.
+    private static final int ESTIMATED_BYTES_PER_SPLIT = 1024;
 
     private final String catalogName;
     private final Catalog catalog;
@@ -75,7 +87,10 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         this.taskToSplit = new IcebergTaskToSplit(expressionConverter);
         this.manifestCache = Caffeine.newBuilder()
                 .expireAfterWrite(DEFAULT_MANIFEST_CACHE_TTL)
-                .maximumSize(DEFAULT_MANIFEST_CACHE_MAX_SIZE)
+                .maximumWeight(DEFAULT_MANIFEST_CACHE_MAX_WEIGHT)
+                .weigher((String key, List<ConnectorSplit> splits) -> (int) Math.min(
+                        Integer.MAX_VALUE,
+                        Math.max(1L, (long) splits.size() * ESTIMATED_BYTES_PER_SPLIT)))
                 .build();
     }
 
@@ -85,7 +100,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
      * reads fresh manifest data reflecting the new snapshot.
      */
     public void invalidateManifestCache(String tableName) {
-        manifestCache.asMap().keySet().removeIf(key -> key.startsWith(tableName + "|"));
+        manifestCache.asMap().keySet().removeIf(key -> key.startsWith(tableName + "|")
+                || key.contains("." + tableName + "|"));
         LOG.debug("event=manifest_cache_invalidated table={}", tableName);
     }
 
@@ -96,8 +112,25 @@ public class IcebergSplitManager implements ConnectorSplitManager {
             ConnectorTableHandle table,
             DynamicFilter dynamicFilter,
             Constraint constraint) {
+        if (table instanceof IcebergFileTableHandle files) {
+            IcebergFileReadBindings.validate(files, resolveTable(files.baseTable()));
+            return new FixedSplitSource(files.manifests().stream()
+                    .map(manifest -> (ConnectorSplit) new IcebergFileTableSplit(files, manifest))
+                    .toList());
+        }
+        if (table instanceof IcebergManifestTableHandle manifests) {
+            IcebergManifestReadBindings.validate(manifests, resolveTable(manifests.baseTable()));
+            return new FixedSplitSource(manifests.empty() ? List.of()
+                    : List.of(new IcebergManifestTableSplit(manifests)));
+        }
+        if (table instanceof IcebergSystemTableHandle system) {
+            return new FixedSplitSource(List.of(new IcebergSystemTableSplit(
+                    system.tableName(), system.kind(), system.metadataLocation(),
+                    system.metadataLength())));
+        }
         IcebergTableHandle icebergTable = (IcebergTableHandle) table;
         Table icebergSdkTable = resolveTable(icebergTable);
+        IcebergReadBindings.validateSelected(icebergSdkTable, icebergTable);
         List<ConnectorSplit> splits = planSplitsByReadMode(icebergSdkTable, icebergTable, constraint, session);
         LOG.info("event=splits_planned count={} table={}.{} catalog={} read_mode={} snapshot={}",
                 splits.size(), icebergTable.schemaName(), icebergTable.tableName(),
@@ -123,7 +156,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         IcebergTableHandle icebergTable = (IcebergTableHandle) table;
         Table icebergSdkTable = resolveTable(icebergTable);
         validateSnapshotRange(fromSnapshotId, toSnapshotId);
-        String tableName = icebergTable.tableName();
+        String tableName = sourceId(icebergTable);
         LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
                 icebergTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);
         List<ConnectorSplit> splits = scanIncrementalFiles(
@@ -178,21 +211,26 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         long snapshotId = snapshot.snapshotId();
         boolean cacheable = constraint == null || constraint == Constraint.EMPTY
                 || constraint.getDomains().isEmpty();
-        String cacheKey = handle.tableName() + "|" + snapshotId;
+        Schema readSchema = IcebergReadSchema.resolve(handle, table).schema();
+        String cacheKey = sourceId(handle) + "|" + snapshotId + "|"
+                + org.pangrova.common.util.DigestUtils.sha256Hex(
+                        handle.properties().getOrDefault(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY, "")
+                                + org.apache.iceberg.SchemaParser.toJson(readSchema));
 
         List<ConnectorSplit> cached = lookupCachedSplits(cacheable, cacheKey, handle, snapshotId);
         if (cached != null) {
             return cached;
         }
 
-        TableScan scan = table.newScan().useSnapshot(snapshotId);
+        TableScan scan = table.newScan().useSnapshot(snapshotId).project(readSchema);
         scan = applyConstraintFilter(scan, constraint);
-        String tableName = handle.tableName();
-        List<ColumnMapping> columnMappings = computeColumnMappings(table);
+        String tableName = sourceId(handle);
+        List<ColumnMapping> columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         List<ConnectorSplit> splits = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             for (FileScanTask task : tasks) {
-                splits.add(taskToSplit.convert(task, tableName, "FULL", 0L, 0L, table.schema(), columnMappings));
+                splits.add(taskToSplit.convert(task, tableName, "FULL", snapshotId,
+                        0L, 0L, readSchema, columnMappings));
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to plan splits for table: " + table.name(), e);
@@ -242,8 +280,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                                             ConnectorSession session) {
         // Explicit snapshot on handle takes precedence (e.g. from optimizer)
         if (handle.snapshotId().isPresent()) {
-            Snapshot explicit = table.snapshot(handle.snapshotId().get());
-            pinIfQueryPresent(session, explicit);
+            Snapshot explicit = IcebergReadBindings.selectedSnapshot(table, handle);
+            pinIfQueryPresent(session, handle, explicit);
             return explicit;
         }
 
@@ -251,7 +289,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 
         // Check for an already-pinned snapshot from beginQuery / getTableStatistics
         if (queryId != null && snapshotRegistry != null) {
-            java.util.Optional<Long> pinned = snapshotRegistry.getPinnedSnapshot(queryId);
+            java.util.Optional<Long> pinned = snapshotRegistry.getPinnedSnapshot(
+                    queryId, handle.schemaName(), handle.tableName());
             if (pinned.isPresent()) {
                 Snapshot pinnedSnapshot = table.snapshot(pinned.get());
                 if (pinnedSnapshot != null) {
@@ -259,16 +298,13 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                             queryId, catalogName, pinned.get());
                     return pinnedSnapshot;
                 }
-                // Pinned snapshot no longer exists (expired by compaction) — fall through
-                // to current snapshot and log a warning
-                LOG.warn("event=pinned_snapshot_expired queryId={} catalog={} snapshotId={}",
-                        queryId, catalogName, pinned.get());
+                throw new IllegalStateException("Selected query snapshot expired: " + pinned.get());
             }
         }
 
-        // Fall back to current snapshot and pin it for the query
+        // Select once for direct SDK callers that do not carry an already-bound handle.
         Snapshot current = table.currentSnapshot();
-        pinIfQueryPresent(session, current);
+        pinIfQueryPresent(session, handle, current);
         return current;
     }
 
@@ -277,13 +313,14 @@ public class IcebergSplitManager implements ConnectorSplitManager {
      * metadata are available. This ensures that subsequent split planning
      * calls within the same query use the same snapshot.
      */
-    private void pinIfQueryPresent(ConnectorSession session, Snapshot snapshot) {
+    private void pinIfQueryPresent(ConnectorSession session, IcebergTableHandle handle, Snapshot snapshot) {
         if (snapshot == null || snapshotRegistry == null || session == null) {
             return;
         }
         String queryId = session.getProperties().get("queryId");
         if (queryId != null) {
-            snapshotRegistry.pinSnapshotForQuery(queryId, snapshot.snapshotId());
+            snapshotRegistry.pinSnapshotForQuery(
+                    queryId, handle.schemaName(), handle.tableName(), snapshot.snapshotId());
         }
     }
 
@@ -301,7 +338,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         long fromSnapshot = handle.fromSnapshotId();
         long toSnapshot = handle.toSnapshotId();
         validateSnapshotRange(fromSnapshot, toSnapshot);
-        String tableName = handle.tableName();
+        String tableName = sourceId(handle);
         LOG.debug("event=incremental_scan_start table={}.{} from_snapshot={} to_snapshot={}",
                 handle.schemaName(), handle.tableName(), fromSnapshot, toSnapshot);
 
@@ -359,7 +396,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                     }
                 }
                 splits.add(taskToSplit.convert(
-                        task, qualifiedTableName, "INCREMENTAL", fromSnapshot, toSnapshot,
+                        task, qualifiedTableName, "INCREMENTAL", toSnapshot,
+                        fromSnapshot, toSnapshot,
                         table.schema(), computeColumnMappings(table)));
             }
         } catch (IOException e) {
@@ -379,7 +417,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     private IncrementalAppendScan applyIncrementalConstraintFilter(
             IncrementalAppendScan scan, Constraint constraint) {
         try {
-            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint);
+            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint, scan.schema());
             if (combined == null) {
                 return scan;
             }
@@ -406,12 +444,12 @@ public class IcebergSplitManager implements ConnectorSplitManager {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Time-travel read requires a snapshotId on the table handle"));
         validateSnapshotExists(table, snapshotId);
-        String tableName = handle.tableName();
+        String tableName = sourceId(handle);
         LOG.debug("event=time_travel_scan_start table={}.{} snapshot_id={}",
                 handle.schemaName(), handle.tableName(), snapshotId);
 
         List<ConnectorSplit> splits = scanTimeTravelFiles(
-                table, tableName, snapshotId, constraint);
+                table, handle, tableName, snapshotId, constraint);
         LOG.debug("event=time_travel_scan_complete table={}.{} split_count={}",
                 handle.schemaName(), handle.tableName(), splits.size());
         return splits;
@@ -425,14 +463,16 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     }
 
     private List<ConnectorSplit> scanTimeTravelFiles(
-            Table table, String qualifiedTableName, long snapshotId, Constraint constraint) {
-        TableScan scan = applyConstraintFilter(table.newScan().useSnapshot(snapshotId), constraint);
-        List<ColumnMapping> columnMappings = computeColumnMappings(table);
+            Table table, IcebergTableHandle handle, String qualifiedTableName, long snapshotId, Constraint constraint) {
+        Schema readSchema = IcebergReadSchema.resolve(handle, table).schema();
+        TableScan scan = applyConstraintFilter(table.newScan().useSnapshot(snapshotId).project(readSchema), constraint);
+        List<ColumnMapping> columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         List<ConnectorSplit> splits = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             for (FileScanTask task : tasks) {
-                splits.add(taskToSplit.convert(task, qualifiedTableName, "TIME_TRAVEL", 0L, 0L,
-                        table.schema(), columnMappings));
+                splits.add(taskToSplit.convert(task, qualifiedTableName, "TIME_TRAVEL", snapshotId,
+                        0L, 0L,
+                        readSchema, columnMappings));
             }
         } catch (IOException e) {
             throw new UncheckedIOException(
@@ -443,7 +483,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 
     private TableScan applyConstraintFilter(TableScan scan, Constraint constraint) {
         try {
-            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint);
+            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint, scan.schema());
             if (combined == null) {
                 return scan;
             }
@@ -457,7 +497,11 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     }
 
     private List<ColumnMapping> computeColumnMappings(Table table) {
-        return IcebergTaskToSplit.computeColumnMappings(table);
+        return IcebergTaskToSplit.computeColumnMappings(table, table.schema());
+    }
+
+    private String sourceId(IcebergTableHandle handle) {
+        return catalogName + "." + handle.schemaName() + "." + handle.tableName();
     }
 
 }

@@ -1,0 +1,196 @@
+package org.pangrova.connector.iceberg;
+
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.common.util.DigestUtils;
+import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
+
+/** Binds immutable data snapshot evidence without changing ordinary current-schema semantics. */
+final class IcebergReadBindings {
+    private IcebergReadBindings() {}
+
+    static ConnectorReadBinding bind(IcebergCatalogTables tables, ConnectorTableHandle selector) {
+        if (selector instanceof IcebergPartitionTableHandle partitions) {
+            for (var input : partitions.derivedQuery().inputs()) validate(tables, input.binding());
+            var columns = partitions.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(partitions.baseTable().schemaName(), partitions.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(partitions, new ConnectorTableReadMetadata(metadata,
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
+                    partitions.sourceIdentity(), Optional.empty());
+        }
+        if (selector instanceof IcebergFileTableHandle files) {
+            IcebergFileReadBindings.validate(files, tables.resolveTable(files.baseTable()));
+            var columns = files.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(files.baseTable().schemaName(), files.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(files, new ConnectorTableReadMetadata(metadata,
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
+                    fileSourceIdentity(files), java.util.Optional.empty());
+        }
+        if (selector instanceof IcebergManifestTableHandle manifests) {
+            IcebergManifestReadBindings.validate(manifests, tables.resolveTable(manifests.baseTable()));
+            var columns = manifests.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(manifests.baseTable().schemaName(), manifests.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(manifests, new ConnectorTableReadMetadata(metadata,
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
+                    manifestSourceIdentity(manifests), java.util.Optional.empty());
+        }
+        if (selector instanceof IcebergSystemTableHandle system) {
+            var columns = system.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(system.baseTable().schemaName(), system.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(system, new ConnectorTableReadMetadata(metadata,
+                    TableDeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ReadSnapshotState.METADATA, OptionalLong.empty(),
+                    system.metadataLocation(), Optional.empty());
+        }
+        var handle = (IcebergTableHandle) selector;
+        Table table = tables.resolveTable(handle);
+        Snapshot snapshot = selectedSnapshot(table, handle);
+        String identity = identity(table, snapshot);
+        var properties = new LinkedHashMap<>(table.properties());
+        properties.put(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY, identity);
+        var readSchema = IcebergReadSchema.resolve(handle, table);
+        var declaration = IcebergCatalogTables.readDeclaration(handle, readSchema);
+        var schema = readSchema.schema();
+        var schemaIdentity = declaration.declarationEvidence() == TableDeclarationEvidence.EXACT
+                ? Optional.of(new org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity(
+                        readSchema.tableIdentity(), "iceberg.table-fields.v1", declaration.metadata().typedColumns(),
+                        org.pangrova.connector.api.enums.FieldIdStability
+                                .NON_REUSABLE_NAMESPACE))
+                : Optional.<org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity>empty();
+        var fresh = IcebergTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), table);
+        var bound = new IcebergTableHandle(fresh.schemaName(), fresh.tableName(), fresh.tableLocation(),
+                snapshot == null ? Optional.empty() : Optional.of(snapshot.snapshotId()),
+                org.apache.iceberg.SchemaParser.toJson(schema), fresh.partitionSpecJson(),
+                fresh.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
+                handle.toSnapshotId(), handle.pushedLimit());
+        TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
+                : IcebergStatisticsCollector.buildStatistics(snapshot, table, handle);
+        return new ConnectorReadBinding(bound, declaration, statistics,
+                snapshot == null ? ReadSnapshotState.EMPTY
+                        : ReadSnapshotState.SNAPSHOT,
+                snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.snapshotId()), identity,
+                schemaIdentity);
+    }
+
+    static void validate(IcebergCatalogTables tables, ConnectorReadBinding binding) {
+        if (binding.handle() instanceof IcebergPartitionTableHandle partitions) {
+            if (!partitions.sourceIdentity().equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected Iceberg partitions binding identity differs");
+            }
+            for (var input : partitions.derivedQuery().inputs()) validate(tables, input.binding());
+            return;
+        }
+        if (binding.handle() instanceof IcebergFileTableHandle files) {
+            if (!fileSourceIdentity(files).equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected Iceberg files binding identity differs");
+            }
+            IcebergFileReadBindings.validate(files, tables.resolveTable(files.baseTable()));
+            return;
+        }
+        if (binding.handle() instanceof IcebergManifestTableHandle manifests) {
+            String identity = manifestSourceIdentity(manifests);
+            if (!identity.equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected Iceberg manifest-list binding identity differs");
+            }
+            IcebergManifestReadBindings.validate(manifests, tables.resolveTable(manifests.baseTable()));
+            return;
+        }
+        if (binding.handle() instanceof IcebergSystemTableHandle system) {
+            if (!system.metadataLocation().equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected metadata object identity differs");
+            }
+            return;
+        }
+        var handle = (IcebergTableHandle) binding.handle();
+        Table table = tables.resolveTable(handle);
+        // An empty view remains empty after a first write; only its table identity is validated.
+        Snapshot snapshot = binding.state() == ReadSnapshotState.EMPTY
+                ? null : selectedSnapshot(table, handle);
+        if (!binding.sourceIdentity().equals(identity(table, snapshot))) {
+            throw new IllegalStateException("Selected table or snapshot identity changed");
+        }
+    }
+
+    static void validateSelected(Table table, IcebergTableHandle handle) {
+        String expected = handle.properties().get(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY);
+        if (expected != null && !expected.equals(identity(table, selectedSnapshot(table, handle)))) {
+            throw new IllegalStateException("Selected table or snapshot identity changed before split planning");
+        }
+    }
+
+    static Snapshot selectedSnapshot(Table table, IcebergTableHandle handle) {
+        if (!table.location().equals(handle.tableLocation())) {
+            throw new IllegalStateException("Selected table location changed");
+        }
+        if (handle.snapshotId().isEmpty()) return table.currentSnapshot();
+        Snapshot snapshot = table.snapshot(handle.snapshotId().orElseThrow());
+        if (snapshot == null) {
+            throw new IllegalStateException("Selected snapshot is unavailable: " + handle.snapshotId().orElseThrow());
+        }
+        return snapshot;
+    }
+
+    private static String identity(Table table, Snapshot snapshot) {
+        if (!(table instanceof HasTableOperations operations)) {
+            throw new IllegalStateException("Selected read requires actual table identity metadata");
+        }
+        String uuid = operations.operations().current().uuid();
+        if (uuid == null || uuid.isBlank()) throw new IllegalStateException("Table UUID is unavailable");
+        String selected = snapshot == null ? "EMPTY" : snapshot.snapshotId() + "\0"
+                + snapshot.schemaId() + "\0" + snapshot.sequenceNumber() + "\0"
+                + snapshot.timestampMillis() + "\0" + snapshot.manifestListLocation();
+        return DigestUtils.sha256Hex(uuid + "\0" + table.location() + "\0" + selected);
+    }
+
+    private static String manifestSourceIdentity(IcebergManifestTableHandle manifests) {
+        return manifests.empty() ? manifests.tableUuid()
+                : manifests.manifestListLocation() + "#" + manifests.manifestListSha256();
+    }
+
+    private static String fileSourceIdentity(IcebergFileTableHandle files) {
+        StringBuilder identity = new StringBuilder(manifestSourceIdentity(files.manifestSelection()));
+        identity.append('\0').append(files.manifestSelection().metadataLocation());
+        for (var spec : files.manifestSelection().protocolPartitionSpecs()) {
+            identity.append('\0').append(java.util.HexFormat.of().formatHex(spec.toByteArray()));
+        }
+        if (files.entries()) {
+            identity.append("\0entries");
+        }
+        for (var manifest : files.manifests()) {
+            identity.append('\0').append(manifest.uri()).append('\0')
+                    .append(manifest.length()).append('\0').append(manifest.sha256())
+                    .append('\0').append(manifest.specId()).append('\0').append(manifest.content());
+        }
+        return DigestUtils.sha256Hex(identity.toString());
+    }
+}

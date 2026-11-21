@@ -141,7 +141,7 @@ class SortMergeJoinCostEstimationTest {
     }
 
     @Test
-    void onlyLeftSorted_yieldsFullSortCost() {
+    void onlyLeftSorted_chargesForTheUnsortedSide() {
         int rowCount = 500;
 
         // Only left is sorted, right is not
@@ -166,6 +166,11 @@ class SortMergeJoinCostEstimationTest {
         // Partially sorted should have higher cost (needs to sort the unsorted side)
         assertThat(partialCost.getCpu()).isGreaterThan(fullySortedCost.getCpu());
         assertThat(partialCost.getMemory()).isGreaterThan(fullySortedCost.getMemory());
+
+        var unsortedJoin = buildSortMergeJoin(3, rowCount, 3, rowCount, List.of(0), List.of(0), false);
+        var unsortedCost = (PangrovaRelOptCost) unsortedJoin.computeSelfCost(planner, mq);
+        assertThat(partialCost.getCpu()).isLessThan(unsortedCost.getCpu());
+        assertThat(partialCost.getMemory()).isLessThan(unsortedCost.getMemory());
     }
 
     @Test
@@ -212,7 +217,8 @@ class SortMergeJoinCostEstimationTest {
     private RelNode buildSortedInput(int columnCount, int rowCount, List<Integer> sortKeys) {
         RelNode base = buildUnsortedInput(columnCount, rowCount);
         List<RelFieldCollation> fieldCollations = sortKeys.stream()
-                .map(idx -> new RelFieldCollation(idx, RelFieldCollation.Direction.ASCENDING))
+                .map(idx -> new RelFieldCollation(idx, RelFieldCollation.Direction.ASCENDING,
+                        RelFieldCollation.NullDirection.FIRST))
                 .toList();
         RelCollation collation = RelCollations.of(fieldCollations);
         LogicalSort sort = LogicalSort.create(base, collation, null, null);

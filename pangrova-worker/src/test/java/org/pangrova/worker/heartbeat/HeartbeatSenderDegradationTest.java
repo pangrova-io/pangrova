@@ -16,6 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * After N consecutive failures, worker enters degraded mode.
  */
 class HeartbeatSenderDegradationTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     private static ScheduledExecutorService newExecutor() {
         ScheduledThreadPoolExecutor exec = new ScheduledThreadPoolExecutor(1);
@@ -40,7 +42,7 @@ class HeartbeatSenderDegradationTest {
         HeartbeatSender sender = new HeartbeatSender(config,
                 () -> {
                     heartbeatCount.incrementAndGet();
-                    return new HeartbeatPayload("w-degrade", "NONE", 0.1, 0, 1024);
+                    return new HeartbeatPayload("w-degrade", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -66,7 +68,7 @@ class HeartbeatSenderDegradationTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-init", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-init", "NONE", 0.1, 0, 1024),
+                () -> new HeartbeatPayload("w-init", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         assertThat(sender.isDegraded()).isFalse();
@@ -82,7 +84,7 @@ class HeartbeatSenderDegradationTest {
         HeartbeatSender sender = new HeartbeatSender(config,
                 () -> {
                     heartbeatCount.incrementAndGet();
-                    return new HeartbeatPayload("w-below", "NONE", 0.1, 0, 1024);
+                    return new HeartbeatPayload("w-below", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 

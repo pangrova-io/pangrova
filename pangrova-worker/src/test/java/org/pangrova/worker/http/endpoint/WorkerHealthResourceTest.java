@@ -1,8 +1,10 @@
 package org.pangrova.worker.http.endpoint;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import jakarta.ws.rs.core.Response;
-import org.pangrova.operations.bootstrap.HealthCheckEndpoint;
-import org.pangrova.operations.bootstrap.HealthStatus;
+import org.pangrova.common.lifecycle.HealthCheckEndpoint;
+import org.pangrova.common.lifecycle.HealthStatus;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,7 +14,7 @@ class WorkerHealthResourceTest {
     @Test
     void healthyWorkerReturns200() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new StubConditions(true, true, true, 9091, true));
         WorkerHealthResource resource = new WorkerHealthResource(endpoint);
         Response response = resource.health();
@@ -26,11 +28,21 @@ class WorkerHealthResourceTest {
     @Test
     void unhealthyWorkerReturns503() {
         HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
-                HealthCheckEndpoint.NodeType.WORKER,
+                ClusterNodeType.WORKER,
                 new StubConditions(true, false, true, -1, false));
         WorkerHealthResource resource = new WorkerHealthResource(endpoint);
         Response response = resource.health();
         assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(resource.live().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void workerWithoutHttpIsNotLive() {
+        HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
+                ClusterNodeType.WORKER,
+                new StubConditions(false, true, true, 9091, true));
+
+        assertThat(new WorkerHealthResource(endpoint).live().getStatus()).isEqualTo(503);
     }
 
     private record StubConditions(boolean http, boolean transport, boolean nativeReady,

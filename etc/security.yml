@@ -19,11 +19,14 @@ security:
   auth:
     type: OAUTH2
 
+coordinator:
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+
 # ── Internal Cluster Authentication (worker.yml) ──────────────
 #
-# Coordinator→Worker control calls carry an X-Internal-Auth header
-# verified against this shared secret on each worker. The secret
-# must be identical on all nodes.
+# Coordinator→Worker control calls carry an X-Internal-Auth header.
+# Worker→Coordinator registration, heartbeat and reports use Bearer authentication.
+# Both are verified against the same shared secret on every node.
 #
 # Generate: openssl rand -base64 48
 worker:

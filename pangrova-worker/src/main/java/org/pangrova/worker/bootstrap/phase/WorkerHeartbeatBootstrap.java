@@ -1,14 +1,16 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import java.util.concurrent.ScheduledExecutorService;
 
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.operations.bootstrap.BootstrapFailedException;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
+import org.pangrova.common.exception.BootstrapFailedException;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.heartbeat.HeartbeatConfig;
 import org.pangrova.worker.heartbeat.HeartbeatPayload;
@@ -53,7 +55,14 @@ public final class WorkerHeartbeatBootstrap {
         HeartbeatConfig hbConfig = new HeartbeatConfig(
                 config.coordinatorUrl(), config.workerId(), config.heartbeatIntervalMs());
         HeartbeatSender sender = new HeartbeatSender(
-                hbConfig, () -> collectHeartbeatPayload(config, refs), executor);
+                hbConfig, () -> collectHeartbeatPayload(config, refs), executor,
+                config.internalAuthSecret());
+        sender.setCoordinatorEpochObserver(epoch -> {
+            if (refs.taskManager() != null) {
+                refs.taskManager().observeControlEpoch(epoch);
+            }
+        });
+        sender.setFencedCallback(() -> refs.taskManager().fenceAdmission());
         sender.setReRegistrationCallback(() -> {
             try {
                 register(config, refs);
@@ -75,7 +84,12 @@ public final class WorkerHeartbeatBootstrap {
             LOG.info("event=phase_skipped phase=registration reason=no_coordinator_url");
             return;
         }
-        WorkerRegistrationClient client = new WorkerRegistrationClient(coordinatorUrl);
+        WorkerRegistrationClient client = refs.registrationClient();
+        boolean ownsNewClient = client == null;
+        if (ownsNewClient) {
+            client = new WorkerRegistrationClient(
+                    coordinatorUrl, config.internalAuthSecret());
+        }
         String httpHost = WorkerHttpBootstrap.resolveAdvertisedHost(config);
         int httpPort = refs.httpServer() != null ? refs.httpServer().getPort() : 0;
         int resultPort = Math.max(0, refs.resultServerPort());
@@ -84,10 +98,28 @@ public final class WorkerHeartbeatBootstrap {
                 new org.pangrova.protocol.rest.worker.WorkerRegistrationRequest(
                         config.workerId(), httpHost,
                         httpPort, transportPort, resultPort,
-                        1, refs.nativeCapabilities(), null, null, null);
-        attemptRegistration(client, request, config);
+                        CanonicalProtocolIdentity.PROTOCOL_MAJOR,
+                        null, null, config.shuffleMode().name(),
+                        refs.nativeCapabilityInventory(),
+                        refs.httpServer() != null ? refs.httpServer().getCopyTaskTlsPort() : 0,
+                        refs.taskManager().workerExecutionIdentity(),
+                        config.shuffleMode() == org.pangrova.config.enums.ShuffleMode.REMOTE
+                                ? config.resourceConfig().shuffleProvider().id() : null);
+        long coordinatorEpoch;
+        try {
+            coordinatorEpoch = attemptRegistration(client, request, config);
+        } catch (RuntimeException e) {
+            if (ownsNewClient) {
+                client.close();
+            }
+            throw e;
+        }
+        if (refs.taskManager() != null) {
+            refs.taskManager().observeControlEpoch(coordinatorEpoch);
+        }
         refs.setRegistrationClient(client);
-        LOG.info("event=registration_sent coordinatorUrl={}", coordinatorUrl);
+        LOG.info("event=registration_sent coordinatorUrl={} coordinatorEpoch={}",
+                coordinatorUrl, coordinatorEpoch);
     }
 
     /**
@@ -109,6 +141,12 @@ public final class WorkerHeartbeatBootstrap {
         int runningTasks = refs.taskManager() != null ? refs.taskManager().getRunningTaskCount() : 0;
         long availableMemory = refs.resourceManager() != null
                 ? refs.resourceManager().getMemoryArbitrator().getAvailableMemory() : 0;
+        if (refs.nodeMemoryPool() != null) {
+            // Native allocations and serialized buffers are charged to both
+            // ledgers. Advertise the tighter budget, especially when the
+            // configured node cap is below the global arbitrator budget.
+            availableMemory = Math.min(availableMemory, refs.nodeMemoryPool().getFreeBytes());
+        }
         String pressure = refs.resourceManager() != null
                 ? refs.resourceManager().getOverallPressure().name() : "NONE";
 
@@ -126,7 +164,7 @@ public final class WorkerHeartbeatBootstrap {
         java.util.Map<String, Long> tenantMemoryBytes = new java.util.HashMap<>();
         java.util.Map<String, Integer> tenantActiveQueries = new java.util.HashMap<>();
         if (refs.tenantResourceTracker() != null) {
-            for (org.pangrova.spi.resource.tenant.TenantUsageSnapshot usage
+            for (org.pangrova.protocol.rest.worker.TenantUsageSnapshot usage
                     : refs.tenantResourceTracker().snapshotUsage().values()) {
                 tenantMemoryBytes.put(usage.tenantId(), usage.memoryBytes());
                 tenantActiveQueries.put(usage.tenantId(), usage.activeQueries());
@@ -134,7 +172,8 @@ public final class WorkerHeartbeatBootstrap {
         }
         return new HeartbeatPayload(config.workerId(), pressure, 0.0,
                 runningTasks, availableMemory, nativeSnapshot.usedBytes, nativeSnapshot.capacityBytes,
-                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries);
+                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries,
+                        refs.taskManager().workerExecutionIdentity());
     }
 
     private static NativeMemorySnapshot collectNativeMemorySnapshot() {
@@ -230,19 +269,19 @@ public final class WorkerHeartbeatBootstrap {
         return 0;
     }
 
-    private static void attemptRegistration(WorkerRegistrationClient client,
+    private static long attemptRegistration(WorkerRegistrationClient client,
                                             org.pangrova.protocol.rest.worker.WorkerRegistrationRequest request,
                                             WorkerBootstrapConfig config) {
         WorkerBootstrapConfig.RegistrationRetryConfig retry = config.registrationRetryConfig();
         BackoffStrategy backoff = BackoffStrategy.retry(retry.initialBackoffMs(), retry.maxBackoffMs());
         for (int attempt = 1; attempt <= retry.maxAttempts(); attempt++) {
             try {
-                client.register(request);
-                return;
+                return client.register(request).requireCoordinatorEpoch();
             } catch (Exception e) {
                 handleRegistrationFailure(e, attempt, retry, backoff, config);
             }
         }
+        throw new IllegalStateException("Registration retry loop exited unexpectedly");
     }
 
     private static void handleRegistrationFailure(Exception e, int attempt,

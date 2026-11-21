@@ -3,6 +3,8 @@ package org.pangrova.connector.paimon.index;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.connector.api.index.SnapshotFileDelta;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -28,12 +30,10 @@ class PaimonSnapshotAwareMetadataTest {
 
     @Test
     void clearDiffCacheInvalidatesAllEntries() {
-        Cache<String, PaimonSnapshotAwareMetadata.SnapshotDiff> cache =
+        Cache<String, SnapshotFileDelta> cache =
                 Caffeine.newBuilder().maximumSize(100).build();
-        cache.put("1:2", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("added.parquet"), List.of("removed.parquet")));
-        cache.put("3:4", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("a.parquet"), List.of()));
+        cache.put("1:2", delta("added.parquet", "removed.parquet"));
+        cache.put("3:4", delta("a.parquet", null));
 
         var metadata = new PaimonSnapshotAwareMetadata(null, cache);
         metadata.clearDiffCache();
@@ -43,15 +43,12 @@ class PaimonSnapshotAwareMetadataTest {
 
     @Test
     void cacheEvictsWhenMaxSizeExceeded() {
-        Cache<String, PaimonSnapshotAwareMetadata.SnapshotDiff> tinyCache =
+        Cache<String, SnapshotFileDelta> tinyCache =
                 Caffeine.newBuilder().maximumSize(2).build();
 
-        tinyCache.put("1:2", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("a.parquet"), List.of()));
-        tinyCache.put("3:4", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("b.parquet"), List.of()));
-        tinyCache.put("5:6", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("c.parquet"), List.of()));
+        tinyCache.put("1:2", delta("a.parquet", null));
+        tinyCache.put("3:4", delta("b.parquet", null));
+        tinyCache.put("5:6", delta("c.parquet", null));
 
         tinyCache.cleanUp();
 
@@ -60,14 +57,13 @@ class PaimonSnapshotAwareMetadataTest {
 
     @Test
     void cacheEvictsAfterAccessExpiry() {
-        Cache<String, PaimonSnapshotAwareMetadata.SnapshotDiff> expiringCache =
+        Cache<String, SnapshotFileDelta> expiringCache =
                 Caffeine.newBuilder()
                         .maximumSize(10_000)
                         .expireAfterAccess(1, TimeUnit.NANOSECONDS)
                         .build();
 
-        expiringCache.put("1:2", new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("added.parquet"), List.of()));
+        expiringCache.put("1:2", delta("added.parquet", null));
 
         expiringCache.cleanUp();
 
@@ -76,11 +72,21 @@ class PaimonSnapshotAwareMetadataTest {
 
     @Test
     void snapshotDiffRecordHoldsAddedAndRemoved() {
-        var diff = new PaimonSnapshotAwareMetadata.SnapshotDiff(
-                List.of("new1.parquet", "new2.parquet"),
+        var diff = new SnapshotFileDelta(
+                List.of(file("new1.parquet"), file("new2.parquet")),
                 List.of("old1.parquet"));
 
-        assertThat(diff.added()).containsExactly("new1.parquet", "new2.parquet");
+        assertThat(diff.added()).extracting(SnapshotDataFile::path)
+                .containsExactly("new1.parquet", "new2.parquet");
         assertThat(diff.removed()).containsExactly("old1.parquet");
+    }
+
+    private static SnapshotFileDelta delta(String added, String removed) {
+        return new SnapshotFileDelta(
+                List.of(file(added)), removed == null ? List.of() : List.of(removed));
+    }
+
+    private static SnapshotDataFile file(String path) {
+        return new SnapshotDataFile(path, 1, 1, "parquet");
     }
 }

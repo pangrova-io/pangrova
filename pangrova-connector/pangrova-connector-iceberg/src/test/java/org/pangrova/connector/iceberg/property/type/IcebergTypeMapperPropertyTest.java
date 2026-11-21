@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 
 /**
  * Property-based tests for IcebergTypeMapper bidirectional type mapping.

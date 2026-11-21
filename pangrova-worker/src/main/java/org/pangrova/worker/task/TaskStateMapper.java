@@ -1,44 +1,41 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.v1.TaskState;
-import org.pangrova.spi.execution.TaskStatus;
+import org.pangrova.protocol.enums.ReportedTaskState;
+import org.pangrova.protocol.v2.TaskState;
 
 /**
- * Maps Worker TaskState to SPI TaskState and Protobuf TaskState.
+ * Projects Worker lifecycle states into public execution and wire states.
  * Exhaustive switch (no default) ensures compile-time safety on enum changes.
  *
- * <p>See docs/architecture/jni-bridge.md §1 for TaskState alignment.</p>
+ * <p>See docs/architecture/jni-runtime.md §1 for TaskState alignment.</p>
  */
 final class TaskStateMapper {
 
     private TaskStateMapper() {}
 
     /**
-     * Maps Worker TaskState to SPI TaskStatus.TaskState.
-     * Aligned 1:1 with Protobuf TaskState in both Java and Native proto.
+     * Maps the worker-local state into its publicly observable form.
+     * The Worker retains finer grained startup and cancellation states.
      */
-    public static TaskStatus.TaskState toSpiState(TaskManager.TaskState state) {
+    public static ReportedTaskState toReportedState(org.pangrova.worker.enums.TaskState state) {
         return switch (state) {
-            case RECEIVED -> TaskStatus.TaskState.PENDING;
-            case INITIALIZING -> TaskStatus.TaskState.PENDING;
-            case RUNNING -> TaskStatus.TaskState.RUNNING;
-            case FINISHING -> TaskStatus.TaskState.FLUSHING;
-            case FINISHED -> TaskStatus.TaskState.FINISHED;
-            case FAILED -> TaskStatus.TaskState.FAILED;
-            case CANCELLED -> TaskStatus.TaskState.CANCELLED;
+            case RECEIVED -> ReportedTaskState.PENDING;
+            case INITIALIZING -> ReportedTaskState.PENDING;
+            case RUNNING -> ReportedTaskState.RUNNING;
+            case FINISHING -> ReportedTaskState.FLUSHING;
+            case CANCELLING -> ReportedTaskState.RUNNING;
+            case FINISHED -> ReportedTaskState.FINISHED;
+            case FAILED -> ReportedTaskState.FAILED;
+            case CANCELLED -> ReportedTaskState.CANCELLED;
         };
     }
 
-    /**
-     * Maps Worker TaskState to Protobuf TaskState enum.
-     * Values match the Protobuf {@code TaskState} enum exactly.
-     */
-    public static TaskState toProtoState(TaskManager.TaskState state) {
-        return switch (state) {
-            case RECEIVED -> TaskState.TASK_STATE_PENDING;
-            case INITIALIZING -> TaskState.TASK_STATE_PENDING;
+    /** Converts the publicly observable state to its generated wire value. */
+    public static TaskState toProtoState(org.pangrova.worker.enums.TaskState state) {
+        return switch (toReportedState(state)) {
+            case PENDING -> TaskState.TASK_STATE_PENDING;
             case RUNNING -> TaskState.TASK_STATE_RUNNING;
-            case FINISHING -> TaskState.TASK_STATE_FLUSHING;
+            case FLUSHING -> TaskState.TASK_STATE_FLUSHING;
             case FINISHED -> TaskState.TASK_STATE_FINISHED;
             case FAILED -> TaskState.TASK_STATE_FAILED;
             case CANCELLED -> TaskState.TASK_STATE_CANCELLED;
@@ -46,26 +43,10 @@ final class TaskStateMapper {
     }
 
     /**
-     * Maps Worker TaskState to Protobuf TaskState string name.
-     * Used for REST DTO serialization and logging.
-     */
-    public static String toProtoStateName(TaskManager.TaskState state) {
-        return toProtoState(state).name();
-    }
-
-    /**
-     * Maps a REST DTO state string (from TaskStatusReport) to SPI TaskStatus.TaskState.
+     * Parses a REST task report state.
      * Used by Coordinator-side code to interpret Worker status reports.
      */
-    public static TaskStatus.TaskState fromRestState(String restState) {
-        return switch (restState) {
-            case "PENDING" -> TaskStatus.TaskState.PENDING;
-            case "RUNNING" -> TaskStatus.TaskState.RUNNING;
-            case "FLUSHING" -> TaskStatus.TaskState.FLUSHING;
-            case "FINISHED" -> TaskStatus.TaskState.FINISHED;
-            case "FAILED" -> TaskStatus.TaskState.FAILED;
-            case "CANCELLED" -> TaskStatus.TaskState.CANCELLED;
-            default -> throw new IllegalArgumentException("Unknown REST task state: " + restState);
-        };
+    public static ReportedTaskState fromRestState(String restState) {
+        return ReportedTaskState.valueOf(restState);
     }
 }

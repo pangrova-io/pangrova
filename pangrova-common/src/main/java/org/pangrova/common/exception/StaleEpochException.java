@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Thrown when a conditional state update fails because the epoch has changed
  * since the caller last read the state. Indicates a concurrent writer

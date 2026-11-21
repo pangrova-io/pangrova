@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.report.TaskStatusReporter;
+
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 

@@ -1,4 +1,4 @@
-LogicalProject(order_count=[$0], total_shipping_cost=[CASE(=($2, 0), null:DECIMAL(19, 2), $1)], total_net_profit=[CASE(=($2, 0), null:DECIMAL(19, 2), $3)])
+LogicalProject(order_count=[$0], total_shipping_cost=[CASE(=($2, 0), null:DECIMAL(38, 2), $1)], total_net_profit=[CASE(=($2, 0), null:DECIMAL(38, 2), $3)])
   LogicalSort(sort0=[$0], dir0=[ASC], fetch=[100])
     LogicalAggregate(group=[{}], order_count=[COUNT(DISTINCT $17)], total_shipping_cost=[$SUM0($26)], agg#2=[COUNT()], total_net_profit=[$SUM0($33)])
       LogicalFilter(condition=[IS NULL($107)])

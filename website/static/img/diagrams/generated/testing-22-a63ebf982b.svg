@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1008" height="475" viewBox="0 0 1008 475" role="img">
+<rect width="1008" height="475" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1006.5" height="473.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<path d="M409.2 38.0 L409.2 49.0 L420.2 43.5 z" fill="#D97706"/>
+<path d="M503.2 38.0 L503.2 49.0 L514.2 43.5 z" fill="#D97706"/>
+<path d="M616.0000000000001 38.0 L616.0000000000001 49.0 L627.0000000000001 43.5 z" fill="#D97706"/>
+<path d="M757.0000000000001 38.0 L757.0000000000001 49.0 L768.0000000000001 43.5 z" fill="#D97706"/>
+<path d="M898.0000000000001 38.0 L898.0000000000001 49.0 L909.0000000000001 43.5 z" fill="#D97706"/>
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">Goal: verify the complete data flow SQL   Calcite   Substrait   Native Velox   Arrow Flight   Client</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">Preconditions:</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">  - 1 Coordinator + 1 Worker</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">  - Iceberg table (Parquet, 100K rows)</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">Test steps:</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">  1. Client submits SELECT * FROM iceberg.db.orders WHERE amount &gt; 100 LIMIT 10</text>
+<path d="M258.8 190.0 L258.8 201.0 L269.8 195.5 z" fill="#D97706"/>
+<path d="M362.2 190.0 L362.2 201.0 L373.2 195.5 z" fill="#D97706"/>
+<path d="M606.6 190.0 L606.6 201.0 L617.6 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">  2. Coordinator: Parse   Optimize   Fragment (single Stage)   Schedule to Worker</text>
+<path d="M193.0 209.0 L193.0 220.0 L204.0 214.5 z" fill="#D97706"/>
+<path d="M315.2 209.0 L315.2 220.0 L326.2 214.5 z" fill="#D97706"/>
+<path d="M399.8 209.0 L399.8 220.0 L410.8 214.5 z" fill="#D97706"/>
+<path d="M493.8 209.0 L493.8 220.0 L504.8 214.5 z" fill="#D97706"/>
+<path d="M634.8000000000001 209.0 L634.8000000000001 220.0 L645.8000000000001 214.5 z" fill="#D97706"/>
+<path d="M719.4000000000001 209.0 L719.4000000000001 220.0 L730.4000000000001 214.5 z" fill="#D97706"/>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">  3. Worker: JNI   Velox Scan   Filter   Project   Arrow C Data   Flight   Client</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">  4. Client verifies result row count ≤ 10, all amount &gt; 100</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">Verification points:</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">  - [02] Substrait Plan is serialized/deserialized correctly</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">  - [03] Native Parquet Reader reads correctly + filter pushdown</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">  - [04] ConnectorSplitManager generates correct Splits</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">  - [07] CatalogRegistry resolves table metadata correctly</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">Pass criteria:</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">  - Results match the DuckDB reference implementation</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">  - No memory leaks (Native ASAN clean)</text>
+</g>
+</svg>

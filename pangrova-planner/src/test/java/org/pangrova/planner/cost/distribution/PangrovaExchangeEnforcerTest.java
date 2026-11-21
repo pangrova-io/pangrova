@@ -1,5 +1,7 @@
 package org.pangrova.planner.cost.distribution;
 
+import org.pangrova.planner.enums.DistributionType;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -89,7 +91,7 @@ class PangrovaExchangeEnforcerTest {
                 .isInstanceOf(PangrovaExchange.class);
         PangrovaExchange exchange = (PangrovaExchange) converted;
         assertThat(exchange.targetDistribution().type())
-                .isEqualTo(PangrovaDistribution.Type.HASH);
+                .isEqualTo(DistributionType.HASH);
         assertThat(exchange.targetDistribution().keys()).containsExactly(0);
         assertThat(exchange.getInput()).isSameAs(child);
     }
@@ -162,9 +164,9 @@ class PangrovaExchangeEnforcerTest {
         List<PangrovaExchange> exchanges = collectExchangeNodes(hashJoin);
         assertThat(exchanges).hasSize(2);
         assertThat(exchanges.get(0).targetDistribution().type())
-                .isEqualTo(PangrovaDistribution.Type.HASH);
+                .isEqualTo(DistributionType.HASH);
         assertThat(exchanges.get(1).targetDistribution().type())
-                .isEqualTo(PangrovaDistribution.Type.HASH);
+                .isEqualTo(DistributionType.HASH);
     }
 
     @Test

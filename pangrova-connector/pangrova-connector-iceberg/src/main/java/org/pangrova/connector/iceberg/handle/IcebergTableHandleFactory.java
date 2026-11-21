@@ -1,6 +1,9 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
+
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
@@ -125,18 +128,24 @@ public final class IcebergTableHandleFactory {
             String tableName,
             Table table,
             Schema writeSchema) {
-        String tableLocation = table.location();
-        String schemaJson = SchemaParser.toJson(writeSchema);
-        String partitionSpecJson = PartitionSpecParser.toJson(table.spec());
-        int formatVersion = extractFormatVersion(table);
-
+        var metadata = ((org.apache.iceberg.HasTableOperations) table).operations().refresh();
+        String schemaJson = SchemaParser.toJson(metadata.schema());
+        if (!schemaJson.equals(SchemaParser.toJson(writeSchema))) {
+            throw new IllegalStateException("Iceberg created write schema changed before allocation");
+        }
         return new IcebergOutputTableHandle(
                 schemaName,
                 tableName,
-                tableLocation,
+                metadata.uuid(),
+                metadata.location(),
                 schemaJson,
-                partitionSpecJson,
-                formatVersion);
+                PartitionSpecParser.toJson(metadata.spec()),
+                metadata.formatVersion(),
+                metadata.currentSnapshot() != null
+                        ? metadata.currentSnapshot().snapshotId()
+                        : IcebergOutputTableHandle.NO_SNAPSHOT,
+                IcebergOutputTableHandle.MODE_INSERT, IcebergOverwriteScope.NONE, java.util.Map.of(),
+                IcebergDeclarationProperties.capture(metadata.properties()));
     }
 
     // ========== Schema/PartitionSpec Parsing ==========
@@ -191,6 +200,9 @@ public final class IcebergTableHandleFactory {
      * Defaults to version 1 if not explicitly set.
      */
     private static int extractFormatVersion(Table table) {
+        if (table instanceof HasTableOperations sdkTable) {
+            return sdkTable.operations().current().formatVersion();
+        }
         String versionStr = table.properties().get("format-version");
         if (versionStr != null) {
             try {

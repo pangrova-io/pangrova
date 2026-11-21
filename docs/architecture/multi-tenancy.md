@@ -1,5 +1,6 @@
 ---
 title: "Multi-Tenancy"
+description: "Tenant model, resource isolation, quota management, and admission boundaries"
 sidebar_label: "Multi-Tenancy"
 ---
 
@@ -14,25 +15,7 @@ sidebar_label: "Multi-Tenancy"
 
 ## 1. Multi-Tenancy Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Multi-Tenancy Architecture                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Isolation Levels:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level              │ Isolation Method            │ Use Case            │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Namespace          │ Catalog/Schema isolation    │ Lightweight tenancy │   │
-│  │  Resource Pool      │ Resource pool isolation     │ Resource guarantee  │   │
-│  │  Worker Group       │ Physical node isolation     │ Strong isolation    │   │
-│  │  Cluster            │ Dedicated cluster           │ Full isolation      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Recommended: Namespace + Resource Pool (balances isolation and utilization)   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Tenant isolation: identity, admission, placement, execution, and audit all use the same current ACTIVE tenant](../../website/static/img/diagrams/tenant-isolation.svg)
 
 ---
 
@@ -131,45 +114,7 @@ CREATE TABLE tenant_users (
 
 ### 3.1 Resource Pool Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Resource Pool Architecture                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Worker Cluster                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Resource Pool: default (50% cluster resources)                  │   │   │
-│  │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │   │   │
-│  │  │  │Worker-1 │  │Worker-2 │  │Worker-3 │  │Worker-4 │            │   │   │
-│  │  │  │ 50% CPU │  │ 50% CPU │  │ 50% CPU │  │ 50% CPU │            │   │   │
-│  │  │  │ 50% Mem │  │ 50% Mem │  │ 50% Mem │  │ 50% Mem │            │   │   │
-│  │  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘            │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Resource Pool: premium (30% cluster resources)                  │   │   │
-│  │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │   │   │
-│  │  │  │Worker-1 │  │Worker-2 │  │Worker-3 │  │Worker-4 │            │   │   │
-│  │  │  │ 30% CPU │  │ 30% CPU │  │ 30% CPU │  │ 30% CPU │            │   │   │
-│  │  │  │ 30% Mem │  │ 30% Mem │  │ 30% Mem │  │ 30% Mem │            │   │   │
-│  │  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘            │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │                                                                          │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Resource Pool: batch (20% cluster resources)                    │   │   │
-│  │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │   │   │
-│  │  │  │Worker-1 │  │Worker-2 │  │Worker-3 │  │Worker-4 │            │   │   │
-│  │  │  │ 20% CPU │  │ 20% CPU │  │ 20% CPU │  │ 20% CPU │            │   │   │
-│  │  │  │ 20% Mem │  │ 20% Mem │  │ 20% Mem │  │ 20% Mem │            │   │   │
-│  │  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘            │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Resource Pool Architecture](../../website/static/img/diagrams/generated/multi-tenancy-03-5140e0a9b5.svg)
 
 ### 3.2 Resource Pool Configuration
 
@@ -262,90 +207,7 @@ public class ResourcePoolManager {
 
 ### 4.1 Quota Check
 
-```java
-/**
- * Quota checker
- */
-public class QuotaChecker {
-
-    private final TenantStore tenantStore;
-    private final UsageStore usageStore;
-
-    /**
-     * Check quota before query submission
-     */
-    public QuotaCheckResult checkBeforeSubmit(QueryContext context) {
-        Tenant tenant = context.getTenant();
-        ResourceQuota quota = tenant.getQuota();
-        TenantUsage todayUsage = usageStore.getTodayUsage(tenant.getTenantId());
-
-        List<String> violations = new ArrayList<>();
-
-        // Check concurrent query count
-        int runningQueries = getRunningQueryCount(tenant.getTenantId());
-        if (runningQueries >= quota.getMaxConcurrentQueries()) {
-            violations.add("Concurrent query limit exceeded: " +
-                           runningQueries + "/" + quota.getMaxConcurrentQueries());
-        }
-
-        // Check queued query count
-        int queuedQueries = getQueuedQueryCount(tenant.getTenantId());
-        if (queuedQueries >= quota.getMaxQueuedQueries()) {
-            violations.add("Query queue limit exceeded: " +
-                           queuedQueries + "/" + quota.getMaxQueuedQueries());
-        }
-
-        // Check daily query count
-        if (todayUsage.getQueryCount() >= quota.getMaxDailyQueryCount()) {
-            violations.add("Daily query count limit exceeded: " +
-                           todayUsage.getQueryCount() + "/" + quota.getMaxDailyQueryCount());
-        }
-
-        // Check daily scan bytes
-        if (todayUsage.getScanBytes() >= quota.getMaxDailyScanBytes()) {
-            violations.add("Daily scan bytes limit exceeded: " +
-                           formatBytes(todayUsage.getScanBytes()) + "/" +
-                           formatBytes(quota.getMaxDailyScanBytes()));
-        }
-
-        return violations.isEmpty()
-            ? QuotaCheckResult.pass()
-            : QuotaCheckResult.fail(violations);
-    }
-
-    /**
-     * Check quota during query execution
-     *
-     *
-     * Field mapping: quota fields → QueryStats fields
-     *   maxCpuTimePerQueryMs  → stats.getCpuTimeMs()
-     *   maxScanBytesPerQuery  → stats.getInputBytes()
-     *
-     * NOTE: "scanBytes" (raw bytes scanned from storage, pre-filter) vs "inputBytes"
-     * (bytes processed by operators, post-filter) are semantically different.
-     * Current implementation uses inputBytes as a conservative lower bound.
-     * For precise scan-level enforcement, a dedicated stats.getScanBytes() field
-     * should be added to QueryStats (tracked separately from inputBytes).
-     */
-    public void checkDuringExecution(QueryContext context, QueryStats stats) {
-        Tenant tenant = context.getTenant();
-        ResourceQuota quota = tenant.getQuota();
-
-        // Check per-query CPU time
-        // Error code: TENANT_QUOTA_EXCEEDED(1602) — see resilience.md §2.2
-        if (stats.getCpuTimeMs() > quota.getMaxCpuTimePerQueryMs()) {
-            throw new TenantQuotaExceededException(
-                PangrovaErrorCode.TENANT_QUOTA_EXCEEDED, "Query CPU time limit exceeded");
-        }
-
-        // Check per-query scan bytes (quota.scanBytes maps to stats.inputBytes)
-        if (stats.getInputBytes() > quota.getMaxScanBytesPerQuery()) {
-            throw new TenantQuotaExceededException(
-                PangrovaErrorCode.TENANT_QUOTA_EXCEEDED, "Query scan bytes limit exceeded");
-        }
-    }
-}
-```
+![/**](../../website/static/img/diagrams/generated/multi-tenancy-05-828ca26808.svg)
 
 ### 4.2 Quota Alerting
 
@@ -536,6 +398,13 @@ Tenant context is propagated as span attributes on all query-related spans:
 - Tenant quota exceeded events (WARN)
 - Tenant throttle activation/deactivation events (INFO)
 - Tenant resource isolation boundary violations (ERROR)
+
+The Coordinator HTTP query endpoint returns `429` with `error_code=TENANT-0001`
+and `error_type=USER_ERROR` when tenant admission rejects a query for exceeding a
+quota. This is distinct from an unexpected service failure (`500`). No
+`Retry-After` is fabricated: concurrency, daily limits and administrator changes
+do not share a known reset time. Clients must use bounded backoff or operator
+intervention, not retry an unchanged admission rejection without a limit.
 
 See [14 §7](./observability.md) for structured logging format.
 

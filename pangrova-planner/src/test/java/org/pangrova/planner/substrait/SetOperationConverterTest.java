@@ -1,130 +1,94 @@
 package org.pangrova.planner.substrait;
 
-import io.substrait.expression.ExpressionCreator;
-import io.substrait.expression.FieldReference;
-import io.substrait.relation.Aggregate;
-import io.substrait.relation.ImmutableNamedScan;
-import io.substrait.relation.Rel;
-import io.substrait.relation.Set;
-import io.substrait.type.NamedStruct;
-import io.substrait.type.ImmutableNamedStruct;
-import io.substrait.type.TypeCreator;
-import org.pangrova.planner.validation.NativeCapabilityRegistry;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
+import com.google.common.collect.ImmutableList;
+import io.substrait.proto.Rel;
+import io.substrait.proto.SetRel;
+import io.substrait.relation.RelProtoConverter;
+import io.substrait.extension.ExtensionCollector;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
-import org.apache.calcite.rel.logical.LogicalUnion;
-import org.apache.calcite.rel.logical.LogicalValues;
-import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.logical.LogicalIntersect;
+import org.apache.calcite.rel.logical.LogicalMinus;
+import org.apache.calcite.rel.logical.LogicalUnion;
+import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link SetOperationConverter} conditional dedup skip (R10.11).
- */
+/** Real Calcite values -> sole SDK emitter -> generated canonical set protocol. */
 class SetOperationConverterTest {
-
-    private TypeMapper typeMapper;
+    private RexBuilder rex;
     private RelOptCluster cluster;
-    private RelDataType rowType;
+    private LogicalValues first;
+    private LogicalValues second;
+    private LogicalValues third;
+    private PlanNodeConverter converter;
 
     @BeforeEach
     void setUp() {
-        typeMapper = new TypeMapper();
-        RelDataTypeFactory typeFactory = new JavaTypeFactoryImpl();
-        RexBuilder rexBuilder = new RexBuilder(typeFactory);
-        VolcanoPlanner planner = new VolcanoPlanner();
-        cluster = RelOptCluster.create(planner, rexBuilder);
-        rowType = typeFactory.builder()
-                .add("col1", SqlTypeName.INTEGER)
-                .build();
+        var types = new JavaTypeFactoryImpl();
+        rex = new RexBuilder(types);
+        cluster = RelOptCluster.create(new VolcanoPlanner(), rex);
+        var rowType = types.builder().add("duplicate_label", SqlTypeName.INTEGER).build();
+        first = LogicalValues.create(cluster, rowType, ImmutableList.of(
+                ImmutableList.of(rex.makeExactLiteral(java.math.BigDecimal.ONE, rowType.getFieldList().get(0).getType())),
+                ImmutableList.of(rex.makeExactLiteral(java.math.BigDecimal.ONE, rowType.getFieldList().get(0).getType()))));
+        second = LogicalValues.create(cluster, rowType, ImmutableList.of(ImmutableList.of(
+                rex.makeExactLiteral(java.math.BigDecimal.valueOf(2), rowType.getFieldList().get(0).getType()))));
+        third = LogicalValues.createEmpty(cluster, rowType);
+        converter = new PlanNodeConverter(new TypeMapper(), new FunctionMapper(), rex);
     }
 
     @Test
-    void unionDistinctWithoutRegistryAddsDedupAggregate() {
-        SetOperationConverter converter = new SetOperationConverter(typeMapper);
-        LogicalUnion union = buildUnionDistinct();
-
-        Rel result = converter.visitUnion(union, this::visitChild);
-
-        assertThat(result).isInstanceOf(Aggregate.class);
+    void unionDistinctEmitsExactCanonicalOperationWithoutCapabilityDependentRewrite() throws Exception {
+        assertOperation(LogicalUnion.create(List.of(first, second, third), false), SetRel.SetOp.SET_OP_UNION_DISTINCT);
     }
 
     @Test
-    void unionDistinctWithNullRegistryAddsDedupAggregate() {
-        SetOperationConverter converter = new SetOperationConverter(typeMapper, null);
-        LogicalUnion union = buildUnionDistinct();
-
-        Rel result = converter.visitUnion(union, this::visitChild);
-
-        assertThat(result).isInstanceOf(Aggregate.class);
+    void unionAllPreservesExactCanonicalOperationAndOriginalRows() throws Exception {
+        assertOperation(LogicalUnion.create(List.of(first, second, third), true), SetRel.SetOp.SET_OP_UNION_ALL);
     }
 
     @Test
-    void unionDistinctWithNonSupportingRegistryAddsDedupAggregate() {
-        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
-        SetOperationConverter converter = new SetOperationConverter(typeMapper, registry);
-        LogicalUnion union = buildUnionDistinct();
-
-        Rel result = converter.visitUnion(union, this::visitChild);
-
-        assertThat(result).isInstanceOf(Aggregate.class);
+    void intersectDistinctRequiresAllSecondaryInputsNotAnySecondary() throws Exception {
+        assertOperation(LogicalIntersect.create(List.of(first, second, third), false), SetRel.SetOp.SET_OP_INTERSECTION_MULTISET);
     }
 
     @Test
-    void unionDistinctWithSupportingRegistrySkipsDedupAggregate() {
-        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
-        registry.update(
-                java.util.Set.of("SetRel", "SetRel.DISTINCT", "ReadRel"),
-                java.util.Set.of("Literal"),
-                java.util.Set.of("add"));
-        SetOperationConverter converter = new SetOperationConverter(typeMapper, registry);
-        LogicalUnion union = buildUnionDistinct();
-
-        Rel result = converter.visitUnion(union, this::visitChild);
-
-        assertThat(result).isInstanceOf(Set.class);
+    void intersectAllUsesActualCountedContractNotMultisetDistinct() throws Exception {
+        assertOperation(LogicalIntersect.create(List.of(first, second, third), true), SetRel.SetOp.SET_OP_INTERSECTION_MULTISET_ALL);
     }
 
     @Test
-    void unionAllNeverAddsDedupRegardlessOfRegistry() {
-        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
-        SetOperationConverter converter = new SetOperationConverter(typeMapper, registry);
-        LogicalUnion unionAll = LogicalUnion.create(
-                List.of(buildValues(), buildValues()), true);
-
-        Rel result = converter.visitUnion(unionAll, this::visitChild);
-
-        assertThat(result).isInstanceOf(Set.class);
-        assertThat(((Set) result).getSetOp()).isEqualTo(Set.SetOp.UNION_ALL);
+    void exceptDistinctEmitsPrimaryDifference() throws Exception {
+        assertOperation(LogicalMinus.create(List.of(first, second, third), false), SetRel.SetOp.SET_OP_MINUS_PRIMARY);
     }
 
-    private LogicalUnion buildUnionDistinct() {
-        return LogicalUnion.create(
-                List.of(buildValues(), buildValues()), false);
+    @Test
+    void exceptAllUsesSumOfSecondaryMultiplicities() throws Exception {
+        assertOperation(LogicalMinus.create(List.of(first, second, third), true), SetRel.SetOp.SET_OP_MINUS_PRIMARY_ALL);
     }
 
-    private LogicalValues buildValues() {
-        return LogicalValues.createEmpty(cluster, rowType);
-    }
-
-    private Rel visitChild(org.apache.calcite.rel.RelNode node) {
-        io.substrait.type.Type intType = TypeCreator.NULLABLE.I32;
-        NamedStruct schema = ImmutableNamedStruct.builder()
-                .addNames("col1")
-                .struct(TypeCreator.NULLABLE.struct(intType))
-                .build();
-        return ImmutableNamedScan.builder()
-                .initialSchema(schema)
-                .addNames("test_table")
-                .build();
+    private void assertOperation(RelNode node, SetRel.SetOp operation) throws Exception {
+        Rel proto = new RelProtoConverter(new ExtensionCollector()).toProto(converter.visit(node));
+        assertThat(proto.hasSet()).isTrue();
+        assertThat(proto.getSet().getOp()).isEqualTo(operation);
+        assertThat(proto.getSet().getInputsCount()).isEqualTo(3);
+        assertThat(proto.getSet().getInputs(0).getRead().getVirtualTable().getExpressionsCount()).isEqualTo(2);
+        assertThat(proto.getSet().getInputs(0).getRead().getVirtualTable().getExpressions(0).getFields(0)
+                .getLiteral().getI32()).isEqualTo(1);
+        assertThat(proto.getSet().getInputs(1).getRead().getVirtualTable().getExpressions(0).getFields(0)
+                .getLiteral().getI32()).isEqualTo(2);
+        assertThat(proto.getSet().getInputs(2).getRead().getVirtualTable().getExpressionsCount()).isZero();
+        assertThat(SubstraitRelationLayout.describe(proto).outputSchema().getNamesList()).containsExactly("duplicate_label");
+        assertThat(Rel.parseFrom(proto.toByteArray())).isEqualTo(proto);
     }
 }

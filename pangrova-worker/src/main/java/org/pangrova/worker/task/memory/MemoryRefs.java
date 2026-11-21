@@ -2,9 +2,9 @@ package org.pangrova.worker.task.memory;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.NodeMemoryPool;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.worker.resource.ResourceManager;
+import org.pangrova.worker.resource.memory.NodeMemoryPool;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 /**
  * Groups memory and observability references for TaskManager.

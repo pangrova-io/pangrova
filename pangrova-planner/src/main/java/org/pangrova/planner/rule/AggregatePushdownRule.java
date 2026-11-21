@@ -1,5 +1,8 @@
 package org.pangrova.planner.rule;
 
+import org.pangrova.planner.metadata.PlanTable;
+
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -11,8 +14,8 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.sql.SqlKind;
-import org.pangrova.spi.connector.metadata.AggregationApplication;
-import org.pangrova.spi.connector.metadata.AggregationApplication.AggregateFunction;
+import org.pangrova.connector.api.metadata.AggregationApplication;
+import org.pangrova.connector.api.metadata.AggregationApplication.AggregateFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +57,7 @@ public final class AggregatePushdownRule extends RelOptRule {
             }
         }
 
-        return scan.getTable().unwrap(ConnectorPushdownTable.class) != null;
+        return PlanTable.require(scan).unwrap(ConnectorPushdownTable.class) != null;
     }
 
     @Override
@@ -62,7 +65,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         LogicalAggregate agg = call.rel(0);
         LogicalTableScan scan = call.rel(1);
 
-        ConnectorPushdownTable pushdown = scan.getTable().unwrap(ConnectorPushdownTable.class);
+        ConnectorPushdownTable pushdown = PlanTable.require(scan).unwrap(ConnectorPushdownTable.class);
         if (pushdown == null) {
             return;
         }
@@ -70,7 +73,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         // Build the AggregationApplication from Calcite's Aggregate
         List<AggregateFunction> functions = new ArrayList<>();
         for (AggregateCall aggCall : agg.getAggCallList()) {
-            String funcName = aggCall.getAggregation().getName().toLowerCase();
+            String funcName = aggCall.getAggregation().getName().toLowerCase(Locale.ROOT);
             // For now, use empty column handles (connector resolves by position)
             functions.add(new AggregateFunction(funcName, List.of(), aggCall.isDistinct()));
         }
@@ -83,7 +86,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         }
 
         LOG.info("event=aggregate_pushdown_applied table={} functions={} guaranteed={}",
-                scan.getTable().getQualifiedName(), functions.size(), result.get().guaranteed());
+                PlanTable.require(scan).getQualifiedName(), functions.size(), result.get().guaranteed());
 
         RelNode rewritten;
         if (result.get().guaranteed()) {

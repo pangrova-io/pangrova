@@ -13,9 +13,10 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.function.LongConsumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.http.HttpClientFactory;
+import org.pangrova.transport.http.client.HttpClientFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,11 +30,12 @@ import org.pangrova.common.concurrent.ThreadSafe;
  *
  * <p>Concurrency strategy: {@code AtomicBoolean running} guards lifecycle
  * transitions (started→stopped). {@code volatile} for scheduled task reference;
- * self-rescheduling on ScheduledExecutorService thread. {@code stop()} is
- * idempotent via CAS on {@code running}.</p>
+ * self-rescheduling on ScheduledExecutorService thread. Stopping cancels future
+ * sends, but every stop attempt retries owned HTTP resource cleanup. The injected
+ * scheduler owner must separately join its actual callbacks.</p>
  *
  * <p>Memory reporting: the {@code payloadSupplier} is invoked at send time
- * on the scheduler thread. Because {@link org.pangrova.resource.memory.MemoryArbitrator}
+ * on the scheduler thread. Because {@link org.pangrova.worker.resource.memory.MemoryArbitrator}
  * uses {@link java.util.concurrent.atomic.AtomicLong} for all counters,
  * any memory released by {@code TaskLifecycleManager.releaseMemoryIfNeeded()}
  * on a task-completion thread is immediately visible to the heartbeat thread
@@ -65,13 +67,16 @@ public class HeartbeatSender {
     private final Supplier<HeartbeatPayload> payloadSupplier;
     private final ScheduledExecutorService scheduler;
     private final HttpClient httpClient;
-    private final org.pangrova.common.http.ManagedHttpClient managedClient;
+    private final org.pangrova.transport.http.client.ManagedHttpClient managedClient;
     private final ObjectMapper mapper;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ScheduledFuture<?> scheduledTask;
     private volatile int consecutiveFailures;
     private volatile Runnable reRegistrationCallback;
     private volatile Runnable degradationCallback;
+    private volatile Runnable fencedCallback;
+    private final AtomicBoolean fenced = new AtomicBoolean();
+    private volatile LongConsumer coordinatorEpochObserver;
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final String internalAuthSecret;
 
@@ -86,14 +91,28 @@ public class HeartbeatSender {
                            Supplier<HeartbeatPayload> payloadSupplier,
                            ScheduledExecutorService scheduler,
                            String internalAuthSecret) {
-        org.pangrova.common.http.ManagedHttpClient managed = HttpClientFactory.createDefault();
+        this(config, payloadSupplier, scheduler, createManagedClient(config, payloadSupplier, scheduler),
+                internalAuthSecret);
+    }
+
+    HeartbeatSender(HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier,
+                    ScheduledExecutorService scheduler, org.pangrova.transport.http.client.ManagedHttpClient managed,
+                    String internalAuthSecret) {
         this.config = checkNotNull(config, "config must not be null");
         this.payloadSupplier = checkNotNull(payloadSupplier, "payloadSupplier must not be null");
         this.scheduler = checkNotNull(scheduler, "scheduler must not be null");
-        this.managedClient = managed;
+        this.managedClient = checkNotNull(managed, "managed client must not be null");
         this.httpClient = managed.httpClient();
         this.mapper = JsonMapperFactory.shared();
         this.internalAuthSecret = internalAuthSecret;
+    }
+
+    private static org.pangrova.transport.http.client.ManagedHttpClient createManagedClient(
+            HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier, ScheduledExecutorService scheduler) {
+        checkNotNull(config, "config must not be null");
+        checkNotNull(payloadSupplier, "payloadSupplier must not be null");
+        checkNotNull(scheduler, "scheduler must not be null");
+        return HttpClientFactory.createDefault();
     }
 
     public HeartbeatSender(HeartbeatConfig config,
@@ -124,37 +143,24 @@ public class HeartbeatSender {
             LOG.warn("event=heartbeat_sender_already_started workerId={}", config.workerId());
             return;
         }
-        long initialDelay = nextIntervalMs();
-        scheduledTask = scheduler.schedule(this::sendAndReschedule, initialDelay, TimeUnit.MILLISECONDS);
+        // Registration has completed before this sender starts. Publish the
+        // initialized resource snapshot now so the Coordinator can admit tasks
+        // without waiting for the first periodic interval.
+        scheduledTask = scheduler.schedule(this::sendAndReschedule, 0, TimeUnit.MILLISECONDS);
         LOG.info("event=heartbeat_sender_started workerId={} baseIntervalMs={} target={}",
                 config.workerId(), config.intervalMs(), config.coordinatorUrl());
     }
 
     /** Stops heartbeat sending. */
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
-            return;
-        }
-        ScheduledFuture<?> task = scheduledTask;
-        if (task != null) {
-            task.cancel(false);
-            // Wait briefly for any in-flight heartbeat to complete before
-            // closing resources, so the final heartbeat is not truncated.
-            try {
-                task.get(5, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.CancellationException
-                     | java.util.concurrent.ExecutionException ignored) {
-                // Expected: task was cancelled or completed with error
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (java.util.concurrent.TimeoutException e) {
-                LOG.debug("event=heartbeat_stop_timeout workerId={}", config.workerId());
-            }
+        if (running.compareAndSet(true, false)) {
+            ScheduledFuture<?> task = scheduledTask;
+            if (task != null) task.cancel(false);
         }
         // BUG-W10: Do NOT call scheduler.shutdownNow() — the executor is injected
         // and may be shared with other components (health check, metrics).
-        // Cancelling our own task is sufficient; the executor owner is responsible
-        // for shutdown during worker lifecycle teardown.
+        // Cancellation is not callback-exit evidence. The executor owner must
+        // shutdown and await its actual threads during lifecycle teardown.
         if (managedClient != null) {
             managedClient.close();
         }
@@ -188,14 +194,31 @@ public class HeartbeatSender {
     }
 
     /**
+     * Sets the sink for authenticated Coordinator epochs returned by heartbeat.
+     * The sink is invoked before a response is counted as successful.
+     */
+    public void setCoordinatorEpochObserver(LongConsumer observer) {
+        this.coordinatorEpochObserver = observer;
+    }
+
+    /**
      * Returns true if the worker has entered degraded mode due to
      * sustained heartbeat failures.
      */
+    public void setFencedCallback(Runnable callback) {
+        this.fencedCallback = checkNotNull(callback, "fenced callback must not be null");
+    }
+
+    public boolean isFenced() {
+        return fenced.get();
+    }
+
     public boolean isDegraded() {
         return degraded.get();
     }
 
     private void sendAndReschedule() {
+        if (!running.get()) return;
         sendHeartbeat();
         if (running.get()) {
             long nextMs = nextIntervalMs();
@@ -212,6 +235,7 @@ public class HeartbeatSender {
     }
 
     void sendHeartbeat() {
+        if (fenced.get()) return;
         HeartbeatPayload payload = collectPayload();
         if (payload == null) {
             return;
@@ -275,15 +299,33 @@ public class HeartbeatSender {
 
     private void handleResponse(HttpResponse<String> response) {
         if (response.statusCode() == HTTP_OK) {
-            handleSuccessResponse();
-        } else if (isReRegistrationRequired(response)) {
-            handleReRegistrationResponse();
+            handleSuccessResponse(response.body());
+        } else if (response.statusCode() == HTTP_CONFLICT) {
+            handleConflictResponse(response.body());
         } else {
             handleErrorResponse(response.statusCode());
         }
     }
 
-    private void handleSuccessResponse() {
+    private void handleSuccessResponse(String responseBody) {
+        try {
+            org.pangrova.protocol.rest.worker.WorkerControlResponse controlResponse =
+                    mapper.readValue(responseBody,
+                            org.pangrova.protocol.rest.worker.WorkerControlResponse.class);
+            controlResponse.requireStatus("ok");
+            long epoch = controlResponse.requireCoordinatorEpoch();
+            LongConsumer observer = coordinatorEpochObserver;
+            if (observer != null) {
+                observer.accept(epoch);
+            }
+        } catch (Exception e) {
+            int failures = ++consecutiveFailures;
+            LOG.warn("event=heartbeat_control_response_invalid workerId={} "
+                            + "consecutiveFailures={} error={}",
+                    config.workerId(), failures, e.getMessage());
+            checkDegradationThreshold(failures);
+            return;
+        }
         if (consecutiveFailures > 0) {
             LOG.info("event=heartbeat_recovered workerId={} previousFailures={}",
                     config.workerId(), consecutiveFailures);
@@ -295,10 +337,27 @@ public class HeartbeatSender {
         }
     }
 
-    private boolean isReRegistrationRequired(HttpResponse<String> response) {
-        return response.statusCode() == HTTP_CONFLICT
-                && response.body() != null
-                && response.body().contains("re-register");
+    private void handleConflictResponse(String body) {
+        try {
+            var response = mapper.readValue(body, org.pangrova.protocol.rest.worker.WorkerControlResponse.class);
+            response.requireStatus("error");
+            if ("fenced".equals(response.action())) {
+                // Run the actual admission seal before recording terminal state. If it fails,
+                // the next heartbeat retries instead of treating an unsealed Worker as fenced.
+                Runnable callback = checkNotNull(fencedCallback, "fenced callback must be wired");
+                callback.run();
+                fenced.set(true);
+                degraded.set(true);
+                LOG.error("event=worker_incarnation_fenced workerId={}", config.workerId());
+            } else if ("re-register".equals(response.action())) {
+                handleReRegistrationResponse();
+            } else {
+                handleErrorResponse(HTTP_CONFLICT);
+            }
+        } catch (Exception failure) {
+            LOG.warn("event=heartbeat_conflict_invalid workerId={} error={}", config.workerId(), failure.getMessage());
+            handleErrorResponse(HTTP_CONFLICT);
+        }
     }
 
     private void handleReRegistrationResponse() {

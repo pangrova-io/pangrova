@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.handle.IcebergDeleteFile;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.connector.api.metadata.table.ColumnMapping;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionField;
@@ -39,8 +39,19 @@ final class IcebergTaskToSplit {
 
     /** Converts one planned file scan task into an executable split. */
     IcebergSplit convert(FileScanTask task, String qualifiedTableName,
-                         String readMode, long fromSnapshotId, long toSnapshotId,
+                         String readMode, long snapshotId, long fromSnapshotId, long toSnapshotId,
                          Schema tableSchema, List<ColumnMapping> columnMappings) {
+        for (DeleteFile delete : task.deletes()) {
+            if (delete.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES
+                    && !org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES
+                            .supportsEqualityDeleteRead()) {
+                throw new org.pangrova.connector.api.exception.ConnectorException(
+                        org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                        "Cannot read Iceberg table " + qualifiedTableName + " at snapshot " + snapshotId
+                                + ": equality deletes are not supported (delete file " + delete.path()
+                                + ", data file " + task.file().path() + ")");
+            }
+        }
         byte[] residualPredicate = expressionConverter.convert(task.residual(), tableSchema)
                 .orElse(new byte[0]);
         long dataSeqNum = task.file().dataSequenceNumber() != null
@@ -53,7 +64,7 @@ final class IcebergTaskToSplit {
                 .tableName(qualifiedTableName)
                 .dataFileSizeBytes(task.file().fileSizeInBytes())
                 .partitionValues(extractPartitionValues(task))
-                .snapshotId(dataSeqNum)
+                .snapshotId(snapshotId)
                 .dataSequenceNumber(dataSeqNum)
                 .specId(task.spec().specId())
                 .content("DATA")
@@ -61,9 +72,38 @@ final class IcebergTaskToSplit {
                 .fromSnapshotId(fromSnapshotId)
                 .toSnapshotId(toSnapshotId)
                 .deleteFiles(extractTypedDeleteFiles(task))
-                .columnMappings(columnMappings)
+                .columnMappings(withNullOnlyColumns(tableSchema, columnMappings))
                 .residualPredicate(residualPredicate)
                 .build();
+    }
+
+    /**
+     * Iceberg v3 unknown has no readable physical value. A missing-source mapping
+     * keeps the Native reader from projecting even a malformed physical column
+     * with the same name and makes schema evolution synthesize NULL instead.
+     */
+    static List<ColumnMapping> withNullOnlyColumns(Schema schema, List<ColumnMapping> mappings) {
+        boolean hasUnknown = false;
+        for (Types.NestedField field : schema.columns()) {
+            if (field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                hasUnknown = true;
+                break;
+            }
+        }
+        // This runs once per file. Without UNKNOWN columns the table-level list is
+        // already complete, and List.copyOf returns the same instance for an
+        // already-immutable input, so millions of splits share one list instead of
+        // each allocating a copy.
+        if (!hasUnknown) {
+            return List.copyOf(mappings);
+        }
+        List<ColumnMapping> result = new ArrayList<>(mappings);
+        for (Types.NestedField field : schema.columns()) {
+            if (field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                result.add(new ColumnMapping(-1, field.fieldId(), field.name(), field.name()));
+            }
+        }
+        return List.copyOf(result);
     }
 
     /**
@@ -169,8 +209,7 @@ final class IcebergTaskToSplit {
      * {@link ColumnMapping} is produced so the native reader can find the
      * physical column in older Parquet files by its historical name.</p>
      */
-    static List<ColumnMapping> computeColumnMappings(Table table) {
-        Schema currentSchema = table.schema();
+    static List<ColumnMapping> computeColumnMappings(Table table, Schema currentSchema) {
         Map<Integer, String> currentFieldNames = new HashMap<>();
         for (Types.NestedField field : currentSchema.columns()) {
             currentFieldNames.put(field.fieldId(), field.name());
@@ -195,6 +234,7 @@ final class IcebergTaskToSplit {
                 }
             }
         }
-        return mappings;
+        // Immutable so every split from this scan can share the instance.
+        return List.copyOf(mappings);
     }
 }

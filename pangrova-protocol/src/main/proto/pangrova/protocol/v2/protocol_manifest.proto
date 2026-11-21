@@ -1,0 +1,36 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import public "pangrova/protocol/v2/capability.proto";
+import public "pangrova/protocol/v2/catalog.proto";
+import public "pangrova/protocol/v2/common.proto";
+import public "pangrova/protocol/v2/execution_binding.proto";
+import public "pangrova/protocol/v2/index.proto";
+import public "pangrova/protocol/v2/model.proto";
+import public "pangrova/protocol/v2/plan_extension.proto";
+import public "pangrova/protocol/v2/remote_shuffle.proto";
+import public "pangrova/protocol/v2/result.proto";
+import public "pangrova/protocol/v2/task.proto";
+import public "substrait/algebra.proto";
+import public "substrait/extended_expression.proto";
+import public "substrait/extensions/extensions.proto";
+import public "substrait/plan.proto";
+import public "substrait/type.proto";
+
+// Descriptor-only root. Runtime imports this message so its dependency closure
+// is the complete generic v2 boundary including every pinned Substrait IDL.
+message CanonicalProtocolManifestV2 {
+  CapabilityDescriptor capability = 1;
+  TypedValue value = 2;
+  OperatorBinding binding = 3;
+  IndexManifest index = 4;
+  AiInvocationRequest model = 5;
+  RelationDetailEnvelope relation = 6;
+  ExecutionEnvelope result = 7;
+  TaskRequest task = 8;
+  NativeTaskStats native_task_stats = 9;
+  GeneratedColumnSet generated_columns = 10;
+}

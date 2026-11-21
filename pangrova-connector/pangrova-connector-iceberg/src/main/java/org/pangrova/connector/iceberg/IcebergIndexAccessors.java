@@ -4,16 +4,17 @@ import org.pangrova.connector.iceberg.fs.IcebergCatalogColumnValueReader;
 import org.pangrova.connector.iceberg.fs.IcebergFileSystemAccessor;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.index.ConnectorIndexSupport;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.index.statistics.DataFileStatistics;
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.ColumnValueReader;
+import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.enums.NativeIndexType;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
@@ -78,11 +79,6 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     }
 
     @Override
-    public void registerCommitListener(CommitListener listener) {
-        notifier.registerCommitListener(listener);
-    }
-
-    @Override
     public List<NativeIndexCapability> nativeIndexCapabilities() {
         // Iceberg provides MIN_MAX for all columns (manifest bounds + Parquet footer)
         // and BLOOM_FILTER for configured columns
@@ -110,25 +106,25 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     }
 
     @Override
+    public Optional<SnapshotPinProvider> getSnapshotPinProvider() {
+        return Optional.of(new IcebergSnapshotPinProvider(catalog));
+    }
+
+    @Override
     public List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
         try {
-            TableIdentifier tableId = TableIdentifier.of(schemaName, tableName);
-            Table table = catalog.loadTable(tableId);
-            Snapshot snapshot = table.currentSnapshot();
-            if (snapshot == null) {
-                return List.of();
-            }
-            List<String> files = new ArrayList<>();
-            try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
-                for (FileScanTask task : tasks) {
-                    files.add(task.file().path().toString());
-                }
-            }
-            return files;
+            IcebergSnapshotAwareMetadata metadata =
+                    new IcebergSnapshotAwareMetadata(catalog, schemaName, tableName);
+            Optional<String> snapshot = metadata.currentSnapshotId();
+            return snapshot.isEmpty()
+                    ? List.of()
+                    : metadata.listFilesAtSnapshot(snapshot.get()).stream()
+                            .map(SnapshotDataFile::path)
+                            .toList();
         } catch (Exception e) {
-            LOG.warn("action=list_data_files_failed schema={} table={} error={}",
-                    schemaName, tableName, e.getMessage());
-            return List.of();
+            throw new IllegalStateException(
+                    "Failed to list complete Iceberg data files for "
+                            + schemaName + "." + tableName, e);
         }
     }
 
@@ -167,11 +163,13 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
                 if (!targetPaths.contains(filePath)) {
                     continue;
                 }
-                List<FileColumnStatistics> colStats = extractColumnStatistics(dataFile, schema);
+                long liveRowCount = IcebergFileStatisticsReader.liveRowCount(table, task);
+                List<FileColumnStatistics> colStats =
+                        extractColumnStatistics(dataFile, schema, liveRowCount);
                 result.add(new DataFileStatistics(
                         filePath,
                         String.valueOf(snapshot.snapshotId()),
-                        dataFile.recordCount(),
+                        liveRowCount,
                         dataFile.fileSizeInBytes(),
                         colStats));
             }
@@ -180,7 +178,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     }
 
     private static List<FileColumnStatistics> extractColumnStatistics(
-            DataFile dataFile, Schema schema) {
+            DataFile dataFile, Schema schema, long liveRowCount) {
         Map<Integer, ByteBuffer> lowerBounds = dataFile.lowerBounds();
         Map<Integer, ByteBuffer> upperBounds = dataFile.upperBounds();
         Map<Integer, Long> nullCounts = dataFile.nullValueCounts();
@@ -192,7 +190,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
 
         for (Types.NestedField field : schema.columns()) {
             FileColumnStatistics columnStats = buildColumnStatistics(
-                    field, lowerBounds, upperBounds, nullCounts, dataFile.recordCount());
+                    field, lowerBounds, upperBounds, nullCounts, liveRowCount);
             if (columnStats != null) {
                 stats.add(columnStats);
             }
@@ -205,7 +203,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
             Map<Integer, ByteBuffer> lowerBounds,
             Map<Integer, ByteBuffer> upperBounds,
             Map<Integer, Long> nullCounts,
-            long recordCount) {
+            long liveRowCount) {
         int fieldId = field.fieldId();
         ByteBuffer lowerBuf = lowerBounds.get(fieldId);
         ByteBuffer upperBuf = upperBounds.get(fieldId);
@@ -221,7 +219,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
                 ? nullCounts.get(fieldId) : 0L;
         return new FileColumnStatistics(
                 field.name(), minVal, maxVal, nullCount,
-                recordCount, 0L, 0L);
+                liveRowCount, 0L, 0L);
     }
 
     private static Comparable<?> convertBound(Type type, ByteBuffer buffer) {

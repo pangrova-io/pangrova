@@ -1,5 +1,7 @@
 package org.pangrova.planner.validation;
 
+import org.pangrova.planner.enums.ValidationStatus;
+
 import java.util.List;
 
 /**

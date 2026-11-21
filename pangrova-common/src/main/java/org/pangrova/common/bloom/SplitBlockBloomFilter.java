@@ -1,10 +1,10 @@
 package org.pangrova.common.bloom;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -21,7 +21,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
  * SBBF spec. The hash function is xxHash64 (seed=0), matching Parquet's Bloom filter
  * format for wire-compatible runtime filter push-down to Parquet row group statistics.</p>
  *
- * <p>Immutable after construction via {@link #create} or {@link #readFrom}.
+ * <p>Immutable after construction via {@link Builder#build()} or {@link #readFrom}.
  * Thread-safe for concurrent {@link #mightContain} calls.</p>
  */
 @ThreadSafe
@@ -151,31 +151,41 @@ public final class SplitBlockBloomFilter {
      * @throws IllegalArgumentException if data is malformed
      */
     public static SplitBlockBloomFilter readFrom(byte[] data) {
-        if (data == null || data.length < 16) {
-            throw new IllegalArgumentException("SBBF data too short: "
-                    + (data == null ? "null" : data.length + " bytes"));
+        if (data == null) {
+            throw new IllegalArgumentException("SBBF data must not be null");
         }
-        try {
-            DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data));
-            int magic = dis.readInt();
-            int version = dis.readInt();
-            int numBlocks = dis.readInt();
-            int insertedCount = dis.readInt();
-            validateHeader(magic, version, numBlocks);
-            int totalWords = numBlocks * WORDS_PER_BLOCK;
-            int expectedRemaining = totalWords * 4;
-            if (data.length < 16 + expectedRemaining) {
-                throw new IllegalArgumentException("SBBF data truncated: expected "
-                        + (16 + expectedRemaining) + " bytes, got " + data.length);
-            }
-            int[] blocks = new int[totalWords];
-            for (int i = 0; i < totalWords; i++) {
-                blocks[i] = dis.readInt();
-            }
-            return new SplitBlockBloomFilter(blocks, numBlocks, insertedCount);
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Failed to deserialize SBBF", e);
+        return readBuffer(ByteBuffer.wrap(data));
+    }
+
+    /**
+     * Decodes the remaining bytes without copying the encoded payload or changing
+     * the caller's cursor, limit, or byte order. The returned filter owns its
+     * decoded words and retains no reference to the input. Callers must not
+     * mutate writable aliases during decoding. The wire order is big endian.
+     *
+     * @throws IllegalArgumentException if the header or body is malformed
+     */
+    public static SplitBlockBloomFilter readBuffer(ByteBuffer data) {
+        if (data == null || data.remaining() < 16) {
+            throw new IllegalArgumentException("SBBF data too short");
         }
+        ByteBuffer input = data.duplicate().order(ByteOrder.BIG_ENDIAN);
+        int magic = input.getInt();
+        int version = input.getInt();
+        int numBlocks = input.getInt();
+        int insertedCount = input.getInt();
+        validateHeader(magic, version, numBlocks);
+        // Use long arithmetic before allocation: a malicious power-of-two block
+        // count must not overflow into a tiny allocation or bypass truncation checks.
+        long requiredBytes = (long) numBlocks * BYTES_PER_BLOCK;
+        if (insertedCount < 0 || requiredBytes > input.remaining()) {
+            throw new IllegalArgumentException("Invalid or truncated SBBF body");
+        }
+        int[] blocks = new int[numBlocks * WORDS_PER_BLOCK];
+        for (int i = 0; i < blocks.length; i++) {
+            blocks[i] = input.getInt();
+        }
+        return new SplitBlockBloomFilter(blocks, numBlocks, insertedCount);
     }
 
     private static void validateHeader(int magic, int version, int numBlocks) {

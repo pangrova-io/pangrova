@@ -1,11 +1,11 @@
 package org.pangrova.worker.http.endpoint;
 
 import jakarta.ws.rs.core.Response;
-import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.testing.TestExchangeTransport;
+import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.junit.jupiter.api.DisplayName;
@@ -39,29 +39,22 @@ class TaskResourceStructuredErrorTest {
     void submitTaskReturnsStructuredErrorOnConversionFailure() {
         TaskResource resource = buildResource();
 
-        SubmitTaskRequest request = SubmitTaskRequest.builder()
-                .taskId("task-1")
-                .queryId("query-1")
-                .stageId(0)
-                .partitionId(0)
-                .taskType("LEAF")
-                .planFragment("not-valid-base64-plan")
-                .splits(null)
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(null)
-                .outputConfig(null)
-                .writeConfig(null)
+        var canonical = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
+                        "task-1", "query-1", 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .clearSubstraitPlanChecksum()
                 .build();
+        SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
         Response response = resource.submitTask(request);
 
-        assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(response.getStatus()).isEqualTo(400);
         Object entity = response.getEntity();
         assertThat(entity).isInstanceOf(SubmitTaskResponse.class);
         SubmitTaskResponse errorResponse = (SubmitTaskResponse) entity;
         assertThat(errorResponse.accepted()).isFalse();
-        assertThat(errorResponse.rejectReason()).isNotNull();
+        assertThat(errorResponse.rejectReason()).contains("checksum is invalid");
     }
 
     private static TaskResource buildResource() {

@@ -1,0 +1,68 @@
+--- a/core/src/main/java/org/apache/iceberg/deletes/PositionDeleteWriter.java
++++ b/core/src/main/java/org/apache/iceberg/deletes/PositionDeleteWriter.java
+@@ -59,6 +59,8 @@
+   private final ByteBuffer keyMetadata;
+   private final CharSequenceSet referencedDataFiles;
+   private DeleteFile deleteFile = null;
++  private boolean failed;
++  private boolean appenderClosed;
+ 
+   /**
+    * Creates a new position delete writer.
+@@ -86,8 +88,14 @@
+ 
+   @Override
+   public void write(PositionDelete<T> positionDelete) {
+-    referencedDataFiles.add(positionDelete.path());
+-    appender.add(positionDelete);
++    Preconditions.checkState(!failed && !appenderClosed, "Cannot write after failure or close");
++    try {
++      referencedDataFiles.add(positionDelete.path());
++      appender.add(positionDelete);
++    } catch (RuntimeException | Error failure) {
++      failed = true;
++      throw failure;
++    }
+   }
+ 
+   @Override
+@@ -98,7 +106,19 @@
+   @Override
+   public void close() throws IOException {
+     if (deleteFile == null) {
+-      appender.close();
++      if (!appenderClosed) {
++        try {
++          appender.close();
++          appenderClosed = true;
++        } catch (IOException | RuntimeException | Error failure) {
++          failed = true;
++          throw failure;
++        }
++      }
++      if (failed) {
++        return;
++      }
++      try {
+       this.deleteFile =
+           FileMetadata.deleteFileBuilder(spec)
+               .ofPositionDeletes()
+@@ -111,6 +131,10 @@
+               .withFileSizeInBytes(appender.length())
+               .withMetrics(metrics())
+               .build();
++      } catch (RuntimeException | Error failure) {
++        failed = true;
++        throw failure;
++      }
+     }
+   }
+ 
+@@ -119,6 +143,7 @@
+   }
+ 
+   public DeleteFile toDeleteFile() {
++    Preconditions.checkState(!failed, "Cannot publish a failed writer");
+     Preconditions.checkState(deleteFile != null, "Cannot create delete file from unclosed writer");
+     return deleteFile;
+   }

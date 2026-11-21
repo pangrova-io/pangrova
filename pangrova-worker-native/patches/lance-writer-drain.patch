@@ -1,0 +1,1524 @@
+diff --git a/lance-encoding-0.20.0/src/compression_algo/fastlanes.rs b/lance-encoding-0.20.0/src/compression_algo/fastlanes.rs
+index 346c7ab..f139533 100644
+--- a/lance-encoding-0.20.0/src/compression_algo/fastlanes.rs
++++ b/lance-encoding-0.20.0/src/compression_algo/fastlanes.rs
+@@ -15,7 +15,6 @@
+ 
+ use arrayref::{array_mut_ref, array_ref};
+ use core::mem::size_of;
+-use paste::paste;
+ 
+ pub const FL_ORDER: [usize; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
+ 
+diff --git a/lance-encoding-0.20.0/src/decoder.rs b/lance-encoding-0.20.0/src/decoder.rs
+index 552abd6..43ff4a4 100644
+--- a/lance-encoding-0.20.0/src/decoder.rs
++++ b/lance-encoding-0.20.0/src/decoder.rs
+@@ -2012,7 +2012,7 @@ impl SchedulerContext {
+         &self.cache
+     }
+ 
+-    pub fn push(&mut self, name: &str, index: u32) -> ScopedSchedulerContext {
++    pub fn push(&mut self, name: &str, index: u32) -> ScopedSchedulerContext<'_> {
+         self.path.push(index);
+         self.path_names.push(name.to_string());
+         ScopedSchedulerContext { context: self }
+@@ -2282,7 +2282,7 @@ pub trait LogicalPageDecoder: std::fmt::Debug + Send {
+         })
+     }
+     /// Waits until at least `num_rows` have been loaded
+-    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<Result<()>>;
++    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<'_, Result<()>>;
+     /// The number of rows loaded so far
+     fn rows_loaded(&self) -> u64;
+     /// The number of rows that still need loading
+diff --git a/lance-encoding-0.20.0/src/encodings/logical/binary.rs b/lance-encoding-0.20.0/src/encodings/logical/binary.rs
+index a08d6d8..969ea86 100644
+--- a/lance-encoding-0.20.0/src/encodings/logical/binary.rs
++++ b/lance-encoding-0.20.0/src/encodings/logical/binary.rs
+@@ -111,7 +111,7 @@ pub struct BinaryPageDecoder {
+ }
+ 
+ impl LogicalPageDecoder for BinaryPageDecoder {
+-    fn wait_for_loaded(&mut self, num_rows: u64) -> BoxFuture<Result<()>> {
++    fn wait_for_loaded(&mut self, num_rows: u64) -> BoxFuture<'_, Result<()>> {
+         self.inner.wait_for_loaded(num_rows)
+     }
+ 
+diff --git a/lance-encoding-0.20.0/src/encodings/logical/blob.rs b/lance-encoding-0.20.0/src/encodings/logical/blob.rs
+index 77ba8c4..1c624e0 100644
+--- a/lance-encoding-0.20.0/src/encodings/logical/blob.rs
++++ b/lance-encoding-0.20.0/src/encodings/logical/blob.rs
+@@ -180,7 +180,7 @@ impl std::fmt::Debug for BlobFieldDecoder {
+ }
+ 
+ impl LogicalPageDecoder for BlobFieldDecoder {
+-    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<Result<()>> {
++    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<'_, Result<()>> {
+         async move {
+             if self.unloaded_descriptions.is_some() {
+                 let descriptions = self.unloaded_descriptions.take().unwrap().await?;
+diff --git a/lance-encoding-0.20.0/src/encodings/logical/list.rs b/lance-encoding-0.20.0/src/encodings/logical/list.rs
+index 8522c21..2a67cdb 100644
+--- a/lance-encoding-0.20.0/src/encodings/logical/list.rs
++++ b/lance-encoding-0.20.0/src/encodings/logical/list.rs
+@@ -687,7 +687,7 @@ fn binary_search_to_end(to_search: &[u64], target: u64) -> u64 {
+ }
+ 
+ impl LogicalPageDecoder for ListPageDecoder {
+-    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<Result<()>> {
++    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<'_, Result<()>> {
+         async move {
+             // wait for the indirect I/O to finish, run the scheduler for the indirect
+             // I/O and then wait for enough items to arrive
+@@ -915,33 +915,45 @@ impl ListOffsetsEncoder {
+     fn make_encode_task(&self, arrays: Vec<ArrayRef>) -> EncodeTask {
+         let inner_encoder = self.inner_encoder.clone();
+         let column_idx = self.column_index;
++        let encoding_span = tracing::trace_span!("encode_page", column_idx);
+         // At this point we should have 2*N arrays where the even-indexed arrays are integer offsets
+         // and the odd-indexed arrays are boolean validity bitmaps
+         let offset_arrays = arrays.iter().step_by(2).cloned().collect::<Vec<_>>();
+         let validity_arrays = arrays.into_iter().skip(1).step_by(2).collect::<Vec<_>>();
+ 
+-        tokio::task::spawn(async move {
+-            let num_rows =
+-                offset_arrays.iter().map(|arr| arr.len()).sum::<usize>() - offset_arrays.len();
+-            let num_rows = num_rows as u64;
+-            let mut buffer_index = 0;
+-            let array = Self::do_encode(
+-                offset_arrays,
+-                validity_arrays,
+-                &mut buffer_index,
+-                num_rows,
+-                inner_encoder,
+-            )?;
+-            let (data, description) = array.into_buffers();
+-            Ok(EncodedPage {
+-                data,
+-                description: PageEncoding::Legacy(description),
+-                num_rows,
+-                column_idx,
+-                row_number: 0, // Legacy encoders do not use
++        // Nested field construction may fail before these tasks are returned.
++        // Keep dispatch lazy so that dropping unowned work cannot detach it.
++        async move {
++            tokio::task::spawn(async move {
++                let _entered = encoding_span.enter();
++                let num_rows =
++                    offset_arrays.iter().map(|arr| arr.len()).sum::<usize>() - offset_arrays.len();
++                let num_rows = num_rows as u64;
++                let mut buffer_index = 0;
++                let array = Self::do_encode(
++                    offset_arrays,
++                    validity_arrays,
++                    &mut buffer_index,
++                    num_rows,
++                    inner_encoder,
++                )?;
++                let (data, description) = array.into_buffers();
++                Ok(EncodedPage {
++                    data,
++                    description: PageEncoding::Legacy(description),
++                    num_rows,
++                    column_idx,
++                    row_number: 0, // Legacy encoders do not use
++                })
+             })
+-        })
+-        .map(|res_res| res_res.unwrap())
++            .await
++            .map_err(|error| {
++                Error::io(
++                    format!("list offset encoding task failed: {error}"),
++                    location!(),
++                )
++            })?
++        }
+         .boxed()
+     }
+ 
+diff --git a/lance-encoding-0.20.0/src/encodings/logical/primitive.rs b/lance-encoding-0.20.0/src/encodings/logical/primitive.rs
+index ca30e03..a0a9a9a 100644
+--- a/lance-encoding-0.20.0/src/encodings/logical/primitive.rs
++++ b/lance-encoding-0.20.0/src/encodings/logical/primitive.rs
+@@ -1424,7 +1424,7 @@ impl DecodeArrayTask for PrimitiveFieldDecodeTask {
+ impl LogicalPageDecoder for PrimitiveFieldDecoder {
+     // TODO: In the future, at some point, we may consider partially waiting for primitive pages by
+     // breaking up large I/O into smaller I/O as a way to accelerate the "time-to-first-decode"
+-    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<Result<()>> {
++    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<'_, Result<()>> {
+         log::trace!(
+             "primitive wait for more than {} rows on column {} and page {} (page has {} rows)",
+             loaded_need,
+@@ -1744,22 +1744,33 @@ impl PrimitiveFieldEncoder {
+             .create_array_encoder(&arrays, &self.field)?;
+         let column_idx = self.column_index;
+         let data_type = self.field.data_type();
++        let encoding_span = tracing::trace_span!("encode_page", column_idx);
+ 
+-        Ok(tokio::task::spawn(async move {
+-            let num_values = arrays.iter().map(|arr| arr.len() as u64).sum();
+-            let data = DataBlock::from_arrays(&arrays, num_values);
+-            let mut buffer_index = 0;
+-            let array = encoder.encode(data, &data_type, &mut buffer_index)?;
+-            let (data, description) = array.into_buffers();
+-            Ok(EncodedPage {
+-                data,
+-                description: PageEncoding::Legacy(description),
+-                num_rows: num_values,
+-                column_idx,
+-                row_number: 0, // legacy encoders do not use
++        // Do not dispatch until the returned task has acquired a durable owner.
++        Ok(async move {
++            tokio::task::spawn(async move {
++                let _entered = encoding_span.enter();
++                let num_values = arrays.iter().map(|arr| arr.len() as u64).sum();
++                let data = DataBlock::from_arrays(&arrays, num_values);
++                let mut buffer_index = 0;
++                let array = encoder.encode(data, &data_type, &mut buffer_index)?;
++                let (data, description) = array.into_buffers();
++                Ok(EncodedPage {
++                    data,
++                    description: PageEncoding::Legacy(description),
++                    num_rows: num_values,
++                    column_idx,
++                    row_number: 0, // legacy encoders do not use
++                })
+             })
+-        })
+-        .map(|res_res| res_res.unwrap())
++            .await
++            .map_err(|error| {
++                lance_core::Error::io(
++                    format!("primitive encoding task failed: {error}"),
++                    snafu::location!(),
++                )
++            })?
++        }
+         .boxed())
+     }
+ 
+@@ -2435,77 +2446,82 @@ impl PrimitiveStructuralEncoder {
+         let column_idx = self.column_index;
+         let compression_strategy = self.compression_strategy.clone();
+         let field = self.field.clone();
+-        let task = spawn_cpu(move || {
+-            let num_values = arrays.iter().map(|arr| arr.len() as u64).sum();
+-            let num_nulls = arrays
+-                .iter()
+-                .map(|arr| arr.logical_nulls().map(|n| n.null_count()).unwrap_or(0) as u64)
+-                .sum::<u64>();
+-
+-            if num_values == num_nulls && repdefs.iter().all(|rd| rd.is_simple_validity()) {
+-                log::debug!(
+-                    "Encoding column {} with {} rows using simple-null layout",
+-                    column_idx,
+-                    num_values
+-                );
+-                Self::encode_simple_all_null(column_idx, num_values, row_number)
+-            } else {
+-                let data_block = DataBlock::from_arrays(&arrays, num_values);
+-                const DICTIONARY_ENCODING_THRESHOLD: u64 = 100;
+-                let cardinality =
+-                    if let Some(cardinality_array) = data_block.get_stat(Stat::Cardinality) {
+-                        cardinality_array.as_primitive::<UInt64Type>().value(0)
+-                    } else {
+-                        u64::MAX
+-                    };
++        let encoding_span = tracing::trace_span!("encode_page", column_idx);
++        let task = async move {
++            spawn_cpu(move || {
++                let _entered = encoding_span.enter();
++                let num_values = arrays.iter().map(|arr| arr.len() as u64).sum();
++                let num_nulls = arrays
++                    .iter()
++                    .map(|arr| arr.logical_nulls().map(|n| n.null_count()).unwrap_or(0) as u64)
++                    .sum::<u64>();
+ 
+-                // The triggering threshold for dictionary encoding can be further tuned.
+-                if cardinality <= DICTIONARY_ENCODING_THRESHOLD
+-                    && data_block.num_values() >= 10 * cardinality
+-                {
+-                    let (indices_data_block, dictionary_data_block) =
+-                        Self::dictionary_encode(data_block, cardinality);
+-                    Self::encode_miniblock(
+-                        column_idx,
+-                        &field,
+-                        compression_strategy.as_ref(),
+-                        indices_data_block,
+-                        repdefs,
+-                        row_number,
+-                        Some(dictionary_data_block),
+-                    )
+-                } else if Self::is_narrow(&data_block) {
++                if num_values == num_nulls && repdefs.iter().all(|rd| rd.is_simple_validity()) {
+                     log::debug!(
+-                        "Encoding column {} with {} rows using mini-block layout",
++                        "Encoding column {} with {} rows using simple-null layout",
+                         column_idx,
+                         num_values
+                     );
+-                    Self::encode_miniblock(
+-                        column_idx,
+-                        &field,
+-                        compression_strategy.as_ref(),
+-                        data_block,
+-                        repdefs,
+-                        row_number,
+-                        None,
+-                    )
++                    Self::encode_simple_all_null(column_idx, num_values, row_number)
+                 } else {
+-                    log::debug!(
+-                        "Encoding column {} with {} rows using full-zip layout",
+-                        column_idx,
+-                        num_values
+-                    );
+-                    Self::encode_full_zip(
+-                        column_idx,
+-                        &field,
+-                        compression_strategy.as_ref(),
+-                        data_block,
+-                        repdefs,
+-                        row_number,
+-                    )
++                    let data_block = DataBlock::from_arrays(&arrays, num_values);
++                    const DICTIONARY_ENCODING_THRESHOLD: u64 = 100;
++                    let cardinality =
++                        if let Some(cardinality_array) = data_block.get_stat(Stat::Cardinality) {
++                            cardinality_array.as_primitive::<UInt64Type>().value(0)
++                        } else {
++                            u64::MAX
++                        };
++
++                    // The triggering threshold for dictionary encoding can be further tuned.
++                    if cardinality <= DICTIONARY_ENCODING_THRESHOLD
++                        && data_block.num_values() >= 10 * cardinality
++                    {
++                        let (indices_data_block, dictionary_data_block) =
++                            Self::dictionary_encode(data_block, cardinality);
++                        Self::encode_miniblock(
++                            column_idx,
++                            &field,
++                            compression_strategy.as_ref(),
++                            indices_data_block,
++                            repdefs,
++                            row_number,
++                            Some(dictionary_data_block),
++                        )
++                    } else if Self::is_narrow(&data_block) {
++                        log::debug!(
++                            "Encoding column {} with {} rows using mini-block layout",
++                            column_idx,
++                            num_values
++                        );
++                        Self::encode_miniblock(
++                            column_idx,
++                            &field,
++                            compression_strategy.as_ref(),
++                            data_block,
++                            repdefs,
++                            row_number,
++                            None,
++                        )
++                    } else {
++                        log::debug!(
++                            "Encoding column {} with {} rows using full-zip layout",
++                            column_idx,
++                            num_values
++                        );
++                        Self::encode_full_zip(
++                            column_idx,
++                            &field,
++                            compression_strategy.as_ref(),
++                            data_block,
++                            repdefs,
++                            row_number,
++                        )
++                    }
+                 }
+-            }
+-        })
++            })
++            .await
++        }
+         .boxed();
+         Ok(vec![task])
+     }
+diff --git a/lance-encoding-0.20.0/src/encodings/logical/struct.rs b/lance-encoding-0.20.0/src/encodings/logical/struct.rs
+index 1416b88..e9bc806 100644
+--- a/lance-encoding-0.20.0/src/encodings/logical/struct.rs
++++ b/lance-encoding-0.20.0/src/encodings/logical/struct.rs
+@@ -749,7 +749,7 @@ impl LogicalPageDecoder for SimpleStructDecoder {
+         Ok(())
+     }
+ 
+-    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<Result<()>> {
++    fn wait_for_loaded(&mut self, loaded_need: u64) -> BoxFuture<'_, Result<()>> {
+         self.do_wait_for_loaded(loaded_need).boxed()
+     }
+ 
+diff --git a/lance-file-0.20.0/src/v2/writer.rs b/lance-file-0.20.0/src/v2/writer.rs
+index a3eb7d9..f0817ae 100644
+--- a/lance-file-0.20.0/src/v2/writer.rs
++++ b/lance-file-0.20.0/src/v2/writer.rs
+@@ -10,7 +10,7 @@ use arrow_array::RecordBatch;
+ use arrow_data::ArrayData;
+ use bytes::{BufMut, Bytes, BytesMut};
+ use futures::stream::FuturesOrdered;
+-use futures::StreamExt;
++use futures::{FutureExt, StreamExt};
+ use lance_core::datatypes::{Field, Schema as LanceSchema};
+ use lance_core::utils::bit::pad_bytes;
+ use lance_core::{Error, Result};
+@@ -21,7 +21,7 @@ use lance_encoding::encoder::{
+ };
+ use lance_encoding::repdef::RepDefBuilder;
+ use lance_encoding::version::LanceFileVersion;
+-use lance_io::object_writer::ObjectWriter;
++use lance_io::object_writer::{ObjectWriteAbortOutcome, ObjectWriter};
+ use lance_io::traits::Writer;
+ use log::debug;
+ use prost::Message;
+@@ -101,6 +101,11 @@ pub struct FileWriter {
+     global_buffers: Vec<(u64, u64)>,
+     schema_metadata: HashMap<String, String>,
+     options: FileWriterOptions,
++    pending_encoding: FuturesOrdered<EncodeTask>,
++    stopped: bool,
++    abort_failures: Vec<String>,
++    abort_outcome: Option<ObjectWriteAbortOutcome>,
++    finished_columns: usize,
+ }
+ 
+ fn initial_column_metadata() -> pbfile::ColumnMetadata {
+@@ -140,6 +145,11 @@ impl FileWriter {
+             global_buffers: Vec::new(),
+             schema_metadata: HashMap::new(),
+             options,
++            pending_encoding: FuturesOrdered::new(),
++            stopped: false,
++            abort_failures: Vec::new(),
++            abort_outcome: None,
++            finished_columns: 0,
+         }
+     }
+ 
+@@ -186,7 +196,7 @@ impl FileWriter {
+     }
+ 
+     #[instrument(skip_all, level = "debug")]
+-    async fn write_pages(&mut self, mut encoding_tasks: FuturesOrdered<EncodeTask>) -> Result<()> {
++    async fn write_pages(&mut self) -> Result<()> {
+         // As soon as an encoding task is done we write it.  There is no parallelism
+         // needed here because "writing" is really just submitting the buffer to the
+         // underlying write scheduler (either the OS or object_store's scheduler for
+@@ -195,7 +205,7 @@ impl FileWriter {
+         //
+         // Also, there is no point in trying to make write_page parallel anyways
+         // because we wouldn't want buffers getting mixed up across pages.
+-        while let Some(encoding_task) = encoding_tasks.next().await {
++        while let Some(encoding_task) = self.pending_encoding.next().await {
+             let encoded_page = encoding_task?;
+             self.write_page(encoded_page).await?;
+         }
+@@ -290,33 +300,38 @@ impl FileWriter {
+         &mut self,
+         batch: &RecordBatch,
+         external_buffers: &mut OutOfLineBuffers,
+-    ) -> Result<Vec<Vec<EncodeTask>>> {
+-        self.schema
++    ) -> Result<()> {
++        for (field, column_writer) in self
++            .schema
+             .as_ref()
+             .unwrap()
+             .fields
+             .iter()
+             .zip(self.column_writers.iter_mut())
+-            .map(|(field, column_writer)| {
+-                let array = batch
+-                    .column_by_name(&field.name)
+-                    .ok_or(Error::InvalidInput {
+-                        source: format!(
+-                            "Cannot write batch.  The batch was missing the column `{}`",
+-                            field.name
+-                        )
+-                        .into(),
+-                        location: location!(),
+-                    })?;
+-                let repdef = RepDefBuilder::default();
+-                column_writer.maybe_encode(
+-                    array.clone(),
+-                    external_buffers,
+-                    repdef,
+-                    self.rows_written,
+-                )
+-            })
+-            .collect::<Result<Vec<_>>>()
++        {
++            let array = batch
++                .column_by_name(&field.name)
++                .ok_or(Error::InvalidInput {
++                    source: format!(
++                        "Cannot write batch.  The batch was missing the column `{}`",
++                        field.name
++                    )
++                    .into(),
++                    location: location!(),
++                })?;
++            let repdef = RepDefBuilder::default();
++            let tasks = column_writer.maybe_encode(
++                array.clone(),
++                external_buffers,
++                repdef,
++                self.rows_written,
++            )?;
++            // Own each field's work before a later field can fail.
++            for task in tasks {
++                self.pending_encoding.push_back(task);
++            }
++        }
++        Ok(())
+     }
+ 
+     /// Schedule a batch of data to be written to the file
+@@ -324,6 +339,7 @@ impl FileWriter {
+     /// Note: the future returned by this method may complete before the data has been fully
+     /// flushed to the file (some data may be in the data cache or the I/O cache)
+     pub async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
++        self.require_active()?;
+         debug!(
+             "write_batch called with {} bytes of data",
+             batch.get_array_memory_size()
+@@ -344,17 +360,12 @@ impl FileWriter {
+         // data to trigger an encoding task.  We collect any encoding tasks into a queue.
+         let mut external_buffers =
+             OutOfLineBuffers::new(self.tell().await?, PAGE_BUFFER_ALIGNMENT as u64);
+-        let encoding_tasks = self.encode_batch(batch, &mut external_buffers)?;
++        self.encode_batch(batch, &mut external_buffers)?;
+         // Next, write external buffers
+         for external_buffer in external_buffers.take_buffers() {
+             Self::do_write_buffer(&mut self.writer, &external_buffer).await?;
+         }
+ 
+-        let encoding_tasks = encoding_tasks
+-            .into_iter()
+-            .flatten()
+-            .collect::<FuturesOrdered<_>>();
+-
+         self.rows_written = match self.rows_written.checked_add(batch.num_rows() as u64) {
+             Some(rows_written) => rows_written,
+             None => {
+@@ -362,7 +373,7 @@ impl FileWriter {
+             }
+         };
+ 
+-        self.write_pages(encoding_tasks).await?;
++        self.write_pages().await?;
+ 
+         Ok(())
+     }
+@@ -431,6 +442,7 @@ impl FileWriter {
+     /// immediately.  This method returns the index of the global buffer (this will always
+     /// start at 1 and increment by 1 each time this method is called)
+     pub async fn add_global_buffer(&mut self, buffer: Bytes) -> Result<u32> {
++        self.require_active()?;
+         let position = self.writer.tell().await? as u64;
+         let len = buffer.len() as u64;
+         Self::do_write_buffer(&mut self.writer, &buffer).await?;
+@@ -440,18 +452,20 @@ impl FileWriter {
+ 
+     async fn finish_writers(&mut self) -> Result<()> {
+         let mut col_idx = 0;
+-        for mut writer in std::mem::take(&mut self.column_writers) {
++        while self.finished_columns < self.column_writers.len() {
+             let mut external_buffers =
+                 OutOfLineBuffers::new(self.tell().await?, PAGE_BUFFER_ALIGNMENT as u64);
++            let writer = &mut self.column_writers[self.finished_columns];
++            let num_columns = writer.num_columns();
+             let columns = writer.finish(&mut external_buffers).await?;
+             for buffer in external_buffers.take_buffers() {
+                 self.writer.write_all(&buffer).await?;
+             }
+             debug_assert_eq!(
+                 columns.len(),
+-                writer.num_columns() as usize,
++                num_columns as usize,
+                 "Expected {} columns from column at index {} and got {}",
+-                writer.num_columns(),
++                num_columns,
+                 col_idx,
+                 columns.len()
+             );
+@@ -477,6 +491,7 @@ impl FileWriter {
+                 });
+                 col_idx += 1;
+             }
++            self.finished_columns += 1;
+         }
+         if col_idx != self.column_metadata.len() {
+             panic!(
+@@ -485,6 +500,7 @@ impl FileWriter {
+                 self.column_metadata.len()
+             );
+         }
++        self.column_writers.clear();
+         Ok(())
+     }
+ 
+@@ -507,22 +523,19 @@ impl FileWriter {
+     ///
+     /// Returns the total number of rows written
+     pub async fn finish(&mut self) -> Result<u64> {
++        self.require_active()?;
+         // 1. flush any remaining data and write out those pages
+         let mut external_buffers =
+             OutOfLineBuffers::new(self.tell().await?, PAGE_BUFFER_ALIGNMENT as u64);
+-        let encoding_tasks = self
+-            .column_writers
+-            .iter_mut()
+-            .map(|writer| writer.flush(&mut external_buffers))
+-            .collect::<Result<Vec<_>>>()?;
++        for writer in &mut self.column_writers {
++            for task in writer.flush(&mut external_buffers)? {
++                self.pending_encoding.push_back(task);
++            }
++        }
+         for external_buffer in external_buffers.take_buffers() {
+             Self::do_write_buffer(&mut self.writer, &external_buffer).await?;
+         }
+-        let encoding_tasks = encoding_tasks
+-            .into_iter()
+-            .flatten()
+-            .collect::<FuturesOrdered<_>>();
+-        self.write_pages(encoding_tasks).await?;
++        self.write_pages().await?;
+ 
+         self.finish_writers().await?;
+ 
+@@ -564,6 +577,52 @@ impl FileWriter {
+         Ok(self.rows_written)
+     }
+ 
++    fn require_active(&self) -> Result<()> {
++        if self.stopped {
++            return Err(Error::invalid_input("file writer is stopped", location!()));
++        }
++        Ok(())
++    }
++
++    /// Number of owned encode tasks, including ready tasks not yet consumed.
++    pub fn pending_encoding_tasks(&self) -> usize {
++        self.pending_encoding.len()
++    }
++
++    /// Await all already scheduled encoders without writing their outputs, then
++    /// explicitly drain and abort the object writer. A cancelled abort future
++    /// leaves its queue, failures and I/O cleanup owned by this writer.
++    pub async fn abort(&mut self) -> ObjectWriteAbortOutcome {
++        if let Some(outcome) = &self.abort_outcome {
++            return outcome.clone();
++        }
++        self.stopped = true;
++        loop {
++            let result = std::panic::AssertUnwindSafe(self.pending_encoding.next())
++                .catch_unwind()
++                .await;
++            match result {
++                Ok(None) => break,
++                Ok(Some(Ok(_))) => {}
++                Ok(Some(Err(error))) => self.abort_failures.push(error.to_string()),
++                Err(panic) => {
++                    let message = panic
++                        .downcast_ref::<String>()
++                        .map(String::as_str)
++                        .or_else(|| panic.downcast_ref::<&str>().copied())
++                        .unwrap_or("non-string panic payload");
++                    self.abort_failures
++                        .push(format!("encoding task panicked during drain: {message}"));
++                }
++            }
++        }
++        self.column_writers.clear();
++        let mut outcome = self.writer.abort().await;
++        outcome.failures.append(&mut self.abort_failures);
++        self.abort_outcome = Some(outcome.clone());
++        outcome
++    }
++
+     pub async fn tell(&mut self) -> Result<u64> {
+         Ok(self.writer.tell().await? as u64)
+     }
+diff --git a/lance-io-0.20.0/src/object_store.rs b/lance-io-0.20.0/src/object_store.rs
+index 80bfea8..fefa233 100644
+--- a/lance-io-0.20.0/src/object_store.rs
++++ b/lance-io-0.20.0/src/object_store.rs
+@@ -624,7 +624,7 @@ impl ObjectStore {
+         &self,
+         dir_path: impl Into<&Path> + Send,
+         unmodified_since: Option<DateTime<Utc>>,
+-    ) -> Result<BoxStream<Result<ObjectMeta>>> {
++    ) -> Result<BoxStream<'_, Result<ObjectMeta>>> {
+         self.inner.read_dir_all(dir_path, unmodified_since).await
+     }
+ 
+diff --git a/lance-io-0.20.0/src/object_writer.rs b/lance-io-0.20.0/src/object_writer.rs
+index fa0edb9..71842d2 100644
+--- a/lance-io-0.20.0/src/object_writer.rs
++++ b/lance-io-0.20.0/src/object_writer.rs
+@@ -10,7 +10,7 @@ use crate::object_store::ObjectStore as LanceObjectStore;
+ use async_trait::async_trait;
+ use bytes::Bytes;
+ use futures::future::BoxFuture;
+-use futures::FutureExt;
++use futures::{future::poll_fn, FutureExt};
+ use object_store::MultipartUpload;
+ use object_store::{path::Path, Error as OSError, ObjectStore, Result as OSResult};
+ use rand::Rng;
+@@ -79,6 +79,38 @@ pub struct ObjectWriter {
+     buffer: Vec<u8>,
+     // TODO: use constant size to support R2
+     use_constant_size_upload_parts: bool,
++    abort_started: bool,
++    abort_outcome: Option<ObjectWriteAbortOutcome>,
++}
++
++/// Observed publication state after every issued task has been joined.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum ObjectWritePublication {
++    NotPublished,
++    Published,
++    Unknown,
++}
++
++/// Cleanup failures remain visible; an unknown publication never permits deletion.
++#[derive(Clone, Debug)]
++pub struct ObjectWriteAbortOutcome {
++    pub publication: ObjectWritePublication,
++    pub failures: Vec<String>,
++}
++
++impl ObjectWriteAbortOutcome {
++    fn observed(publication: ObjectWritePublication) -> Self {
++        Self {
++            publication,
++            failures: Vec::new(),
++        }
++    }
++    fn uncertain(failure: impl ToString) -> Self {
++        Self {
++            publication: ObjectWritePublication::Unknown,
++            failures: vec![failure.to_string()],
++        }
++    }
+ }
+ 
+ enum UploadState {
+@@ -98,6 +130,10 @@ enum UploadState {
+     PuttingSingle(BoxFuture<'static, OSResult<()>>),
+     /// The writer is in the process of completing the multipart upload.
+     Completing(BoxFuture<'static, OSResult<()>>),
++    /// The cleanup future stays owned here even if its caller is cancelled.
++    Aborting(BoxFuture<'static, ObjectWriteAbortOutcome>),
++    /// A completed request failed and must never be polled again.
++    Failed(String),
+     /// The writer has been shut down and all data has been written.
+     Done,
+ }
+@@ -149,6 +185,8 @@ impl ObjectWriter {
+             connection_resets: 0,
+             buffer: Vec::with_capacity(initial_upload_size()),
+             use_constant_size_upload_parts: object_store.use_constant_size_upload_parts,
++            abort_started: false,
++            abort_outcome: None,
+         })
+     }
+ 
+@@ -199,6 +237,15 @@ impl ObjectWriter {
+         loop {
+             match &mut mut_self.state {
+                 UploadState::Started(_) | UploadState::Done => break,
++                UploadState::Aborting(_) => {
++                    return Err(io::Error::new(
++                        io::ErrorKind::BrokenPipe,
++                        "object writer is aborting",
++                    ))
++                }
++                UploadState::Failed(error) => {
++                    return Err(io::Error::new(io::ErrorKind::Other, error.clone()))
++                }
+                 UploadState::CreatingUpload(ref mut fut) => match fut.poll_unpin(cx) {
+                     Poll::Ready(Ok(mut upload)) => {
+                         let mut futures = JoinSet::new();
+@@ -217,7 +264,9 @@ impl ObjectWriter {
+                         };
+                     }
+                     Poll::Ready(Err(e)) => {
+-                        return Err(std::io::Error::new(std::io::ErrorKind::Other, e))
++                        let error = e.to_string();
++                        mut_self.state = UploadState::Failed(error.clone());
++                        return Err(io::Error::new(io::ErrorKind::Other, error));
+                     }
+                     Poll::Pending => break,
+                 },
+@@ -276,7 +325,9 @@ impl ObjectWriter {
+                     match fut.poll_unpin(cx) {
+                         Poll::Ready(Ok(())) => mut_self.state = UploadState::Done,
+                         Poll::Ready(Err(e)) => {
+-                            return Err(std::io::Error::new(std::io::ErrorKind::Other, e))
++                            let error = e.to_string();
++                            mut_self.state = UploadState::Failed(error.clone());
++                            return Err(io::Error::new(io::ErrorKind::Other, error));
+                         }
+                         Poll::Pending => break,
+                     }
+@@ -295,6 +346,84 @@ impl ObjectWriter {
+             )
+         })
+     }
++
++    /// Stop producing parts, join every dispatched task, and explicitly abort
++    /// an unfinished multipart upload. Already issued publication is observed,
++    /// not undone. Cancellation of this future preserves cleanup ownership.
++    pub async fn abort(&mut self) -> ObjectWriteAbortOutcome {
++        if let Some(outcome) = &self.abort_outcome {
++            return outcome.clone();
++        }
++        self.abort_started = true;
++        self.buffer = Vec::new();
++        if !matches!(self.state, UploadState::Aborting(_)) {
++            let state = std::mem::replace(&mut self.state, UploadState::Done);
++            self.state = UploadState::Aborting(Self::abort_state(state).boxed());
++        }
++        let outcome = poll_fn(|cx| match &mut self.state {
++            UploadState::Aborting(future) => future.poll_unpin(cx),
++            _ => unreachable!("cleanup state must retain its future"),
++        })
++        .await;
++        self.state = UploadState::Done;
++        self.abort_outcome = Some(outcome.clone());
++        outcome
++    }
++
++    async fn abort_state(state: UploadState) -> ObjectWriteAbortOutcome {
++        match state {
++            UploadState::Started(_) => {
++                ObjectWriteAbortOutcome::observed(ObjectWritePublication::NotPublished)
++            }
++            UploadState::Done => {
++                ObjectWriteAbortOutcome::observed(ObjectWritePublication::Published)
++            }
++            UploadState::Failed(error) => ObjectWriteAbortOutcome::uncertain(error),
++            UploadState::CreatingUpload(future) => match future.await {
++                Ok(mut upload) => match upload.abort().await {
++                    Ok(()) => {
++                        ObjectWriteAbortOutcome::observed(ObjectWritePublication::NotPublished)
++                    }
++                    Err(error) => ObjectWriteAbortOutcome::uncertain(error),
++                },
++                Err(error) => ObjectWriteAbortOutcome::uncertain(error),
++            },
++            UploadState::PuttingSingle(future) | UploadState::Completing(future) => {
++                match future.await {
++                    Ok(()) => ObjectWriteAbortOutcome::observed(ObjectWritePublication::Published),
++                    Err(error) => ObjectWriteAbortOutcome::uncertain(error),
++                }
++            }
++            UploadState::InProgress {
++                mut upload,
++                mut futures,
++                ..
++            } => {
++                let mut failures = Vec::new();
++                futures.abort_all();
++                while let Some(result) = futures.join_next().await {
++                    match result {
++                        Ok(Ok(())) => {}
++                        Ok(Err(error)) => failures.push(error.source.to_string()),
++                        Err(error) if error.is_cancelled() => {}
++                        Err(error) => failures.push(error.to_string()),
++                    }
++                }
++                let publication = match upload.abort().await {
++                    Ok(()) => ObjectWritePublication::NotPublished,
++                    Err(error) => {
++                        failures.push(error.to_string());
++                        ObjectWritePublication::Unknown
++                    }
++                };
++                ObjectWriteAbortOutcome {
++                    publication,
++                    failures,
++                }
++            }
++            UploadState::Aborting(future) => future.await,
++        }
++    }
+ }
+ 
+ impl Drop for ObjectWriter {
+@@ -341,6 +470,12 @@ impl AsyncWrite for ObjectWriter {
+         cx: &mut std::task::Context<'_>,
+         buf: &[u8],
+     ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
++        if self.abort_started {
++            return Poll::Ready(Err(io::Error::new(
++                io::ErrorKind::BrokenPipe,
++                "object writer is stopped",
++            )));
++        }
+         self.as_mut().poll_tasks(cx)?;
+ 
+         // Fill buffer up to remaining capacity.
+@@ -395,6 +530,12 @@ impl AsyncWrite for ObjectWriter {
+         mut self: std::pin::Pin<&mut Self>,
+         cx: &mut std::task::Context<'_>,
+     ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
++        if self.abort_started {
++            return Poll::Ready(Err(io::Error::new(
++                io::ErrorKind::BrokenPipe,
++                "object writer is stopped",
++            )));
++        }
+         self.as_mut().poll_tasks(cx)?;
+ 
+         match &self.state {
+@@ -402,6 +543,9 @@ impl AsyncWrite for ObjectWriter {
+             UploadState::CreatingUpload(_)
+             | UploadState::Completing(_)
+             | UploadState::PuttingSingle(_) => Poll::Pending,
++            UploadState::Aborting(_) | UploadState::Failed(_) => {
++                unreachable!("poll_tasks rejects stopped state")
++            }
+             UploadState::InProgress { futures, .. } => {
+                 if futures.is_empty() {
+                     Poll::Ready(Ok(()))
+@@ -416,6 +560,12 @@ impl AsyncWrite for ObjectWriter {
+         mut self: std::pin::Pin<&mut Self>,
+         cx: &mut std::task::Context<'_>,
+     ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
++        if self.abort_started {
++            return Poll::Ready(Err(io::Error::new(
++                io::ErrorKind::BrokenPipe,
++                "object writer is stopped",
++            )));
++        }
+         loop {
+             self.as_mut().poll_tasks(cx)?;
+ 
+@@ -424,6 +574,9 @@ impl AsyncWrite for ObjectWriter {
+             let mut_self = &mut *self;
+             match &mut mut_self.state {
+                 UploadState::Done => return Poll::Ready(Ok(())),
++                UploadState::Aborting(_) | UploadState::Failed(_) => {
++                    unreachable!("poll_tasks rejects stopped state")
++                }
+                 UploadState::CreatingUpload(_)
+                 | UploadState::PuttingSingle(_)
+                 | UploadState::Completing(_) => return Poll::Pending,
+diff --git a/lance-io-0.20.0/src/scheduler.rs b/lance-io-0.20.0/src/scheduler.rs
+index 7fc11da..ae92663 100644
+--- a/lance-io-0.20.0/src/scheduler.rs
++++ b/lance-io-0.20.0/src/scheduler.rs
+@@ -107,7 +107,7 @@ impl IopsQuota {
+     }
+ 
+     // Acquire a reservation on the global IOPS quota
+-    async fn acquire(&self) -> IopsReservation {
++    async fn acquire(&self) -> IopsReservation<'_> {
+         if let Some(iops_avail) = self.iops_avail.as_ref() {
+             IopsReservation {
+                 value: Some(iops_avail.acquire().await.unwrap()),
+diff --git a/lance-0.20.0/src/dataset.rs b/lance-0.20.0/src/dataset.rs
+index 58c6d8d..3ab3a64 100644
+--- a/lance-0.20.0/src/dataset.rs
++++ b/lance-0.20.0/src/dataset.rs
+@@ -85,6 +85,7 @@ pub use write::merge_insert::{
+     MergeInsertBuilder, MergeInsertJob, WhenMatched, WhenNotMatched, WhenNotMatchedBySource,
+ };
+ pub use write::update::{UpdateBuilder, UpdateJob};
++pub use write::{drain_on_error, open_writer, GenericWriter};
+ #[allow(deprecated)]
+ pub use write::{
+     write_fragments, CommitBuilder, InsertBuilder, WriteDestination, WriteMode, WriteParams,
+@@ -622,7 +623,7 @@ impl Dataset {
+         older_than: Duration,
+         delete_unverified: Option<bool>,
+         error_if_tagged_old_versions: Option<bool>,
+-    ) -> BoxFuture<Result<RemovalStats>> {
++    ) -> BoxFuture<'_, Result<RemovalStats>> {
+         let before = utc_now() - older_than;
+         cleanup::cleanup_old_versions(
+             self,
+diff --git a/lance-0.20.0/src/dataset/write.rs b/lance-0.20.0/src/dataset/write.rs
+index 600176f..10974c6 100644
+--- a/lance-0.20.0/src/dataset/write.rs
++++ b/lance-0.20.0/src/dataset/write.rs
+@@ -5,7 +5,7 @@ use std::sync::Arc;
+ 
+ use arrow_array::RecordBatch;
+ use datafusion::physical_plan::SendableRecordBatchStream;
+-use futures::{StreamExt, TryStreamExt};
++use futures::{FutureExt, StreamExt, TryStreamExt};
+ use lance_core::datatypes::{NullabilityComparison, SchemaCompareOptions, StorageClass};
+ use lance_core::{datatypes::Schema, Error, Result};
+ use lance_datafusion::chunker::{break_stream, chunk_stream};
+@@ -15,6 +15,7 @@ use lance_file::v2::writer::FileWriterOptions;
+ use lance_file::version::LanceFileVersion;
+ use lance_file::writer::{FileWriter, ManifestProvider};
+ use lance_io::object_store::{ObjectStore, ObjectStoreParams, ObjectStoreRegistry};
++use lance_io::object_writer::ObjectWriteAbortOutcome;
+ use lance_table::format::{DataFile, Fragment};
+ use lance_table::io::commit::{commit_handler_from_url, CommitHandler};
+ use lance_table::io::manifest::ManifestDescribing;
+@@ -251,43 +252,53 @@ pub async fn do_write_fragments(
+     let mut writer: Option<Box<dyn GenericWriter>> = None;
+     let mut num_rows_in_current_file = 0;
+     let mut fragments = Vec::new();
+-    while let Some(batch_chunk) = buffered_reader.next().await {
+-        let batch_chunk = batch_chunk?;
+-
+-        if writer.is_none() {
+-            let (new_writer, new_fragment) = writer_generator.new_writer().await?;
+-            params.progress.begin(&new_fragment).await?;
+-            writer = Some(new_writer);
+-            fragments.push(new_fragment);
+-        }
++    let result = std::panic::AssertUnwindSafe(async {
++        while let Some(batch_chunk) = buffered_reader.next().await {
++            let batch_chunk = batch_chunk?;
++
++            if writer.is_none() {
++                let (new_writer, new_fragment) = writer_generator.new_writer().await?;
++                writer = Some(new_writer);
++                params.progress.begin(&new_fragment).await?;
++                fragments.push(new_fragment);
++            }
+ 
+-        writer.as_mut().unwrap().write(&batch_chunk).await?;
+-        for batch in batch_chunk {
+-            num_rows_in_current_file += batch.num_rows() as u32;
++            writer.as_mut().unwrap().write(&batch_chunk).await?;
++            for batch in batch_chunk {
++                num_rows_in_current_file += batch.num_rows() as u32;
++            }
++
++            if num_rows_in_current_file >= params.max_rows_per_file as u32
++                || writer.as_mut().unwrap().tell().await? >= params.max_bytes_per_file as u64
++            {
++                let (num_rows, data_file) = writer.as_mut().unwrap().finish().await?;
++                debug_assert_eq!(num_rows, num_rows_in_current_file);
++                params.progress.complete(fragments.last().unwrap()).await?;
++                let last_fragment = fragments.last_mut().unwrap();
++                last_fragment.physical_rows = Some(num_rows as usize);
++                last_fragment.files.push(data_file);
++                num_rows_in_current_file = 0;
++                writer.take();
++            }
+         }
+ 
+-        if num_rows_in_current_file >= params.max_rows_per_file as u32
+-            || writer.as_mut().unwrap().tell().await? >= params.max_bytes_per_file as u64
+-        {
+-            let (num_rows, data_file) = writer.take().unwrap().finish().await?;
+-            debug_assert_eq!(num_rows, num_rows_in_current_file);
+-            params.progress.complete(fragments.last().unwrap()).await?;
++        // Complete the final writer
++        if let Some(writer) = writer.as_mut() {
++            let (num_rows, data_file) = writer.finish().await?;
+             let last_fragment = fragments.last_mut().unwrap();
+             last_fragment.physical_rows = Some(num_rows as usize);
+             last_fragment.files.push(data_file);
+-            num_rows_in_current_file = 0;
+         }
+-    }
+ 
+-    // Complete the final writer
+-    if let Some(mut writer) = writer.take() {
+-        let (num_rows, data_file) = writer.finish().await?;
+-        let last_fragment = fragments.last_mut().unwrap();
+-        last_fragment.physical_rows = Some(num_rows as usize);
+-        last_fragment.files.push(data_file);
++        Ok(fragments)
++    })
++    .catch_unwind()
++    .await
++    .unwrap_or_else(|panic| Err(writer_panic(panic)));
++    match writer.as_mut() {
++        Some(writer) => drain_on_error(writer.as_mut(), result).await,
++        None => result,
+     }
+-
+-    Ok(fragments)
+ }
+ 
+ pub struct WrittenFragments {
+@@ -431,6 +442,43 @@ pub trait GenericWriter: Send {
+     async fn tell(&mut self) -> Result<u64>;
+     /// Finish writing the file (flush the remaining data and write footer)
+     async fn finish(&mut self) -> Result<(u32, DataFile)>;
++    /// Stop new I/O and await every owned encoder and dispatched upload. This
++    /// observes publication; it never authorizes deletion of a finished object.
++    async fn abort(&mut self) -> ObjectWriteAbortOutcome;
++}
++
++pub(super) fn writer_panic(panic: Box<dyn std::any::Any + Send>) -> Error {
++    let message = panic
++        .downcast_ref::<String>()
++        .map(String::as_str)
++        .or_else(|| panic.downcast_ref::<&str>().copied())
++        .unwrap_or("non-string panic payload");
++    Error::io(
++        format!("Dataset writer operation panicked: {message}"),
++        location!(),
++    )
++}
++
++/// Preserve the operation error while explicitly draining the retained writer.
++pub async fn drain_on_error<T>(writer: &mut dyn GenericWriter, result: Result<T>) -> Result<T> {
++    let Err(error) = result else {
++        return result;
++    };
++    let outcome = writer.abort().await;
++    Err(drained_error(error, outcome))
++}
++
++pub(super) fn drained_error(error: Error, outcome: ObjectWriteAbortOutcome) -> Error {
++    if outcome.failures.is_empty() {
++        return error;
++    }
++    Error::io(
++        format!(
++            "{error}; Dataset writer drain: {}",
++            outcome.failures.join("; ")
++        ),
++        location!(),
++    )
+ }
+ 
+ #[async_trait::async_trait]
+@@ -447,6 +495,9 @@ impl<M: ManifestProvider + Send + Sync> GenericWriter for (FileWriter<M>, String
+             DataFile::new_legacy(self.1.clone(), self.0.schema()),
+         ))
+     }
++    async fn abort(&mut self) -> ObjectWriteAbortOutcome {
++        self.0.object_writer.abort().await
++    }
+ }
+ 
+ struct V2WriterAdapter {
+@@ -479,6 +530,7 @@ impl GenericWriter for V2WriterAdapter {
+             .map(|(_, column_index)| *column_index as i32)
+             .collect::<Vec<_>>();
+         let (major, minor) = self.writer.version().to_numbers();
++        let num_rows = self.writer.finish().await? as u32;
+         let data_file = DataFile::new(
+             std::mem::take(&mut self.path),
+             field_ids,
+@@ -486,9 +538,11 @@ impl GenericWriter for V2WriterAdapter {
+             major,
+             minor,
+         );
+-        let num_rows = self.writer.finish().await? as u32;
+         Ok((num_rows, data_file))
+     }
++    async fn abort(&mut self) -> ObjectWriteAbortOutcome {
++        self.writer.abort().await
++    }
+ }
+ 
+ pub async fn open_writer(
+diff --git a/lance-0.20.0/src/dataset/updater.rs b/lance-0.20.0/src/dataset/updater.rs
+index f12b201..1ca8f0b 100644
+--- a/lance-0.20.0/src/dataset/updater.rs
++++ b/lance-0.20.0/src/dataset/updater.rs
+@@ -2,7 +2,7 @@
+ // SPDX-FileCopyrightText: Copyright The Lance Authors
+ 
+ use arrow_array::{RecordBatch, UInt32Array};
+-use futures::StreamExt;
++use futures::{FutureExt, StreamExt};
+ use lance_core::utils::deletion::DeletionVector;
+ use lance_core::{datatypes::Schema, Error, Result};
+ use lance_table::format::Fragment;
+@@ -11,7 +11,7 @@ use snafu::{location, Location};
+ 
+ use super::fragment::FragmentReader;
+ use super::scanner::get_default_batch_size;
+-use super::write::{open_writer, GenericWriter};
++use super::write::{drain_on_error, open_writer, writer_panic, GenericWriter};
+ use super::Dataset;
+ use crate::dataset::FileFragment;
+ 
+@@ -106,22 +106,46 @@ impl Updater {
+         if self.finished {
+             return Ok(None);
+         }
+-        let batch = self.input_stream.next().await;
++        let batch = match std::panic::AssertUnwindSafe(self.input_stream.next())
++            .catch_unwind()
++            .await
++        {
++            Ok(batch) => batch,
++            Err(panic) => {
++                let result = Err(writer_panic(panic));
++                return match self.writer.as_mut() {
++                    Some(writer) => drain_on_error(writer.as_mut(), result).await,
++                    None => result,
++                };
++            }
++        };
+         match batch {
+             None => {
+                 if !self.deletion_restorer.is_exhausted() {
+                     // This can happen only if there is a batch size (e.g. v1 file) and the
+                     // last batch(es) are entirely deleted.
+-                    return Err(Error::NotSupported {
++                    let result = Err(Error::NotSupported {
+                         source: "Missing too many rows in merge, run compaction to materialize deletions first".into(),
+                         location: location!(),
+                     });
++                    return match self.writer.as_mut() {
++                        Some(writer) => drain_on_error(writer.as_mut(), result).await,
++                        None => result,
++                    };
+                 }
+                 self.finished = true;
+                 Ok(None)
+             }
+             Some(batch) => {
+-                self.last_input = Some(batch.await?);
++                let result = std::panic::AssertUnwindSafe(batch)
++                    .catch_unwind()
++                    .await
++                    .unwrap_or_else(|panic| Err(writer_panic(panic)));
++                let batch = match self.writer.as_mut() {
++                    Some(writer) => drain_on_error(writer.as_mut(), result).await?,
++                    None => result?,
++                };
++                self.last_input = Some(batch);
+                 Ok(self.last_input.as_ref())
+             }
+         }
+@@ -153,6 +177,17 @@ impl Updater {
+ 
+     /// Update one batch.
+     pub async fn update(&mut self, batch: RecordBatch) -> Result<()> {
++        let result = std::panic::AssertUnwindSafe(self.update_retained(batch))
++            .catch_unwind()
++            .await
++            .unwrap_or_else(|panic| Err(writer_panic(panic)));
++        match self.writer.as_mut() {
++            Some(writer) => drain_on_error(writer.as_mut(), result).await,
++            None => result,
++        }
++    }
++
++    async fn update_retained(&mut self, batch: RecordBatch) -> Result<()> {
+         let Some(last) = self.last_input.as_ref() else {
+             return Err(Error::io(
+                 "Fragment Updater: no input data is available before update".to_string(),
+@@ -205,6 +240,17 @@ impl Updater {
+ 
+     /// Finish updating this fragment, and returns the updated [`Fragment`].
+     pub async fn finish(&mut self) -> Result<Fragment> {
++        let result = std::panic::AssertUnwindSafe(self.finish_retained())
++            .catch_unwind()
++            .await
++            .unwrap_or_else(|panic| Err(writer_panic(panic)));
++        match self.writer.as_mut() {
++            Some(writer) => drain_on_error(writer.as_mut(), result).await,
++            None => result,
++        }
++    }
++
++    async fn finish_retained(&mut self) -> Result<Fragment> {
+         if let Some(writer) = self.writer.as_mut() {
+             let (_, data_file) = writer.finish().await?;
+             self.fragment.metadata.files.push(data_file);
+diff --git a/lance-0.20.0/src/dataset/write/merge_insert.rs b/lance-0.20.0/src/dataset/write/merge_insert.rs
+index 16af301..ca2ec65 100644
+--- a/lance-0.20.0/src/dataset/write/merge_insert.rs
++++ b/lance-0.20.0/src/dataset/write/merge_insert.rs
+@@ -47,7 +47,7 @@ use lance_datafusion::{chunker::chunk_stream, dataframe::DataFrameExt, exec::get
+ use datafusion_physical_expr::expressions::Column;
+ use futures::{
+     stream::{self},
+-    Stream, StreamExt, TryStreamExt,
++    FutureExt, Stream, StreamExt, TryStreamExt,
+ };
+ use lance_core::{
+     datatypes::SchemaCompareOptions,
+@@ -659,42 +659,50 @@ impl MergeInsertJob {
+                     )
+                     .await?;
+ 
+-                    // We need to remove rowaddr before writing.
+-                    batches
+-                        .iter_mut()
+-                        .try_for_each(|batch| match batch.drop_column(ROW_ADDR) {
+-                            Ok(b) => {
+-                                *batch = b;
+-                                Ok(())
++                    let result = std::panic::AssertUnwindSafe(async {
++                        // We need to remove rowaddr before writing.
++                        batches.iter_mut().try_for_each(|batch| {
++                            match batch.drop_column(ROW_ADDR) {
++                                Ok(b) => {
++                                    *batch = b;
++                                    Ok(())
++                                }
++                                Err(e) => Err(e),
+                             }
+-                            Err(e) => Err(e),
+                         })?;
+ 
+-                    if data_storage_version == LanceFileVersion::Legacy {
+-                        // Need to match the existing batch size exactly, otherwise
+-                        // we'll get errors.
+-                        let reader = fragment
+-                            .open(
+-                                dataset.schema(),
+-                                FragReadConfig::default().with_row_address(true),
+-                                None,
+-                            )
+-                            .await?;
+-                        let batch_size = reader.legacy_num_rows_in_batch(0).unwrap();
+-                        let stream = stream::iter(batches.into_iter().map(Ok));
+-                        let stream = Box::pin(RecordBatchStreamAdapter::new(
+-                            Arc::new((&write_schema).into()),
+-                            stream,
+-                        ));
+-                        let mut stream = chunk_stream(stream, batch_size as usize);
+-                        while let Some(chunk) = stream.next().await {
+-                            writer.write(&chunk?).await?;
++                        if data_storage_version == LanceFileVersion::Legacy {
++                            // Need to match the existing batch size exactly, otherwise
++                            // we'll get errors.
++                            let reader = fragment
++                                .open(
++                                    dataset.schema(),
++                                    FragReadConfig::default().with_row_address(true),
++                                    None,
++                                )
++                                .await?;
++                            let batch_size = reader.legacy_num_rows_in_batch(0).unwrap();
++                            let stream = stream::iter(batches.into_iter().map(Ok));
++                            let stream = Box::pin(RecordBatchStreamAdapter::new(
++                                Arc::new((&write_schema).into()),
++                                stream,
++                            ));
++                            let mut stream = chunk_stream(stream, batch_size as usize);
++                            while let Some(chunk) = stream.next().await {
++                                writer.write(&chunk?).await?;
++                            }
++                        } else {
++                            writer.write(batches.as_slice()).await?;
+                         }
+-                    } else {
+-                        writer.write(batches.as_slice()).await?;
+-                    }
+ 
+-                    let (_num_rows, data_file) = writer.finish().await?;
++                        let (_num_rows, data_file) = writer.finish().await?;
++
++                        Ok(data_file)
++                    })
++                    .catch_unwind()
++                    .await
++                    .unwrap_or_else(|panic| Err(super::writer_panic(panic)));
++                    let data_file = super::drain_on_error(writer.as_mut(), result).await?;
+ 
+                     metadata.files.push(data_file);
+                     updated_fragments.lock().unwrap().push(metadata);
+diff --git a/lance-0.20.0/src/dataset/fragment/write.rs b/lance-0.20.0/src/dataset/fragment/write.rs
+index fd8fdc0..55d6bd4 100644
+--- a/lance-0.20.0/src/dataset/fragment/write.rs
++++ b/lance-0.20.0/src/dataset/fragment/write.rs
+@@ -3,7 +3,7 @@
+ 
+ use arrow_schema::Schema as ArrowSchema;
+ use datafusion::execution::SendableRecordBatchStream;
+-use futures::{StreamExt, TryStreamExt};
++use futures::{FutureExt, StreamExt, TryStreamExt};
+ use lance_core::datatypes::Schema;
+ use lance_core::Error;
+ use lance_datafusion::chunker::{break_stream, chunk_stream};
+@@ -20,7 +20,7 @@ use std::sync::Arc;
+ use uuid::Uuid;
+ 
+ use crate::dataset::builder::DatasetBuilder;
+-use crate::dataset::write::do_write_fragments;
++use crate::dataset::write::{do_write_fragments, drained_error, writer_panic};
+ use crate::dataset::{WriteMode, WriteParams, DATA_DIR};
+ use crate::Result;
+ 
+@@ -110,41 +110,50 @@ impl<'a> FragmentCreateBuilder<'a> {
+         let data_file = DataFile::new_unstarted(filename, major, minor);
+         fragment.files.push(data_file);
+ 
+-        progress.begin(&fragment).await?;
++        let result = std::panic::AssertUnwindSafe(async {
++            progress.begin(&fragment).await?;
+ 
+-        let break_limit = (128 * 1024).min(params.max_rows_per_file);
++            let break_limit = (128 * 1024).min(params.max_rows_per_file);
+ 
+-        let mut broken_stream = break_stream(stream, break_limit)
+-            .map_ok(|batch| vec![batch])
+-            .boxed();
+-        while let Some(batched_chunk) = broken_stream.next().await {
+-            let batch_chunk = batched_chunk?;
+-            writer.write_batches(batch_chunk.iter()).await?;
+-        }
+-
+-        fragment.physical_rows = Some(writer.finish().await? as usize);
+-
+-        if matches!(fragment.physical_rows, Some(0)) {
+-            return Err(Error::invalid_input("Input data was empty.", location!()));
+-        }
+-
+-        let field_ids = writer
+-            .field_id_to_column_indices()
+-            .iter()
+-            .map(|(field_id, _)| *field_id as i32)
+-            .collect::<Vec<_>>();
+-        let column_indices = writer
+-            .field_id_to_column_indices()
+-            .iter()
+-            .map(|(_, column_index)| *column_index as i32)
+-            .collect::<Vec<_>>();
++            let mut broken_stream = break_stream(stream, break_limit)
++                .map_ok(|batch| vec![batch])
++                .boxed();
++            while let Some(batched_chunk) = broken_stream.next().await {
++                let batch_chunk = batched_chunk?;
++                writer.write_batches(batch_chunk.iter()).await?;
++            }
+ 
+-        fragment.files[0].fields = field_ids;
+-        fragment.files[0].column_indices = column_indices;
++            fragment.physical_rows = Some(writer.finish().await? as usize);
+ 
+-        progress.complete(&fragment).await?;
++            if matches!(fragment.physical_rows, Some(0)) {
++                return Err(Error::invalid_input("Input data was empty.", location!()));
++            }
+ 
+-        Ok(fragment)
++            let field_ids = writer
++                .field_id_to_column_indices()
++                .iter()
++                .map(|(field_id, _)| *field_id as i32)
++                .collect::<Vec<_>>();
++            let column_indices = writer
++                .field_id_to_column_indices()
++                .iter()
++                .map(|(_, column_index)| *column_index as i32)
++                .collect::<Vec<_>>();
++
++            fragment.files[0].fields = field_ids;
++            fragment.files[0].column_indices = column_indices;
++
++            progress.complete(&fragment).await?;
++
++            Ok(fragment)
++        })
++        .catch_unwind()
++        .await
++        .unwrap_or_else(|panic| Err(writer_panic(panic)));
++        match result {
++            Ok(fragment) => Ok(fragment),
++            Err(error) => Err(drained_error(error, writer.abort().await)),
++        }
+     }
+     async fn write_fragments_v2_impl(
+         &self,
+@@ -208,23 +217,32 @@ impl<'a> FragmentCreateBuilder<'a> {
+         )
+         .await?;
+ 
+-        progress.begin(&fragment).await?;
++        let result = std::panic::AssertUnwindSafe(async {
++            progress.begin(&fragment).await?;
+ 
+-        let mut buffered_reader = chunk_stream(stream, params.max_rows_per_group);
+-        while let Some(batched_chunk) = buffered_reader.next().await {
+-            let batch = batched_chunk?;
+-            writer.write(&batch).await?;
+-        }
++            let mut buffered_reader = chunk_stream(stream, params.max_rows_per_group);
++            while let Some(batched_chunk) = buffered_reader.next().await {
++                let batch = batched_chunk?;
++                writer.write(&batch).await?;
++            }
+ 
+-        if writer.is_empty() {
+-            return Err(Error::invalid_input("Input data was empty.", location!()));
+-        }
++            if writer.is_empty() {
++                return Err(Error::invalid_input("Input data was empty.", location!()));
++            }
+ 
+-        fragment.physical_rows = Some(writer.finish().await?);
++            fragment.physical_rows = Some(writer.finish().await?);
+ 
+-        progress.complete(&fragment).await?;
++            progress.complete(&fragment).await?;
+ 
+-        Ok(fragment)
++            Ok(fragment)
++        })
++        .catch_unwind()
++        .await
++        .unwrap_or_else(|panic| Err(writer_panic(panic)));
++        match result {
++            Ok(fragment) => Ok(fragment),
++            Err(error) => Err(drained_error(error, writer.abort().await)),
++        }
+     }
+ 
+     async fn get_stream_and_schema(
+diff --git a/lance-file-0.20.0/src/writer.rs b/lance-file-0.20.0/src/writer.rs
+index bb51ec9..6174a8c 100644
+--- a/lance-file-0.20.0/src/writer.rs
++++ b/lance-file-0.20.0/src/writer.rs
+@@ -273,6 +273,12 @@ impl<M: ManifestProvider + Send + Sync> FileWriter<M> {
+         self.object_writer.tell().await
+     }
+ 
++    /// Stop new I/O and await all dispatched upload work. Legacy encoding is
++    /// synchronous in this writer; its object writer owns the asynchronous I/O.
++    pub async fn abort(&mut self) -> lance_io::object_writer::ObjectWriteAbortOutcome {
++        self.object_writer.abort().await
++    }
++
+     /// Return the id of the next batch to be written.
+     pub fn next_batch_id(&self) -> i32 {
+         self.batch_id
+diff --git a/lance-0.20.0/src/datafusion/logical_plan.rs b/lance-0.20.0/src/datafusion/logical_plan.rs
+index 6afb94e..6baca80 100644
+--- a/lance-0.20.0/src/datafusion/logical_plan.rs
++++ b/lance-0.20.0/src/datafusion/logical_plan.rs
+@@ -37,3 +37,3 @@ impl TableProvider for Dataset {
+-    fn get_logical_plan(&self) -> Option<Cow<LogicalPlan>> {
++    fn get_logical_plan(&self) -> Option<Cow<'_, LogicalPlan>> {
+         None
+     }
+@@ -63,3 +63,3 @@ impl TableProvider for Dataset {
+-        let scan_range = limit.map(|l| (0..l as u64));
++        let scan_range = limit.map(|l| 0..l as u64);
+         let plan: Arc<dyn ExecutionPlan> =
+             scanner.scan(false, false, false, scan_range, projections.into());
+diff --git a/lance-0.20.0/src/index/vector/ivf/v2.rs b/lance-0.20.0/src/index/vector/ivf/v2.rs
+index 727f50e..27dc360 100644
+--- a/lance-0.20.0/src/index/vector/ivf/v2.rs
++++ b/lance-0.20.0/src/index/vector/ivf/v2.rs
+@@ -207,4 +207,4 @@ impl<S: IvfSubIndex + 'static, Q: Quantization> IVFIndex<S, Q> {
+-    pub async fn load_partition(
++    async fn load_partition(
+         &self,
+         partition_id: usize,
+         write_cache: bool,

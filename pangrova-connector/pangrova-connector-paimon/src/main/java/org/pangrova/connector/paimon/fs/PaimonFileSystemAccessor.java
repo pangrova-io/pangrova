@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.fs;
 
-import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 
@@ -39,7 +39,10 @@ public final class PaimonFileSystemAccessor implements FileSystemAccessor {
 
     @Override
     public void deleteFile(String path) throws IOException {
-        fileIO.deleteQuietly(new Path(path));
+        Path target = new Path(path);
+        if (!fileIO.delete(target, false) && fileIO.exists(target)) {
+            throw new IOException("Paimon FileIO could not delete " + target);
+        }
     }
 
     @Override

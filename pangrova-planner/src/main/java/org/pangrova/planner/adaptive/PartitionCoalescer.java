@@ -1,11 +1,14 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 /**
  * Merges small shuffle partitions using greedy bin-packing.

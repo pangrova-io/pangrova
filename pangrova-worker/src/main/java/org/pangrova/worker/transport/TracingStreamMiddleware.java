@@ -4,7 +4,7 @@ import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.CallInfo;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightClientMiddleware;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 /**
  * Data exchange client middleware that injects W3C trace context (traceparent/tracestate)
@@ -12,10 +12,10 @@ import org.pangrova.spi.observability.TracingProvider;
  *
  * <p>This middleware is instantiated per-call by the {@link Factory}. On each outgoing
  * data exchange request (DoGet, DoPut, DoExchange), it calls
- * {@link TracingProvider#inject(org.pangrova.spi.observability.Context, Object,
- * org.pangrova.spi.observability.TextMapSetter)} to serialize the current thread's
+ * {@link TracingProvider#inject(org.pangrova.observability.api.tracing.Context, Object,
+ * org.pangrova.observability.api.tracing.TextMapSetter)} to serialize the current thread's
  * trace context into the gRPC metadata, enabling the receiving server's
- * {@link org.pangrova.observability.tracing.FlightSpanInterceptor} to extract it
+ * {@link org.pangrova.observability.sdk.tracing.grpc.FlightSpanInterceptor} to extract it
  * and create a child span.
  */
 final class TracingStreamMiddleware implements FlightClientMiddleware {

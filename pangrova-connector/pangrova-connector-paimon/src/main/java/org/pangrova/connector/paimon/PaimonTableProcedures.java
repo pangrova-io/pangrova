@@ -1,14 +1,15 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.metadata.TableProcedure;
+import org.pangrova.connector.api.metadata.TableProcedure;
 
 import java.util.List;
 
 /**
  * Enumerates the table maintenance procedures supported by the Paimon connector.
  *
- * <p>Returned by {@link PaimonMetadata#listTableProcedures()} so the engine can
- * expose available procedures in information-schema queries and SQL autocompletion.</p>
+ * <p>Returned by {@link PaimonMetadata#listTableProcedures()} for connector
+ * discovery. The descriptors do not grant SQL CALL admission; the coordinator
+ * applies its maintenance-policy contract independently.</p>
  */
 final class PaimonTableProcedures {
 
@@ -23,24 +24,35 @@ final class PaimonTableProcedures {
             procedure("expire_snapshots",
                     "Expires old snapshots using Paimon's ExpireSnapshots API, cleaning "
                             + "up data and manifest files for expired snapshots while preserving "
-                            + "tagged snapshots.",
+                            + "tagged snapshots. Supports dry_run.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.optional("retain_max",
-                                    "Maximum number of snapshots to retain", "1"))),
+                                    "Maximum number of snapshots to retain", "30"),
+                            TableProcedure.PropertyDefinition.optional("retain_min",
+                                    "Minimum number of snapshots to retain", "10"),
+                            TableProcedure.PropertyDefinition.optional("dry_run",
+                                    "Report what would expire without committing", "false"))),
             procedure("remove_orphan_files",
                     "Removes orphan files not referenced by any snapshot using Paimon's "
-                            + "LocalOrphanFilesClean.",
+                            + "LocalOrphanFilesClean. The cutoff must be at least 24 hours old; "
+                            + "supports dry_run.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.optional("older_than_ms",
-                                    "Only delete files older than this epoch (ms)", null))),
+                                    "Only delete files older than this epoch (ms)", null),
+                            TableProcedure.PropertyDefinition.optional("dry_run",
+                                    "Report orphans without deleting them", "false"))),
             procedure("create_tag",
                     "Creates a named tag on the latest snapshot.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.required("tag_name",
-                                    "The tag name to create"))),
+                                    "The tag name to create"),
+                            TableProcedure.PropertyDefinition.optional("snapshot_id",
+                                    "Snapshot ID to tag; defaults to the latest", null),
+                            TableProcedure.PropertyDefinition.optional("time_retained",
+                                    "Tag retention duration, for example 1 d", null))),
             procedure("delete_tag",
                     "Deletes a named tag.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
@@ -64,17 +76,7 @@ final class PaimonTableProcedures {
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.required("branch_name",
-                                    "The branch name to delete"))),
-            procedure("merge_branch",
-                    "Merges a branch into the main branch.",
-                    List.of(TableProcedure.PropertyDefinition.required("table_name",
-                                    "Schema-qualified table name (schema.table)"),
-                            TableProcedure.PropertyDefinition.required("branch_name",
-                                    "The branch to merge"))),
-            procedure("repair",
-                    "Validates snapshot chain integrity and reports gaps.",
-                    List.of(TableProcedure.PropertyDefinition.required("table_name",
-                                    "Schema-qualified table name (schema.table)")))
+                                    "The branch name to delete")))
     );
 
     static List<TableProcedure> list() {

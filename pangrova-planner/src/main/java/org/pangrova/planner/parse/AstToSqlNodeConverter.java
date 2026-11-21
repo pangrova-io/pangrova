@@ -1,26 +1,34 @@
 package org.pangrova.planner.parse;
 
-import org.pangrova.parser.ast.AllColumns;
-import org.pangrova.parser.ast.CteQuery;
-import org.pangrova.parser.ast.CubeGroupBy;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.ExpressionItem;
-import org.pangrova.parser.ast.GroupByExpression;
-import org.pangrova.parser.ast.GroupByItem;
-import org.pangrova.parser.ast.GroupingSets;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.JoinClause;
-import org.pangrova.parser.ast.PivotClause;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.parser.ast.RollupGroupBy;
-import org.pangrova.parser.ast.SelectItem;
-import org.pangrova.parser.ast.SetQuery;
-import org.pangrova.parser.ast.SortItem;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.TableFunctionRef;
-import org.pangrova.parser.ast.TableRef;
-import org.pangrova.parser.ast.TimeTravelSpec;
-import org.pangrova.parser.ast.UnpivotClause;
+import org.pangrova.parser.api.enums.NullOrdering;
+import org.pangrova.parser.api.enums.SetOperatorType;
+import org.pangrova.parser.api.enums.SortDirection;
+import org.pangrova.parser.api.enums.SqlJoinType;
+import org.pangrova.parser.api.enums.TableFunctionType;
+import org.pangrova.parser.api.enums.UnpivotNullHandling;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.planner.api.exception.PlannerException;
+import org.pangrova.parser.api.ast.AllColumns;
+import org.pangrova.parser.api.ast.CteQuery;
+import org.pangrova.parser.api.ast.CubeGroupBy;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.ExpressionItem;
+import org.pangrova.parser.api.ast.GroupByExpression;
+import org.pangrova.parser.api.ast.GroupByItem;
+import org.pangrova.parser.api.ast.GroupingSets;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.JoinClause;
+import org.pangrova.parser.api.ast.PivotClause;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.RollupGroupBy;
+import org.pangrova.parser.api.ast.SelectItem;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.SortItem;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.TableFunctionRef;
+import org.pangrova.parser.api.ast.TableRef;
+import org.pangrova.parser.api.ast.TimeTravelSpec;
+import org.pangrova.parser.api.ast.UnpivotClause;
 import org.apache.calcite.sql.JoinConditionType;
 import org.apache.calcite.sql.JoinType;
 import org.apache.calcite.sql.SqlBasicCall;
@@ -83,8 +91,12 @@ public final class AstToSqlNodeConverter {
     private SqlNode convertCteQuery(CteQuery cte) {
         List<SqlNode> withItems = cte.ctes().stream().map(def -> {
             SqlIdentifier name = new SqlIdentifier(def.name(), POS);
+            SqlNodeList columns = def.columnList().isEmpty() ? null
+                    : new SqlNodeList(def.columnList().stream()
+                            .map(column -> (SqlNode) new SqlIdentifier(column, POS)).toList(), POS);
             SqlNode query = convert(def.query());
-            return (SqlNode) new SqlWithItem(POS, name, null, query);
+            return (SqlNode) new SqlWithItem(POS, name, columns, query,
+                    SqlLiteral.createBoolean(cte.recursive(), POS));
         }).toList();
         SqlNodeList withList = new SqlNodeList(withItems, POS);
         return new SqlWith(POS, withList, convert(cte.body()));
@@ -94,7 +106,7 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertSetQuery(SetQuery sq) {
         List<Query> queries = sq.queries();
-        List<SetQuery.SetOperatorType> operators = sq.operators();
+        List<SetOperatorType> operators = sq.operators();
         SqlNode result = convertQuery(queries.get(0));
         for (int i = 1; i < queries.size(); i++) {
             SqlOperator op = mapSetOperator(operators.get(i - 1));
@@ -103,7 +115,7 @@ public final class AstToSqlNodeConverter {
         return result;
     }
 
-    private static SqlOperator mapSetOperator(SetQuery.SetOperatorType type) {
+    private static SqlOperator mapSetOperator(SetOperatorType type) {
         return switch (type) {
             case UNION_ALL -> SqlStdOperatorTable.UNION_ALL;
             case UNION_DISTINCT -> SqlStdOperatorTable.UNION;
@@ -202,7 +214,7 @@ public final class AstToSqlNodeConverter {
                 calciteJoinType.symbol(POS), right, condType.symbol(POS), condition);
     }
 
-    private static JoinType mapJoinType(JoinClause.JoinType jt) {
+    private static JoinType mapJoinType(SqlJoinType jt) {
         return switch (jt) {
             case INNER -> JoinType.INNER;
             case LEFT -> JoinType.LEFT;
@@ -214,6 +226,23 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode convertTableRef(TableRef ref) {
+        if (ref.isValues()) {
+            var valuesTable = ref.valuesTable().orElseThrow();
+            SqlNode[] rows = valuesTable.rows().stream()
+                    .map(row -> SqlStdOperatorTable.ROW.createCall(POS,
+                            row.stream().map(this::convertExpression).toArray(SqlNode[]::new)))
+                    .toArray(SqlNode[]::new);
+            SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rows);
+            if (ref.alias().isEmpty()) {
+                return values;
+            }
+            List<SqlNode> operands = new ArrayList<>();
+            operands.add(values);
+            operands.add(new SqlIdentifier(ref.alias().orElseThrow(), POS));
+            valuesTable.columnAliases().stream()
+                    .map(name -> new SqlIdentifier(name, POS)).forEach(operands::add);
+            return SqlStdOperatorTable.AS.createCall(POS, operands.toArray(SqlNode[]::new));
+        }
         if (ref.isTableFunction()) {
             return convertLateralTableFunction(ref);
         }
@@ -224,7 +253,18 @@ public final class AstToSqlNodeConverter {
             }
             return wrapAlias(subquery, ref.alias());
         }
-        SqlNode node = applyTimeTravel(id(ref.name()), ref);
+        Identifier tableName = ref.systemTableRef().map(systemTable -> {
+            String kind = systemTable.systemTableName();
+            if (org.pangrova.connector.api.enums.MetadataTableKind.fromSuffix(kind).isEmpty()) {
+                throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "System table has no Native reader: " + kind);
+            }
+            List<String> parts = new ArrayList<>(systemTable.baseTable().parts());
+            int last = parts.size() - 1;
+            parts.set(last, parts.get(last) + "$" + kind);
+            return new Identifier(parts);
+        }).orElse(ref.name());
+        SqlNode node = applyTimeTravel(id(tableName), ref);
         // UNPIVOT: wrap table in SqlUnpivot
         if (ref.unpivotClause().isPresent()) {
             node = convertUnpivot(node, ref.unpivotClause().get());
@@ -238,13 +278,14 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertLateralTableFunction(TableRef ref) {
         var funcRef = ref.tableFunctionRef().orElseThrow();
-        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.GENERATE_SERIES) {
+        if (funcRef.functionType() == TableFunctionType.GENERATE_SERIES) {
             return convertGenerateSeries(funcRef);
         }
         SqlNode argument = convertExpression(funcRef.argument());
         SqlNode unnest;
-        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.POSEXPLODE) {
-            // POSEXPLODE → UNNEST WITH ORDINALITY
+        if (funcRef.functionType() == TableFunctionType.POSEXPLODE
+                || funcRef.functionType() == TableFunctionType.UNNEST_WITH_ORDINALITY) {
+            // Preserve the value column followed by the ordinality column.
             unnest = new org.apache.calcite.sql.SqlUnnestOperator(true)
                     .createCall(POS, argument);
         } else {
@@ -263,28 +304,21 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode convertGenerateSeries(TableFunctionRef funcRef) {
-        long start = extractLiteralLong(funcRef.argument());
-        long stop = extractLiteralLong(funcRef.endArgument().orElseThrow(
-                () -> new IllegalArgumentException("GENERATE_SERIES requires start and stop")));
-        List<SqlNode> rows = new java.util.ArrayList<>();
-        for (long i = start; i <= stop; i++) {
-            SqlNode row = SqlStdOperatorTable.ROW.createCall(POS,
-                    SqlLiteral.createExactNumeric(String.valueOf(i), POS));
-            rows.add(row);
-        }
-        SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rows.toArray(SqlNode[]::new));
-        return SqlStdOperatorTable.AS.createCall(POS, values,
-                new SqlIdentifier("generate_series", POS),
-                new SqlIdentifier("val", POS));
-    }
-
-    private static long extractLiteralLong(Expression expr) {
-        if (expr instanceof org.pangrova.parser.ast.Literal lit
-                && lit.value() instanceof org.pangrova.parser.ast.LiteralValue.IntegerValue iv) {
-            return iv.value();
-        }
-        throw new IllegalArgumentException(
-                "GENERATE_SERIES arguments must be integer literals, got: " + expr);
+        List<SqlNode> arguments = new ArrayList<>();
+        arguments.add(convertExpression(funcRef.argument()));
+        arguments.add(convertExpression(funcRef.endArgument().orElseThrow(
+                () -> new IllegalArgumentException("GENERATE_SERIES requires start and stop"))));
+        funcRef.stepArgument().ifPresent(step -> arguments.add(convertExpression(step)));
+        SqlNode invocation = new SqlUnresolvedFunction(new SqlIdentifier("GENERATE_SERIES", POS),
+                null, null, null, null, SqlFunctionCategory.USER_DEFINED_TABLE_FUNCTION)
+                .createCall(POS, arguments.toArray(SqlNode[]::new));
+        SqlNode table = SqlStdOperatorTable.COLLECTION_TABLE.createCall(POS, invocation);
+        List<SqlNode> alias = new ArrayList<>();
+        alias.add(table);
+        alias.add(new SqlIdentifier(funcRef.alias().orElse("generate_series"), POS));
+        funcRef.columnAliases().stream().map(name -> new SqlIdentifier(name, POS))
+                .forEach(alias::add);
+        return SqlStdOperatorTable.AS.createCall(POS, alias.toArray(SqlNode[]::new));
     }
 
     private SqlNode applyTimeTravel(SqlNode table, TableRef ref) {
@@ -375,11 +409,11 @@ public final class AstToSqlNodeConverter {
 
     private SqlNode convertSortItem(SortItem item) {
         SqlNode expr = convertExpression(item.expression());
-        if (item.direction().isPresent() && item.direction().get() == SortItem.SortDirection.DESC) {
+        if (item.direction().isPresent() && item.direction().get() == SortDirection.DESC) {
             expr = SqlStdOperatorTable.DESC.createCall(POS, expr);
         }
         if (item.nullOrdering().isPresent()) {
-            if (item.nullOrdering().get() == SortItem.NullOrdering.FIRST) {
+            if (item.nullOrdering().get() == NullOrdering.FIRST) {
                 expr = SqlStdOperatorTable.NULLS_FIRST.createCall(POS, expr);
             } else {
                 expr = SqlStdOperatorTable.NULLS_LAST.createCall(POS, expr);
@@ -395,7 +429,7 @@ public final class AstToSqlNodeConverter {
     // ── UNPIVOT / PIVOT ──
 
     private SqlNode convertUnpivot(SqlNode source, UnpivotClause unpivot) {
-        boolean includeNulls = unpivot.nullHandling() == UnpivotClause.NullHandling.INCLUDE;
+        boolean includeNulls = unpivot.nullHandling() == UnpivotNullHandling.INCLUDE;
         // measureList: the value column(s)
         SqlNodeList measureList = new SqlNodeList(
                 List.of(new SqlIdentifier(unpivot.valueColumn().parts(), POS)), POS);

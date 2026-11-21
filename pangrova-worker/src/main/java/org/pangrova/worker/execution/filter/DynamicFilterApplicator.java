@@ -1,12 +1,12 @@
 package org.pangrova.worker.execution.filter;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
+import org.pangrova.protocol.v2.RuntimeFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +37,12 @@ public final class DynamicFilterApplicator {
             List<String> retainedSplits,
             int totalSplits,
             int filteredSplits
-    ) {}
+    ) {
+        /** Freezes the retained split membership for this filtering decision. */
+        public FilterResult {
+            retainedSplits = List.copyOf(retainedSplits);
+        }
+    }
 
     /**
      * Applies all dynamic filters to the given encoded splits.
@@ -84,12 +89,7 @@ public final class DynamicFilterApplicator {
     private List<ParsedFilter> parseFilters(List<DynamicFilterPayload> filters) {
         List<ParsedFilter> parsed = new ArrayList<>();
         for (DynamicFilterPayload payload : filters) {
-            try {
-                parsed.add(ParsedFilter.from(payload));
-            } catch (Exception e) {
-                LOG.warn("event=dpp_filter_parse_failed filterId={} filterType={} error={}",
-                        payload.filterId(), payload.filterType(), e.getMessage());
-            }
+            parsed.add(ParsedFilter.from(payload));
         }
         return parsed;
     }
@@ -112,10 +112,13 @@ public final class DynamicFilterApplicator {
         boolean matches(Map<String, String> partitionValues);
 
         static ParsedFilter from(DynamicFilterPayload payload) {
-            return switch (payload.filterType()) {
-                case "MIN_MAX" -> MinMaxFilter.parse(payload);
-                case "BLOOM" -> SbbfFilter.parse(payload);
-                default -> AcceptAllFilter.INSTANCE;
+            RuntimeFilter entry = TypedDynamicFilter.parseSingle(payload);
+            return switch (entry.getPredicateCase()) {
+                case RANGE -> new RangeFilter(entry);
+                case BLOOM -> SbbfFilter.parse(payload, entry);
+                default -> throw new IllegalArgumentException(
+                        "Unsupported dynamic filter predicate: "
+                                + entry.getPredicateCase());
             };
         }
     }
@@ -123,19 +126,26 @@ public final class DynamicFilterApplicator {
     /**
      * MIN_MAX filter: prunes splits whose partition value is outside [min, max].
      */
-    record MinMaxFilter(String column, String min, String max) implements ParsedFilter {
+    record RangeFilter(RuntimeFilter entry) implements ParsedFilter {
 
-        static MinMaxFilter parse(DynamicFilterPayload payload) {
-            String data = new String(payload.filterData(), StandardCharsets.UTF_8);
-            String[] parts = data.split("\\|", 3);
-            if (parts.length < 3) {
-                throw new IllegalArgumentException(
-                        "Invalid MIN_MAX filter data format for filterId=" + payload.filterId());
-            }
-            String column = (payload.column() != null && !payload.column().isEmpty())
-                    ? payload.column()
-                    : parts[0];
-            return new MinMaxFilter(column, parts[1], parts[2]);
+        @Override
+        public boolean matches(Map<String, String> partitionValues) {
+            return TypedDynamicFilter.rangeMatches(
+                    entry, partitionValues.get(entry.getColumnName()));
+        }
+    }
+
+    /**
+     * SBBF filter: prunes splits whose partition value is definitely not in the
+     * Split Block Bloom Filter set. Deserializes from SBBF binary format.
+     */
+    record SbbfFilter(String filterId, String column,
+                      SplitBlockBloomFilter sbbf,
+                      RuntimeFilter entry) implements ParsedFilter {
+
+        static SbbfFilter parse(DynamicFilterPayload payload, RuntimeFilter entry) {
+            return new SbbfFilter(payload.filterId(), entry.getColumnName(),
+                    TypedDynamicFilter.decodeBloom(entry), entry);
         }
 
         @Override
@@ -145,52 +155,10 @@ public final class DynamicFilterApplicator {
                 return true;
             }
             try {
-                return value.compareTo(min) >= 0 && value.compareTo(max) <= 0;
-            } catch (ClassCastException e) {
+                return sbbf.mightContainBytes(TypedDynamicFilter.encodeBloomProbe(entry, value));
+            } catch (NumberFormatException failure) {
                 return true;
             }
-        }
-    }
-
-    /**
-     * SBBF filter: prunes splits whose partition value is definitely not in the
-     * Split Block Bloom Filter set. Deserializes from SBBF binary format.
-     */
-    record SbbfFilter(String filterId, String column,
-                      SplitBlockBloomFilter sbbf) implements ParsedFilter {
-
-        static SbbfFilter parse(DynamicFilterPayload payload) {
-            byte[] data = payload.filterData();
-            String column = payload.column() != null ? payload.column() : "";
-            if (data.length == 0) {
-                return new SbbfFilter(payload.filterId(), column, null);
-            }
-            SplitBlockBloomFilter sbbf = SplitBlockBloomFilter.readFrom(data);
-            return new SbbfFilter(payload.filterId(), column, sbbf);
-        }
-
-        @Override
-        public boolean matches(Map<String, String> partitionValues) {
-            if (sbbf == null || column.isEmpty()) {
-                return true;
-            }
-            String value = partitionValues.get(column);
-            if (value == null) {
-                return true;
-            }
-            return sbbf.mightContain(value);
-        }
-    }
-
-    /**
-     * Fallback filter for unknown filter types — accepts all splits.
-     */
-    enum AcceptAllFilter implements ParsedFilter {
-        INSTANCE;
-
-        @Override
-        public boolean matches(Map<String, String> partitionValues) {
-            return true;
         }
     }
 }
