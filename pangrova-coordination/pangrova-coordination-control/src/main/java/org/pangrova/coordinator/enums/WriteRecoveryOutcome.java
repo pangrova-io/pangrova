@@ -6,7 +6,7 @@ public enum WriteRecoveryOutcome {
     COMMITTED,
     /** The write is known not to have landed and cannot be safely retried; discard the intent. */
     ABORTED,
-    /** The next recovery operation could not start because its Worker is unavailable. */
+    /** The next recovery operation could not start or its authority definitively aborted it. */
     DEFERRED,
     /** The outcome is ambiguous; retain the intent and raise an alarm for manual reconciliation. */
     QUARANTINED

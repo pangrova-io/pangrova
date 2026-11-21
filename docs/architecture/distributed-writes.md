@@ -413,11 +413,12 @@ after-images under the existing catalog CAS and source-fingerprint fences.
 A live acceptance test drives real Kafka records through two independent
 Worker CDC backends into one Paimon merge. It injects failure before one backend reports a
 terminal state and verifies that the attempt leaves both publication and offsets unchanged.
-The retry publishes once and acknowledges only after publication. Independent process
-tests also demonstrate Paimon recovery after a staged Worker exits and after a
-MAINTENANCE Coordinator restarts with a published snapshot and a PENDING journal
-intent. The restart confirms the same fingerprint, keeps the snapshot ID, and advances
-the exact source offset. See [process acceptance](../testing/speculative-process-e2e.md#independent-cdc-and-cross-encoder-acceptance).
+The retry publishes once and acknowledges only after publication. Independent
+process tests also exercise Iceberg and Paimon recovery before Worker staging,
+after staging, during catalog publication, after publication with a PENDING
+intent, and after COMMITTED with a failed source-offset acknowledgement. The
+tests verify the original fingerprint when a durable intent exists, a single
+publication, and the exact acknowledged source offset. See [process acceptance](../testing/speculative-process-e2e.md#independent-cdc-and-cross-encoder-acceptance).
 
 One source batch must bind tenant,
 stream ID, source ownership epoch, exact topic/partition offset ranges, target table UUID,
@@ -436,8 +437,9 @@ its execution anchor instead of deleting it. A successor can claim the original
 execution under a new fencing token and confirm the same intent. If a Native
 dataset operation cannot start because no Worker is registered, the Coordinator
 yields that claim for a later recovery scan and continues handling other
-executions. A durable quarantine decision ends automatic recovery for that
-fingerprint.
+executions. An explicit PostgreSQL serialization failure or deadlock also
+yields the claim after the managed source authority transaction aborts. A
+durable quarantine decision ends automatic recovery for that fingerprint.
 Lance preparation gives priority to a registered Worker incarnation that
 produced one of the winning staging fragments. This allows the replacement
 attempt to publish while the original Worker's heartbeat entry expires.

@@ -5,34 +5,48 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 @E2ETest
 class IndependentCdcProcessesE2ETest extends ContainerTestBase {
+
+    private static final int ICEBERG_CATALOG_BARRIER = 716_241;
 
     private enum Scenario { COMBINED, MAINTENANCE, WORKER_EXIT, ICEBERG_WORKER_EXIT }
 
@@ -54,6 +68,15 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
     @Test
     void survivingWorkerRestagesIcebergUpdateAfterProcessExit() throws Exception {
         verifyPublication(Scenario.ICEBERG_WORKER_EXIT);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Scenario.class, names = {"WORKER_EXIT", "ICEBERG_WORKER_EXIT"})
+    void survivingWorkerStagesTheRangeAfterAnExitBeforeTaskDelivery(Scenario scenario) throws Exception {
+        try (var kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"))) {
+            kafka.start();
+            verifyExitBeforeDelivery(kafka.getBootstrapServers(), scenario);
+        }
     }
 
     @Test
@@ -97,9 +120,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         try (var producer = new KafkaProducer<String, String>(Map.of("bootstrap.servers", broker,
                 "key.serializer", StringSerializer.class.getName(),
                 "value.serializer", StringSerializer.class.getName()))) {
-            producer.send(new ProducerRecord<>(topic, null,
-                    "{\"op\":\"c\",\"after\":{\"id\":42,\"payload\":\"cdc-visible\"}}")).get(30, TimeUnit.SECONDS);
-            awaitPublication(processes, 1);
+            verifyIcebergCommitInterruption(processes, producer, topic);
             assertThat(payload(processes)).contains("cdc-visible");
             long before = icebergSnapshotCount(processes);
 
@@ -137,6 +158,83 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 ResultProtocol.GRPC_TLS).output()).contains("unrelated").doesNotContain("cdc-");
     }
 
+    private static void verifyIcebergCommitInterruption(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, String topic) throws Exception {
+        installIcebergCatalogBarrier(processes);
+        String fingerprint;
+        try (var barrier = processes.metadataDataSource().getConnection();
+                var lock = barrier.prepareStatement("SELECT pg_advisory_xact_lock(?)")) {
+            barrier.setAutoCommit(false);
+            lock.setLong(1, ICEBERG_CATALOG_BARRIER);
+            lock.execute();
+            producer.send(new ProducerRecord<>(topic, null,
+                    "{\"op\":\"c\",\"after\":{\"id\":42,\"payload\":\"cdc-visible\"}}")).get(30, TimeUnit.SECONDS);
+            await("Iceberg metadata update is blocked while its CDC intent is pending")
+                    .atMost(Duration.ofSeconds(45)).until(() -> icebergCommitBlocked(processes));
+            fingerprint = pendingCdcFingerprint(processes);
+            assertThat(icebergSnapshotCount(processes)).isEqualTo(1);
+            assertThat(confirmed(processes, 1)).isFalse();
+            processes.restartQueryCoordinatorAfterCrash(() -> {
+                barrier.rollback();
+                try (var connection = processes.metadataDataSource().getConnection();
+                        var statement = connection.createStatement()) {
+                    statement.execute("DROP TRIGGER hold_cdc_catalog_commit ON iceberg_tables");
+                }
+            });
+        }
+        await("recovery acknowledges the interrupted Iceberg catalog commit").atMost(Duration.ofMinutes(2))
+                .until(() -> confirmed(processes, 1));
+        assertThat(journalFingerprint(processes, "COMMITTED", 1)).isEqualTo(fingerprint);
+        assertThat(icebergSnapshotCount(processes)).isEqualTo(2);
+    }
+
+    private static void installIcebergCatalogBarrier(IndependentLocalProcesses processes) throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE FUNCTION hold_cdc_catalog_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                        IF NEW.table_name = 'orders' THEN
+                            PERFORM pg_advisory_xact_lock(%d);
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $$
+                    """.formatted(ICEBERG_CATALOG_BARRIER));
+            statement.execute("""
+                    CREATE TRIGGER hold_cdc_catalog_commit BEFORE UPDATE OF metadata_location ON iceberg_tables
+                    FOR EACH ROW EXECUTE FUNCTION hold_cdc_catalog_commit()
+                    """);
+        }
+    }
+
+    private static boolean icebergCommitBlocked(IndependentLocalProcesses processes) throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT 1 FROM pg_locks
+                        WHERE locktype='advisory' AND classid=0 AND objid=CAST(? AS oid) AND NOT granted
+                        """)) {
+            statement.setInt(1, ICEBERG_CATALOG_BARRIER);
+            try (var rows = statement.executeQuery()) {
+                return rows.next();
+            }
+        }
+    }
+
+    private static String pendingCdcFingerprint(IndependentLocalProcesses processes) throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT commit_fingerprint FROM write_commit_journal
+                        WHERE cdc_stream_id='orders_stream' AND state='PENDING'
+                        """)) {
+            assertThat(rows.next()).isTrue();
+            String fingerprint = rows.getString(1);
+            assertThat(rows.next()).isFalse();
+            return fingerprint;
+        }
+    }
+
     private static boolean hasPositionDeleteRead(ProcessWorkerHttpRelay workerHttp, String queryId)
             throws java.io.IOException {
         for (var transfer : workerHttp.transfers()) {
@@ -151,12 +249,10 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         return false;
     }
 
-    private static long icebergSnapshotCount(IndependentLocalProcesses processes) throws SQLException {
-        try (var connection = processes.openJdbc();
-                var statement = connection.createStatement();
-                var rows = statement.executeQuery("SELECT COUNT(*) FROM spec_catalog.default.orders$snapshots")) {
-            assertThat(rows.next()).isTrue();
-            return rows.getLong(1);
+    private static long icebergSnapshotCount(IndependentLocalProcesses processes) throws IOException {
+        try (var catalog = ProcessInputSnapshot.openCatalog(processes.warehouse(), processes.hostJdbcUrl())) {
+            var table = catalog.loadTable(TableIdentifier.of("default", "orders"));
+            return StreamSupport.stream(table.snapshots().spliterator(), false).count();
         }
     }
 
@@ -205,7 +301,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             String broker = kafka.getBootstrapServers();
             try (var processes = IndependentLocalProcesses.cdc(broker)) {
                 try {
-                    assertPublication(broker, processes, scenario);
+                    assertPublication(broker, processes, scenario, IndependentCdcProcessesE2ETest::verifyWorkerExit);
                 } catch (Exception | Error failure) {
                     failure.addSuppressed(new IllegalStateException(
                             "CDC process diagnostics retained at " + processes.retainDiagnostics()));
@@ -215,7 +311,83 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         }
     }
 
-    private static void assertPublication(String broker, IndependentLocalProcesses processes, Scenario scenario)
+    private static void verifyExitBeforeDelivery(String broker, Scenario scenario) throws Exception {
+        var firstTarget = new AtomicReference<URI>();
+        var secondTarget = new AtomicReference<URI>();
+        var interrupted = new AtomicReference<InterruptedDelivery>();
+        var workerExited = new CountDownLatch(1);
+        try (var first = new ProcessWorkerHttpRelay(firstTarget::get);
+                var second = new ProcessWorkerHttpRelay(secondTarget::get);
+                var processes = IndependentLocalProcesses.cdc(broker)) {
+            first.disconnectBeforeDelivery(transfer ->
+                    disconnectCdcDelivery(transfer, "local-worker-1", interrupted, workerExited));
+            second.disconnectBeforeDelivery(transfer ->
+                    disconnectCdcDelivery(transfer, "local-worker-2", interrupted, workerExited));
+            processes.reports().mapWorkerHttpPorts(worker -> {
+                boolean isFirst = worker.workerId().equals("local-worker-1");
+                (isFirst ? firstTarget : secondTarget).set(URI.create(
+                        "http://" + worker.httpHost() + ":" + worker.httpPort()));
+                return (isFirst ? first : second).port();
+            });
+            try {
+                assertPublication(broker, processes, scenario, (owner, producer, change, iceberg) -> {
+                    producer.send(change).get(30, TimeUnit.SECONDS);
+                    await("the first CDC task is intercepted before Worker delivery").atMost(Duration.ofSeconds(45))
+                            .until(() -> interrupted.get() != null);
+                    var delivery = interrupted.get();
+                    assertThat(unpublished(owner)).isTrue();
+                    owner.crashWorker(delivery.workerId());
+                    workerExited.countDown();
+                    await("a surviving Worker stages and commits the original CDC range").atMost(Duration.ofMinutes(7))
+                            .until(() -> confirmed(owner, 1));
+                    assertThat(owner.reports().deliveries()).noneMatch(report ->
+                            report.report().taskId().equals(delivery.taskId()));
+                    await("Worker membership removes the departed incarnation before the verification read")
+                            .atMost(Duration.ofMinutes(3))
+                            .until(() -> workerRegistrationRemoved(owner, delivery.workerId()));
+                    verifyWorkerRecovery(owner, iceberg);
+                });
+            } catch (Exception | Error failure) {
+                failure.addSuppressed(new IllegalStateException(
+                        "CDC pre-delivery diagnostics retained at " + processes.retainDiagnostics()));
+                throw failure;
+            } finally {
+                workerExited.countDown();
+            }
+        }
+    }
+
+    private static boolean disconnectCdcDelivery(ProcessWorkerHttpRelay.Transfer transfer, String workerId,
+            AtomicReference<InterruptedDelivery> interrupted, CountDownLatch workerExited) {
+        if (!transfer.isTaskSubmission()) return false;
+        try {
+            var task = transfer.submittedTask().taskRequest();
+            if (task.getTaskKind() != TaskKind.TASK_KIND_CDC_INGEST) return false;
+            String taskId = task.getAttempt().getTaskId();
+            interrupted.compareAndSet(null, new InterruptedDelivery(workerId, taskId));
+            if (!interrupted.get().taskId().equals(taskId)) return false;
+            if (!workerExited.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Worker exit did not complete at the CDC delivery barrier");
+            }
+            return true;
+        } catch (IOException malformed) {
+            throw new UncheckedIOException(malformed);
+        } catch (InterruptedException interruptedWait) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("CDC delivery barrier was interrupted", interruptedWait);
+        }
+    }
+
+    private record InterruptedDelivery(String workerId, String taskId) {}
+
+    @FunctionalInterface
+    private interface WorkerExitVerification {
+        void verify(IndependentLocalProcesses processes, KafkaProducer<String, String> producer,
+                    ProducerRecord<String, String> change, boolean iceberg) throws Exception;
+    }
+
+    private static void assertPublication(String broker, IndependentLocalProcesses processes, Scenario scenario,
+            WorkerExitVerification workerExit)
             throws Exception {
         boolean streamingOnly = scenario == Scenario.MAINTENANCE;
         boolean iceberg = scenario == Scenario.ICEBERG_WORKER_EXIT;
@@ -259,7 +431,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 "key.serializer", StringSerializer.class.getName(),
                 "value.serializer", StringSerializer.class.getName()))) {
             if (iceberg) {
-                verifyWorkerExit(processes, producer, new ProducerRecord<>(topic, null, "{\"op\":\"u\","
+                workerExit.verify(processes, producer, new ProducerRecord<>(topic, null, "{\"op\":\"u\","
                         + "\"before\":{\"id\":42,\"payload\":\"cdc-visible\"},"
                         + "\"after\":{\"id\":42,\"payload\":\"cdc-updated\"}}"), true);
                 return;
@@ -267,7 +439,9 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             var insert = new ProducerRecord<String, String>(topic, null,
                     "{\"op\":\"c\",\"after\":{\"id\":42,\"payload\":\"cdc-visible\"}}");
             if (scenario == Scenario.WORKER_EXIT) {
-                verifyWorkerExit(processes, producer, insert, false);
+                workerExit.verify(processes, producer, insert, false);
+            } else if (scenario == Scenario.COMBINED) {
+                verifyPaimonCommitInterruption(processes, producer, insert);
             } else {
                 producer.send(insert).get(30, TimeUnit.SECONDS);
                 awaitPublication(processes, 1);
@@ -310,6 +484,40 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         assertThat(workerCompletedCdc).isEqualTo(!streamingOnly);
     }
 
+    private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, ProducerRecord<String, String> insert) throws Exception {
+        Path snapshotDirectory;
+        var options = new Options();
+        options.setString("warehouse", processes.warehouse().toUri().toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            var table = (FileStoreTable) catalog.getTable(Identifier.create("default", "orders"));
+            snapshotDirectory = Path.of(table.snapshotManager().snapshotDirectory().toUri());
+        }
+        Files.createDirectories(snapshotDirectory);
+        var original = Files.getPosixFilePermissions(snapshotDirectory);
+        var held = EnumSet.copyOf(original);
+        held.removeAll(EnumSet.of(PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_WRITE,
+                PosixFilePermission.OTHERS_WRITE));
+        String fingerprint;
+        try {
+            Files.setPosixFilePermissions(snapshotDirectory, held);
+            assertThat(Files.isWritable(snapshotDirectory)).isFalse();
+            producer.send(insert).get(30, TimeUnit.SECONDS);
+            await("Paimon SDK fails while publishing the staged CDC snapshot").atMost(Duration.ofSeconds(45))
+                    .until(() -> processes.coordinatorLogged("Failed to commit Paimon distributed write"));
+            fingerprint = pendingCdcFingerprint(processes);
+            assertThat(paimonPayloads(processes)).isEmpty();
+            assertThat(confirmed(processes, 1)).isFalse();
+            processes.restartQueryCoordinatorAfterCrash(() -> Files.setPosixFilePermissions(snapshotDirectory, original));
+        } finally {
+            Files.setPosixFilePermissions(snapshotDirectory, original);
+        }
+        await("Paimon recovers the interrupted CDC snapshot").atMost(Duration.ofMinutes(2))
+                .until(() -> confirmed(processes, 1));
+        assertThat(journalFingerprint(processes, "COMMITTED", 1)).isEqualTo(fingerprint);
+        assertThat(paimonSnapshot(processes)).isEqualTo(1);
+    }
+
     private static void verifyWorkerExit(IndependentLocalProcesses processes, KafkaProducer<String, String> producer,
             ProducerRecord<String, String> change, boolean iceberg) throws Exception {
         var withheld = new AtomicReference<TaskStatusReport>();
@@ -342,6 +550,10 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                         && !report.workerId().equals(lost.workerId()) && !report.queryId().equals(lost.queryId());
             });
         }
+        verifyWorkerRecovery(processes, iceberg);
+    }
+
+    private static void verifyWorkerRecovery(IndependentLocalProcesses processes, boolean iceberg) throws Exception {
         if (iceberg) {
             assertThat(processes.query("SELECT payload FROM spec_catalog.default.orders ORDER BY id",
                     ResultProtocol.GRPC_TLS).output()).contains("cdc-updated", "unrelated", "2 rows")
@@ -357,6 +569,17 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         try (var connection = processes.metadataDataSource().getConnection();
                 var statement = connection.prepareStatement("SELECT 1 FROM execution_anchor WHERE execution_id=?")) {
             statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                return !rows.next();
+            }
+        }
+    }
+
+    private static boolean workerRegistrationRemoved(IndependentLocalProcesses processes, String workerId)
+            throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("SELECT 1 FROM worker_registry WHERE worker_id=?")) {
+            statement.setString(1, workerId);
             try (var rows = statement.executeQuery()) {
                 return !rows.next();
             }

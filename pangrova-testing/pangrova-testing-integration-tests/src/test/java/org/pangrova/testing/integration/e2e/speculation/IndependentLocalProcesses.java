@@ -187,6 +187,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     private void startQueryControlPlane() throws Exception {
+        launchQueryCoordinator();
+        startWorker("local-worker-1");
+        query("SELECT 42", ResultProtocol.GRPC_TLS);
+    }
+
+    private void launchQueryCoordinator() throws Exception {
         coordinator = launch("coordinator", artifacts.coordinatorClasspath(),
                 "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
                 coordinatorYaml(cdcKafkaBootstrap != null || indexing ? "COMBINED" : "QUERY"),
@@ -198,8 +204,6 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "-Dpangrova.http.max-requests-per-minute=100000",
                 "-Dpangrova.speculation.single-task-duration-threshold-ms=15000");
         awaitCoordinatorControlPlane();
-        startWorker("local-worker-1");
-        query("SELECT 42", ResultProtocol.GRPC_TLS);
     }
 
     void switchToMaintenanceOnly() throws Exception {
@@ -212,6 +216,22 @@ final class IndependentLocalProcesses implements AutoCloseable {
         stopWorkers();
         stopCoordinator();
         startQueryControlPlane();
+    }
+
+    @FunctionalInterface
+    interface WhileCoordinatorStopped {
+        void run() throws Exception;
+    }
+
+    void restartQueryCoordinatorAfterCrash(WhileCoordinatorStopped whileStopped) throws Exception {
+        requireAlive(coordinator);
+        coordinator.process().destroyForcibly();
+        if (!coordinator.process().waitFor(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException(
+                    "Coordinator did not exit after forced termination: " + coordinator.process().pid());
+        }
+        whileStopped.run();
+        launchQueryCoordinator();
     }
 
     private void stopWorkers() {
@@ -328,6 +348,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     long pid(String workerId) { return workers.get(workerId).process().pid(); }
     long coordinatorPid() { return coordinator.process().pid(); }
+
+    boolean coordinatorLogged(String marker) throws IOException {
+        return Files.readString(coordinator.log()).contains(marker);
+    }
 
     boolean hasAttributedQueryAudit(String queryId) throws java.sql.SQLException {
         try (var connection = security.dataSource().getConnection();

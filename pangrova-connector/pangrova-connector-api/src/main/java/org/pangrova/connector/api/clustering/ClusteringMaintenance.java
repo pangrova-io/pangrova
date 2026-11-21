@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.clustering;
 
+import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.enums.ClusteringMode;
 
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 
 /** Clustering maintenance bound to one verified physical table. */
+@Experimental
 public interface ClusteringMaintenance {
 
     void setOrder(List<String> columns, ClusteringMode mode, Runnable requireAuthority);

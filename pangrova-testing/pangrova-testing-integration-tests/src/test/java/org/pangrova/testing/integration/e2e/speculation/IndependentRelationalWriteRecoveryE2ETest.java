@@ -75,6 +75,10 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
         // For Lance the pointer and journal share one PostgreSQL transaction.
         // The same fault leaves the staged data unpublished until recovery.
         requireRows(processes, table, target != Target.LANCE);
+        if (target == Target.LANCE) {
+            await("the running Coordinator encounters the same rollback during recovery")
+                    .atMost(Duration.ofSeconds(45)).until(() -> rejectedCompletions(processes) >= 2);
+        }
 
         processes.restartQueryCoordinator();
         try (var connection = processes.metadataDataSource().getConnection();
@@ -107,11 +111,13 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
     private static void rejectCompletion(IndependentLocalProcesses processes) throws java.sql.SQLException {
         try (var connection = processes.metadataDataSource().getConnection();
                 var statement = connection.createStatement()) {
+            statement.execute("CREATE SEQUENCE reject_relational_completion_attempts");
             statement.execute("""
                     CREATE FUNCTION reject_relational_completion() RETURNS trigger LANGUAGE plpgsql AS $$
                     BEGIN
                         IF NEW.table_name = 'default.recovery_after_publication' AND NEW.state = 'COMMITTED' THEN
-                            RAISE EXCEPTION 'injected write-journal confirmation failure';
+                            PERFORM nextval('reject_relational_completion_attempts');
+                            RAISE EXCEPTION 'injected write-journal confirmation failure' USING ERRCODE = '40001';
                         END IF;
                         RETURN NEW;
                     END;
@@ -121,6 +127,15 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
                     CREATE TRIGGER reject_relational_completion BEFORE UPDATE ON write_commit_journal
                     FOR EACH ROW EXECUTE FUNCTION reject_relational_completion()
                     """);
+        }
+    }
+
+    private static long rejectedCompletions(IndependentLocalProcesses processes) throws java.sql.SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT last_value FROM reject_relational_completion_attempts")) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
         }
     }
 

@@ -42,12 +42,7 @@ final class ProcessInputSnapshot implements AutoCloseable {
     ProcessInputSnapshot(Path warehouse, String jdbcUrl) throws IOException {
         this.warehouse = warehouse;
         Files.createDirectories(warehouse);
-        Configuration configuration = new Configuration();
-        configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
-        configuration.setBoolean("fs.file.impl.disable.cache", true);
-        catalog = (JdbcCatalog) CatalogUtil.buildIcebergCatalog("spec_catalog", Map.of(
-                "type", "jdbc", "uri", jdbcUrl, "warehouse", warehouse.toString(),
-                "jdbc.user", "pangrova", "jdbc.password", "pangrova_test", "jdbc.schema-version", "V1"), configuration);
+        catalog = openCatalog(warehouse, jdbcUrl);
         try {
             catalog.createNamespace(Namespace.of("default"));
             table = catalog.createTable(TableIdentifier.of("default", "input"), new Schema(
@@ -59,6 +54,15 @@ final class ProcessInputSnapshot implements AutoCloseable {
             try { catalog.close(); } catch (RuntimeException | Error cleanupFailure) { failure.addSuppressed(cleanupFailure); }
             throw failure;
         }
+    }
+
+    static JdbcCatalog openCatalog(Path warehouse, String jdbcUrl) {
+        Configuration configuration = new Configuration();
+        configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
+        configuration.setBoolean("fs.file.impl.disable.cache", true);
+        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog("spec_catalog", Map.of(
+                "type", "jdbc", "uri", jdbcUrl, "warehouse", warehouse.toString(),
+                "jdbc.user", "pangrova", "jdbc.password", "pangrova_test", "jdbc.schema-version", "V1"), configuration);
     }
 
     Path warehouse() { return warehouse; }

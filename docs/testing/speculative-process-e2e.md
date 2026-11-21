@@ -84,7 +84,9 @@ expected row count. A separate scenario interrupts journal confirmation and
 restarts the Coordinator. The test checks the original query ID, fingerprint and
 exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
 Lance updates its catalog pointer and journal in a single PostgreSQL transaction,
-so the same fault leaves the pointer unchanged until recovery.
+so the same fault leaves the pointer unchanged until recovery. The Lance test
+also observes a second serialization failure during a live recovery scan,
+then confirms that a Coordinator restart still completes the same intent.
 
 ## Independent Iceberg clustering recovery
 
@@ -99,25 +101,32 @@ one replacement snapshot for that run.
 ## Independent CDC and Cross-Encoder acceptance
 
 `IndependentCdcProcessesE2ETest` also exercises Iceberg mutations using one
-real Kafka partition and a version 2 JDBC catalog. The Worker stages an
-UPDATE, PostgreSQL rejects write-journal completion after the Iceberg
-snapshot becomes visible, and MAINTENANCE confirms the same intent and
-source offset. MAINTENANCE then publishes a DELETE and records COMMITTED
+real Kafka partition and a version 2 JDBC catalog. A PostgreSQL advisory lock
+blocks the catalog pointer update while the Coordinator process exits. The
+replacement Coordinator recovers the original fingerprint and acknowledges one
+published snapshot. A Worker then stages an UPDATE. PostgreSQL rejects journal
+completion after the Iceberg snapshot becomes visible. MAINTENANCE confirms
+the same intent and acknowledges the source offset. It then publishes a DELETE and records COMMITTED
 while PostgreSQL blocks acknowledging the new offset. A second restart
 advances the offset from the original fingerprint. The query role verifies
 that unrelated data remains visible and that each publication produced one
 snapshot.
 
 `IndependentCdcProcessesE2ETest` uses the same frozen runtime and process
-fixture. The COMBINED case uses public stream DDL, Kafka insert, update and
-delete events, and Flight reads of Paimon. The MAINTENANCE case takes over
+fixture. The COMBINED case blocks Paimon's filesystem snapshot publication
+and restarts the Coordinator to recover the exact staged INSERT. It then
+exercises UPDATE and DELETE through public stream DDL, Kafka, and Flight.
+The MAINTENANCE case takes over
 after the Worker exits and observes the real Paimon snapshot through its SDK.
 A PostgreSQL trigger rejects the journal update after the Paimon commit.
 After Coordinator restart the same fingerprint reaches COMMITTED, the
-snapshot ID stays unchanged, and the exact Kafka offset advances. A further case
-forces the Worker process to exit after its real staging report reaches the
-relay. The Coordinator receives no successful report for that attempt while the
-surviving Worker stages the range and publishes one snapshot.
+snapshot ID stays unchanged, and the exact Kafka offset advances. A subsequent
+DELETE survives a failed offset acknowledgement without publishing another
+snapshot during recovery.
+
+Both Iceberg and Paimon process cases also kill a Worker before task delivery
+and after its staging report has reached the relay. Publication and the source
+offset stay unchanged until the surviving Worker stages the original range.
 
 `IndependentCrossEncoderE2ETest` starts a pinned Text Embeddings Inference image
 and model revision. It forwards real model scores through an adapter for the
