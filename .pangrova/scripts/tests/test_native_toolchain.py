@@ -255,6 +255,39 @@ esac
                 self.assertIn("prepared", trace.read_text())
                 self.assertEqual("compiled" in trace.read_text(), phase == "velox")
 
+    def test_darwin_snappy_requires_a_complete_static_package(self):
+        source = BOOTSTRAP.read_text()
+        provision = "ensure_darwin_snappy() {" + source.split(
+            "\nensure_darwin_snappy() {", 1)[1].split("\n}", 1)[0] + "\n}"
+        prefix = self.root / "dependency prefix"
+        command = """
+set -eu
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+run_and_time() { "$@"; }
+install_snappy() {
+  printf 'install_snappy\\n'
+  mkdir -p "$PREFIX/lib/cmake/Snappy" "$PREFIX/include"
+  touch "$PREFIX/lib/cmake/Snappy/SnappyConfig.cmake" "$PREFIX/include/snappy.h"
+  if [[ "$COMPLETE" == 1 ]]; then
+    touch "$PREFIX/lib/libsnappy.a"
+  fi
+}
+""" + provision + """
+ensure_darwin_snappy "$PREFIX"
+ensure_darwin_snappy "$PREFIX"
+"""
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                result = subprocess.run(
+                    ["/bin/bash", "-c", command], capture_output=True, text=True,
+                    env=dict(self.env, PREFIX=str(prefix), COMPLETE=str(int(complete))))
+                self.assertEqual(result.stdout.splitlines(), ["install_snappy"])
+                if complete:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Pinned Snappy package is incomplete", result.stderr)
+
     def darwin_libevent(self, mode, fixture):
         prefix = self.root / "brew formula"
         trace = self.root / "brew-log"
