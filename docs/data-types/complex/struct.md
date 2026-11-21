@@ -58,7 +58,7 @@ rules.
 |-----------|---------------|--------------|
 | Apache Iceberg | Iceberg `STRUCT` with declared field order and nullability | `STRUCT` with preserved fields |
 | Apache Paimon | Paimon `ROW` | `STRUCT` with preserved fields |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow struct schema, subject to Native validation | Persisted field names, order, and type signatures |
 
 ## Example
 

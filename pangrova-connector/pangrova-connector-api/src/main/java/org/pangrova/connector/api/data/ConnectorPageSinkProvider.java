@@ -28,6 +28,17 @@ public interface ConnectorPageSinkProvider {
             ConnectorOutputTableHandle outputTableHandle);
 
     /**
+     * Creates a CDC sink that preserves UPDATE_BEFORE/UPDATE_AFTER row kinds
+     * inside one commit fragment. Connectors without this capability fail closed.
+     */
+    default ConnectorCdcPageSink createCdcPageSink(
+            ConnectorTransactionHandle transaction,
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputTableHandle) {
+        throw new UnsupportedOperationException("CDC row-kind page sink not supported");
+    }
+
+    /**
      * Creates a page sink that atomically overwrites all data in the target table.
      * Used by copy-on-write UPDATE/DELETE/MERGE implementations.
      *

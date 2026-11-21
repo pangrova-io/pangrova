@@ -147,7 +147,7 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         var higherIntent = new WriteCommitEntry(intent.queryId(), intent.catalogName(), intent.tableName(), intent.state(),
                 intent.timestampMs(), intent.fragments(), intent.writeMode(), intent.idempotencyKey(), intent.tenantId(),
                 intent.principal(), intent.authorizationReceipt(), intent.baseSnapshotId(), intent.writeOutputBinding(),
-                intent.commitFingerprint(), next.ownerId(), next.ownerIncarnation(), next.fencingToken(), null, null);
+                intent.commitFingerprint(), next.ownerId(), next.ownerIncarnation(), next.fencingToken(), null, null, null);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.prepareRequest(security, higherIntent, valid, deadline, 1,
                 execution.reservation())).isInstanceOf(SecurityException.class);
     }
@@ -208,7 +208,7 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         return new WriteCommitEntry(original.queryId(), original.catalogName(), original.tableName(), original.state(),
                 original.timestampMs(), original.fragments(), original.writeMode(), fingerprint, original.tenantId(),
                 original.principal(), original.authorizationReceipt(), original.baseSnapshotId(), bytes, fingerprint,
-                original.ownerId(), original.ownerIncarnation(), original.executionFencingToken(), null, null);
+                original.ownerId(), original.ownerIncarnation(), original.executionFencingToken(), null, null, null);
     }
 
     private record Output(SchemaTableName table, String mode, long base, NativeWriteAllocation allocation,

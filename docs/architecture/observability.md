@@ -39,7 +39,7 @@ HTTP parent propagation under an enabled provider; SDK/filter/JNI tests cover
 those individual boundaries. The full SDK/provider/transport module split is
 still pending.
 
-![Observability pipeline: instrumented components, metrics/tracing/logging/profiling providers, sampling, OTLP export, NoOp mode, and collector backends](/img/diagrams/observability-pipeline.svg)
+![Observability pipeline: instrumented components, metrics/tracing/logging/profiling providers, sampling, OTLP export, NoOp mode, and collector backends](../../website/static/img/diagrams/observability-pipeline.svg)
 
 ### Current artifact and ownership boundaries
 
@@ -258,7 +258,7 @@ Note: The data plane Arrow Flight is still based on gRPC streaming; a correspond
 ### 4.3 Cross-Layer Trace Correlation (Java ↔ Native)
 
 
-![Cross-Layer Trace Correlation](/img/diagrams/generated/observability-06-c1b8d2d56b.svg)
+![Cross-Layer Trace Correlation](../../website/static/img/diagrams/generated/observability-06-c1b8d2d56b.svg)
 
 ```cpp
 // NativeTracer.h - Native-layer Trace integration
@@ -498,7 +498,7 @@ while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 
 ### 4.4 Native-Layer Profiling
 
-![Native Layer Profiling](/img/diagrams/generated/observability-11-4c6501d6a1.svg)
+![Native Layer Profiling](../../website/static/img/diagrams/generated/observability-11-4c6501d6a1.svg)
 
 ```cpp
 // NativeProfiler.h
@@ -571,7 +571,7 @@ public class ProfilerEndpoint {
 
 ### 4.5 Query Resource Audit
 
-![Query Resource Audit](/img/diagrams/generated/observability-14-c3b9f08902.svg)
+![Query Resource Audit](../../website/static/img/diagrams/generated/observability-14-c3b9f08902.svg)
 
 ### Resource audit admission and shutdown
 
@@ -746,7 +746,7 @@ public class NativeMetricsPuller {
 
 **Backpressure Behavior** (Native metrics accumulation rate > Java pull rate):
 
-![Native Metrics Pull Backpressure](/img/diagrams/generated/observability-17-05a3428fdb.svg)
+![Native Metrics Pull Backpressure](../../website/static/img/diagrams/generated/observability-17-05a3428fdb.svg)
 
 **Proposed configuration** (not part of the verified
 [configuration key reference](../configuration/reference.md)):
@@ -765,7 +765,7 @@ observability:
 
 ## 6. Module Structure
 
-![pangrova-observability/](/img/diagrams/generated/observability-19-13d5663abd.svg)
+![pangrova-observability/](../../website/static/img/diagrams/generated/observability-19-13d5663abd.svg)
 
 Provider implementations live in `pangrova-observability-sdk` (for example
 `org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider` and
@@ -848,7 +848,7 @@ Format: `{component}.{operation}`, all lowercase, dot-separated.
 
 ### 8.2 Core Span Hierarchy
 
-![query.execute                              (Coordinator, SERVER)](/img/diagrams/generated/observability-22-7cb9ee026d.svg)
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/observability-22-7cb9ee026d.svg)
 
 ### 8.3 Span Attributes Standard
 

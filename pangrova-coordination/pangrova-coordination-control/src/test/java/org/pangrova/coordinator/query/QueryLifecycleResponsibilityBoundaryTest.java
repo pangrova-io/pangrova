@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -110,9 +112,12 @@ class QueryLifecycleResponsibilityBoundaryTest {
                 // callback-only boundary still holds. setOperatorStatsRegistry is the
                 // same late-wiring seam for the profile telemetry sink: accepted
                 // reports are forwarded to it, but it never drives callback flow.
+                // setCdcCompletions is the same late-wiring seam for the dedicated
+                // CDC report sink; it only receives validated CDC reports.
                 .containsExactlyInAnyOrder("onTaskStatus", "clearTaskSequence",
                         "supersedesResultNotice", "setWriteCommitFencer",
-                        "setWriteQualityGate", "setOperatorStatsRegistry");
+                        "setWriteQualityGate", "setOperatorStatsRegistry",
+                        "setCdcCompletions");
     }
 
     // ── QueryTimeoutScheduler boundary: timeout enforcement only ──
@@ -154,7 +159,11 @@ class QueryLifecycleResponsibilityBoundaryTest {
         assertThat(signatures).containsExactlyInAnyOrder(
                 java.util.List.of(QueryManagerContext.class.getName()),
                 java.util.List.of(QueryManagerContext.class.getName(),
-                        "java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle>"));
+                        "java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle>"),
+                java.util.List.of(QueryManagerContext.class.getName(), "java.util.function.LongSupplier"),
+                java.util.List.of(QueryManagerContext.class.getName(),
+                        "java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle>",
+                        "java.util.function.LongSupplier"));
     }
 
     @Test
@@ -175,7 +184,7 @@ class QueryLifecycleResponsibilityBoundaryTest {
     @Test
     void queryLifecycleSignaturesExcludeClientWireDtos() {
         for (Class<?> type : java.util.List.of(QueryManager.class, QueryStateMachine.class,
-                QueryAsyncSubmission.class, org.pangrova.coordinator.query.stage.Stage.class,
+                org.pangrova.coordinator.query.stage.Stage.class,
                 org.pangrova.query.api.stage.StageCompletionCallback.class)) {
             for (var method : type.getDeclaredMethods()) {
                 assertThat(method.getGenericReturnType().getTypeName()).as("%s return", method)

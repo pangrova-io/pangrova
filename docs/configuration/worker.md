@@ -167,6 +167,8 @@ is in-process; the SSD cache persists across restarts.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `worker.cdc.enabled` | bool | `true` | Enable CDC (Change Data Capture) processing on this worker |
+| `worker.cdc.kafka.bootstrap-servers` | string | — | Kafka bootstrap servers for bounded Worker-JVM CDC ingestion. When absent, the Worker starts without a JVM CDC backend and logs `worker_cdc_backend_unconfigured` |
+| `worker.cdc.kafka.properties.*` | string | — | Additional Kafka consumer properties such as security/TLS settings. `bootstrap.servers`, `topic`, `group.id`, and `enable.auto.commit=false` are pinned by the Worker |
 
 ## worker.internal-auth-secret
 
@@ -431,21 +433,21 @@ See [AI Functions](../sql-reference/functions/ai-functions.md) for details.
 
 ## JVM Sizing Guide
 
-Workers allocate memory across three pools:
+Size the complete process, not only the JVM heap and data cache:
 
 | Component | Setting | Notes |
 |-----------|---------|-------|
-| JVM heap | `-Xmx` | Task metadata, result buffers, sort tables |
-| Arrow off-heap | `-XX:MaxDirectMemorySize` | Arrow columnar buffers |
-| Velox RAM cache | `worker.native.cache.memory-bytes` | Velox data cache |
+| JVM heap | `-Xmx` | Java task/control state and connector SDK allocations |
+| Java direct memory | `-XX:MaxDirectMemorySize` | Java Arrow and network buffers; not a cap on all C++ allocations |
+| Native execution | `worker.memory.budget-bytes` | Native operator allocations, including joins, sorts, and aggregations |
+| Velox RAM cache | `worker.native.cache.memory-bytes` | Additional data-cache budget when enabled |
+| Native Flight service | `worker.shuffle.service.retention-bytes` and `transit-bytes` | Reservations charged to the node pool and shared memory arbitrator |
 
-Rule of thumb: `Xmx + MaxDirectMemorySize + native.cache.memory-bytes ≤ 0.85 × total node RAM`
-
-| Node RAM | `-Xmx` | `MaxDirectMemorySize` | Velox RAM cache |
-|----------|--------|-----------------------|-----------------|
-| 64 GB | `24g` | `8g` | `16g` |
-| 128 GB | `32g` | `16g` | `32g` |
-| 256 GB | `48g` | `32g` | `128g` |
+Keep combined peak resident memory, JVM overhead, thread stacks, and operating-system
+headroom within the host or container limit. `worker.memory.node-bytes` is a shared
+accounting ceiling, not another pool to add to its already-accounted reservations.
+The heap/direct/cache sum alone omits Native execution and is not a safe sizing
+formula. Measure the enabled paths and workload before setting production budgets.
 
 Recommended JVM flags: `-XX:+UseG1GC`, `-XX:+ExitOnOutOfMemoryError`,
 `-XX:+HeapDumpOnOutOfMemoryError`, `-Dfile.encoding=UTF-8`,

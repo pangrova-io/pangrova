@@ -21,7 +21,7 @@ Use `CAST` when a literal or expression must have exactly 32 bits:
 
 ```sql
 SELECT CAST(42 AS INTEGER);
-SELECT CAST(2_147_483_647 AS INT);
+SELECT CAST(2147483647 AS INT);
 ```
 
 Widening to `BIGINT` is lossless for every `INTEGER` value. Narrowing to `SMALLINT` or
@@ -33,7 +33,7 @@ Widening to `BIGINT` is lossless for every `INTEGER` value. Narrowing to `SMALLI
 |-----------|---------------|--------------|
 | Apache Iceberg | `INTEGER` | `INTEGER` |
 | Apache Paimon | `INTEGER` | `INTEGER` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow signed 32-bit integer | `INTEGER` retained in managed catalog metadata |
 
 `TINYINT` and `SMALLINT` columns written to Iceberg become `INTEGER`; an Iceberg read
 returns `INTEGER` for all of them.

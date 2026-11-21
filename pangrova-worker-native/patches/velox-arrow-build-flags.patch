@@ -1,0 +1,18 @@
+diff --git a/CMake/resolve_dependency_modules/arrow/CMakeLists.txt b/CMake/resolve_dependency_modules/arrow/CMakeLists.txt
+--- a/CMake/resolve_dependency_modules/arrow/CMakeLists.txt
++++ b/CMake/resolve_dependency_modules/arrow/CMakeLists.txt
+@@ -51,6 +51,14 @@
+     -DCMAKE_INSTALL_LIBDIR=lib
+     -DCMAKE_INSTALL_PREFIX=${ARROW_PREFIX}/install
+     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
++    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
++    "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
++    "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}"
++    "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
++    "-DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}"
++    "-DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}"
++    "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
++    "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS}"
+     -DARROW_BUILD_STATIC=ON
+     -DThrift_SOURCE=${THRIFT_SOURCE}
+     -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}

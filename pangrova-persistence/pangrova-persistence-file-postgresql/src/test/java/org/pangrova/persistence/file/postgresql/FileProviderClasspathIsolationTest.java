@@ -35,7 +35,7 @@ class FileProviderClasspathIsolationTest {
                 .isEqualTo(fileContract.getProtectionDomain().getCodeSource().getLocation());
         for (String name : List.of("org.pangrova.metadata.catalog.registry.CatalogRegistry",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
-                "org.pangrova.coordinator.query.QueryManager",
+                "org.pangrova.query.runtime.QueryManager",
                 "org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient")) {
             assertThatThrownBy(() -> loader.loadClass(name)).as(name).isInstanceOf(ClassNotFoundException.class);
         }

@@ -74,6 +74,11 @@ public interface ConnectorWriteMetadata {
         throw new UnsupportedOperationException("deleteByFilter not supported");
     }
 
+    /** Begins a CDC merge operation that stages deletes and inserts for one atomic commit. */
+    default ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
+        throw new UnsupportedOperationException("beginMerge not supported");
+    }
+
     /** Begins an overwrite operation that atomically replaces all data in a table. */
     default ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         throw new UnsupportedOperationException("beginOverwrite not supported");

@@ -14,7 +14,7 @@
 package org.pangrova.testing.integration.e2e.sql;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

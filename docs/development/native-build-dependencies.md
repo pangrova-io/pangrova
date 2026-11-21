@@ -82,6 +82,17 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
+Three dependency contracts are enforced at configure time:
+
+- Ubuntu's `libgflags-dev` ships only a non-PIC static archive. `FindVelox.cmake`
+  resolves the runtime shared `libgflags.so.2.2` for every gflags link so
+  `libpangrova_native.so` never embeds non-relocatable code.
+- fbthrift's CMake requires an Xxhash package that Velox's dependency set does
+  not install on macOS; the bootstrap builds and installs it before fbthrift.
+- Fizz and Folly developer examples are disabled during their dependency
+  builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
+  Velox consumes the libraries, not those tools.
+
 ## Sanitizer Dependency Chain
 
 AddressSanitizer needs matching instrumentation across the runtime and the
@@ -100,6 +111,14 @@ and Arrow Flight into separate ASan prefixes and build directories. Folly uses C
 An explicitly supplied Folly prefix is consumed rather than overwritten, allowing
 the separately qualified Darwin build described in the sanitizer guide.
 
+Arrow's bundled resolver is selected explicitly, and its patch-step target is
+exported so the checksum-verified source is prepared before building Velox. Its
+ExternalProject is a separate CMake invocation, which does not inherit parent
+compiler or sanitizer flags automatically. The reviewed
+`velox-arrow-build-flags.patch` forwards the C/C++ compilers, compilation flags,
+Release optimization flags and executable/shared linker flags. This keeps the
+bundled Arrow build instrumented as well as the later Arrow Flight build.
+
 Pangrova checks Folly's headers and archive instrumentation regardless of whether
 Velox dependencies came from `deps-install` or a system prefix. Missing or
 uninstrumented Folly is an error, not a reason to fall back to Release. The
@@ -117,6 +136,74 @@ address assertions with UBSan enabled. The reviewed
 are declared functions without requiring their addresses to be constant
 expressions. Runtime socket calls and both sanitizers remain enabled.
 
+GCC 13 also enables `-Wdangling-reference` under `-Wall`/`-Werror`. Helpers
+that return references must not receive temporary `std::string` arguments, so
+the retrieval helpers take `std::string_view`, the storage contract hoists
+computed option names into named locals, and the generated capability
+projection header follows the same rule through `physical_type_manifest.py`.
+The connector header includes `<cstddef>` and `<cstdint>` directly instead of
+relying on transitive includes from each translation unit.
+
+Velox compiles with a CPU baseline chosen from its own scripts
+(`-msse4.2`/`-mavx2` on x86, `-march=armv8-a+crc+crypto` on ARM) and records it
+only in the build rules, not the cache. Pangrova asks the same helper for that
+baseline and applies it to every consumer of Velox SIMD headers; without it,
+`xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
+
+Native test runs build the Java fixture with the project reactor, which
+resolves the locally published Iceberg candidate. CI installs that candidate
+through the shared Iceberg SDK composite action before the native suite, as the
+Java jobs already do.
+
+Velox's own dependency build also compiles Folly in `velox/deps-download`. On
+macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
+`X509_get_subject_name`, `X509_EXTENSION_get_object`, `X509_get_ext` and
+`X509_EXTENSION_get_data` no longer compile, and its example/benchmark targets
+fail to link on Intel macOS. The bootstrap applies the reviewed Folly source
+patches (ASN.1 accessors, the OpenSSL 3.6 const results in `OpenSSLUtils.cpp`
+and `OpenSSLCertUtils.cpp`, and the pre-libc++ 18 exception-construction path in
+`Exception.cpp`) before configure, and patches the Wangle and Fizz const results
+(`SSLUtil.cpp`, `CertUtil.h`) right after their sources are extracted,
+disables its examples and benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the
+pinned dependency sources are reused instead of re-downloaded on non-interactive
+runners.
+The exception patch is a source change because libc++ redefines its own
+availability macro, so a `-D` override is ignored and the newer
+`__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
+macOS builds also pin Homebrew `openssl@3` (installing it when the image only
+ships `openssl@4`) because OpenSSL 4 removed APIs that other vendored code
+still calls, and they build Arrow with `ARROW_WITH_THRIFT=OFF`: thrift's SSL
+transport no longer compiles against the OpenSSL 3.5+ const return types and
+Arrow Parquet is disabled, so nothing in this install consumes it.
+
+On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
+range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
+Rust and C dependencies place inside their static archives. Pangrova builds
+embedded dependencies (OpenTelemetry, simdjson) as position-independent code and
+selects `ld.lld` when it is installed; lld inserts range-extension thunks and the
+link also passes `--undefined-version` because the JNI version script names
+optional entry points. CI installs `lld` on Linux for this purpose.
+
+When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
+dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
+static AWS archives in a linker rescan group and appends the s2n, stemmer and
+Thrift archives plus OpenSSL/curl after the group. The Thrift search first uses
+Velox's Arrow ExternalProject install and falls back to the AWS dependency
+prefix, so builds whose Velox used dependency sources instead of the
+ExternalProject layout still link.
+
+On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
+`$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
+formula's `opt` prefix and adds it to Folly's configure. OpenSSL 4.0 makes
+`ASN1_STRING` opaque (OpenSSL 3.6 still exposes the structure); the reviewed
+`folly-2026.01.05-openssl-asn1.patch` uses the stable
+`ASN1_STRING_get0_data`/`ASN1_STRING_length` accessors instead of direct fields.
+Velox and Folly do not use Boost.Log, and its ASIO backend fails to link against
+the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
+`--without-log` to omit both `boost_log` and `boost_log_setup` while keeping every
+component Velox declares. `log_setup` is a target within the `log` component, not a
+valid B2 component selector.
+
 ## Disk and Cache Budget
 
 A cold dependency and Velox tree is roughly 30 GB. A standard Ubuntu or macOS
@@ -125,12 +212,30 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
 - CI removes preinstalled toolchains the build never uses (Android SDK, .NET,
   CodeQL, iOS simulator runtimes) before downloading anything, and fails fast
   when less than 20 GB is free.
-- Only `~/.pangrova/native-deps`, `~/.pangrova/velox/deps-install` and
-  `~/.pangrova/velox/archive-cache` are cached. The whole `~/.pangrova/velox`
-  tree is never cached: it cannot fit, and the bootstrap verifies every pinned
-  dependency revision so a partial restore is rejected rather than trusted.
-  Binary dependency cache keys include the runner image and toolchain action;
-  they do not fall back to another image or compiler configuration.
+- Only the dependency archives, the `~/.pangrova/native-deps` and
+  `~/.pangrova/velox/deps-install` prefixes, the Velox build layer
+  (`_build/release/_deps`, `lib`, `CMakeCache.txt`) and the bounded ccache are
+  cached. The whole `~/.pangrova/velox` tree is never cached: it cannot fit, and
+  the bootstrap verifies every pinned dependency revision so a partial restore
+  is rejected rather than trusted.
+- Cache keys are layered, and `pangrova-worker-native/dependency-versions.txt`
+  is their single input lock. Archives key on that lock only; prefixes add the
+  toolchain action and `pangrova-worker-native/patches/*`; the Velox layer adds
+  the function-selection contract; ccache is keyed per commit with a restore
+  prefix, so a patch edit recompiles only the patched translation units. Bump
+  `PANGROVA_DEPENDENCY_BUILD` in the lock whenever dependency build flags or
+  install options change. Keys never fall back to another image, compiler
+  configuration or pre-patch dependency tree.
+- `.github/workflows/native-deps-baseline.yml` warms exactly those keys weekly
+  and when the dependency lock changes. macOS publishes a
+  `native-deps-<platform>.tar.zst` artifact; Linux can additionally publish an
+  OCI image to GHCR when the repository variable
+  `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
+  granted. This mirrors Gluten's prebuilt-dependency images without adding
+  credentials or registry dependencies to pull-request runs; CI consumes
+  them only when `PANGROVA_NATIVE_DEPS_ARTIFACT=true` (macOS artifact) or
+  `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` (Linux image) is set, otherwise the
+  layered caches above are the only dependency input.
 
 ## Apache Gluten Reference
 

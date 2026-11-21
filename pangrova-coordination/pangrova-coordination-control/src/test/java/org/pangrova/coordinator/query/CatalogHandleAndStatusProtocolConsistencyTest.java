@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -315,7 +316,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         org.pangrova.planner.analysis.SqlCompiler compiler = new org.pangrova.planner.analysis.SqlCompiler();
         org.pangrova.scheduler.placement.TaskScheduler scheduler =
                 new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
+                        new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         QueryDispatcher dispatcher = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

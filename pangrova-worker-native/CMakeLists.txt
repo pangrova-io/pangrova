@@ -11,6 +11,23 @@
 # ==============================================================================
 cmake_minimum_required(VERSION 3.20)
 project(pangrova-worker-native VERSION 0.1.0 LANGUAGES CXX)
+# The canonical artifact is a shared JNI library. Build every embedded
+# static dependency (OpenTelemetry, simdjson, …) as position-independent code
+# so AArch64 TLS and relocation models stay valid inside the shared object.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# AArch64 Linux links a very large shared object whose text can exceed the
+# +/-128 MiB range of R_AARCH64_CALL26 branches. GNU ld cannot extend those
+# branches to outline-atomics helpers inside static archives; lld inserts
+# range-extension thunks. The version script also names optional JNI entry
+# points that may be absent for a given link.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  find_program(PANGROVA_LLD_LINKER ld.lld)
+  if(PANGROVA_LLD_LINKER)
+    add_link_options(-fuse-ld=lld "-Wl,--undefined-version")
+    message(STATUS "AArch64 Linux linker: lld with range-extension thunks")
+  endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -737,7 +754,7 @@ if(PANGROVA_BUILD_TESTS)
               ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalAbseilPackageTest.py
               --cmake ${CMAKE_COMMAND}
               --package ${absl_DIR}
-              --sdk-deps ${_DEPS_INSTALL}
+              --sdk-deps ${PANGROVA_DEPS_PREFIX}
               --compiler ${CMAKE_CXX_COMPILER}
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )

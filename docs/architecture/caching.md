@@ -12,7 +12,7 @@ sidebar_label: "Caching (Target)"
 
 ## 1. Cache Architecture Overview
 
-![Cache architecture: metadata L1 and generation-checked L2 caches, Native async cache, proposed RAM/SSD manager, and remote object storage](/img/diagrams/caching-layers.svg)
+![Cache architecture: metadata L1 and generation-checked L2 caches, Native async cache, proposed RAM/SSD manager, and remote object storage](../../website/static/img/diagrams/caching-layers.svg)
 
 **Design goals:** reduce remote I/O, keep cache state derived and rebuildable, and separate implemented caches from the proposed unified multi-tier manager.
 
@@ -240,7 +240,7 @@ Shard routing: `shardIndex = hash(CacheKey) % numShards`; each shard is locked i
 
 ## 5. Multi-Level Cache Manager
 
-![Multi-Level Cache Architecture](/img/diagrams/generated/caching-02-15a1bc7e95.svg)
+![Multi-Level Cache Architecture](../../website/static/img/diagrams/generated/caching-02-15a1bc7e95.svg)
 
 `CacheManager` coordinates the two-tier RAM and SSD caches, managing data flow between tiers.
 
@@ -346,7 +346,7 @@ struct CacheManagerConfig {
 
 ## 6. Smart Prefetch Design
 
-![Adaptive Prefetch Architecture](/img/diagrams/generated/caching-04-d7bc161bf5.svg)
+![Adaptive Prefetch Architecture](../../website/static/img/diagrams/generated/caching-04-d7bc161bf5.svg)
 
 ```cpp
 // PrefetchManager — core interface (implementation omitted for brevity)
@@ -394,7 +394,7 @@ Adaptive prefetch dynamically adjusts the prefetch strategy based on runtime acc
 
 **Adaptive decision model**:
 
-![Adaptive Prefetch Decision Model](/img/diagrams/generated/caching-06-4c6b7143d1.svg)
+![Adaptive Prefetch Decision Model](../../website/static/img/diagrams/generated/caching-06-4c6b7143d1.svg)
 
 **Adjustment rules** (evaluated every 30 seconds):
 
@@ -415,7 +415,7 @@ Adaptive prefetch dynamically adjusts the prefetch strategy based on runtime acc
 
 ## 7. Cache and Connector Integration
 
-![Cache Integration with Connector](/img/diagrams/generated/caching-07-868054852f.svg)
+![Cache Integration with Connector](../../website/static/img/diagrams/generated/caching-07-868054852f.svg)
 
 ```cpp
 // CachedDataSourceReader.h - cache-backed data source reader
@@ -523,7 +523,7 @@ Query-B (snapshot 102) → CacheKey{file1, 0, 64MB, 102, "def"} → Cache Entry 
 
 `MaintenanceScheduler.expireSnapshotsAsync()` is the trigger source for snapshot expiry. After MaintenanceScheduler completes snapshot expiration, it must notify the Cache layer to clean up the corresponding cache entries. Interaction flow (design target — `CacheEvictionNotifier` and the Worker-side `POST /v1/cache/expire-snapshots` endpoint are not yet implemented; until they land, snapshot-bound entries are reclaimed by the eviction policy):
 
-![MaintenanceScheduler.expireSnapshotsAsync(tableName)](/img/diagrams/generated/caching-11-28f515a1bf.svg)
+![MaintenanceScheduler.expireSnapshotsAsync(tableName)](../../website/static/img/diagrams/generated/caching-11-28f515a1bf.svg)
 
 `CacheEvictionNotifier` is the planned bridge interface between MaintenanceScheduler and CacheManager:
 
@@ -570,7 +570,7 @@ When new delete files are added (e.g., after a DELETE or MERGE operation), the `
 
 Pangrova guarantees **snapshot isolation at the cache level**: concurrent readers and writers to the same table never interfere with each other.
 
-![Timeline:](/img/diagrams/generated/caching-14-76a0b9d9b5.svg)
+![Timeline:](../../website/static/img/diagrams/generated/caching-14-76a0b9d9b5.svg)
 
 **Guarantees**:
 
@@ -622,7 +622,7 @@ try {
 
 ## 10. Distributed Cache Extension (Optional)
 
-![Distributed Cache Extension](/img/diagrams/generated/caching-16-8e83a14fdb.svg)
+![Distributed Cache Extension](../../website/static/img/diagrams/generated/caching-16-8e83a14fdb.svg)
 
 ```cpp
 // RemoteCache.h - distributed cache implementation (optional extension)
@@ -757,7 +757,7 @@ public class CacheMetrics {
 
 ## 12. Cache Best Practices
 
-![Cache Best Practices](/img/diagrams/generated/caching-20-1d5ba21905.svg)
+![Cache Best Practices](../../website/static/img/diagrams/generated/caching-20-1d5ba21905.svg)
 
 ## 13. Extension Points Summary
 
@@ -823,7 +823,7 @@ While §1–§13 cover the **data cache** (Worker-side, caching file data blocks
 
 ### 15.1 Architecture
 
-![Coordinator](/img/diagrams/generated/caching-21-222deac28a.svg)
+![Coordinator](../../website/static/img/diagrams/generated/caching-21-222deac28a.svg)
 
 **Design Rationale**: BI dashboards and reporting tools execute the same parameterized SQL patterns thousands of times per hour. Each execution pays the full 50–200ms Calcite optimization cost (ANTLR4 parsing → Calcite validation → HepPlanner → VolcanoPlanner → Substrait conversion). For queries completing in < 500ms, optimization overhead is 10–40% of total latency.
 
@@ -912,7 +912,7 @@ function executeWithPlanCache(sql: String, context: QueryContext):
 
 | Aspect | Without Plan Cache | With Plan Cache |
 |--------|-------------------|-----------------|
-| Latency | 50–200ms optimization per query | ~0.1ms cache lookup for repeated patterns (100–2000x speedup) |
+| Latency | Planning cost depends on the query and metadata state | A valid cache hit can avoid planning work; lookup latency and end-to-end gains require measurement |
 | Complexity | Stateless optimization pipeline | Cache key normalization, DDL/stats invalidation, parameter binding |
 | Risk | None | Low — cache miss falls back to full optimization; stale plan mitigated by schema+stats versioning |
 | Memory | None | L1: ~50MB JVM heap; L2: Redis (shared with existing result cache) |
@@ -951,7 +951,7 @@ This section provides concrete algorithm specifications for the adaptive prefetc
 
 ### 16.1 Architecture
 
-![Concrete Prefetch Algorithm Stack](/img/diagrams/generated/caching-25-db136eccde.svg)
+![Concrete Prefetch Algorithm Stack](../../website/static/img/diagrams/generated/caching-25-db136eccde.svg)
 
 **Problem**: The adaptive prefetch controller (§6.1) lacks concrete implementation details for `sequentialRatio` computation, prefetch-to-SSD interaction, and cancellation. Prefetched data written to RAM cache may evict hot entries.
 

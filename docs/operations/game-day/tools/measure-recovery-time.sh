@@ -2,8 +2,8 @@
 #
 # measure-recovery-time.sh — Recovery time measurement tool for Pangrova game days.
 #
-# Measures the time between fault injection and service recovery by continuously
-# probing an endpoint and recording success/failure timestamps.
+# Times HTTP responses to asynchronous SQL submissions and records the interval
+# from a failed submission probe to the next HTTP 200. Does not consume results.
 #
 # Usage:
 #   ./measure-recovery-time.sh baseline --endpoint URL [--token TOKEN] --query SQL --interval DURATION --output FILE
@@ -12,9 +12,9 @@
 #   ./measure-recovery-time.sh watch    --endpoint URL [--token TOKEN] --interval DURATION
 #
 # Commands:
-#   baseline    Record healthy-state metrics (latency, success rate, p50/p95/p99)
-#   measure     Probe endpoint until recovery, record timestamps
-#   report      Generate summary comparing baseline vs recovery; evaluate RTO
+#   baseline    Record HTTP submission latency and HTTP 200 rate
+#   measure     Watch for HTTP 200 after a failed submission probe
+#   report      Compare one observed submission-recovery interval with thresholds
 #   watch       Live tail of endpoint health (no output file; Ctrl-C to stop)
 #
 # Environment variables (override CLI flags):
@@ -39,15 +39,15 @@ readonly NC='\033[0m' # No Color
 
 usage() {
     cat <<EOF
-${BOLD}${SCRIPT_NAME} v${VERSION}${NC} — Pangrova game day recovery time measurement
+${BOLD}${SCRIPT_NAME} v${VERSION}${NC} — Pangrova game day SQL submission measurement
 
 ${BOLD}USAGE${NC}
   ${SCRIPT_NAME} <command> [options]
 
 ${BOLD}COMMANDS${NC}
-  baseline    Record healthy-state metrics (run before injecting fault)
-  measure     Measure recovery time (run immediately after injecting fault)
-  report      Generate summary report comparing baseline vs recovery
+  baseline    Record baseline HTTP submission metrics (run before injecting fault)
+  measure     Measure failed-probe-to-HTTP-200 interval (run immediately after fault)
+  report      Report HTTP submission metrics; does not certify query RTO
   watch       Live health tail (Ctrl-C to stop; no output file)
 
 ${BOLD}GLOBAL OPTIONS${NC}
@@ -56,21 +56,21 @@ ${BOLD}GLOBAL OPTIONS${NC}
   --interval DURATION Probe interval: Ns/Nm/Nh (default: 1s)
 
 ${BOLD}OPTIONS: baseline${NC}
-  --query SQL         SQL query to execute for timing (required)
+  --query SQL         SQL to submit for HTTP response timing (required)
   --duration DURATION How long to collect baseline data (default: 60s)
   --output FILE       Output JSON file path (required)
 
 ${BOLD}OPTIONS: measure${NC}
-  --probe-query SQL   Simple availability check (default: "SELECT 1")
-  --timeout DURATION  Max wait time for recovery (default: 120s)
+  --probe-query SQL   SQL submission probe (default: "SELECT 1")
+  --timeout DURATION  Max wait for an observed submission outage to clear (default: 120s)
   --output FILE       Output JSON file path (required)
 
 ${BOLD}OPTIONS: report${NC}
   --baseline FILE         Baseline JSON file (required)
   --recovery FILE         Recovery JSON file (required)
-  --rto-coordinator N     RTO target in seconds for coordinator failover (default: 30)
-  --rto-worker N          RTO target in seconds for worker recovery (default: 60)
-  --rto-metadata N        RTO target in seconds for metadata partition (default: 120)
+  --rto-coordinator N     Submission-recovery comparator for coordinator failover (seconds) (default: 30)
+  --rto-worker N          Submission-recovery comparator for worker recovery (seconds) (default: 60)
+  --rto-metadata N        Submission-recovery comparator for metadata partition (seconds) (default: 120)
 
 ${BOLD}EXAMPLES${NC}
   # Step 1: Record 60s of healthy baseline
@@ -130,7 +130,7 @@ now_ms() {
     date +%s%3N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1000))'
 }
 
-# Execute a SQL query against the Pangrova /v1/query/submit endpoint.
+# Submit SQL asynchronously and discard the response body; do not fetch results.
 # Prints "<http_code>:<latency_ms>".
 probe_endpoint() {
     local endpoint="$1"
@@ -263,8 +263,8 @@ cmd_baseline() {
     [[ $total_count -gt 0 ]] && success_rate=$((success_count * 100 / total_count))
 
     log_info "Baseline complete:"
-    log_info "  Probes  : ${success_count}/${total_count} OK (${success_rate}%)"
-    log_info "  Latency : avg=${avg_latency}ms  p50=${p50}ms  p95=${p95}ms  p99=${p99}ms"
+    log_info "  Submission probes : ${success_count}/${total_count} HTTP 200 (${success_rate}%)"
+    log_info "  Submission latency : avg=${avg_latency}ms  p50=${p50}ms  p95=${p95}ms  p99=${p99}ms"
 
     local samples_json
     samples_json=$(printf '%s,' "${samples[@]}" | sed 's/,$//')
@@ -323,7 +323,7 @@ cmd_measure() {
     interval_sec=$(parse_duration "$interval")
     timeout_sec=$(parse_duration "$timeout")
 
-    log_event "Starting recovery measurement (timeout: ${timeout_sec}s)"
+    log_event "Starting submission recovery measurement (timeout: ${timeout_sec}s)"
     log_info "Endpoint    : ${endpoint}"
     log_info "Probe query : ${probe_query}"
     log_info "Interval    : ${interval_sec}s"
@@ -362,8 +362,8 @@ cmd_measure() {
                 first_success_time=$now
                 local recovery_sec=$(( first_success_time - first_failure_time ))
                 echo ""
-                log_event "${GREEN}FIRST SUCCESS${NC} after ${recovery_sec}s down (${failure_count} failed probes)"
-                log_info "Confirming stability (10s window)..."
+                log_event "${GREEN}FIRST HTTP 200${NC} after ${recovery_sec}s down (${failure_count} failed probes)"
+                log_info "Checking submission-probe stability (10s window)..."
 
                 # Stability confirmation: probe for 10 more seconds
                 local confirm_start; confirm_start=$(date +%s)
@@ -377,13 +377,13 @@ cmd_measure() {
                 done
 
                 if [[ $confirm_failures -eq 0 ]]; then
-                    log_info "Stability confirmed: ${confirm_total} probes clean in 10s window"
+                    log_info "Submission-probe stability confirmed: ${confirm_total} probes clean in 10s window"
                 else
-                    log_warn "Recovery UNSTABLE: ${confirm_failures}/${confirm_total} failures in 10s window"
+                    log_warn "Submission probes UNSTABLE: ${confirm_failures}/${confirm_total} failures in 10s window"
                 fi
                 break
             elif [[ $failure_count -eq 0 ]]; then
-                echo -ne "\r  [${elapsed}s] ${GREEN}UP${NC}   ${latency}ms — waiting for failure to measure...    "
+                echo -ne "\r  [${elapsed}s] ${GREEN}UP${NC}   ${latency}ms — waiting for a failed submission probe...    "
             fi
         fi
 
@@ -424,9 +424,9 @@ JSONEOF
 
     log_info "Results written to: ${output}"
     if [[ "$recovery_time_sec" != "null" ]]; then
-        log_event "Recovery time: ${BOLD}${recovery_time_sec}s${NC}"
+        log_event "Submission recovery interval: ${BOLD}${recovery_time_sec}s${NC}"
     else
-        log_warn "No recovery observed within ${timeout_sec}s"
+        log_warn "No failed-probe-to-HTTP-200 interval observed within ${timeout_sec}s"
     fi
 }
 
@@ -468,7 +468,7 @@ GREEN, RED, YELLOW, BOLD, NC = '\033[0;32m', '\033[0;31m', '\033[1;33m', '\033[1
 
 def rto_line(label, target, actual):
     if actual is None:
-        return f"  {label:<35} target={target}s  {RED}FAIL{NC} (no recovery observed)"
+        return f"  {label:<35} target={target}s  {RED}FAIL{NC} (no submission recovery interval observed)"
     delta = actual - target
     status = f"{GREEN}PASS{NC}" if actual <= target else f"{RED}FAIL{NC}"
     sign   = f"+{delta}" if delta > 0 else str(delta)
@@ -480,39 +480,40 @@ if rt == "null" or rt is None:
 
 print()
 print(f"{'═'*60}")
-print(f"  GAME DAY — RECOVERY TIME REPORT")
+print(f"  GAME DAY — SQL SUBMISSION REPORT")
 print(f"{'═'*60}")
 print()
 
 # Baseline
 lat = b.get("latency_ms", {})
-print(f"{BOLD}BASELINE{NC}")
+print(f"{BOLD}HTTP SUBMISSION BASELINE{NC}")
 print(f"  Endpoint   : {b['endpoint']}")
 print(f"  Query      : {b['query']}")
 print(f"  Duration   : {b['duration_sec']}s  ({b['total_probes']} probes)")
-print(f"  Success    : {b['successful_probes']}/{b['total_probes']} ({b['success_rate_pct']}%)")
-print(f"  Latency    : avg={lat.get('avg','?')}ms  p50={lat.get('p50','?')}ms  p95={lat.get('p95','?')}ms  p99={lat.get('p99','?')}ms")
+print(f"  HTTP 200   : {b['successful_probes']}/{b['total_probes']} ({b['success_rate_pct']}%)")
+print(f"  Submit latency: avg={lat.get('avg','?')}ms  p50={lat.get('p50','?')}ms  p95={lat.get('p95','?')}ms  p99={lat.get('p99','?')}ms")
 print()
 
 # Recovery
-print(f"{BOLD}RECOVERY MEASUREMENT{NC}")
+print(f"{BOLD}SUBMISSION RECOVERY MEASUREMENT{NC}")
 print(f"  Probe query  : {r['probe_query']}")
 print(f"  Total probes : {r['total_probes']}")
 print(f"  Failed probes: {r['failed_probes']}")
 print(f"  Timed out    : {r['timed_out']}")
 if rt is not None:
-    print(f"  Recovery time: {BOLD}{rt}s{NC}")
+    print(f"  Submission recovery interval: {BOLD}{rt}s{NC}")
     # Down window = first_failure to first_success
     if r.get('first_failure_time') and r.get('first_success_time'):
         ft = datetime.datetime.fromtimestamp(r['first_failure_time']).strftime('%H:%M:%S')
         st = datetime.datetime.fromtimestamp(r['first_success_time']).strftime('%H:%M:%S')
-        print(f"  Down window  : {ft} → {st}")
+        print(f"  Failed probe to HTTP 200: {ft} → {st}")
 else:
-    print(f"  Recovery time: {RED}NOT RECOVERED within {r['timeout_sec']}s{NC}")
+    print(f"  Submission recovery interval: {RED}NO INTERVAL OBSERVED within {r['timeout_sec']}s{NC}")
 print()
 
-# RTO Assessment
-print(f"{BOLD}RTO ASSESSMENT{NC}")
+# Submission recovery threshold comparison
+print(f"{BOLD}SUBMISSION RECOVERY THRESHOLD COMPARISON{NC}")
+print("  One interval is compared with each threshold; this is not query RTO.")
 print(rto_line("Coordinator failover",  rto_coord,  rt))
 print(rto_line("Worker crash recovery", rto_worker, rt))
 print(rto_line("Metadata partition",    rto_meta,   rt))
@@ -520,11 +521,11 @@ print()
 
 # Verdict
 if rt is not None and rt <= min(rto_coord, rto_worker, rto_meta):
-    print(f"  Verdict: {GREEN}{BOLD}PASS — All RTO targets met{NC}")
+    print(f"  Verdict: {GREEN}{BOLD}PASS — Observed interval met all comparison thresholds{NC}")
 elif rt is not None:
-    print(f"  Verdict: {YELLOW}{BOLD}PARTIAL — Some RTO targets missed{NC}")
+    print(f"  Verdict: {YELLOW}{BOLD}PARTIAL — Observed interval exceeded one or more thresholds{NC}")
 else:
-    print(f"  Verdict: {RED}{BOLD}FAIL — Recovery not observed{NC}")
+    print(f"  Verdict: {RED}{BOLD}FAIL — No submission recovery interval observed{NC}")
 print()
 print(f"{'═'*60}")
 PYEOF
@@ -575,7 +576,7 @@ cmd_watch() {
                     down_since=""
                 fi
             fi
-            echo -ne "\r  ${ts}  ${GREEN}UP${NC}  health=200  query=${http_code}  latency=${latency}ms    "
+            echo -ne "\r  ${ts}  ${GREEN}UP${NC}  health=200  submit=${http_code}  submit_latency=${latency}ms    "
             prev_state="up"
         else
             if [[ "$prev_state" != "down" ]]; then

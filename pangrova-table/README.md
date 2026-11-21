@@ -1,16 +1,14 @@
 # Table
 
-`pangrova-table` is an aggregator. The former code artifact is replaced by two real leaves:
+`pangrova-table` is a single artifact owning table identity, ownership, version
+observations, rename intent, control, policy binding, maintenance and statistics
+orchestration, and the policy authority read port. Persistence ports live in the
+`pangrova-persistence-table-*` artifacts; process assembly selects a backend.
 
-| Artifact | Responsibility |
-| --- | --- |
-| `pangrova-table` | Table identity, ownership, version observations, rename intent, maintenance/statistics values and the policy authority read port |
-| `pangrova-table` | Existing table control, policy binding, maintenance and statistics orchestration; ownership-dependent maintenance defaults |
-
-The API uses Common and Connector API (for immutable table statistics). It does not depend on
-Persistence ports, Core, Metadata, Protocol, a database, an SDK or process assembly. There is
-no empty SPI package: the existing `api.policy.TablePolicyAuthority` is a narrow calling
-port for policy consumers, not a provider registry.
+The module uses Common and Connector API (for immutable table statistics). It does not depend
+on Persistence implementations, Metadata, Protocol, a database, an SDK or process assembly.
+There is no empty SPI package: the existing `api.policy.TablePolicyAuthority` is a narrow
+calling port for policy consumers, not a provider registry.
 
 Core consumes persistence contracts and receives stores through constructors. Store facts,
 optimistic concurrency, version-observation atomicity and invalidation remain owned by the

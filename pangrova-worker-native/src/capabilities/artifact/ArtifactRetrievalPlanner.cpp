@@ -11,6 +11,7 @@
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <unordered_set>
 
 #include <google/protobuf/descriptor.h>
@@ -120,18 +121,18 @@ void collectRetrievalDetails(
 
 const proto::NamedValue& requireOption(
     const proto::CapabilityInvocation& invocation,
-    const std::string& name) {
+    std::string_view name) {
   const proto::NamedValue* result = nullptr;
   for (const auto& option : invocation.options()) {
     if (option.name() == name) {
       if (result != nullptr) {
-        throw std::runtime_error("Duplicate retrieval option: " + name);
+        throw std::runtime_error(std::string("Duplicate retrieval option: ").append(name));
       }
       result = &option;
     }
   }
   if (result == nullptr) {
-    throw std::runtime_error("Missing retrieval option: " + name);
+    throw std::runtime_error(std::string("Missing retrieval option: ").append(name));
   }
   return *result;
 }

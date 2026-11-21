@@ -67,6 +67,9 @@ final class TaskResourceReleaser {
      * from orphaned registrations.
      */
     void unregisterShuffleProducerIfNeeded(TaskInfo info) {
+        if (info.isWorkerExecuted()) {
+            return;
+        }
         byte[] receipt = info.stagedExecutorReleaseReceipt();
         if (receipt != null) {
             // This is the actual joined Native return, staged before Java reconciliation.
@@ -94,6 +97,10 @@ final class TaskResourceReleaser {
             return;
         }
         try {
+            if (info.isWorkerExecuted()) {
+                releaseWorkerExecutedExecutor(info, release);
+                return;
+            }
             if (TaskNativeCreationRecovery.seal(info, deps == null ? null : deps.taskExecutor())) {
                 release.complete(null);
                 return;
@@ -121,6 +128,29 @@ final class TaskResourceReleaser {
                     failure);
             throw failure;
         }
+    }
+
+    private void releaseWorkerExecutedExecutor(
+            TaskInfo info, java.util.concurrent.CompletableFuture<byte[]> release) {
+        long handle = info.executorHandle();
+        if (handle == 0) {
+            // Creation failed before a backend owner existed; the failure report
+            // will carry the no-Native-owner admission closure.
+            release.complete(null);
+            return;
+        }
+        byte[] receipt = deps.taskExecutor().releaseTask(handle)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Worker-executed task release returned no final report: " + info.taskId()));
+        info.stageExecutorReleaseReceipt(receipt);
+        validateFinalReceipt(info, receipt);
+        info.setReleasedTaskStats(null);
+        if (!info.compareAndSetExecutorHandle(handle, 0)) {
+            throw new IllegalStateException(
+                    "Worker-executed handle changed during release: task=" + info.taskId());
+        }
+        release.complete(receipt);
+        LOG.debug("event=worker_executed_released taskId={} handle={}", info.taskId(), handle);
     }
 
     private byte[] releaseActualExecutor(TaskInfo info, long handle) {
@@ -152,13 +182,20 @@ final class TaskResourceReleaser {
         var report =
                 TaskCompletionMonitor.requireCanonicalTaskReport(
                         info.request().taskRequest(), receipt);
-        if (report.getExecutionDrainState()
-                != org.pangrova.protocol.v2.ExecutionDrainState
-                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+        var expectedDrain = !info.isWorkerExecuted()
+                ? org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
+                : report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                        ? org.pangrova.protocol.v2.ExecutionDrainState
+                                .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED
+                        : org.pangrova.protocol.v2.ExecutionDrainState
+                                .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER;
+        if (report.getExecutionDrainState() != expectedDrain) {
             throw new IllegalStateException(
-                    "Native release receipt has no actual executor drain evidence");
+                    "Released task receipt has no actual executor drain evidence");
         }
-        if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+        if (!info.isWorkerExecuted()
+                && report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
                 && !report.hasNativeTaskStats()) {
             throw new IllegalStateException(
                     "Finished Native task release returned no final statistics: " + info.taskId());

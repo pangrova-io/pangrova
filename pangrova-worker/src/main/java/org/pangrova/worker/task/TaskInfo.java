@@ -284,6 +284,12 @@ public final class TaskInfo {
                 && request.taskRequest().getExecutionOptions().hasWrite();
     }
 
+    /** True when this task is executed by a Worker-JVM backend rather than Native. */
+    public boolean isWorkerExecuted() {
+        return request != null && request.taskRequest().getTaskKind()
+                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST;
+    }
+
     // --- Write commit metadata (delegated) ---
 
     public byte[] commitMetadata() {
@@ -310,6 +316,14 @@ public final class TaskInfo {
 
     public void setTerminalTaskStats(byte[] stats) {
         execution.setTerminalTaskStats(stats);
+    }
+
+    public java.util.List<byte[]> terminalCommitFragments() {
+        return execution.terminalCommitFragments();
+    }
+
+    public void setTerminalCommitFragments(java.util.List<byte[]> fragments) {
+        execution.setTerminalCommitFragments(fragments);
     }
 
     void setReleasedTaskStats(byte[] stats) {

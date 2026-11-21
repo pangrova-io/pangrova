@@ -65,7 +65,7 @@ RTRIM(str) → VARCHAR
 
 ```sql
 SELECT TRIM('  hello  ') AS trimmed;
-SELECT LTRIM('000123') AS no_leading_zeros;
+SELECT LTRIM('  000123') AS no_leading_spaces;
 ```
 
 Standard `TRIM(LEADING ... FROM ...)` syntax is not parsed by the current grammar.

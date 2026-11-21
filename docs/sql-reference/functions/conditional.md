@@ -116,7 +116,7 @@ SELECT * FROM events WHERE event_time BETWEEN TIMESTAMP '2024-01-01' AND TIMESTA
 
 ## IN / NOT IN
 
-![expr IN (value1, value2, ...)     → BOOLEAN](/img/diagrams/generated/conditional-10-b1b4ed4920.svg)
+![expr IN (value1, value2, ...)     → BOOLEAN](../../../website/static/img/diagrams/generated/conditional-10-b1b4ed4920.svg)
 
 ```sql
 SELECT * FROM orders WHERE status IN ('pending', 'processing');

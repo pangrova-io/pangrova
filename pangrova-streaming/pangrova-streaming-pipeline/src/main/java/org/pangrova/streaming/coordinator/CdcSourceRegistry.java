@@ -39,9 +39,15 @@ public final class CdcSourceRegistry {
 
     /** Validates the stream source properties and opens a reader at its checkpoint. */
     public CdcSourceReader open(StreamState state) {
-        var provider = require(state.sourceProvider());
-        provider.validate(state.sourceProperties());
-        return Objects.requireNonNull(provider.open(state.checkpointId(), state.sourceProperties()),
+        return open(state.sourceProvider(), state.checkpointId(), state.sourceProperties());
+    }
+
+    /** Opens an exact task reader from admitted provider properties. */
+    public CdcSourceReader open(
+            String providerId, String checkpointId, Map<String, String> properties) {
+        var provider = require(providerId);
+        provider.validate(properties);
+        return Objects.requireNonNull(provider.open(checkpointId, properties),
                 "CDC source factory returned no reader");
     }
 

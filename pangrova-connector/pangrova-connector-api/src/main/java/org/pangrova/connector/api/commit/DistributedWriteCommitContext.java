@@ -25,8 +25,22 @@ public record DistributedWriteCommitContext(
         String commitFingerprint,
         String principal,
         org.pangrova.connector.api.commit.WriteAuthorizationReceipt authorizationReceipt,
-        org.pangrova.common.file.CopyFileCommitBinding copyFile) {
+        org.pangrova.common.file.CopyFileCommitBinding copyFile,
+        CdcSourceCommitIdentity cdcSource) {
 
+    /** Creates a non-CDC distributed commit context. */
+    public DistributedWriteCommitContext(
+            String executionId,
+            String tenantId,
+            long baseSnapshotId,
+            byte[] writeOutputBinding,
+            String commitFingerprint,
+            String principal,
+            WriteAuthorizationReceipt authorizationReceipt,
+            org.pangrova.common.file.CopyFileCommitBinding copyFile) {
+        this(executionId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
+                principal, authorizationReceipt, copyFile, null);
+    }
 
     public DistributedWriteCommitContext {
         requireText(executionId, "executionId");

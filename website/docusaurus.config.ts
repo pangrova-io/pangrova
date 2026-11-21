@@ -53,7 +53,8 @@ const config: Config = {
     [
       '@easyops-cn/docusaurus-search-local',
       {
-        hashed: true,
+        // Query hashes are misrouted by the preview server under a non-root base path.
+        hashed: 'filename',
         language: ['en'],
         highlightSearchTermsOnTargetPage: true,
         indexDocs: true,

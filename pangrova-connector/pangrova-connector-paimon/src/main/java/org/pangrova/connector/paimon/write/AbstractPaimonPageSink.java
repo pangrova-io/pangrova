@@ -185,6 +185,17 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
         return RowKind.INSERT;
     }
 
+    /** Appends one row with an explicit CDC row kind. */
+    protected void appendRowKind(TypedRow row, RowKind kind) {
+        requireWriting();
+        try {
+            writeConvertedRow(rowConverter.convert(row, kind));
+        } catch (Exception e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to write CDC row to Paimon table: " + e.getMessage(), e);
+        }
+    }
+
     /**
      * Prepares commit metadata without performing the catalog commit.
      * Uses Paimon's native two-phase support: prepareCommit() produces

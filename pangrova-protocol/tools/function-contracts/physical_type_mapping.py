@@ -173,7 +173,7 @@ def render_bridge(value):
     lines = ["// Generated from the sole canonical physical type bridge. Do not edit.", "#pragma once",
              '#include "capabilities/capability/FunctionTypeFormulaOps.h"', '#include "substrait/type.pb.h"',
              '#include "pangrova/protocol/v2/capability.pb.h"', '#include "google/protobuf/descriptor.h"',
-             '#include "velox/type/Type.h"', "#include <string>", "#include <vector>",
+             '#include "velox/type/Type.h"', "#include <string>", "#include <string_view>", "#include <vector>",
              "namespace pangrova::capability::generated {",
              "inline constexpr const char* physicalTypeBridgeDeclaration = " + canonical_json(canonical_json(value)) + ";",
              "template <typename Recurse>",

@@ -71,6 +71,10 @@ final class TaskExecutionState {
     // Write commit metadata (set by NativeWriteExecutor.commitWrite)
     private final AtomicReference<byte[]> commitMetadata = new AtomicReference<>();
 
+    // Worker-JVM staged fragments captured before the backend handle is released.
+    private final AtomicReference<java.util.List<byte[]>> terminalCommitFragments =
+            new AtomicReference<>(java.util.List.of());
+
     // Canonical v2 TaskReport captured before the native handle is released.
     private final AtomicReference<byte[]> terminalTaskReport = new AtomicReference<>();
 
@@ -229,6 +233,16 @@ final class TaskExecutionState {
         if (stats != null && stats.length > 0) {
             terminalTaskStats.compareAndSet(null, stats.clone());
         }
+    }
+
+    java.util.List<byte[]> terminalCommitFragments() {
+        return terminalCommitFragments.get().stream().map(byte[]::clone).toList();
+    }
+
+    void setTerminalCommitFragments(java.util.List<byte[]> fragments) {
+        terminalCommitFragments.set(fragments == null
+                ? java.util.List.of()
+                : fragments.stream().map(byte[]::clone).toList());
     }
 
     void setReleasedTaskStats(byte[] stats) {

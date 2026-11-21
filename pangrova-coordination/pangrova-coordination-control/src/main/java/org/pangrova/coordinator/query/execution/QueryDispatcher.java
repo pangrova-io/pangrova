@@ -18,6 +18,7 @@ import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
@@ -52,7 +53,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * submissions. All mutable state uses thread-safe constructs.</p>
  */
 @org.pangrova.common.concurrent.ThreadSafe
-public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryExecutionCleanup {
+public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecutionPort {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryDispatcher.class);
     private static final long DEFAULT_DAG_DISPATCH_TIMEOUT_MS = 300_000L;
@@ -63,6 +64,8 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
     private final QueryLineageCapture lineageCapture;
     private final CoordinatorTaskTracker taskTracker;
     private final TaskDispatcher dispatcher;
+    private final DefaultWorkerSelector workerSelector;
+    private final WriteAuthorityResolver writeAuthorityResolver;
     private final ShuffleLifecycleManager shuffleLifecycleManager;
 
     public QueryDispatcher(QueryDispatcherContext deps,
@@ -96,14 +99,15 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
         var queryTracer = tracingProvider != null
                 ? new QueryTracer(tracingProvider) : null;
         var splitMgr = resolveSplitAssignmentManager(deps);
-        var workerSelector = createWorkerSelector(deps, splitMgr);
+        this.workerSelector = createWorkerSelector(deps, splitMgr);
+        this.writeAuthorityResolver = writeAuthorityResolver;
         var dagEngine = createDagEngine(deps, splitMgr);
         long dagDispatchTimeoutMs = deps.taskTimeoutSeconds() > 0
                 ? deps.taskTimeoutSeconds() * 1000L : DEFAULT_DAG_DISPATCH_TIMEOUT_MS;
 
         this.schedulingEngine = new QuerySchedulingEngine(
                 new QuerySchedulingEngine.SchedulingDependencies(
-                        dagEngine, workerSelector,
+                        dagEngine, this.workerSelector,
                         deps.workerManager(), deps.taskTracker(),
                         deps.catalogRegistry(),
                         deps.indexAwareSplitFetcher(),
@@ -295,6 +299,19 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 () -> schedulingEngine.dagEngine().cancelLiveDispatch(queryId));
     }
 
+    @Override
+    public org.pangrova.query.lifecycle.QueryDispatchOutcome dispatch(
+            QueryStateMachine sm, String sql, QuerySession session) {
+        var result = execute(sm, sql, session);
+        return result == null ? null
+                : new org.pangrova.query.lifecycle.QueryDispatchOutcome(result.resultEndpoint());
+    }
+
+    @Override
+    public void retryPendingCancels() {
+        cancelRetrier().retryPendingCancels();
+    }
+
     public TaskCancelRetrier cancelRetrier() {
         return ownershipTracker.cancelRetrier();
     }
@@ -333,6 +350,15 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 ? deps.splitAssignmentManager()
                 : new SplitAssignmentManager();
     }
+
+    /** Returns the exact Worker placement strategy used by dispatched tasks. */
+    public WorkerSelector workerSelector() { return workerSelector; }
+
+    /** Returns the dispatcher used for task transport. */
+    public TaskDispatcher taskDispatcher() { return dispatcher; }
+
+    /** Returns the write authority resolver fixed for this dispatcher lifetime. */
+    public WriteAuthorityResolver writeAuthorityResolver() { return writeAuthorityResolver; }
 
     private static DefaultWorkerSelector createWorkerSelector(
             QueryDispatcherContext deps, SplitAssignmentManager splitMgr) {

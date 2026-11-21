@@ -132,6 +132,15 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
 
     @Override
+    public org.pangrova.parser.api.ast.CreateContinuousQueryStatement visitCreateContinuousQuery(
+            PangrovaSqlParser.CreateContinuousQueryContext ctx) {
+        return new org.pangrova.parser.api.ast.CreateContinuousQueryStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                parent.visitQuery(ctx.query()),
+                parsePositiveTargetLag(ctx.STRING_LITERAL()));
+    }
+
+    @Override
     public AlterDynamicTableStatement visitAlterDtSuspend(
             PangrovaSqlParser.AlterDtSuspendContext ctx) {
         return new AlterDynamicTableStatement(

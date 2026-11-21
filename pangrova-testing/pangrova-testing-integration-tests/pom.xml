@@ -47,6 +47,8 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-memory</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-memory</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-worker</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-source-kafka</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-api</artifactId><scope>test</scope></dependency>
 
@@ -427,6 +429,11 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

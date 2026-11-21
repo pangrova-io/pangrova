@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.query.api.stage.StageCompletionCallback;
@@ -34,7 +34,7 @@ import org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;

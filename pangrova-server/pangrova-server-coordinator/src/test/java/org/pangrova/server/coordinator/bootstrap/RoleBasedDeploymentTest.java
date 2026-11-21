@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
