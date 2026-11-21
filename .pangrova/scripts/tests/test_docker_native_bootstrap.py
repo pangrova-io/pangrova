@@ -29,6 +29,17 @@ class DockerNativeBootstrapTest(unittest.TestCase):
         self.assertIn(f"COPY {ATOMIC_PATCH} /workspace/{ATOMIC_PATCH}",
                       self.instructions[:velox_bootstrap])
 
+    def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
+        velox_bootstrap = next(i for i, line in enumerate(self.instructions)
+                               if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)
+        copies = " ".join(line for line in self.instructions[:velox_bootstrap]
+                          if line.startswith("COPY "))
+        for patch in ("velox-folly-common-build.patch", "velox-folly-alignment-build.patch",
+                      "folly-2026.01.05-openssl-const.patch",
+                      "folly-2026.01.05-spookyhash-alignment.patch"):
+            with self.subTest(patch=patch):
+                self.assertIn(f"pangrova-worker-native/patches/{patch}", copies)
+
 
 if __name__ == "__main__":
     unittest.main()

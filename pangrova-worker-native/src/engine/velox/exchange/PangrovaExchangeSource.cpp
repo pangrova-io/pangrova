@@ -12,6 +12,7 @@
 
 #include <arrow/array.h>
 #include <arrow/buffer.h>
+#include <arrow/util/align_util.h>
 #include <folly/Executor.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
@@ -692,10 +693,20 @@ void PangrovaExchangeSource::performFlightRead(
           "Flight shuffle batch must contain exactly one binary column");
     }
 
-    int64_t totalBytes = 0;
-    auto batchHolder = chunk.data;
+    // Flight can return IPC buffers at unaligned offsets in a gRPC slice.
+    // Align binary offsets once, before either probing or enqueueing pages.
+    auto alignedBatch = arrow::util::EnsureAlignment(
+        std::move(chunk.data), arrow::util::kValueAlignment,
+        arrow::default_memory_pool());
+    if (!alignedBatch.ok()) {
+      throw std::runtime_error(
+          "Failed to align Flight shuffle batch: " +
+          alignedBatch.status().ToString());
+    }
+    auto batchHolder = std::move(*alignedBatch);
     auto binaryArray = std::static_pointer_cast<arrow::BinaryArray>(
         batchHolder->column(0));
+    int64_t totalBytes = 0;
     for (int64_t row = 0; row < batchHolder->num_rows(); ++row) {
       if (binaryArray->IsNull(row)) {
         throw std::runtime_error("Flight shuffle batch contains a null page");
