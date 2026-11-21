@@ -1,5 +1,5 @@
 ---
-title: "Security"
+title: "Security Configuration"
 description: "Authentication and internal authentication secret configuration"
 ---
 

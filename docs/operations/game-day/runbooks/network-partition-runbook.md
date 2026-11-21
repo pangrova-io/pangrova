@@ -24,21 +24,7 @@ description: "Diagnose and recover from cluster network partitions"
 
 ## Decision Tree
 
-```
-Network partition suspected?
-  │
-  ├─► Is /v1/health reachable on any coordinator?
-  │     │
-  │     ├─► YES ──► Step 1: Verify partition scope
-  │     │
-  │     └─► NO  ──► Total outage (not just partition). Use coordinator-failover-runbook instead.
-  │
-  └─► Do two coordinators both report role=LEADER in their logs?
-        │
-        ├─► YES ──► CRITICAL: Split-brain active → skip to §Emergency: Split-Brain
-        │
-        └─► NO  ──► Partition with correct leader isolation → Step 2: Wait 30s, then verify
-```
+![Network partition suspected?](../../../../website/static/img/diagrams/generated/network-partition-runbook-01-d32804a3fd.svg)
 
 ---
 

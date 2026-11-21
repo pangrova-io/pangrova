@@ -1,5 +1,6 @@
 ---
-title: "Observability"
+title: "Observability Architecture"
+description: "OpenTelemetry metrics, tracing, logging, and Native-layer instrumentation"
 sidebar_label: "Observability"
 ---
 
@@ -38,47 +39,7 @@ HTTP parent propagation under an enabled provider; SDK/filter/JNI tests cover
 those individual boundaries. The full SDK/provider/transport module split is
 still pending.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Observability Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                         Application Layer                              │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │   Coordinator   │  │     Worker      │  │    Connector    │       │  │
-│  │  │ @Traced @Metered│  │ @Traced @Metered│  │ @Traced @Metered│       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    Observability SPI Layer                             │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │ TracingProvider │  │ MetricsProvider │  │ LoggingProvider │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    OpenTelemetry SDK                                   │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  Trace Exporter │  │ Metric Exporter │  │   Log Exporter  │       │  │
-│  │  │  (OTLP/Jaeger)  │  │ (OTLP/Prom)     │  │  (OTLP/Loki)    │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              ▼                    ▼                    ▼                    │
-│  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐      │
-│  │      Jaeger       │  │    Prometheus     │  │       Loki        │      │
-│  │ (Distributed      │  │ (Metrics Storage) │  │ (Log Aggregation) │      │
-│  │  Tracing)         │  │                   │  │                   │      │
-│  └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘      │
-│            └──────────────────────┼──────────────────────┘                  │
-│                                   ▼                                         │
-│                        ┌───────────────────┐                               │
-│                        │      Grafana      │                               │
-│                        │   (Visualization) │                               │
-│                        └───────────────────┘                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Observability pipeline: instrumented components, metrics/tracing/logging/profiling providers, sampling, OTLP export, NoOp mode, and collector backends](../../website/static/img/diagrams/observability-pipeline.svg)
 
 ### Current artifact and ownership boundaries
 
@@ -297,40 +258,7 @@ Note: The data plane Arrow Flight is still based on gRPC streaming; a correspond
 ### 4.3 Cross-Layer Trace Correlation (Java ↔ Native)
 
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Cross-Layer Trace Correlation                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Java/Native layer Spans are loosely correlated, making it hard to trace the full execution path │
-│  Solution: unified TraceId propagation; the Native layer integrates the OpenTelemetry C++ SDK   │
-│                                                                                  │
-│  Trace propagation flow:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Layer                                                              │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Span: query.execute (trace_id=abc123)                          │   │   │
-│  │  │    └─ Span: task.submit                                         │   │   │
-│  │  │         └─ Span: native.execute ──────────────────────────┐    │   │   │
-│  │  └──────────────────────────────────────────────────────────┼────┘   │   │
-│  └─────────────────────────────────────────────────────────────┼─────────┘   │
-│                                                                 │             │
-│                    JNI Call (propagate trace_id, span_id)      │             │
-│                                                                 ▼             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Native Layer (C++ OpenTelemetry SDK)                                    │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Span: velox.task.execute (parent=native.execute)               │   │   │
-│  │  │    ├─ Span: velox.pipeline.run                                  │   │   │
-│  │  │    │    ├─ Span: velox.operator.tablescan                       │   │   │
-│  │  │    │    ├─ Span: velox.operator.filter                          │   │   │
-│  │  │    │    └─ Span: velox.operator.aggregate                       │   │   │
-│  │  │    └─ Span: velox.io.read                                       │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cross-Layer Trace Correlation](../../website/static/img/diagrams/generated/observability-06-c1b8d2d56b.svg)
 
 ```cpp
 // NativeTracer.h - Native-layer Trace integration
@@ -570,34 +498,7 @@ while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 
 ### 4.4 Native-Layer Profiling
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Native Layer Profiling                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: performance issues in the C++ layer are hard to pinpoint             │
-│  Solution: integrate perf/async-profiler and expose Native-layer flame graphs   │
-│                                                                                  │
-│  Profiling modes:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. On-Demand Profiling: triggered via HTTP API, collects a specified window │   │
-│  │  2. Continuous Profiling: low-overhead continuous collection, reported to Pyroscope/Parca │   │
-│  │  3. Query-Level Profiling: enabled for a specific query, for problem diagnosis │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Collected content:                                                              │
-│  • CPU Profile: call stacks, hot functions                                       │
-│  • Memory Profile: allocation hotspots, leak detection                           │
-│  • Lock Contention: lock contention analysis                                     │
-│  • I/O Profile: file read/write latency distribution                            │
-│                                                                                  │
-│  Output formats:                                                                 │
-│  • Flame Graph (SVG/HTML)                                                       │
-│  • pprof format (compatible with the Go pprof toolchain)                         │
-│  • Trace Event format (Chrome Tracing)                                           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Layer Profiling](../../website/static/img/diagrams/generated/observability-11-4c6501d6a1.svg)
 
 ```cpp
 // NativeProfiler.h
@@ -670,42 +571,7 @@ public class ProfilerEndpoint {
 
 ### 4.5 Query Resource Audit
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Resource Audit                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: historical query resource consumption cannot be traced               │
-│  Solution: persist a resource-usage report after query completion              │
-│                                                                                  │
-│  Audit content:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  QueryAuditRecord {                                                      │   │
-│  │    queryId, user, source, sql,                                          │   │
-│  │    startTime, endTime, state,                                           │   │
-│  │                                                                          │   │
-│  │    // Resource usage                                                     │   │
-│  │    cpuTimeMs, wallTimeMs,                                               │   │
-│  │    peakMemoryBytes, spilledBytes,                                       │   │
-│  │    inputRows, outputRows,                                               │   │
-│  │    inputBytes, outputBytes,                                             │   │
-│  │    shuffleReadBytes, shuffleWriteBytes,                                 │   │
-│  │                                                                          │   │
-│  │    // Cost breakdown by stage                                           │   │
-│  │    stages: [{stageId, cpuTimeMs, memoryBytes, ioBytes}],                │   │
-│  │                                                                          │   │
-│  │    // Worker distribution                                               │   │
-│  │    workers: [{workerId, taskCount, cpuTimeMs}]                          │   │
-│  │  }                                                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Current storage: structured log plus bounded process-local profile cache              │
-│  Purpose: cost allocation, capacity planning, anomalous-query detection, SLA reporting │
-
-
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Resource Audit](../../website/static/img/diagrams/generated/observability-14-c3b9f08902.svg)
 
 ### Resource audit admission and shutdown
 
@@ -880,40 +746,7 @@ public class NativeMetricsPuller {
 
 **Backpressure Behavior** (Native metrics accumulation rate > Java pull rate):
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                  Native Metrics Pull Backpressure                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Scenario: Native emits metrics at high speed, Java pulling cannot keep up      │
-│                                                                                  │
-│  Design: no extra backpressure needed — the Native-side snapshot() is an instantaneous snapshot │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Native side:                                                            │   │
-│  │  • NativeMetricsCollector uses atomic counters, lock-free writes          │   │
-│  │  • snapshot() reads current values, O(1) time complexity                 │   │
-│  │  • No "backlog" problem — every snapshot is the latest state             │   │
-│  │                                                                          │   │
-│  │  Java side:                                                              │   │
-│  │  • Intermediate states within the pull interval are skipped (sampling semantics, not event semantics) │   │
-│  │  • Lower pull frequency → coarser metric granularity, but final state is not lost │   │
-│  │  • Pull timeout → skip this round, retry next round                      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Exception handling:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Scenario                    │ Behavior                                  │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  nativeGetTaskStats timeout  │ Skip, retry next interval                │   │
-│  │  Native task already finished│ Return final snapshot, puller stops      │   │
-│  │  JNI call throws exception   │ Log + increment failure counter          │   │
-│  │  Consecutive failures ≥ 5    │ Reduce pull frequency to 5× interval    │   │
-│  │  Stale threshold exceeded    │ Expose stale label in Prometheus metric │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Metrics Pull Backpressure](../../website/static/img/diagrams/generated/observability-17-05a3428fdb.svg)
 
 **Proposed configuration** (not part of the verified
 [configuration key reference](../configuration/reference.md)):
@@ -932,13 +765,7 @@ observability:
 
 ## 6. Module Structure
 
-```text
-pangrova-observability/
-├── pangrova-observability-api/    # org.pangrova.observability.api.* and spi.* contracts
-├── pangrova-observability-instrumentation/   # MDC logging/profiling runtime under org.pangrova.observability.*
-├── pangrova-observability-noop/   # Explicit disabled telemetry implementations
-└── pangrova-observability-sdk/    # OpenTelemetry providers, SDK config, transport adapters
-```
+![pangrova-observability/](../../website/static/img/diagrams/generated/observability-19-13d5663abd.svg)
 
 Provider implementations live in `pangrova-observability-sdk` (for example
 `org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider` and
@@ -1021,29 +848,7 @@ Format: `{component}.{operation}`, all lowercase, dot-separated.
 
 ### 8.2 Core Span Hierarchy
 
-```
-query.execute                              (Coordinator, SERVER)
-├── query.parse                            (Coordinator, INTERNAL)
-├── query.optimize                         (Coordinator, INTERNAL)
-│   ├── query.optimize.rule.{ruleName}     (Coordinator, INTERNAL)
-│   └── query.optimize.statistics          (Coordinator, INTERNAL)
-├── query.schedule                         (Coordinator, INTERNAL)
-│   ├── query.schedule.split               (Coordinator, INTERNAL)
-│   └── query.schedule.assign              (Coordinator, INTERNAL)
-├── task.submit                            (Coordinator → Worker, CLIENT)
-│   └── task.execute                       (Worker, SERVER)
-│       ├── native.execute                 (Worker → Native, INTERNAL)
-│       │   ├── velox.pipeline.run         (Native, INTERNAL)
-│       │   │   ├── velox.operator.tablescan   (Native, INTERNAL)
-│       │   │   ├── velox.operator.filter      (Native, INTERNAL)
-│       │   │   ├── velox.operator.project     (Native, INTERNAL)
-│       │   │   ├── velox.operator.hashjoin    (Native, INTERNAL)
-│       │   │   └── velox.operator.aggregate   (Native, INTERNAL)
-│       │   └── velox.io.read              (Native, CLIENT)
-│       ├── shuffle.write                  (Worker, INTERNAL)
-│       └── shuffle.read                   (Worker, CLIENT)
-└── query.result.stream                    (Output Worker → Client, SERVER)
-```
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/observability-22-7cb9ee026d.svg)
 
 ### 8.3 Span Attributes Standard
 

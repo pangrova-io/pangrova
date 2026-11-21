@@ -32,7 +32,8 @@ public final class FunctionBindingDeclarations {
 
     private FunctionBindingDeclarations() {
         JsonNode root = BindingDeclarationJson.load();
-        declarationSha256 = ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(root)));
+        declarationSha256 = ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(
+                root)));
         BindingDeclarationJson.keys(root, Set.of("schemaVersion", "bindings", "structuralContracts",
                 "physicalTypeBridge", "governedLayouts"), Set.of());
         if (!root.get("schemaVersion").isIntegralNumber() || !root.get("schemaVersion").canConvertToInt()
@@ -103,7 +104,8 @@ public final class FunctionBindingDeclarations {
         }
         return CapabilityRef.newBuilder().setCapabilityId(id)
                 .setSemanticVersion(BindingDeclarationJson.text(entry, "version"))
-                .setSignatureSha256(ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(entry))))
+                .setSignatureSha256(ByteString.copyFrom(DigestUtils.sha256().digest(
+                        BindingDeclarationJson.canonicalBytes(entry))))
                 .build();
     }
 

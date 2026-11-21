@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * should produce a valid Substrait Plan without losing operator semantics.</p>
  */
 @Tag("Feature: full-pipeline-audit-fix")
-@Tag("Property 3: RelNode → Substrait 映射完整性")
+@Tag("Property 3: RelNode → Substrait mapping completeness")
 class SubstraitConverterPropertyTest {
 
     private final SubstraitConverter converter = new SubstraitConverter();

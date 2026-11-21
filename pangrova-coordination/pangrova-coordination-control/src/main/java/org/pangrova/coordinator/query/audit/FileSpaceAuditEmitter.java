@@ -27,26 +27,32 @@ public final class FileSpaceAuditEmitter {
         this.writer = java.util.Objects.requireNonNull(writer, "writer");
     }
 
+    /** Emits the creation audit event for a volume or stage. */
     public void created(QueryAuditAttribution attribution, FileSpace space) {
-        emit(switch (space.type()) {
+        AuditEventType eventType = switch (space.type()) {
             case VOLUME -> AuditEventType.VOLUME_CREATED;
             case STAGE -> AuditEventType.STAGE_CREATED;
-        }, attribution, space, "CREATE", Map.of());
+        };
+        emit(eventType, attribution, space, "CREATE", Map.of());
     }
 
+    /** Emits the alteration audit event for a volume or stage with action-specific properties. */
     public void altered(QueryAuditAttribution attribution, FileSpace space, String action,
             Map<String, String> extra) {
-        emit(switch (space.type()) {
+        AuditEventType eventType = switch (space.type()) {
             case VOLUME -> AuditEventType.VOLUME_ALTERED;
             case STAGE -> AuditEventType.STAGE_ALTERED;
-        }, attribution, space, action, extra);
+        };
+        emit(eventType, attribution, space, action, extra);
     }
 
+    /** Emits the drop audit event for a volume or stage. */
     public void dropped(QueryAuditAttribution attribution, FileSpace space) {
-        emit(switch (space.type()) {
+        AuditEventType eventType = switch (space.type()) {
             case VOLUME -> AuditEventType.VOLUME_DROPPED;
             case STAGE -> AuditEventType.STAGE_DROPPED;
-        }, attribution, space, "DROP", Map.of());
+        };
+        emit(eventType, attribution, space, "DROP", Map.of());
     }
 
     private void emit(AuditEventType eventType, QueryAuditAttribution attribution, FileSpace space,

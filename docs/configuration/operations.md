@@ -1,5 +1,5 @@
 ---
-title: "Operations"
+title: "Operations Configuration"
 description: "Operations module flag and maintenance execution model"
 ---
 
@@ -38,8 +38,8 @@ SQL `CALL` procedures and the maintenance coordinator role:
 - **Table maintenance** — `CALL <catalog>.compact(...)`,
   `expire_snapshots(...)`, `remove_orphan_files(...)`, and the other
   connector procedures. See [Maintenance](../sql-reference/maintenance.md).
-- **Warmup** — `CALL warmup_table(...)` preloads metadata and indexes for a
-  table before it serves queries.
+- **Warmup** — `CALL catalog.warmup_table('schema.table')` requests metadata and
+  index warmup for an authorized table; use a registered catalog prefix.
 - **Rolling upgrade / cluster status** — operational scripts in `bin/`
   (`pangrova-rolling-upgrade.sh`, `pangrova-cluster-status.sh`,
   `pangrova-health-check.sh`).

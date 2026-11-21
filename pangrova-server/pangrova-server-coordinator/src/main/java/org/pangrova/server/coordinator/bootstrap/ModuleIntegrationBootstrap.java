@@ -150,16 +150,16 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.catalogRegistry = catalogs;
     }
 
-    void setStreamingBootstrap(StreamingBootstrap streamingBootstrap) {
+    synchronized void setStreamingBootstrap(StreamingBootstrap streamingBootstrap) {
         this.streamingBootstrap = streamingBootstrap;
     }
 
-    void setBranchTtlCleanupTask(
+    synchronized void setBranchTtlCleanupTask(
             org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask cleanupTask) {
         this.branchTtlCleanupTask = cleanupTask;
     }
 
-    StreamingBootstrap getStreamingBootstrap() {
+    synchronized StreamingBootstrap getStreamingBootstrap() {
         return streamingBootstrap;
     }
 

@@ -85,7 +85,8 @@ public final class PermissionChecker {
         if (stmt instanceof CreateCatalogStatement || stmt instanceof DropCatalogStatement
                 || stmt instanceof AlterCatalogStatement || stmt instanceof DescribeCatalogStatement) {
             if (accessControl == null || user == null) {
-                throw new AccessDeniedException("Authenticated catalog principal and access-control provider are required");
+                throw new AccessDeniedException(
+                        "Authenticated catalog principal and access-control provider are required");
             }
             checkCatalogPrivilege(stmt, accessControl, user);
             return;

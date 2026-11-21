@@ -35,7 +35,8 @@ public final class KafkaCdcSourceFactory implements CdcSourceFactory {
     }
 
     private static void validateDeserializer(Map<String, String> properties, String key) {
-        if (!ByteArrayDeserializer.class.getName().equals(properties.getOrDefault(key, ByteArrayDeserializer.class.getName()))) {
+        if (!ByteArrayDeserializer.class.getName().equals(properties.getOrDefault(key,
+                ByteArrayDeserializer.class.getName()))) {
             throw new IllegalArgumentException("Kafka CDC requires a byte array deserializer for " + key);
         }
     }

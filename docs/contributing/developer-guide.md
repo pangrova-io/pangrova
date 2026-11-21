@@ -16,31 +16,7 @@ sidebar_label: "Developer Guide"
 
 ### 1.1 System Requirements
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Development Environment Requirements                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Required Software:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Software           │ Version       │ Purpose                           │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  JDK                │ 17+           │ Java compile and run              │   │
-│  │  Maven              │ 3.9+          │ Build management                  │   │
-│  │  Python             │ 3.10+         │ Function-contract generation      │   │
-│  │  CMake              │ 3.20+         │ Native build                      │   │
-│  │  GCC/Clang          │ 11+/14+       │ C++ compile                       │   │
-│  │  Docker             │ 20+           │ Test containers                   │   │
-│  │  Git                │ 2.30+         │ Version control                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Optional Software:                                                              │
-│  • IntelliJ IDEA (recommended IDE)                                              │
-│  • CLion (Native development)                                                   │
-│  • Docker Compose (local cluster)                                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Development Environment Requirements](../../website/static/img/diagrams/generated/developer-guide-01-91bf919dfb.svg)
 
 ### 1.2 Quick Start
 
@@ -57,7 +33,7 @@ and Gradle 8.14.4 installed. The native prerequisite check reports the additiona
 platform toolchain requirements without installing OS packages.
 
 ```bash
-git clone https://github.com/pangrova/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 
 # Check native tools, then build the pinned Java connector dependency.
@@ -197,26 +173,7 @@ The command is a no-op outside a Pangrova checkout and never blocks session end.
 
 ### 2.1 Module Structure Convention
 
-```
-pangrova-{module}/
-├── src/
-│   ├── main/
-│   │   ├── java/org/pangrova/{module}/
-│   │   │   ├── {Module}Module.java      # Module entry point; follow the owning module's bootstrap/injection pattern
-
-│   │   │   ├── {Module}Config.java      # Configuration class
-│   │   │   ├── api/                     # Public API
-│   │   │   ├── internal/                # Internal implementation
-│   │   │   └── spi/                     # SPI interfaces (if any)
-│   │   └── resources/
-│   │       └── META-INF/services/       # SPI registration
-│   └── test/
-│       └── java/org/pangrova/{module}/
-│           ├── Test{Feature}.java       # Unit test
-│           └── Integration{Feature}Test.java  # Integration test
-├── pom.xml
-└── README.md
-```
+![pangrova-{module}/](../../website/static/img/diagrams/generated/developer-guide-07-df85bc009e.svg)
 
 ### 2.2 Code Conventions
 
@@ -267,38 +224,11 @@ public class QueryExecutor {
 
 ### Validation Scope and Readability
 
-The canonical policy is `.pangrova/rules/development.md`. Start with the closest
-check, then the owning module and affected consumers. Maven `test`/`verify`
-already compiles; avoid duplicate invocations unless diagnosing a failure.
-Runtime JNI/protocol/native/execution changes require affected native, packaging,
-Java, and E2E/smoke validation; native memory/ownership/JNI/concurrency changes
-also need ASan. Docs/tooling edits use their own checks. CI selects lightweight
-checks for docs/rules/gate-tooling PRs; runtime/build/test PRs retain production
-correctness regression. Protected-branch pushes and releases run the complete
-chain; broad execution changes also require full local validation.
-
-Structural ceilings (800 file lines, 100 effective method lines, complexity 15,
-10 parameters) are backstops. Review constructors above 6 dependencies and
-interfaces above 12 methods for mixed responsibilities. Preserve meaningful names,
-cohesion, explicit control flow, and shallow nesting. Do not introduce forwarding
-classes, generic parameter bags, or compressed statements just to pass a metric.
-Checkstyle owns these metrics; a second regex scanner and historical rename
-ledgers have been removed. Enums may contain as many values as the domain needs. Established pattern names
-such as Adapter, Visitor, and Observer are valid when they describe the actual role.
-
-Test changed behavior and relevant errors/boundaries. Pure refactors may reuse
-existing tests. Coverage reports are diagnostic; there is no changed-line
-percentage gate.
-Record unrelated baseline/environment failures with evidence and their impact;
-do not disable tests, claim blocked checks passed, or require stashing a shared
-worktree. Submit concise execution evidence with links to complete logs.
-
-Extra TPC-H/JMH jobs are selected by production/dependency/benchmark changes;
-docs and unrelated tests do not require them. Correctness regression and existing
-performance thresholds remain enforced. Static analysis runs in one owning CI job. Date-based doc-age alarms, the fixed
-historical dependency-use list, and an unused ADR trailer hook are removed.
-See [Quality Gate Audit](quality-gate-audit.md) for measurements and decisions.
-Repository instruction discovery uses `AGENTS.md` and `.pangrova/rules/` only.
+Repository policy is discovered through `AGENTS.md` and `.pangrova/rules/`, which
+own validation selection (`development.md`), structural review thresholds
+(`code-standards.md`), test rules (`testing.md`) and CI selection (`ci-gates.md`).
+Start with the closest check, then the owning module and affected consumers, and
+report blockers instead of disabling tests or claiming unexecuted checks passed.
 
 ### 2.3 Comment Conventions
 
@@ -339,33 +269,7 @@ public class QueryExecutor {
 
 ### 3.1 Connector Development Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Connector Development Flow                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  1. Create the module                                                           │
-│     pangrova-connector-{name}/                                                    │
-│                                                                                  │
-│  2. Implement core interfaces                                                   │
-│     ┌─────────────────────────────────────────────────────────────────────┐    │
-│     │  ConnectorFactory → Connector → ConnectorMetadata                   │    │
-│     │                              → ConnectorSplitManager                │    │
-│     │                              → ConnectorPageSourceProvider          │    │
-│     │                              → ConnectorPageSinkProvider (optional)  │    │
-│     └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                                  │
-│  3. Register SPI                                                                 │
-│     META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory                │
-│                                                                                  │
-│  4. Write tests                                                                 │
-│     Use TestContainers for integration testing                                 │
-│                                                                                  │
-│  5. Documentation                                                               │
-│     README.md + configuration notes                                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Connector Development Flow](../../website/static/img/diagrams/generated/developer-guide-10-8ed8d9500b.svg)
 
 ### 3.2 Connector Implementation Example
 
@@ -876,7 +780,7 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 > **Module Structure (§2.1)**: Provider code lives under `src/main/java/org/pangrova/connector/{format}/` with `read/`, `write/`, `handle/`, and `type/` subpackages. SPI contracts live in `pangrova-connector/pangrova-connector-api`, not in provider modules.
 
 
-> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
+> **Code Standards (§2.2):** The authoritative policy lives in repository code standards. This guide is a practical reference and does not override those rules.
 
 
 > **Connector Example (§3.2)**: `ConnectorFactory` exposes `getName()`, `apiVersion()`, `roles()`, `validateConfiguration(...)`, and `create(...)`; it has no `getConfigProperties()` method. See [connectors.md §1](../architecture/connectors.md).

@@ -47,7 +47,6 @@ public record ConnectorFunctionDefinition(
         body = body == null ? "" : body;
     }
 
-
     /** Single formal parameter of a function. */
     public record Parameter(String name, String type) {
         public Parameter {

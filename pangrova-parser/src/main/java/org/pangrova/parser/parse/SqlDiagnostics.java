@@ -7,6 +7,7 @@ import org.pangrova.parser.build.antlr.PangrovaSqlLexer;
 public final class SqlDiagnostics {
     private SqlDiagnostics() {}
 
+    /** Redacts {@code SET} and catalog DDL statements, whose properties may carry credentials. */
     public static String forReporting(String sql) {
         if (sql == null) return null;
         var lexer = new PangrovaSqlLexer(CharStreams.fromString(sql));

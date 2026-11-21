@@ -196,4 +196,4 @@ sample of direct child processes, in KiB. Reported maxima begin after the first
 accepted measured query. They cover resident process memory including the JVM,
 Native code and shared mappings. The dated evidence includes 96 raw query IDs
 and latencies, per-role RSS samples, runtime/source identities and CSV digests.
-[Recorded samples and report](../../pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-sql-process)
+Recorded samples and report

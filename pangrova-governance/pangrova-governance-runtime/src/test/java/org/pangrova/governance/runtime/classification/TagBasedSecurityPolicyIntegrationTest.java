@@ -1,7 +1,7 @@
 package org.pangrova.governance.runtime.classification;
 
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
 import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore;

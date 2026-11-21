@@ -17,8 +17,6 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
-import javax.crypto.Mac;
-
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.transport.DataTicket;
 

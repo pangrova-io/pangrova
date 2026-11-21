@@ -1,7 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
 import org.pangrova.connector.api.enums.ConditionalBranchDropResult;
-import org.pangrova.connector.api.metadata.SnapshotReference;
 
 import org.pangrova.common.api.annotation.Experimental;
 

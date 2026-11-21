@@ -22,7 +22,8 @@ public final class MemoryTableStoreFactory implements TableStoreFactory {
 
     @Override
     public TableStores create(Optional<DataSource> dataSource) {
-        if (dataSource.isPresent()) throw new IllegalArgumentException("Memory table storage cannot use a JDBC data source");
+        if (dataSource.isPresent()) throw new IllegalArgumentException(
+                "Memory table storage cannot use a JDBC data source");
         return new TableStores(
                 new InMemoryTableControlStore(),
                 new InMemoryTableControlStatisticsStore(),

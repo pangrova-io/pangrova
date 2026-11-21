@@ -41,32 +41,15 @@ See the [SQL reference](../sql-reference/index.md) for statement-specific bounda
 
 ## 3. Component Topology
 
-```text
-JDBC / REST client / CLI
-       | submit, status, cancel (HTTP)
-       v
-Coordinator
-  parse / bind / authorize / plan / admit / schedule / fence
-  connector metadata and final catalog commit
-       | task control (HTTP)
-       v
-Worker JVM
-  lifecycle / admission / JNI / governed provider callbacks
-       |
-       v
-Native Worker (C++ / Velox)
-  scan / relational operators / retrieval / write / shuffle
-       |                           |
-       | Arrow Flight exchange     | files / immutable artifacts
-       v                           v
-Other Workers                 Lakehouse storage
-       |
-Output Worker -- Arrow Flight results --> Client
-```
+![Pangrova topology: clients, Coordinator, durable control state, Workers, Native execution, connector layer, lakehouse storage, and platform services](../../website/static/img/architecture-overview.png)
 
-The diagram describes the main relational execution path. The current CDC bootstrap
-uses a Coordinator-local connector page-sink writer; it is a known migration gap
-from the Worker/Native boundary, not evidence that distributed CDC is complete.
+The diagram describes the main relational execution path. When a Coordinator hosts
+both streaming and query roles, the streaming scheduler disables its local pipeline and
+dispatches bounded CDC ingest tasks to Workers; the Coordinator retains journal
+publication and source-offset acknowledgement. A streaming-only Coordinator still uses
+a Coordinator-local connector page-sink writer. Live acceptance coverage drives real Kafka
+through two Worker CDC backends into one Paimon merge with an injected backend failure and a
+retried exactly-once publication; process-level Worker crash qualification is still required.
 
 Coordinator leases use JDBC by default; ZooKeeper is an optional backend.
 Durable metadata/journal storage and external catalogs remain availability
@@ -140,7 +123,7 @@ unlimited scaling nor automatic transparent result recovery is established here.
 | Worker Java ↔ Native | Canonical v2 Protobuf; Arrow interoperability where applicable | Task bindings, lifecycle/status/reporting, typed data boundaries |
 
 The authoritative execution definitions are in
-[`pangrova-protocol/src/main/proto/pangrova/protocol/v2`](https://github.com/pangrova/pangrova/tree/main/pangrova-protocol/src/main/proto/pangrova/protocol/v2).
+`pangrova-protocol/src/main/proto/pangrova/protocol/v2`.
 The admitted execution epoch and complete descriptor hash must match. Do not
 substitute simplified documentation snippets for generated messages or invent a
 Java shuffle relay from the existence of JNI interoperability methods.
@@ -229,11 +212,11 @@ durable metadata publication is configured.
 
 ### 5.4 Planner
 
-`pangrova-planner` owns Calcite integration, transformations,
-and plan conversion. Its sibling `pangrova-planner` owns SDK-free intent,
-statistics, result-origin and adaptive notification contracts. Compiler and live
-fragment implementations still reside in Core; this split does not yet complete
-the full compiler API boundary.
+`pangrova-planner` owns Calcite integration, transformations, plan conversion,
+and the SDK-free `.api` contracts for fragments, metadata, statistics, result
+origin, retrieval intents, and adaptive notifications. Compiler and live fragment
+implementations still reside in Core; this split does not yet complete the full
+compiler API boundary.
 Default dependency injection and enabled rules constrain which transformations
 are usable. See [Query Optimization](query-optimization.md) and [AI Architecture](ai-native.md).
 
@@ -287,32 +270,41 @@ Never hand-edit generated protocol sources.
 ### 8.3 Code Structure
 
 The authoritative code and validation policy lives in
-[repository rules](https://github.com/pangrova/pangrova/tree/main/.pangrova/rules).
+repository rules.
 The [Developer Guide](../contributing/developer-guide.md) provides practical entry points;
 this overview does not duplicate or override repository policy.
 
 ## 9. Dependency Management
 
-Use the [parent POM](https://github.com/pangrova/pangrova/blob/main/pom.xml)
+Use the parent POM
 and module POMs for pinned Java versions/dependencies, and the Native build configuration
 for Velox and C++ dependencies. Baseline development uses JDK 17, Maven 3.9+, CMake,
 and a C++20 compiler. A Native library or matching packaged Native bundle is required
 for Worker execution; a Java-only build is not a substitute.
 
 
-Query 契约现由 `pangrova-query` 的 `.api` 拥有；QueryState 与 StageState
-均为唯一领域状态值。Query Core 拥有已迁移的 stage 状态转换和 audit/profile 服务，
-后端选择归 Server Coordinator。Query API 不依赖中央 SPI、Protocol、Planner 或后端。
-其余 Coordinator 中的查询编排迁移尚未完成；实际支持与后续事项以
-[Roadmap](../getting-started/roadmap.md) 和当前测试为准。
+Query contracts are now owned by `pangrova-query`'s `.api` packages; QueryState
+and StageState are the single domain state values. Query Core owns the migrated
+stage state transitions and the audit/profile services, while backend selection
+belongs to Server Coordinator. Query API does not depend on the central SPI,
+Protocol, Planner, or any backend. QueryManager now runs in `pangrova-query`'s
+runtime package behind explicit ports; the `PlanFragment`-bound stage binder and
+split seam remain in Coordinator. Actual support and follow-up items are governed
+by the [Roadmap](../getting-started/roadmap.md) and current tests.
 
-Connector 契约现由 `pangrova-connector-api` 的 `.api` 独占，依赖仅为 Common、
-Types、Batch API。写提交 journal/outbox 及其他 Query 存储端口归
-`pangrova-persistence-query-api`；同连接 execution fence 归
-`pangrova-persistence-jdbc-api`。File、Table、Query、Coordination、Security、Generation 的已有
-持久化契约和后端已分域；通用 Persistence API/JDBC 制品已退役。Generation 的同连接
-输入、提交、权限和 fence 端口单独归 JDBC API，不进入普通存储契约。Metadata/其他领域
-的后端拆分、跨域 workflow 以及所有 Core 的后端隔离仍未全部完成。
-Connector Runtime 拥有固定 split 分页及 CUSTOM_BINARY 编码，且不再依赖中央 SPI。
-`ManagedSourceCatalog` 的部署、表身份、状态和快照值从嵌套类型拆到 Connector API；
-原有权限、fencing 和事务 owner 不变。工厂版本/角色协商和通用 Plugin Runtime 仍待实施。
+Connector contracts are now owned exclusively by the `.api` packages of
+`pangrova-connector-api`, whose dependencies are only Common, Types, and Batch
+API. Write-commit journal/outbox and other Query storage ports belong to
+`pangrova-persistence-query-api`; the same-connection execution fence belongs to
+`pangrova-persistence-jdbc-api`. Existing persistence contracts and backends for
+File, Table, Query, Coordination, Security, and Generation are split by domain;
+the generic Persistence API/JDBC artifacts have been retired. Generation's
+same-connection input, commit, authority, and fence ports belong exclusively to
+JDBC API and do not enter the ordinary storage contracts. Backend separation for
+Metadata and other domains, cross-domain workflows, and backend isolation for all
+Core modules are still incomplete. Connector Runtime owns fixed split pagination
+and CUSTOM_BINARY encoding and no longer depends on the central SPI. The
+deployment, table identity, state, and snapshot values of `ManagedSourceCatalog`
+were split out of nested types into Connector API; existing authority, fencing,
+and transaction ownership are unchanged. Factory version/role negotiation and a
+general Plugin Runtime remain to be implemented.

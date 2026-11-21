@@ -25,7 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Logical query admission and terminal telemetry; task completion never publishes query lineage. */
-final class QueryAuditDispatcher {
+final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAuditPort {
     private static final Logger LOG = LoggerFactory.getLogger(QueryAuditDispatcher.class);
     private final QueryAuditEmitter auditEmitter;
     private final QueryDispatcher queryDispatcher;
@@ -48,7 +48,8 @@ final class QueryAuditDispatcher {
         this.events = parent;
     }
 
-    void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+    @Override
+    public void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
         if (lineageEnabled) {
             QueryLineageFact fact = state.freezeLineage(LineageEventType.START,
@@ -60,26 +61,33 @@ final class QueryAuditDispatcher {
         if (auditEmitter != null) auditEmitter.emitQuerySubmitted(queryId, sql, session);
     }
 
-    void emitAuditCompleted(String queryId, QueryStateMachine state) {
+    @Override
+    public void emitAuditCompleted(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.FINISHED, Optional.empty());
-        if (auditEmitter != null) auditEmitter.emitQueryCompleted(
-                queryId, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryCompleted(queryId, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
-    void emitAuditFailed(String queryId, QueryStateMachine state, QueryFailure error) {
+    @Override
+    public void emitAuditFailed(String queryId, QueryStateMachine state, QueryFailure error) {
         String message = error == null ? "unknown" : error.message();
         emitTerminal(queryId, state, QueryState.FAILED, Optional.of(message));
-        if (auditEmitter != null) auditEmitter.emitQueryFailed(
-                queryId, message, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryFailed(queryId, message, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
-    void emitAuditCancelled(String queryId, QueryStateMachine state) {
+    @Override
+    public void emitAuditCancelled(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.CANCELLED, Optional.empty());
-        if (auditEmitter != null) auditEmitter.emitQueryCancelled(
-                queryId, state.getDurationMs(), subject(state), state.getSql());
+        if (auditEmitter != null) {
+            auditEmitter.emitQueryCancelled(queryId, state.getDurationMs(), subject(state), state.getSql());
+        }
     }
 
-    void emitTableAccessedAudit(String queryId, String catalog, String schema,
+    @Override
+    public void emitTableAccessedAudit(String queryId, String catalog, String schema,
             String table, QuerySession session) {
         if (auditEmitter != null) auditEmitter.emitTableAccessed(queryId, catalog, schema, table, session);
     }
@@ -110,7 +118,8 @@ final class QueryAuditDispatcher {
         return new QueryLineageMetadata(inputs, outputs);
     }
 
-    QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryState target) {
+    @Override
+    public QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryState target) {
         if (!lineageEnabled) return null;
         LineageEventType phase = switch (target) {
             case FINISHED -> LineageEventType.COMPLETE;
@@ -127,7 +136,8 @@ final class QueryAuditDispatcher {
     }
 
     /** Unadmitted failures also require a committed fact before logical cleanup can be released. */
-    void persistTerminalLineage(String queryId, QueryStateMachine state) {
+    @Override
+    public void persistTerminalLineage(String queryId, QueryStateMachine state) {
         QueryLineageFact fact = terminalFact(queryId, state, state.getState());
         if (fact != null) {
             QueryLineageFact start = state.lineageStart();
@@ -151,7 +161,7 @@ final class QueryAuditDispatcher {
         return new QueryAuditEmitter.AuditSubject(state.getAuditPrincipal(), state.getTenantId());
     }
 
-    static QueryAuditEmitter createAuditEmitter(AuditEventEmitter emitter,
+    public static QueryAuditEmitter createAuditEmitter(AuditEventEmitter emitter,
             org.pangrova.query.api.audit.QueryAuditSink service) {
         if (emitter == null && service == null) return null;
         return new QueryAuditEmitter(emitter == null ? null : emitter::emit, service);

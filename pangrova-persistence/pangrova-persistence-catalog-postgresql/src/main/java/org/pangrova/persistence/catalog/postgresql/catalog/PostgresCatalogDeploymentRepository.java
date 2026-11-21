@@ -29,6 +29,16 @@ import org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPe
 /** PostgreSQL implementation of {@link CatalogDeploymentRepository}; borrows the DataSource. */
 public final class PostgresCatalogDeploymentRepository extends PostgresCatalogPersistenceSupport
         implements CatalogDeploymentRepository {
+    private static final String INSERT_CATALOG_SQL =
+            "INSERT INTO catalog_definitions (name, type, provider, state, properties, comment, "
+                    + "allowed_tenants, incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?) "
+                    + "ON CONFLICT (name) DO NOTHING";
+    private static final String UPDATE_CATALOG_SQL =
+            "UPDATE catalog_definitions SET type=?, provider=?, state=?, properties=?, comment=?, "
+                    + "allowed_tenants=?, revision=? WHERE name=? AND incarnation_id=? AND revision=?";
+    private static final String INSERT_CATALOG_REVISION_SQL = "INSERT INTO catalog_descriptor_revisions "
+            + "(name, type, provider, state, properties, comment, allowed_tenants, "
+            + "incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?)";
 
     public PostgresCatalogDeploymentRepository(DataSource dataSource) {
         super(dataSource);
@@ -38,18 +48,10 @@ public final class PostgresCatalogDeploymentRepository extends PostgresCatalogPe
     public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
         // A later revision is an update of a live predecessor. An upsert here would
         // recreate an already dropped incarnation when there is no current row.
-        final String sql = descriptor.revision() == 1
-                ? "INSERT INTO catalog_definitions (name, type, provider, state, properties, comment, "
-                        + "allowed_tenants, incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?) "
-                        + "ON CONFLICT (name) DO NOTHING"
-                : "UPDATE catalog_definitions SET type=?, provider=?, state=?, properties=?, comment=?, "
-                        + "allowed_tenants=?, revision=? WHERE name=? AND incarnation_id=? AND revision=?";
-        final String historySql = "INSERT INTO catalog_descriptor_revisions "
-                + "(name, type, provider, state, properties, comment, allowed_tenants, "
-                + "incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?)";
         executeMutation("save catalog descriptor", descriptor.name(), InvalidationType.CATALOG, conn -> {
-            try (PreparedStatement current = conn.prepareStatement(sql);
-                    PreparedStatement history = conn.prepareStatement(historySql)) {
+            try (PreparedStatement current = conn.prepareStatement(
+                    descriptor.revision() == 1 ? INSERT_CATALOG_SQL : UPDATE_CATALOG_SQL);
+                    PreparedStatement history = conn.prepareStatement(INSERT_CATALOG_REVISION_SQL)) {
                 if (descriptor.revision() == 1) {
                     bindSaveCatalog(current, descriptor);
                 } else {

@@ -1,5 +1,6 @@
 ---
 title: "Production Checklist"
+description: "Infrastructure, security, storage, observability, and acceptance checks before production"
 sidebar_position: 3
 ---
 

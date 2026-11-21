@@ -40,7 +40,8 @@ public record WorkerRegistrationRequest(
     public WorkerRegistrationRequest(String workerId, String httpHost, int httpPort,
                                      int transportPort, int resultServerPort, int protocolVersion,
                                      String rackId, List<String> dataLocality, String shuffleMode,
-                                     String capabilityInventory, int copyTaskTlsPort, WorkerExecutionIdentity workerExecutionIdentity) {
+                                     String capabilityInventory, int copyTaskTlsPort,
+                                             WorkerExecutionIdentity workerExecutionIdentity) {
         this(workerId, httpHost, httpPort, transportPort, resultServerPort, protocolVersion, rackId, dataLocality,
                 shuffleMode, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, null);
     }
@@ -66,8 +67,10 @@ public record WorkerRegistrationRequest(
 
     public WorkerRegistrationRequest {
         java.util.Objects.requireNonNull(workerExecutionIdentity, "workerExecutionIdentity");
-        if (shuffleMode != null && !"REMOTE".equals(shuffleMode) && !"NATIVE".equals(shuffleMode) && !"LOCAL".equals(shuffleMode)
-                || shuffleProvider != null && (!"REMOTE".equals(shuffleMode) || !shuffleProvider.matches("[a-z][a-z0-9-]*"))) {
+        if (shuffleMode != null && !"REMOTE".equals(shuffleMode) && !"NATIVE".equals(shuffleMode)
+                && !"LOCAL".equals(shuffleMode)
+                || shuffleProvider != null && (!"REMOTE".equals(shuffleMode) || !shuffleProvider.matches(
+                        "[a-z][a-z0-9-]*"))) {
             throw new IllegalArgumentException("Invalid Worker shuffle deployment");
         }
         requireText(workerId, "workerId");

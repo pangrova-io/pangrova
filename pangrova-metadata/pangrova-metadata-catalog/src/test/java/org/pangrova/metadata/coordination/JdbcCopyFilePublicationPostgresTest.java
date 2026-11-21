@@ -172,7 +172,7 @@ class JdbcCopyFilePublicationPostgresTest {
         WriteCommitEntry intent = new WriteCommitEntry(queryId, "iceberg", "analytics.events",
                 WriteCommitState.PENDING, 1_000L, fragments, "INSERT", fingerprint,
                 "tenant-a", "alice", receipt, 42L, output, fingerprint,
-                "coordinator-a", "process-a", 7L, null, claim.commitBinding());
+                "coordinator-a", "process-a", 7L, null, claim.commitBinding(), null);
         return intent;
     }
 

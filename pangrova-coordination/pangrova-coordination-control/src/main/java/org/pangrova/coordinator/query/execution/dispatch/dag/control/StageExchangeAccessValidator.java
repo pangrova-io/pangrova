@@ -66,7 +66,8 @@ final class StageExchangeAccessValidator {
         var route = input.getCommitAddress();
         var address = new ShuffleServiceAddress(route.getHost(), route.getPort(), route.getTlsIdentity());
         var endpoints = input.getEndpointsList().stream().map(endpoint -> new ShuffleServerEndpoint(endpoint.getHost(),
-                endpoint.getPort(), endpoint.getPartitionStart(), endpoint.getPartitionEnd(), endpoint.getTlsIdentity())).toList();
+                endpoint.getPort(), endpoint.getPartitionStart(), endpoint.getPartitionEnd(),
+                        endpoint.getTlsIdentity())).toList();
         if (!exactOwner(input.getExecutionOwner(), prepared) || encoder == null
                 || !encoder.describe(input.getShuffleId(), address, endpoints, registration.partitionCount())
                         .equals(registration.descriptor())) {

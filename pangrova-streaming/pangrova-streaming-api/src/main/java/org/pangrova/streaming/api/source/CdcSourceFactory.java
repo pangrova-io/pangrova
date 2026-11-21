@@ -1,7 +1,6 @@
 package org.pangrova.streaming.api.source;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.streaming.api.source.CdcSourceReader;
 
 import java.util.Map;
 

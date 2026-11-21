@@ -29,7 +29,8 @@ public final class TaskTerminalRegistry {
             Slot slot = slots.computeIfAbsent(taskId, ignored -> new Slot());
             if (slot.stage != null) {
                 if (slot.stage != stage || slot.generation != generation) {
-                    throw new IllegalStateException("Task identity already belongs to another stage attempt: " + taskId);
+                    throw new IllegalStateException("Task identity already belongs to another stage attempt: "
+                            + taskId);
                 }
                 return;
             }
@@ -43,7 +44,9 @@ public final class TaskTerminalRegistry {
     /** First terminal fact wins. A stage callback may synchronously retry or retire this DAG. */
     public void onTerminal(String query, String taskId, String state, QueryFailure error) {
         if (!queryId.equals(query) || !("FINISHED".equals(state) || "FAILED".equals(state)
-                || "CANCELLED".equals(state))) return;
+                || "CANCELLED".equals(state))) {
+            return;
+        }
         Event event = new Event(state, error);
         Stage stage;
         int generation;

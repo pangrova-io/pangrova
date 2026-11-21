@@ -42,8 +42,10 @@ public record DeferredAuthorizationScope(
     public static DeferredAuthorizationScope raw(
             QualifiedTableName source, Set<String> columns, QualifiedTableName target) {
         return new DeferredAuthorizationScope(List.of(
-                new TablePermission(source, columns, Privilege.SELECT, AuthorizedReadMode.RAW_READ, PolicySnapshot.empty()),
-                new TablePermission(target, Set.of(), Privilege.ALTER, AuthorizedReadMode.NONE, PolicySnapshot.empty())),
+                new TablePermission(source, columns, Privilege.SELECT, AuthorizedReadMode.RAW_READ,
+                        PolicySnapshot.empty()),
+                new TablePermission(target, Set.of(), Privilege.ALTER, AuthorizedReadMode.NONE,
+                        PolicySnapshot.empty())),
                 Optional.empty());
     }
 

@@ -75,25 +75,26 @@ public final class JdbcQueryAuditStore implements QueryAuditStore {
         Objects.requireNonNull(record, "record must not be null");
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SQL_SAVE)) {
-            ps.setString(1, record.queryId());
-            ps.setString(2, record.userId());
-            ps.setString(3, record.sql());
-            ps.setString(4, record.tenantId());
-            ps.setInt(5, record.stageCount());
-            ps.setInt(6, record.taskCount());
-            ps.setLong(7, record.cpuTimeMs());
-            ps.setLong(8, record.wallTimeMs());
-            ps.setLong(9, record.peakMemoryBytes());
-            ps.setLong(10, record.spilledBytes());
-            ps.setLong(11, record.inputRows());
-            ps.setLong(12, record.outputRows());
-            ps.setLong(13, record.inputBytes());
-            ps.setLong(14, record.outputBytes());
-            ps.setLong(15, record.shuffleReadBytes());
-            ps.setLong(16, record.shuffleWriteBytes());
-            ps.setTimestamp(17, record.completedAt() == null
+            int index = 1;
+            ps.setString(index++, record.queryId());
+            ps.setString(index++, record.userId());
+            ps.setString(index++, record.sql());
+            ps.setString(index++, record.tenantId());
+            ps.setInt(index++, record.stageCount());
+            ps.setInt(index++, record.taskCount());
+            ps.setLong(index++, record.cpuTimeMs());
+            ps.setLong(index++, record.wallTimeMs());
+            ps.setLong(index++, record.peakMemoryBytes());
+            ps.setLong(index++, record.spilledBytes());
+            ps.setLong(index++, record.inputRows());
+            ps.setLong(index++, record.outputRows());
+            ps.setLong(index++, record.inputBytes());
+            ps.setLong(index++, record.outputBytes());
+            ps.setLong(index++, record.shuffleReadBytes());
+            ps.setLong(index++, record.shuffleWriteBytes());
+            ps.setTimestamp(index++, record.completedAt() == null
                     ? null : Timestamp.from(record.completedAt()));
-            ps.setBoolean(18, record.success());
+            ps.setBoolean(index++, record.success());
             ps.executeUpdate();
         } catch (SQLException failure) {
             LOG.error("event=audit_record_lost query_id={} error={}",

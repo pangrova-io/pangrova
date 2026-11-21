@@ -1,5 +1,6 @@
 ---
 title: "Query Execution"
+description: "End-to-end query flow, Calcite integration, exchange protocol, and write path"
 sidebar_label: "Query Execution"
 ---
 
@@ -34,57 +35,14 @@ Capture preserves a valid current parent or creates a distinct unsampled root ev
 when telemetry export is disabled. Asynchronous execution activates/closes its
 scope on the execution thread; no originating thread scope is retained. Query API
 loads without the SDK, Coordinator, Worker, Client DTOs or provider implementations.
-QueryManager and execution orchestration still reside in the transitional
-Coordinator implementation; extracting this value does not complete Query Core.
+QueryManager and its lifecycle orchestration now live in `pangrova-query`'s
+runtime package behind explicit execution, admission, audit, journal and tenant
+ports; the Coordinator supplies the adapters. Query API still loads without the
+SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ## 1. End-to-End Query Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           End-to-End Query Flow                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Client                                                                          │
-│    │ SQL: SELECT * FROM iceberg.db.orders WHERE date > '2024-01-01'             │
-│    ▼                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                         Coordinator                                      │    │
-│  │                                                                          │    │
-│  │  2. SQL Parser (ANTLR4) → AST                                           │    │
-│  │  3. Semantic Analyzer → bind Catalog/Schema/Table, type checking        │    │
-│  │  4. Calcite Optimizer → logical optimization + physical optimization    │    │
-│  │  5. Plan Fragmenter → generate distributed exec plan, split into Stages │    │
-│  │  6. Substrait Converter → Calcite RelNode → Substrait Plan              │    │
-│  │  7. Split Manager → call Connector SPI, generate Splits                 │    │
-│  │  8. Task Scheduler → assign Splits to Workers                           │    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ HTTP: TaskDescriptor (Substrait + Splits)     │
-│                                 ▼                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                        Output Worker (Result)                            │    │
-│  │                                                                          │    │
-│  │  10. Task Manager → receive task, validate, enqueue                     │    │
-│  │      │ JNI Call                                                         │    │
-│  │      ▼                                                                  │    │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Native Layer (C++)                                              │   │    │
-│  │  │  11. Substrait Parser → Protobuf → Velox PlanNode               │   │    │
-│  │  │  12. Velox Task → create Task, build Pipeline, register Splits │   │    │
-│  │  │  13. Pipeline Execution → vectorized execution (Batch 8192 rows)│   │    │
-│  │  │  14. Native I/O → Parquet/ORC Reader, S3/HDFS FileSystem        │   │    │
-│  │  └─────────────────────────────────────────────────────────────────┘   │    │
-│  │      │ Arrow RecordBatch (via Arrow C Data Interface)                   │    │
-│  │      ▼                                                                  │    │
-│  │  15. Result Buffer → cache results, await pull or send via Arrow Flight│    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ Arrow Flight: DoGet                            │
-│                                 ▼                                                │
-│  Client receives results from Output Worker                                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 
@@ -111,7 +69,7 @@ existing owners.
 
 `StageSplitSource` and the stage binder still reside in the existing Coordinator
 artifact during this migration: their signatures include live Planner and session
-types. Only the closed `QuerySplit` value moved to Query API in this batch; the remaining
+types. Only the closed `QuerySplit` value lives in Query API; the remaining
 Query/Planner contracts must be separated before moving the whole execution family.
 Index descriptor caching, mapping persistence orchestration and evaluation metrics
 now belong to Indexing Core; the catalog-scoped connector access adapter is separate
@@ -138,37 +96,7 @@ replace Planner validation.
 
 ### 2.1 The Role of Calcite in Pangrova
 
-```
-SQL Query
-    ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Pangrova SQL Parser (ANTLR4) - custom SQL extensions                     │
-│  • OPTIMIZE, VACUUM, TIME TRAVEL, etc.                                  │
-│  • Generate Calcite SqlNode                                             │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite Validator - semantic analysis, type checking, name resolution (via PangrovaSchema) │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite SqlToRelConverter - SqlNode → RelNode (logical plan)           │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite Planner                                                        │
-│  Phase 1: HepPlanner (logical optimization) - predicate pushdown, projection pushdown, constant folding │
-│  Phase 2: VolcanoPlanner (physical optimization) - Join ordering, algorithm selection, partition pruning │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Pangrova Physical Plan - distributed plan (Stage division), Exchange insertion │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Substrait Converter - RelNode → Substrait Plan, serialized to Protobuf │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
 **Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.
 
@@ -179,21 +107,7 @@ function call. Native binding then checks the exact argument and result signatur
 it does not guess an implicit conversion. Exact DECIMAL arithmetic retains its
 DECIMAL arguments and precision/scale contract.
 
-```
-Serialization timing and location:
-  Coordinator:
-    Calcite RelNode → SubstraitConverter.toSubstrait(relNode) → Substrait Plan (Java object)
-    → SubstraitPlan.toByteArray() → byte[] (Protobuf serialization)
-    → Base64.encode(bytes) → TaskDescriptor.substraitPlan (JSON string)
-
-  Worker (Java):
-    TaskDescriptor.substraitPlan → Base64.decode → byte[]
-    → TaskRequest.substrait_plan = bytes (passed directly, not deserialized)
-    → nativeCreateTaskExecutor(taskRequestBytes) → Native layer
-
-  Worker (Native C++):
-    TaskRequest.substrait_plan → SubstraitParser::parse(bytes) → Velox PlanNode
-```
+![Serialization timing and location:](../../website/static/img/diagrams/generated/query-execution-02-27cbbf704f.svg)
 
 ### 2.2 Schema Hierarchy
 
@@ -230,25 +144,7 @@ admits a name available on an eligible Worker; exact kind/URN/signature, build
 identity and placement admission still run for the selected execution target.
 An empty or invalid Worker inventory fails instead of substituting defaults.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Pangrova Optimization Rules                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Logical Rules (HepPlanner):                                                    │
-│  • FilterPushdownRule, ProjectPushdownRule, ConstantFoldingRule                 │
-│  • SubqueryRemoveRule, JoinConditionPushdownRule, AggregateRemoveRule           │
-│                                                                                  │
-│  Physical Rules (VolcanoPlanner):                                               │
-│  • HashJoinRule, MergeJoinRule, BroadcastJoinRule                               │
-│  • HashAggRule, SortAggRule, StreamingAggRule                                   │
-│                                                                                  │
-│  Connector-Specific Rules:                                                      │
-│  • IcebergPartitionPruningRule, IcebergTimeTravelRule                           │
-│  • PaimonBucketPruningRule, IcebergDeleteFileRule                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Pangrova Optimization Rules](../../website/static/img/diagrams/generated/query-execution-03-d9e61ca9e9.svg)
 
 ### 2.4 Cost Model
 
@@ -268,30 +164,7 @@ public class PangrovaCostModel implements RelOptCostFactory {
 
 ### 3.1 Stage Division Example
 
-```
-SQL: SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.customer_id = c.id
-     WHERE o.date > '2024-01-01'
-     GROUP BY c.name
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Stage 0 (Source): Scan Orders                                                  │
-│  Worker-1/2/3: TableScan → Filter → Project → PartialAgg → LocalExchange       │
-│                                    ↓ Shuffle (Hash by customer_id)              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 1 (Source): Scan Customers                                               │
-│  Worker-1/2/3: TableScan                                                        │
-│                                    ↓ Shuffle (Hash by id)                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 2 (Join + Final Agg)                                                     │
-│  Worker-1/2/3: Exchange(orders) → Exchange(customers) → HashJoin → FinalAgg    │
-│                                    ↓ Gather (Single Partition)                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 3 (Output) — Data Plane, executed on Output Worker                        │
-│  Output Worker: Exchange (Gather) → Merge → Limit → Output to Client            │
-│  NOTE: The Coordinator does not participate in data processing; the Output Stage runs on a dedicated Output Worker │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-05-e9d1263e7c.svg)
 
 Correlated subqueries that remain as Calcite's
 `org.apache.calcite.rel.logical.LogicalCorrelate` after
@@ -385,16 +258,7 @@ merge join rules require at least one equijoin key; a non-equijoin predicate
 continues through the supported logical join conversion path.
 
 Format conversion paths:
-```
-Native Velox Pipeline (RowVector)
-  │
-  ├─ Result output → Native result server → Arrow Flight → client
-  │
-  ├─ Shuffle output → Native callback partitioning → PrestoVectorSerde pages
-  │                  → Native Flight DoGet(partition) → downstream Native ExchangeSource
-  │
-  └─ Operator spill → Velox-managed local spill
-```
+![Native Velox Pipeline (RowVector)](../../website/static/img/diagrams/generated/query-execution-06-8a6912bd82.svg)
 
 Key performance points:
 - The Arrow C Data bridge does not make the current result or shuffle network path zero-copy
@@ -430,36 +294,11 @@ The Coordinator executes no data-processing operators. All Output Stages (includ
 
 Using `SELECT * FROM orders ORDER BY amount LIMIT 10` as an example:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Planner-generated Stage DAG                                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Stage 1 (N Compute Tasks, distributed across Worker-1..N)                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  TableScan(orders) → Filter → Partial Sort(amount) → Partial TopN(10) │   │
-│  └──────────────────────────────────┬──────────────────────────────────────┘   │
-│                                     │ Exchange (GATHER, single partition)       │
-│                                     ▼                                          │
-│  Stage 0 (1 Output Task, assigned to the Output Worker)                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Exchange Source → Final Merge Sort(amount) → Final TopN(10) → Output  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                     │                                          │
-│                                     ▼                                          │
-│                              Arrow Flight Stream → Client                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Planner-generated Stage DAG](../../website/static/img/diagrams/generated/query-execution-07-1fd429c5ec.svg)
 
 A more complex example — `SELECT c.name, SUM(o.amount) FROM orders o JOIN customers c ON o.cid = c.id GROUP BY c.name LIMIT 100`:
 
-```
-Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)
-Stage 3: TableScan(customers) → Exchange(REPARTITION by id)
-Stage 1: Exchange(orders) + Exchange(customers) → HashJoin → Final Agg → Exchange(GATHER)
-Stage 0: Exchange Source → TopN(100) → Output  ← Output Task
-```
+![Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)](../../website/static/img/diagrams/generated/query-execution-08-18fdcb8a9e.svg)
 
 #### 3.3.3 REST API Definitions
 
@@ -936,28 +775,7 @@ Exchange pull flow after the Output Worker starts:
 5. Once all upstream Sources complete, the Exchange Operator marks the input as finished
 ```
 
-```
-┌──────────────┐                    ┌──────────────┐
-│ Output Worker│                    │Compute Worker│
-│              │                    │  (Worker-1)  │
-│  Exchange    │  DoGet(ticket)     │  Flight      │
-│  Client  ────┼───────────────────►│  Server      │
-│              │                    │              │
-│              │  RecordBatch #1    │  Shuffle     │
-│          ◄───┼────────────────────┤  Buffer      │
-│              │  RecordBatch #2    │              │
-│          ◄───┼────────────────────┤              │
-│              │  ...               │              │
-│          ◄───┼────────────────────┤              │
-│              │  COMPLETED         │              │
-│          ◄───┼────────────────────┤              │
-│              │                    │              │
-│  Velox Task  │                    │  Velox Task  │
-│  (Gather +   │                    │  (Scan +     │
-│   MergeSort +│                    │   Filter +   │
-│   TopN)      │                    │   PartialAgg)│
-└──────────────┘                    └──────────────┘
-```
+![Output Worker                      Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
 
 **Result pull (Client → Output Worker)**
 
@@ -1024,82 +842,7 @@ public class PangrovaFlightProducer extends NoOpFlightProducer {
 
 **Happy Path**
 
-```
-Timeline →
-
-Client          Coordinator         Output Worker       Worker-1          Worker-2
-  │                 │                    │                  │                 │
-  │ SubmitQuery     │                    │                  │                 │
-  ├────────────────►│                    │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ Parse + Optimize + Fragment           │                 │
-  │                 │ Generate Stage DAG:                   │                 │
-  │                 │   Stage 1: Scan+Filter (N tasks)     │                 │
-  │                 │   Stage 0: Gather+Sort+TopN (1 task) │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 1: Schedule Compute Tasks ── │                 │
-  │                 │                    │                  │                 │
-  │                 │ SubmitTask(Stage1) │                  │                 │
-  │                 ├──────────────────────────────────────►│                 │
-  │                 │ SubmitTask(Stage1) │                  │                 │
-  │                 ├─────────────────────────────────────────────────────────►
-  │                 │                    │                  │                 │
-  │                 │◄─────────────────────────── Accepted  │                 │
-  │                 │◄──────────────────────────────────────────── Accepted  │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 2: Schedule Output Task ──   │                 │
-  │                 │                    │                  │                 │
-  │                 │ SubmitTask(Stage0) │                  │                 │
-  │                 │ (exchange_sources: │                  │                 │
-  │                 │  W1:8082, W2:8082) │                  │                 │
-  │                 ├───────────────────►│                  │                 │
-  │                 │                    │                  │                 │
-  │                 │◄── Accepted +      │                  │                 │
-  │                 │    ResultEndpoint  │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 3: Return to Client ──       │                 │
-  │                 │                    │                  │                 │
-  │◄────────────────┤                    │                  │                 │
-  │ SubmitQueryResp │                    │                  │                 │
-  │ {queryId,       │                    │                  │                 │
-  │  RUNNING,       │                    │                  │                 │
-  │  endpoint:      │                    │                  │                 │
-  │  OW:8082}       │                    │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 4: Data Flow ──              │                 │
-  │                 │                    │                  │                 │
-  │                 │                    │ DoGet(shuffle)   │                 │
-  │                 │                    ├─────────────────►│                 │
-  │                 │                    │ DoGet(shuffle)   │                 │
-  │                 │                    ├──────────────────────────────────►│
-  │                 │                    │                  │                 │
-  │                 │                    │◄── RecordBatch   │                 │
-  │                 │                    │◄───────────────────── RecordBatch │
-  │                 │                    │                  │                 │
-  │                 │                    │ Velox: Gather +  │                 │
-  │                 │                    │ MergeSort + TopN │                 │
-  │                 │                    │                  │                 │
-  │ ── Phase 5: Client Fetches Results ──                  │                 │
-  │                 │                    │                  │                 │
-  │ DoGet(result)   │                    │                  │                 │
-  ├────────────────────────────────────►│                  │                 │
-  │                 │                    │                  │                 │
-  │◄─────────────────────────────────────┤ RecordBatch #1  │                 │
-  │◄─────────────────────────────────────┤ RecordBatch #2  │                 │
-  │◄─────────────────────────────────────┤ COMPLETED       │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 6: Cleanup ──               │                 │
-  │                 │                    │                  │                 │
-  │                 │◄── TaskStatus:     │                  │                 │
-  │                 │    FINISHED        │                  │                 │
-  │                 │◄──────────────────────── FINISHED     │                 │
-  │                 │◄─────────────────────────────────────────── FINISHED   │
-  │                 │                    │                  │                 │
-  │ GetQueryStatus  │                    │                  │                 │
-  ├────────────────►│                    │                  │                 │
-  │◄────────────────┤ FINISHED + stats   │                  │                 │
-  │                 │                    │                  │                 │
-```
+![Timeline →](../../website/static/img/diagrams/generated/query-execution-25-0346494d36.svg)
 
 **Scheduling timing constraints**
 
@@ -1112,30 +855,7 @@ Client          Coordinator         Output Worker       Worker-1          Worker
 
 **State machines**
 
-```
-State maintained by the Coordinator:
-
-Query State Machine:
-  QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHING → FINISHED
-                                      │                      ↑
-                                      └──── FAILED ──────────┘ (retryable in some cases)
-                                      └──── CANCELLED
-
-Task State Machine (Coordinator's view):
-  PENDING → SCHEDULED → RUNNING → FINISHED
-                │          │
-                └──────────┴──→ FAILED → RESCHEDULING → SCHEDULED (retry)
-                                                          │
-                                                          └──→ ABANDONED (retry limit exceeded)
-
-State maintained by the Worker:
-
-Task State Machine (Worker's view):
-  RECEIVED → INITIALIZING → RUNNING → FINISHING → FINISHED
-                 │              │
-                 └──────────────┴──→ FAILED
-                                     CANCELLED
-```
+![State maintained by the Coordinator:](../../website/static/img/diagrams/generated/query-execution-26-94b1707bb4.svg)
 
 State transition rules:
 
@@ -1160,37 +880,7 @@ State transition rules:
 
 **Compute Task failure → reschedule**
 
-```
-A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):
-
-Worker-1        Coordinator         Output Worker       Worker-3 (new)
-  │                 │                    │                  │
-  │ TaskStatus:     │                    │                  │
-  │ FAILED          │                    │                  │
-  │ (EXTERNAL err)  │                    │                  │
-  ├────────────────►│                    │                  │
-  │                 │                    │                  │
-  │                 │ Decision: EXTERNAL error, retryable    │
-  │                 │ Select Worker-3 for reschedule        │
-  │                 │                    │                  │
-  │                 │ SubmitTask(Stage1, same splits)       │
-  │                 ├─────────────────────────────────────►│
-  │                 │                    │                  │
-  │                 │◄──────────────────────────── Accepted │
-  │                 │                    │                  │
-  │                 │ UpdateExchangeSources                 │
-  │                 │ (replace W1 → W3) │                  │
-  │                 ├───────────────────►│                  │
-  │                 │                    │                  │
-  │                 │                    │ Disconnect from W1│
-  │                 │                    │ Discard pulled data│
-  │                 │                    │ Connect to W3     │
-  │                 │                    │                  │
-  │                 │                    │ DoGet(shuffle)   │
-  │                 │                    ├─────────────────►│
-  │                 │                    │◄── RecordBatch   │
-  │                 │                    │                  │
-```
+![A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):](../../website/static/img/diagrams/generated/query-execution-27-08fb7f4de5.svg)
 
 Key decisions:
 - After the Output Worker receives UpdateExchangeSources, it must discard all already-pulled data and restart
@@ -1199,39 +889,7 @@ Key decisions:
 
 **Output Worker crash → reschedule**
 
-```
-Output Worker crash:
-
-Client          Coordinator         Output Worker(old)   Output Worker(new)   Worker-1
-  │                 │                    │                  │                 │
-  │                 │ Heartbeat timeout detected │                  │                 │
-  │                 │ OW failed          ╳                  │                 │
-  │                 │                                       │                 │
-    │                 │ Select a new ACTIVE Worker                 │                 │
-  │                 │                                       │                 │
-  │                 │ SubmitTask(Stage0, same plan,         │                 │
-  │                 │  same exchange_sources)               │                 │
-  │                 ├─────────────────────────────────────►│                 │
-  │                 │                                       │                 │
-  │                 │◄──────────────────────────── Accepted │                 │
-  │                 │                    + new endpoint     │                 │
-  │                 │                                       │                 │
-  │                 │ Update the Query's resultEndpoint          │                 │
-  │                 │                                       │                 │
-  │ DoGet connection dropped│                             │                 │
-  │ (EOF detected)  │                                     │                 │
-  │                 │                                       │                 │
-  │ GetQueryStatus  │                                       │                 │
-  ├────────────────►│                                       │                 │
-  │◄────────────────┤ RUNNING +                             │                 │
-  │                 │ new endpoint                          │                 │
-  │                 │                                       │                 │
-  │ DoGet(result) to new OW                                │                 │
-  ├───────────────────────────────────────────────────────►│                 │
-  │                 │                                       │                 │
-  │◄──────────────────────────────────────────── RecordBatch│                 │
-  │                 │                                       │                 │
-```
+![Output Worker crash:](../../website/static/img/diagrams/generated/query-execution-28-c4e4293647.svg)
 
 Key decisions:
 - Upstream Compute Tasks are unaffected and keep running (the Shuffle Buffer retains data)
@@ -1252,83 +910,15 @@ If the new Output Worker connects before the retention timeout, it resumes pulli
 
 **Client disconnect → timeout cleanup**
 
-```
-Client abnormal disconnect:
-
-Client          Coordinator         Output Worker
-  │                 │                    │
-  │ DoGet(result)   │                    │
-  ├────────────────────────────────────►│
-  │◄─────────────────────────────────────┤ RecordBatch #1
-  │                 │                    │
-  ╳ Client crash     │                    │
-  │                 │                    │
-  │                 │                    │ gRPC connection drop detected
-  │                 │                    │ Start client_idle_timeout timer
-  │                 │                    │ (default 5min)
-  │                 │                    │
-  │                 │                    │ Velox Pipeline paused
-  │                 │                    │ (backpressure: Output Buffer full)
-  │                 │                    │
-  │                 │                    │ ... after 5min ...
-  │                 │                    │
-  │                 │                    │ Timeout, mark Task FAILED
-  │                 │ TaskStatus: FAILED │
-  │                 │◄───────────────────┤
-  │                 │ (RESOURCE: client  │
-  │                 │  idle timeout)     │
-  │                 │                    │
-  │                 │ Mark Query FAILED  │
-  │                 │ Cancel all Tasks   │
-  │                 │                    │
-```
+![Client abnormal disconnect:](../../website/static/img/diagrams/generated/query-execution-29-84898f7df7.svg)
 
 If the Client reconnects before the timeout:
 
-```
-Client          Output Worker
-  │                 │
-  │ DoGet(result)   │ (new connection, same ticket)
-  ├────────────────►│
-  │                 │ Cancel idle timeout timer
-  │                 │ Reset Output Buffer
-  │                 │ Re-read from the Velox Pipeline
-  │                 │ (note: data starts from the beginning, not resumable)
-  │◄────────────────┤ RecordBatch #1
-  │◄────────────────┤ RecordBatch #2
-  │                 │
-```
+![Client          Output Worker](../../website/static/img/diagrams/generated/query-execution-30-2caf1a63e3.svg)
 
 **Memory pressure → Spill + backpressure**
 
-```
-Output Worker memory pressure:
-
-Coordinator         Output Worker                    Worker-1
-  │                    │                                │
-  │                    │ Velox MergeSort memory exceeded│
-  │                    │ MemoryArbitrator triggers Spill│
-  │                    │ MergeSort data written to NVMe SSD│
-  │                    │                                │
-  │                    │ If still insufficient after Spill:│
-  │                    │ Pause Exchange pull            │
-  │                    │ (Arrow Flight flow control)    │
-  │                    │                                │
-  │                    │                                │ Compute Worker detects
-  │                    │                                │ gRPC window full
-  │                    │                                │ Velox Pipeline yield
-  │                    │                                │
-  │ TaskStatus:        │                                │
-  │ RUNNING +          │                                │
-  │ high memory usage  │                                │
-  │◄───────────────────┤                                │
-  │                    │                                │
-  │ (Coordinator logs  │                                │
-  │  but does not      │                                │
-  │  intervene; Velox  │                                │
-  │  self-manages)     │                                │
-  │                    │                                │
-```
+![Output Worker memory pressure:](../../website/static/img/diagrams/generated/query-execution-31-d5bcc40086.svg)
 
 **Error classification and retry policy**
 
@@ -1345,23 +935,7 @@ Coordinator         Output Worker                    Worker-1
 
 Retry decision flow:
 
-```
-Task FAILED
-  │
-  ├─ ErrorCategory = USER_ERROR/INTERNAL_ERROR → Query FAILED (no retry)
-  │
-  ├─ ErrorCategory = RESOURCE_ERROR
-  │   ├─ Already retried >= 1 time → Query FAILED
-  │   └─ Not yet retried → wait 30s → reschedule to a Worker with lower memory pressure
-  │
-  ├─ ErrorCategory = EXTERNAL_ERROR
-  │   ├─ Already retried >= 3 times → Query FAILED
-  │   └─ Not yet retried → exponential backoff (1s, 2s, 4s) → reschedule to a different Worker
-  │
-  └─ ErrorCategory = EXCHANGE_ERROR
-      ├─ Upstream task also FAILED → wait for upstream reschedule to complete → auto-retry
-      └─ Upstream task healthy → reschedule the current task
-```
+![Task FAILED](../../website/static/img/diagrams/generated/query-execution-32-917c09cb72.svg)
 
 #### 3.3.7 Exchange Data Pull
 
@@ -1384,25 +958,7 @@ provide backpressure without a Java `addBatch` bridge.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
-```
-Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):
-
-  Stage 3 (Scan orders)  Stage 2 (Scan customers)
-       │                       │
-       └───────┬───────────────┘
-               │
-          Stage 1 (Join + Agg)
-               │
-          Stage 0 (Output: Gather + Sort + Limit)
-
-Scheduling order: Stage 3 → Stage 2 → Stage 1 → Stage 0
-
-Rules:
-1. Leaf Stages (no upstream dependency) can be scheduled in parallel
-2. Intermediate Stages are scheduled after all tasks of their upstream Stages are scheduled
-3. The Output Stage (Stage 0) is scheduled last
-4. Scheduling = dispatching TaskDescriptor to Workers, without waiting for task execution to finish
-```
+![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
 **Output Worker selection algorithm**
 
@@ -1436,19 +992,7 @@ Output Tasks appear not only at the final output; intermediate Stages also have 
 
 **Three-tier Stage example**
 
-```
-SQL: SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.cid = c.id
-     GROUP BY c.name
-     ORDER BY SUM(o.amount) DESC
-     LIMIT 100
-
-Stage DAG:
-  Stage 3: Scan(orders) → PartialAgg → Exchange(REPARTITION by cid)
-  Stage 2: Scan(customers) → Exchange(REPARTITION by id)
-  Stage 1: Exchange(orders) + Exchange(customers) → HashJoin → FinalAgg → Exchange(GATHER)
-  Stage 0: Exchange(GATHER) → MergeSort(desc) → TopN(100) → Output
-```
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-35-e4e3e43479.svg)
 
 The TaskDescriptor content of each Stage:
 
@@ -1473,37 +1017,7 @@ The TaskDescriptor content of each Stage:
 
 The Shuffle Buffer on the Compute Worker is responsible for buffering data produced by the Velox Pipeline, waiting for downstream tasks to pull it.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Compute Worker Shuffle Buffer                                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Velox Pipeline → Native consumer callback (bound ExchangeRel)              │
-│       │                                                                      │
-│       │ Native partitions and serializes pages into SerializedShuffleQueue   │
-│       ▼                                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Native FlightShuffleServer demuxes the bounded serialized queue      │   │
-│  │  Ticket-scoped DoGet serves each committed partition directly          │   │
-│  │  Downstream Native ExchangeSource pulls over Arrow Flight              │   │
-│  │                                                                      │   │
-│  │  Partition 0: [Batch, Batch, Batch, ...]                            │   │
-│  │  Partition 1: [Batch, Batch, ...]                                   │   │
-│  │  Partition 2: [Batch, Batch, Batch, Batch, ...]                     │   │
-│  │  ...                                                                 │   │
-│  │  Partition M-1: [Batch, ...]                                        │   │
-│  │                                                                      │   │
-│  │  Queue admission and Flight buffering enforce backpressure             │   │
-│  │  Queued bytes outlive the producer's Velox task pool                    │   │
-│  │                                                                      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│       │                                                                      │
-│       │ Arrow Flight DoGet (by partition)                                    │
-│       ▼                                                                      │
-│  Downstream Worker (intermediate Stage or Output Worker)                     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Compute Worker Shuffle Buffer](../../website/static/img/diagrams/generated/query-execution-36-75a6259321.svg)
 
 #### 3.3.10 Worker-Only Relational Result Path
 
@@ -1657,20 +1171,7 @@ Greedy file-split balancing does not establish either distribution property.
 
 ### 4.1 Pipeline Structure
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Task                                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  Pipeline 0 (Source Pipeline)                                           │    │
-│  │  Driver 0-3: Scan → Filter → Project → PartialAgg → LocalExchange      │    │
-│  └─────────────────────────────────────────────────────────────────────────┘    │
-│                                    ↓ Local Exchange (Merge Buffers)             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  Pipeline 1 (Aggregation Pipeline)                                      │    │
-│  │  Driver 0: LocalExchangeSource → FinalAggregation → shuffle callback   │    │
-│  └─────────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Task](../../website/static/img/diagrams/generated/query-execution-40-d1899ae8f8.svg)
 
 ### 4.2 Pipeline Parallelism Calculation
 
@@ -1725,54 +1226,13 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 
 ## 5. Dynamic Filtering
 
-```
-Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id
-      WHERE c.country = 'US'
-
-Problem: the orders table is very large, but only a few customer_id values match country='US'
-Optimization: scan customers first, collect the matching ids, then use those ids to filter orders
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Stage 1: Build Side (customers)                                                │
-│  TableScan → Filter(country='US') → Collect Dynamic Filter                      │
-│  → build a BloomFilter or IN-list: customer_id IN (101, 102, 105, ...)          │
-│                                    ↓ Broadcast Dynamic Filter                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 0: Probe Side (orders)                                                   │
-│  TableScan → Apply Dynamic Filter (customer_id IN ...)                          │
-│  → large amounts of data are filtered out early, reducing I/O and computation   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
 ## 6. Write Path Design
 
 ### 6.1 Read/Write Separation Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Read/Write Separation                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design principles:                                                             │
-│  • Read path: Velox Native execution                                            │
-│  • Write path: Native output drain → JNI → Java connector page sink             │
-│                                                                                  │
-│  Reasons:                                                                        │
-│  • Writes to lakehouse formats (Iceberg/Paimon) involve complex transactions and metadata management │
-│  • The official SDKs for these formats are all implemented in Java              │
-│  • Connector SDKs stage files on Workers; Coordinator owns final catalog commit │
-│  • Bounded task output and synchronous sink calls propagate backpressure        │
-│                                                                                  │
-│  Read Path (C++ Velox):                                                         │
-│  Substrait Plan → Velox Plan Parser → TableScan → Filter/Project → Native I/O  │
-│  Characteristics: vectorized and SIMD; network shuffle is serialized           │
-│                                                                                  │
-│  Write Path (Java):                                                             │
-│  Native RowVector → Arrow IPC/JNI → ConnectorPageSink staged fragment           │
-│  Coordinator → connector finishDistributedWrite() → catalog publication        │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Read/Write Separation](../../website/static/img/diagrams/generated/query-execution-43-63870d9f9f.svg)
 
 ### 6.2 INSERT Flow
 
@@ -1864,19 +1324,7 @@ try {
 
 ### 7.1 Core Principles
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Single Source of Truth                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Principle: the Java Connector is the single source of truth for metadata      │
-│  The Native layer does not cache metadata; every execution fetches the latest version from the Java layer │
-│                                                                                  │
-│  Metadata Flow (one-way):                                                        │
-│  Iceberg Catalog → Java Connector → Substrait Plan → Native Layer              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Single Source of Truth](../../website/static/img/diagrams/generated/query-execution-46-d1859933b0.svg)
 
 | Principle | Description | Implementation |
 |------|------|----------|
@@ -1918,43 +1366,11 @@ Step 3: The Native layer reads based on the snapshot
 
 ### 7.3 Snapshot Isolation Guarantee
 
-```
-Timeline:
-T0        T1        T2        T3        T4        T5
-│         │         │         │         │         │
-│  Query  │         │  Write  │         │  Query  │
-│  Start  │         │  Commit │         │  End    │
-│  Snap   │         │  Snap   │         │         │
-│  =100   │         │  =101   │         │         │
-
-The query obtains Snapshot=100 at T0
-Even if a new write is committed at T2 (Snapshot=101)
-the query still reads only the data of Snapshot=100
-```
+![Timeline:](../../website/static/img/diagrams/generated/query-execution-48-8c994b4e0c.svg)
 
 ### 7.4 Cache Invalidation Strategy
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Coordinator Cluster                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                          │
-│  │Coordinator-1│    │Coordinator-2│    │Coordinator-3│                          │
-│  │ L1 Cache    │    │ L1 Cache    │    │ L1 Cache    │  (1min TTL)              │
-│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘                          │
-│         └──────────────────┼──────────────────┘                                  │
-│                     ┌──────▼──────┐                                              │
-│                     │  L2 Cache   │  (Redis Cluster, 5min TTL)                  │
-│                     └──────┬──────┘                                              │
-│                     ┌──────▼──────┐                                              │
-│                     │   Catalog   │  (Iceberg/HMS Source)                       │
-│                     └─────────────┘                                              │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Active invalidation after a write:
-  1. Invalidate the local cache
-  2. Invalidate the Redis cache
-  3. Broadcast an invalidation message to other Coordinators (Redis Pub/Sub)
-```
+![Coordinator Cluster](../../website/static/img/diagrams/generated/query-execution-49-3f67d13e65.svg)
 
 ## 8. Custom SQL Extensions
 
@@ -2060,63 +1476,11 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 10.2 Snapshot Reference Counting
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Snapshot Reference Counting                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: expiring/cleaning up snapshots may affect running queries             │
-│  Solution: queries hold a snapshot reference; no cleanup while referenced        │
-│                                                                                  │
-│  Reference counting flow:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Query Start:                                                            │   │
-│  │    snapshotRef = snapshotRefManager.acquire(tableId, snapshotId);       │   │
-│  │    → snapshot_refs table: {table_id, snapshot_id, ref_count++, holders}  │   │
-│  │                                                                          │   │
-│  │  Query End:                                                              │   │
-│  │    snapshotRef.release();                                               │   │
-│  │    → snapshot_refs table: ref_count--                                    │   │
-│  │    → cleanup allowed when ref_count == 0                                 │   │
-│  │                                                                          │   │
-│  │  Expire Snapshots:                                                       │   │
-│  │    → check ref_count, skip referenced snapshots                          │   │
-│  │    → log the reason for skipping                                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Timeout protection:                                                             │
-│  • Maximum reference hold time: 24 hours                                         │
-│  • Force-released after timeout; the query may fail (acceptable)                 │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Snapshot Reference Counting](../../website/static/img/diagrams/generated/query-execution-54-d7cd58cfd3.svg)
 
 ### 10.3 Cross-Table Transaction Note
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Cross-Table Transaction                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design decision: cross-table transactions are not supported                    │
-│                                                                                  │
-│  Reasons:                                                                        │
-│  1. Iceberg/Paimon do not natively support cross-table transactions             │
-│  2. Distributed two-phase commit is highly complex with large performance overhead │
-│  3. Most OLAP scenarios do not need cross-table transactions                    │
-│                                                                                  │
-│  Alternatives:                                                                   │
-│  • Single-table transactions: fully supported, using Iceberg/Paimon native transactions │
-│  • Application-level coordination: implement eventual consistency at the business layer │
-│  • Idempotent writes: support retries, guarantee at-least-once                   │
-│                                                                                  │
-│  If cross-table transactions are needed in the future:                          │
-│  • Introduce a Transaction Coordinator component                                 │
-│  • Implement 2PC (Prepare → Commit/Rollback)                                    │
-│  • Requires additional Transaction Log storage                                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cross-Table Transaction](../../website/static/img/diagrams/generated/query-execution-55-b6cc1a7324.svg)
 
 ---
 
@@ -2124,35 +1488,7 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 11.1 Native Version Management
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Native Version Management                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Java/Native epoch mismatch can corrupt or mis-execute tasks            │
-│  Solution: exact descriptor, Native-library and capability hash admission        │
-│                                                                                  │
-│  Version info:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  NativeVersion {                                                         │   │
-│  │    major: 1,           // incompatible changes                          │   │
-│  │    minor: 2,           // release identity only                         │   │
-│  │    patch: 3,           // bug fixes                                     │   │
-│  │    protocolDescriptorSha256: "...",                                    │   │
-│  │    capabilityEpoch: "...",                                             │   │
-│  │    buildTime: "...",                                                    │   │
-│  │    gitCommit: "..."                                                     │   │
-│  │  }                                                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Validation flow:                                                                │
-│  1. When the Java layer loads the Native library, it calls nativeGetVersion()   │
-│  2. Compare the complete canonical v2 descriptor SHA-256                       │
-│  3. Compare the packaged Native-library SHA-256 and capability epoch            │
-│  4. Refuse startup/task admission on any mismatch; never downgrade              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Version Management](../../website/static/img/diagrams/generated/query-execution-56-a737c0fc81.svg)
 
 ```java
 /**
@@ -2186,70 +1522,11 @@ public class NativeVersionChecker {
 
 ### 11.2 Protocol-Epoch Upgrade
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       Protocol-Epoch Upgrade Procedure                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Upgrade order: create green epoch → validate → drain/fence blue → cut over   │
-│                                                                                  │
-│  Coordinator upgrade:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Remove Coordinator-1 from the Load Balancer                          │   │
-│  │  2. Wait for queries on Coordinator-1 to finish (or transfer on timeout) │   │
-│  │  3. Stop Coordinator-1, upgrade, start                                   │   │
-│  │  4. After the health check passes, add it back to the Load Balancer      │   │
-│  │  5. Repeat 2-4 to upgrade the other Coordinators                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Worker upgrade:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Mark Worker-1 as DRAINING (does not accept new tasks)                │   │
-│  │  2. Wait for tasks on Worker-1 to finish                                 │   │
-│  │  3. Stop Worker-1, upgrade, start                                        │   │
-│  │  4. Worker-1 re-registers with the Service Registry                      │   │
-│  │  5. Repeat 1-4 to upgrade the other Workers                              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Epoch isolation:                                                               │
-│  • Blue and green pools may coexist only while one remains fenced                │
-│  • No query or background job spans descriptor/capability epochs                 │
-│  • The admission switch occurs only after blue is drained or fenced              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Protocol-Epoch Upgrade Procedure](../../website/static/img/diagrams/generated/query-execution-58-1a108db81b.svg)
 
 ### 11.3 Dynamic Configuration
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Dynamic Configuration                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Hot-reloadable configuration:                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  • Resource queue config (capacity, concurrency, timeout)                │   │
-│  │  • Query limits (max memory, max execution time)                         │   │
-│  │  • Log level                                                             │   │
-│  │  • Sampling rate (Tracing)                                               │   │
-│  │  • Feature Flags                                                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Non-hot-reloadable configuration (requires restart):                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  • Port number                                                           │   │
-│  │  • Native library path                                                   │   │
-│  │  • Memory pool size                                                       │   │
-│  │  • Storage path                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Config distribution:                                                            │
-│  • Storage: ZooKeeper /pangrova/config/                                            │
-│  • Listen: Curator PathChildrenCache                                             │
-│  • Effective: takes effect < 5s after a config change                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Dynamic Configuration](../../website/static/img/diagrams/generated/query-execution-59-71e6a48e9d.svg)
 
 ```java
 /**
@@ -2292,32 +1569,7 @@ public class DynamicConfigManager {
 
 ### 12.1 Syntax Category Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Lake SQL Syntax Coverage                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Full coverage of Iceberg/Paimon DDL/DML/system-operation syntax               │
-│  • Unified syntax abstraction, hiding underlying data lake differences           │
-│  • Support Pangrova-specific extended syntax                                        │
-│                                                                                  │
-│  Syntax categories:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category        │ Syntax                            │ Support status   │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  DDL             │ CREATE/ALTER/DROP TABLE/VIEW      │ ✓ Full support   │   │
-│  │  DML             │ INSERT/UPDATE/DELETE/MERGE        │ △ Partial       │   │
-│  │  Query           │ SELECT/JOIN/UNION/SUBQUERY        │ ✓ Full support   │   │
-│  │  Time Travel     │ FOR SYSTEM_TIME AS OF             │ ✓ Full support   │   │
-│  │  Table Maint.    │ OPTIMIZE/VACUUM/COMPACT           │ ✓ Full support   │   │
-│  │  Snapshot Mgmt   │ CREATE/ROLLBACK/EXPIRE SNAPSHOT   │ ✓ Full support   │   │
-│  │  Branch/Tag      │ CREATE/DROP BRANCH/TAG            │ ✓ Iceberg        │   │
-│  │  System          │ SHOW/DESCRIBE/EXPLAIN/ANALYZE     │ ✓ Full support   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Lake SQL Syntax Coverage](../../website/static/img/diagrams/generated/query-execution-61-1f67d114d1.svg)
 
 The table is a syntax overview, not a distributed conformance certificate.
 As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
@@ -2330,94 +1582,12 @@ certified; see the [Roadmap](../getting-started/roadmap.md).
 
 ### 12.2 DDL Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- CREATE TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Basic table creation
-CREATE TABLE catalog.db.orders (
-    id BIGINT,
-    customer_id BIGINT,
-    amount DECIMAL(18,2),
-    order_date DATE,
-    status VARCHAR
-)
-USING ICEBERG                                    -- or PAIMON
-PARTITIONED BY (order_date, bucket(16, customer_id))
-TBLPROPERTIES (
-    'write.format.default' = 'parquet',
-    'write.parquet.compression-codec' = 'zstd'
-);
-
--- CTAS (Create Table As Select)
-CREATE TABLE catalog.db.orders_2024 AS
-SELECT * FROM catalog.db.orders WHERE order_date >= '2024-01-01';
-
--- Copy structure from another table
-CREATE TABLE catalog.db.orders_backup LIKE catalog.db.orders;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- ALTER TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Column operations
-ALTER TABLE catalog.db.orders ADD COLUMN region VARCHAR;
-ALTER TABLE catalog.db.orders DROP COLUMN region;
-ALTER TABLE catalog.db.orders RENAME COLUMN status TO order_status;
-ALTER TABLE catalog.db.orders ALTER COLUMN amount TYPE DECIMAL(20,2);
-
--- Partition operations
-ALTER TABLE catalog.db.orders ADD PARTITION FIELD bucket(8, region);
-ALTER TABLE catalog.db.orders DROP PARTITION FIELD bucket(16, customer_id);
-
--- Property operations
-ALTER TABLE catalog.db.orders SET TBLPROPERTIES ('write.format.default' = 'orc');
-ALTER TABLE catalog.db.orders UNSET TBLPROPERTIES ('write.format.default');
-
--- Rename
-ALTER TABLE catalog.db.orders RENAME TO catalog.db.orders_archive;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- DROP TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-DROP TABLE catalog.db.orders;
-DROP TABLE IF EXISTS catalog.db.orders PURGE;    -- Also delete data files
-```
+![--](../../website/static/img/diagrams/generated/query-execution-62-22db13a87e.svg)
 
 
 ### 12.3 DML Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- INSERT
--- ═══════════════════════════════════════════════════════════════════════════════
-
-INSERT INTO catalog.db.orders VALUES (1, 100, 99.99, DATE '2024-01-01', 'pending');
-INSERT INTO catalog.db.orders SELECT * FROM staging.orders WHERE date = '2024-01-01';
-INSERT OVERWRITE catalog.db.orders (id, customer_id, amount, status)
-    PARTITION (order_date = DATE '2024-01-01')
-    VALUES (1, 100, 99.99, 'pending');
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- UPDATE / DELETE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-UPDATE catalog.db.orders SET status = 'shipped' WHERE id = 12345;
-DELETE FROM catalog.db.orders WHERE order_date < '2023-01-01';
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- MERGE (Upsert)
--- ═══════════════════════════════════════════════════════════════════════════════
-
-MERGE INTO catalog.db.orders t
-USING staging.orders_update s ON t.id = s.id
-WHEN MATCHED AND s.op = 'D' THEN DELETE
-WHEN MATCHED THEN UPDATE SET t.status = s.status, t.amount = s.amount
-WHEN NOT MATCHED THEN INSERT (id, customer_id, amount, order_date, status)
-    VALUES (s.id, s.customer_id, s.amount, s.order_date, s.status);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-63-845b6dcf70.svg)
 
 ### 12.4 Time Travel Queries
 
@@ -2439,125 +1609,16 @@ SELECT * FROM catalog.db.orders
 
 ### 12.5 Table Maintenance Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- OPTIMIZE (small file compaction)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Full-table optimization
-OPTIMIZE TABLE catalog.db.orders;
-
--- Optimize a specific partition
-OPTIMIZE TABLE catalog.db.orders WHERE order_date >= '2024-01-01';
-
--- Specify target file size
-OPTIMIZE TABLE catalog.db.orders
-    SET ('target-file-size-bytes' = '134217728');  -- 128MB
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- VACUUM (orphan file cleanup)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Clean up orphan files (retain the last 7 days)
-VACUUM TABLE catalog.db.orders RETAIN 168 HOURS;
-
--- Clean up and show the files that would be deleted (Dry Run)
-VACUUM TABLE catalog.db.orders RETAIN 168 HOURS DRY RUN;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- EXPIRE SNAPSHOTS (expired snapshot cleanup)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Expire old snapshots
-ALTER TABLE catalog.db.orders EXPIRE SNAPSHOTS OLDER_THAN TIMESTAMP '2024-01-01';
-
--- Retain the last N snapshots
-ALTER TABLE catalog.db.orders EXPIRE SNAPSHOTS RETAIN LAST 10;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- REWRITE DATA FILES (data rewrite/sort)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Rewrite data by sort key (optimize query performance)
-ALTER TABLE catalog.db.orders REWRITE DATA
-    USING SORT ORDER (order_date, customer_id);
-
--- Z-Order sort (multi-dimensional query optimization)
-ALTER TABLE catalog.db.orders REWRITE DATA
-    USING ZORDER (customer_id, order_date);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-65-4523f0e214.svg)
 
 
 ### 12.6 Snapshot and Branch Management
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- SNAPSHOT management
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Create a snapshot (manually triggered)
-ALTER TABLE catalog.db.orders CREATE SNAPSHOT;
-
--- Roll back to a specific snapshot
-ALTER TABLE catalog.db.orders ROLLBACK TO SNAPSHOT 1234567890;
-
--- Roll back to a specific point in time
-ALTER TABLE catalog.db.orders ROLLBACK TO TIMESTAMP '2024-01-01 10:00:00';
-
--- Cherry-pick a snapshot (Iceberg)
-ALTER TABLE catalog.db.orders CHERRY_PICK SNAPSHOT 1234567890;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- BRANCH / TAG management (Iceberg)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Create a branch
-ALTER TABLE catalog.db.orders CREATE BRANCH dev;
-ALTER TABLE catalog.db.orders CREATE BRANCH dev AS OF VERSION 1234567890;
-
--- Create a tag
-ALTER TABLE catalog.db.orders CREATE TAG 'release-v1.0';
-ALTER TABLE catalog.db.orders CREATE TAG 'release-v1.0' AS OF VERSION 1234567890;
-
--- Delete a branch/tag
-ALTER TABLE catalog.db.orders DROP BRANCH dev;
-ALTER TABLE catalog.db.orders DROP TAG 'release-v1.0';
-
--- Switch branch (on write)
-INSERT INTO catalog.db.orders VERSION AS OF 'dev' VALUES (...);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-66-4b14100a59.svg)
 
 ### 12.7 System Operation Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- SHOW / DESCRIBE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-SHOW CATALOGS;
-SHOW DATABASES IN iceberg;
-SHOW TABLES IN iceberg.db;
-SHOW CREATE TABLE catalog.db.orders;
-SHOW PARTITIONS catalog.db.orders;
-SHOW SNAPSHOTS catalog.db.orders;                -- Snapshot history
-SHOW FILES catalog.db.orders;                    -- Data file list
-SHOW MANIFESTS catalog.db.orders;                -- Manifest file list
-
-DESCRIBE catalog.db.orders;
-DESCRIBE EXTENDED catalog.db.orders;             -- Includes statistics
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- EXPLAIN / ANALYZE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-EXPLAIN SELECT * FROM catalog.db.orders WHERE order_date = '2024-01-01';
-EXPLAIN ANALYZE SELECT * FROM catalog.db.orders WHERE order_date = '2024-01-01';
-EXPLAIN (FORMAT JSON) SELECT * FROM catalog.db.orders;
-
--- Collect statistics
-ANALYZE TABLE catalog.db.orders;
-ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amount;
-```
+![--](../../website/static/img/diagrams/generated/query-execution-67-bd8223a28b.svg)
 
 
 ---
@@ -2566,35 +1627,7 @@ ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amou
 
 ### 13.1 Design Goals
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Table Maintenance SPI Design                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core problems:                                                                  │
-│  • Iceberg/Paimon both currently need orphan file cleanup and small file        │
-│    compaction; Hudi is a planned extension                                      │
-│  • But their respective APIs and implementation details differ                  │
-│  • A unified abstraction is needed, supporting global config and auto scheduling│
-│                                                                                  │
-│  Design principles:                                                              │
-│  1. Unified interface: define a generic TableMaintenance, hiding low-level diffs│
-│  2. Configurable: support global default config + table-level overrides          │
-│  3. Schedulable: support manual trigger + automatic scheduled dispatch           │
-│  4. Observable: metrics like execution status, duration, cleanup volume of tasks │
-│                                                                                  │
-│  Maintenance operation categories:                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operation          │ Responsibility          │ Trigger condition       │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Compaction         │ Small file compaction   │ File count/size threshold│  │
-│  │  OrphanCleanup      │ Orphan file cleanup     │ Scheduled + manual      │   │
-│  │  SnapshotExpire     │ Expired snapshot cleanup│ Snapshot count/time thresh│ │
-│  │  DataRewrite        │ Data re-sorting         │ Manual trigger          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Table Maintenance SPI Design](../../website/static/img/diagrams/generated/query-execution-68-cfe92a0068.svg)
 
 
 ### 13.2 TableMaintenance Interface
@@ -2657,35 +1690,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 14.1 Java/Native Version Compatibility
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Java/Native Version Compatibility Matrix                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Compatibility rules:                                                            │
-│  • Major version: incompatible changes, must upgrade in sync                    │
-│  • Minor version: backward compatible, new Java works with old Native           │
-│  • Patch version: bug fixes, fully compatible                                   │
-│                                                                                  │
-│  Version matrix:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Version  │ Native Version │ Protocol │ Compatibility │ Note      │   │
-│  │  ────────────────────────────────────────────────────────────────────  │   │
-│  │  1.0.x         │ 1.0.x          │ v1       │ ✓ Full       │ Initial version│ │
-│  │  1.1.x         │ 1.0.x          │ v1       │ ✓ Backward   │ New Java feature││
-│  │  1.1.x         │ 1.1.x          │ v1       │ ✓ Full       │ Recommended combo││
-│  │  1.2.x         │ 1.1.x          │ v1       │ ✓ Backward   │ New Java feature││
-│  │  1.2.x         │ 1.2.x          │ v2       │ ✓ Full       │ Protocol upgrade││
-│  │  2.0.x         │ 1.x.x          │ v2       │ ✗ Incompatible│ Must upgrade in sync││
-│  │  2.0.x         │ 2.0.x          │ v3       │ ✓ Full       │ Major version upgrade││
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Upgrade paths:                                                                  │
-│  • 1.0.x → 1.1.x: upgrade Java first, then Native (optional)                    │
-│  • 1.x.x → 2.0.x: must upgrade Java and Native simultaneously                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Java/Native Version Compatibility Matrix](../../website/static/img/diagrams/generated/query-execution-69-7b3be80655.svg)
 
 ### 14.2 Protocol Version Change Log
 
@@ -2701,28 +1706,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 15.1 Degradation Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Dynamic Filter Degradation Strategy                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem scenarios:                                                              │
-│  • Build side has too much data, building the Dynamic Filter times out          │
-│  • Network latency causes Dynamic Filter propagation timeout                    │
-│  • Probe side has started scanning, Dynamic Filter not ready                    │
-│                                                                                  │
-│  Degradation strategy:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Scenario              │ Threshold         │ Degradation behavior       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Build timeout         │ 30s (configurable)│ Skip DF, continue execution│  │
-│  │  Propagation timeout   │ 10s (configurable)│ Probe side doesn't wait, scans directly││
-│  │  DF too large          │ 10MB (configurable)│ Degrade to Min/Max Range  │   │
-│  │  Too many Build rows   │ 1M rows (configurable)│ Use BloomFilter instead of IN││
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Dynamic Filter Degradation Strategy](../../website/static/img/diagrams/generated/query-execution-70-99c955ebdb.svg)
 
 ### 15.2 Degradation Implementation
 
@@ -2820,26 +1804,7 @@ For the statistics foundation that AQE depends on, see [query-optimization.md §
 
 ### 16.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Coordinator                                  │
-│                                                                      │
-│  ┌──────────────┐    ┌────────────────┐    ┌───────────────────┐    │
-│  │  Stage DAG    │───▶│ AQE evaluator   │───▶│  Re-planned       │    │
-│  │  (initial)    │    │                │    │  Stage DAG        │    │
-│  └──────────────┘    └───────┬────────┘    └───────────────────┘    │
-│                              │                                       │
-│                   ┌──────────▼────────────┐                          │
-│                   │ ShuffleStageStatsReport │                          │
-│                   │ (post-shuffle stats)    │                          │
-│                   └────────────────────────┘                          │
-│                              ▲                                       │
-│              ┌───────────────┼───────────────┐                       │
-│              │               │               │                       │
-│         Worker-1        Worker-2        Worker-N                     │
-│     shuffle_partition_stats (via heartbeat / dedicated RPC)          │
-└─────────────────────────────────────────────────────────────────────┘
-```
+![Coordinator](../../website/static/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
 
 ### 16.2 Capability 1 — Dynamic Coalescing of Shuffle Partitions
 
@@ -2928,7 +1893,7 @@ function handleSkewedJoin(joinStage: JoinStage, shuffleStats: ShuffleStats):
 
 | Aspect | Without AQE | With AQE |
 |--------|-------------|----------|
-| Performance | Fixed plan; fragile with imperfect stats | Self-corrects; 2-5× improvement for skewed/misestimated queries |
+| Performance | Fixed plan; may be fragile with imperfect statistics | Can correct skew or misestimation between stages; gains require workload measurement |
 | Complexity | Simple — plan once, execute | Medium — Coordinator tracks shuffle stats and re-plans between stages |
 | Risk | High — wrong plan decisions unrecoverable | Low — AQE only improves; worst case is no change |
 | Latency overhead | None | ~50-100 ms per shuffle stage boundary |
@@ -2973,18 +1938,7 @@ The following metrics from [14 §3](./observability.md) are emitted by query exe
 
 Query execution emits the following spans (see [14 §4](./observability.md) for span schema):
 
-```
-query.execute                              (Coordinator, SERVER)
-├── query.parse                            (Coordinator, INTERNAL)
-├── query.optimize                         (Coordinator, INTERNAL)
-├── query.schedule                         (Coordinator, INTERNAL)
-│   └── aqe.reoptimize                     (Coordinator, INTERNAL)
-├── task.submit                            (Coordinator → Worker, CLIENT)
-│   └── task.execute                       (Worker, SERVER)
-│       └── native.execute                 (Worker → Native, INTERNAL)
-├── shuffle.write / shuffle.read           (Worker, INTERNAL)
-└── query.output                           (Output Worker, INTERNAL)
-```
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/query-execution-77-55ebfa4691.svg)
 
 ### 17.3 Log Events
 
@@ -3009,28 +1963,7 @@ For the embedded shuffle architecture (current default), see §3.3.9 (Shuffle Bu
 
 ### 18.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                           Node                                   │
-│                                                                  │
-│  ┌──────────────────────┐     ┌────────────────────────────────┐│
-│  │ Worker Process        │     │ Shuffle Service Process        ││
-│  │                       │     │ (long-lived, independent)      ││
-│  │ Velox Pipeline ───────┼────▶│                                ││
-│  │   (shuffle write)     │ IPC │ ShuffleStore                   ││
-│  │                       │     │  ├─ MemoryTier (off-heap)      ││
-│  │ Velox Pipeline ◄──────┼─────│  ├─ SSDTier (Direct I/O)      ││
-│  │   (shuffle read)      │ IPC │  └─ S3Tier (async backup)      ││
-│  │                       │     │                                ││
-│  └──────────────────────┘     │ gRPC API:                       ││
-│                                │  - writePartition()             ││
-│                                │  - readPartition() → stream     ││
-│                                │  - removeStage()                ││
-│                                └────────────────────────────────┘│
-│                                                                  │
-│  Worker can crash/restart without losing shuffle data             │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Node](../../website/static/img/diagrams/generated/query-execution-78-0f286c8a72.svg)
 
 ### 18.2 Shuffle Service API
 

@@ -21,6 +21,7 @@ public enum GenerationState {
         return this == COLLECTED;
     }
 
+    /** Returns whether a generation may move from this state to {@code target}. */
     public boolean canTransitionTo(GenerationState target) {
         return switch (this) {
             case CANDIDATE -> target == COMMITTED || target == QUARANTINED || target == COLLECTED;

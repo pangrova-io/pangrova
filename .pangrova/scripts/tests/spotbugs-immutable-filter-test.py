@@ -182,7 +182,7 @@ public final class ImmutableFilterBoundary {
             {"org.pangrova.parser.diagnostic.RecoveryParseDetails", "<init>",
                 "Lorg/pangrova/parser/api/parse/ParseResult;" + tree, "V", "partialTree", tree, "EI_EXPOSE_REP2"},
             {"org.pangrova.parser.build.AstBuilder", "<init>",
-                tokens + "Lorg/pangrova/parser/api/parse/SqlDialect;", "V", "tokenStream", tokens, "EI_EXPOSE_REP2"}
+                tokens + "Lorg/pangrova/parser/api/enums/SqlDialect;", "V", "tokenStream", tokens, "EI_EXPOSE_REP2"}
         };
         for (String[] c : cases) {
             check(full, c[0], c[1], c[2], c[3], c[4], c[5], c[6], true);
@@ -244,7 +244,7 @@ public final class ImmutableFilterBoundary {
         String manager = "org.pangrova.indexing.storage.IndexStorageManager";
         String context = "org.pangrova.indexing.build.IndexBuildContext";
         String evaluation = "org.pangrova.indexing.evaluation.IndexEvaluationService";
-        String cached = "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData";
+        String cached = "org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");

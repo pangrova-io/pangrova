@@ -17,7 +17,8 @@ import org.pangrova.common.client.result.ResultEndpoint;
 public record QuerySubmissionResult(
         String queryId, QueryState state, ResultEndpoint resultEndpoint, List<String> columnNames,
         org.pangrova.query.api.session.BranchSelection branchSelection) {
-    public QuerySubmissionResult(String queryId, QueryState state, ResultEndpoint resultEndpoint, List<String> columnNames) {
+    public QuerySubmissionResult(String queryId, QueryState state, ResultEndpoint resultEndpoint,
+            List<String> columnNames) {
         this(queryId, state, resultEndpoint, columnNames, null);
     }
 

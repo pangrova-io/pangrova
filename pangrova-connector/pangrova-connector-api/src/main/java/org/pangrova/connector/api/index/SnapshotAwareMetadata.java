@@ -2,8 +2,6 @@ package org.pangrova.connector.api.index;
 
 import org.pangrova.connector.api.exception.SnapshotExpiredException;
 
-import org.pangrova.connector.api.index.SnapshotDataFile;
-import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.enums.SnapshotRelation;
 
 import org.pangrova.common.api.annotation.Experimental;

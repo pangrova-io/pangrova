@@ -13,7 +13,6 @@
  */
 package org.pangrova.ai.api.model;
 
-import org.pangrova.ai.api.model.AiModelDescriptor;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

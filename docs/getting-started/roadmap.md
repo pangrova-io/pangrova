@@ -1,46 +1,49 @@
 ---
 title: "Roadmap"
-description: "Pangrova development priorities and proposed directions"
+description: "Remaining implementation gaps, proposed extensions, and qualification goals"
 ---
 
 # Roadmap
 
-These directions are development goals, not release commitments or claims of
-end-to-end support. Check the [current capability status](capability-status.md)
-for implemented paths and qualification limits.
-
-| Direction | Scope |
-|---|---|
-| Materialized views and dynamic tables | Qualify refresh, publication, recovery and query rewriting across the shared lifecycle |
-| Cross-catalog execution | Broaden validation of multi-catalog queries and connector pushdown |
-| Retrieval quality | Measure recall and precision for supported search paths |
-| RAG workflows | Explore integrated retrieve, augment and generate execution |
-| Python and training-data access | Develop Arrow-based client and dataset delivery integrations |
-| GPU acceleration | Evaluate acceleration of suitable inference and compute operators |
-| Serverless deployment | Explore suspension, resumption and deployment lifecycle support |
+This roadmap lists remaining work, not an inventory of implemented features.
+These goals are not release commitments. Read the
+[current capability status](capability-status.md) for support boundaries.
 
 ## In progress and open items
 
-The following are known incomplete areas; they are not end-to-end support claims.
+- **Materialization extensions:** implement CDC refresh and incrementally refreshed
+  continuous queries beyond the existing full and incremental refresh paths.
+- **Embedding-model deletion:** add durable dependency reservations and resumable
+  CASCADE processing before enabling `DROP EMBEDDING MODEL`.
+- **Training-dataset delivery:** add SQL entry points, durable multi-source export,
+  Native generation publication, and streaming readers.
+- **Evaluation execution:** implement Native run submission, fenced terminal
+  metric reports, and RBAC subject resolution.
+- **System-table coverage:** extend Paimon `$files` type/filesystem coverage and
+  support non-local `$branches`. Carry quoted table names containing a literal
+  `$` through typed parser, planner, and connector identities.
+- **Directory queries:** execute SQL projections over published Stage directory
+  indexes through the Native data plane.
 
-- **AI-native execution:** public-entry AI SQL and retrieval with a real provider,
-  the complete Native build, ASan, and release gates. `DROP EMBEDDING MODEL` remains
-  fail-closed until durable dependency reservations and a resumable CASCADE job
-  exist. Training Dataset has catalog metadata but no SQL entry, durable multi-source
-  export, Native plan wiring, or streaming reader. Evaluation has only control-plane
-  metadata; its data plane, fenced metric reports, and RBAC subject resolution are
-  open.
-- **System tables:** full Iceberg `$files`/`$entries`, the Paimon `$files`
-  type/filesystem matrix, and non-local `$branches` remain open. Quoted table names
-  containing a literal `$` still require a typed relation identity through the
-  parser, Calcite, and connector boundaries.
-- **Table and file plane:** Native DIRECTORY execution, billion-entry directory
-  publication, 100 GiB transfer, PB-scale data, and Linux production qualification.
-- **Modularization:** The module manifest records current package ownership and
-  dependency rules. Role-specific distributions, provider isolation, Shuffle
-  publication and release qualification have separate exit criteria in the
-  [domain-modularization ADR](../architecture/domain-modularization-adr.md).
+See the [AI architecture](../architecture/ai-native.md) for the remaining model,
+training, and evaluation designs.
 
-See the [AI architecture](../architecture/ai-native.md) for target designs.
-Propose priorities or concrete work through
-[GitHub issues](https://github.com/pangrova/pangrova/issues).
+## Proposed directions
+
+| Direction | Remaining scope |
+|---|---|
+| Retrieval quality | Build reproducible recall and precision benchmarks for supported search paths |
+| RAG workflows | Add workflow orchestration around retrieval, context assembly, and generation |
+| Python access | Develop a Python client and Arrow-based dataset delivery integrations |
+| GPU acceleration | Evaluate GPU-backed engine operators for suitable workloads |
+| Serverless deployment | Connect idle-scaling decisions to provisioning and demand-driven resumption |
+
+## Qualification goals
+
+Billion-entry directory publication, 100 GiB transfers, PB-scale workloads, and
+Linux production acceptance require workload-specific evidence. These are
+qualification goals, not missing base features or claims of supported scale.
+Follow the [production checklist](../deployment/production-checklist.md) for
+release acceptance.
+
+Propose priorities or concrete work through GitHub issues.

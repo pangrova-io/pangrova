@@ -1,11 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.AggregationApplication;
-import org.pangrova.connector.api.metadata.ApplicationResult;
-import org.pangrova.connector.api.metadata.Constraint;
-import org.pangrova.connector.api.metadata.SampleInfo;
-import org.pangrova.connector.api.metadata.TopNInfo;
-
 import java.util.List;
 import java.util.Optional;
 

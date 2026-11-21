@@ -12,7 +12,8 @@ import org.pangrova.shuffle.api.exception.ShuffleReadException;
 public final class RemoteShuffleClientException extends ShuffleReadException {
 
     public static RemoteShuffleClientException corruption(String detail) {
-        return new RemoteShuffleClientException(ShuffleReadFailureReason.CORRUPTION, "External shuffle corruption: " + detail);
+        return new RemoteShuffleClientException(ShuffleReadFailureReason.CORRUPTION,
+                "External shuffle corruption: " + detail);
     }
 
     private RemoteShuffleClientException(ShuffleReadFailureReason reason, String message) {

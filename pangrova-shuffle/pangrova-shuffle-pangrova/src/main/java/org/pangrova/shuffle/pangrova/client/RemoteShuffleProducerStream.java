@@ -160,38 +160,47 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
     private ClientResponseObserver<WriteBatchRequest, WriteBatchResponse>
             responseObserver(
                     AtomicReference<ClientCallStreamObserver<WriteBatchRequest>> stream) {
-        return new ClientResponseObserver<>() {
-            @Override
-            public void beforeStart(ClientCallStreamObserver<WriteBatchRequest> request) {
-                stream.set(request);
-                request.setOnReadyHandler(RemoteShuffleProducerStream.this::signalReady);
-            }
+        return new WriteResponseObserver(stream);
+    }
 
-            @Override
-            public void onNext(WriteBatchResponse value) {
-                if (!response.compareAndSet(null, value)) {
-                    error.compareAndSet(null, new RemoteShuffleClientException(
-                            "WriteBatch returned more than one response"));
-                }
-            }
+    private final class WriteResponseObserver
+            implements ClientResponseObserver<WriteBatchRequest, WriteBatchResponse> {
+        private final AtomicReference<ClientCallStreamObserver<WriteBatchRequest>> stream;
 
-            @Override
-            public void onError(Throwable failure) {
-                error.compareAndSet(null, failure);
-                completed.countDown();
-                signalReady();
-            }
+        private WriteResponseObserver(AtomicReference<ClientCallStreamObserver<WriteBatchRequest>> stream) {
+            this.stream = stream;
+        }
 
-            @Override
-            public void onCompleted() {
-                if (state.get() == ProducerStreamState.ACTIVE) {
-                    error.compareAndSet(null, new RemoteShuffleClientException(
-                            "Remote shuffle server completed before the producer finished writing"));
-                }
-                completed.countDown();
-                signalReady();
+        @Override
+        public void beforeStart(ClientCallStreamObserver<WriteBatchRequest> request) {
+            stream.set(request);
+            request.setOnReadyHandler(RemoteShuffleProducerStream.this::signalReady);
+        }
+
+        @Override
+        public void onNext(WriteBatchResponse value) {
+            if (!response.compareAndSet(null, value)) {
+                error.compareAndSet(null, new RemoteShuffleClientException(
+                        "WriteBatch returned more than one response"));
             }
-        };
+        }
+
+        @Override
+        public void onError(Throwable failure) {
+            error.compareAndSet(null, failure);
+            completed.countDown();
+            signalReady();
+        }
+
+        @Override
+        public void onCompleted() {
+            if (state.get() == ProducerStreamState.ACTIVE) {
+                error.compareAndSet(null, new RemoteShuffleClientException(
+                        "Remote shuffle server completed before the producer finished writing"));
+            }
+            completed.countDown();
+            signalReady();
+        }
     }
 
     private void awaitReady() {

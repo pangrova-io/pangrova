@@ -21,7 +21,8 @@ final class LineageFacts {
     }
 
     static QueryLineageFact fact(String namespace, LineageEvent event) {
-        return new QueryLineageFact(namespace, event.runId(), event.eventType(), event.timestamp().toEpochMilli(), event.sql(), event.facets().get("error"),
+        return new QueryLineageFact(namespace, event.runId(), event.eventType(), event.timestamp().toEpochMilli(),
+                event.sql(), event.facets().get("error"),
                 new QueryLineageMetadata(metadata(namespace, event.inputDatasets()),
                         metadata(namespace, event.outputDatasets())));
     }

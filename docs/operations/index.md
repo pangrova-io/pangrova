@@ -1,5 +1,6 @@
 ---
 title: "Operations"
+description: "Operational entry points, day-2 tasks, runbooks, and game-day scenarios"
 sidebar_position: 1
 ---
 
@@ -44,15 +45,20 @@ Run these checks before promoting a build:
 mvn clean package -DskipTests
 find . -path '*/target/*.jar' -exec unzip -l {} \; | grep -E 'org/pangrova/metadata/(store|checkpoint|generation)/' && exit 1
 
-# Full unit regression (E2E requires a prepared AI image fixture)
-mvn -T 1C test -pl '!pangrova-testing/pangrova-testing-integration-tests'
+# Unit regression without the integration module (E2E needs a prepared AI image fixture).
+# Run serially: parallel -T aborts on the first failing module and can skip later modules.
+mvn test -fae -pl '!pangrova-testing/pangrova-testing-integration-tests'
 
 # SBOM
 mvn -P sbom -DskipTests verify
 ```
 
-A two-node smoke is: start PostgreSQL, let a Coordinator run the canonical schema
-migrations, register one Catalog, start the Worker, wait for
+A two-node smoke requires the shared internal auth secret, PostgreSQL authority,
+and Worker spill directory first (see
+[Security configuration](../configuration/security.md#internal-authentication-coordinator--worker)
+and [Worker configuration](../configuration/worker.md)). Then start PostgreSQL,
+let a Coordinator run the canonical schema migrations, register one Catalog,
+start the Worker, wait for
 `GET /v1/health` to return `"ready":true`, then run a query through
 `bin/pangrova-cli.sh`. Stop both processes before deleting the database.
 
@@ -79,12 +85,12 @@ generated file to release artifacts and archive it with the release evidence.
 # Health check
 curl -f http://localhost:8080/v1/health
 
-# Start standalone
-bin/pangrova-standalone.sh
+# Start standalone with a prepared configuration (see Quickstart)
+bin/pangrova-standalone.sh --config /path/to/standalone-local.yml
 
-# Start distributed
-bin/pangrova-coordinator.sh --daemon
-bin/pangrova-worker.sh --daemon
+# Start distributed with prepared role configurations
+bin/pangrova-coordinator.sh --config /etc/pangrova/coordinator.yml --daemon
+bin/pangrova-worker.sh --config /etc/pangrova/worker.yml --daemon
 
 # Stop all
 bin/pangrova-stop.sh --all

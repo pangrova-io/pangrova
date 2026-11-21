@@ -43,7 +43,6 @@ public final class IdempotencyKeyRegistry {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
     private static final int SWEEP_THRESHOLD = 10_000;
 
-
     private record Key(String principal, String idempotencyKey) {}
 
     private static final class Entry {

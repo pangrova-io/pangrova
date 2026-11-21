@@ -1,5 +1,6 @@
 ---
 title: "Day-2 Operations"
+description: "Rolling upgrade, online DDL, disaster recovery, autoscaling, and operational procedures"
 sidebar_label: "Day-2 Operations"
 ---
 
@@ -32,24 +33,7 @@ The examples of APIs, SQL syntax and infrastructure workflows below describe the
 
 ## 1. Operations Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Operations Architecture                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Operations capabilities:                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Description                 │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Epoch Upgrade      │ Blue/green traffic cutover  │ Drain+fence+verify │   │
-│  │  Online DDL         │ Non-blocking schema change │ Async exec+progress │   │
-│  │  Disaster Recovery  │ Cross-region DR             │ Metadata+data repl. │  │
-│  │  Auto Scaling       │ Autoscaling                 │ Load-based elastic. │   │
-│  │  Config Hot Reload  │ Config hot reload           │ Dynamic config ctr. │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Operations Architecture](../../website/static/img/diagrams/generated/day-2-01-73b5013709.svg)
 
 ---
 
@@ -57,32 +41,11 @@ The examples of APIs, SQL syntax and infrastructure workflows below describe the
 
 ### 2.1 Upgrade Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       Protocol-Epoch Upgrade Architecture                        │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Upgrade order:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Create a fenced green Worker pool with the new execution epoch       │   │
-│  │     Descriptor + Native library + capability inventory must all match    │   │
-│  │                                                                          │   │
-│  │  2. Validate green, stop admission to blue, and drain/fence blue          │   │
-│  │     No query or background job may span execution epochs                 │   │
-│  │                                                                          │   │
-│  │  3. Atomically switch admission to green; keep blue fenced for rollback   │   │
-│  │     Remove blue only after query/job and publication-fence verification  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Epoch requirements:                                                            │
-│  • One admitted descriptor/capability epoch per cluster                          │
-│  • Mismatched Workers remain fenced and receive no tasks                         │
-│  • No negotiation, v1 fallback, dual parser, or per-task downgrade                │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Protocol-Epoch Upgrade Architecture](../../website/static/img/diagrams/generated/day-2-02-04f3eb8acb.svg)
 
 ### 2.2 Upgrade Flow
+
+![Rolling upgrade and rollback: plan, drain, replace, validate, resume or roll back](../../website/static/img/diagrams/upgrade-flow.svg)
 
 ```java
 /**
@@ -212,27 +175,7 @@ public class VersionCompatibilityChecker {
 
 ### 3.1 Online DDL Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Online DDL Architecture                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                  │
-│  • DDL operations do not block queries currently executing                      │
-│  • Large-table DDL can run asynchronously in the background                      │
-│  • DDL progress query and cancellation are supported                             │
-│                                                                                  │
-│  DDL type classification:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Type              │ Blocking  │ Execution mode  │ Example              │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Metadata Only     │ Non-block │ Synchronous     │ ADD COLUMN, RENAME  │   │
-│  │  Data Rewrite      │ Non-block │ Async background │ ALTER COLUMN TYPE   │   │
-│  │  Table Lock        │ Brief lock│ Synchronous     │ DROP TABLE          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Online DDL Architecture](../../website/static/img/diagrams/generated/day-2-05-015c1622ad.svg)
 
 ### 3.2 Asynchronous DDL Execution
 
@@ -356,43 +299,7 @@ ORDER BY created_at DESC;
 
 ### 4.1 Disaster Recovery Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Disaster Recovery Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Active-active architecture:                                                    │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Region A (Primary)              Region B (Standby)                     │   │
-│  │  ┌─────────────────┐            ┌─────────────────┐                    │   │
-│  │  │  Coordinator    │            │  Coordinator    │                    │   │
-│  │  │  Cluster        │            │  Cluster        │                    │   │
-│  │  └────────┬────────┘            └────────┬────────┘                    │   │
-│  │           │                              │                              │   │
-│  │  ┌────────▼────────┐            ┌────────▼────────┐                    │   │
-│  │  │  Worker         │            │  Worker         │                    │   │
-│  │  │  Cluster        │            │  Cluster        │                    │   │
-│  │  └────────┬────────┘            └────────┬────────┘                    │   │
-│  │           │                              │                              │   │
-│  │  ┌────────▼────────┐            ┌────────▼────────┐                    │   │
-│  │  │  Metadata       │ ─────────► │  Metadata       │                    │   │
-│  │  │  (PgSQL/ZK)     │ Sync repl. │  (PgSQL/ZK)     │                    │   │
-│  │  └────────┬────────┘            └────────┬────────┘                    │   │
-│  │           │                              │                              │   │
-│  │  ┌────────▼────────┐            ┌────────▼────────┐                    │   │
-│  │  │  Data Lake      │ ─────────► │  Data Lake      │                    │   │
-│  │  │  (S3/HDFS)      │ Async repl.│  (S3/HDFS)      │                    │   │
-│  │  └─────────────────┘            └─────────────────┘                    │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  RPO/RTO targets:                                                               │
-│  • RPO (Recovery Point Objective): < 5 minutes                                  │
-│  • RTO (Recovery Time Objective): < 30 minutes                                  │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Disaster Recovery Architecture](../../website/static/img/diagrams/generated/day-2-08-b737e9fb7c.svg)
 
 ### 4.2 Metadata Replication
 
@@ -544,36 +451,7 @@ Disaster recovery flow for each shared-state component:
 
 ### 5.1 Scaling Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Auto Scaling Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Scaling decision flow:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Metrics Collector ──► Scaling Policy ──► Scaling Decision ──► Executor │   │
-│  │        │                     │                    │                │     │   │
-│  │        ▼                     ▼                    ▼                ▼     │   │
-│  │  • CPU usage             • Threshold rules   • Scale Out        • K8s API│   │
-│  │  • Memory usage          • Prediction model  • Scale In         • Cloud API│ │
-│  │  • Queue depth           • Cooldown period   • No Action        • Manual │   │
-│  │  • Query latency         • Time window                                       │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Scaling metrics:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Metric              │ Scale Out thr.  │ Scale In thr.  │ Weight       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  CPU Usage           │ > 80%           │ < 30%          │ 0.3          │   │
-│  │  Memory Usage        │ > 85%           │ < 40%          │ 0.2          │   │
-│  │  Query Queue Depth   │ > 100           │ < 10           │ 0.3          │   │
-│  │  Avg Query Latency   │ > 5s            │ < 1s           │ 0.2          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Auto Scaling Architecture](../../website/static/img/diagrams/generated/day-2-11-1ff21c14da.svg)
 
 ### 5.2 Scaling Policy
 
@@ -788,34 +666,7 @@ Auto-scaling changes Worker count, which affects resource scheduling. This secti
 
 ### 6.1 Configuration Management Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Config Hot Reload Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Configuration categories:                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category          │ Hot reload│ Example                                  │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Runtime Config    │ ✓       │ Concurrency, timeout, log level          │   │
-│  │  Resource Limits   │ ✓       │ Memory limits, queue size                │   │
-│  │  Feature Flags     │ ✓       │ Feature toggles, canary config           │   │
-│  │  Security Config   │ ✓       │ Permission rules, masking rules          │   │
-│  │  Connector Config  │ ✗       │ Data source connections, Catalog config  │   │
-│  │  Cluster Config    │ ✗       │ Node addresses, ports                    │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Configuration source priority:                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Command-line arguments (highest priority)                            │   │
-│  │  2. Environment variables                                                │   │
-│  │  3. Dynamic configuration center (ZooKeeper)                             │   │
-│  │  4. Configuration files (*.yaml)                                         │   │
-│  │  5. Default values (lowest priority)                                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Config Hot Reload Architecture](../../website/static/img/diagrams/generated/day-2-15-666961cf79.svg)
 
 ### 6.2 Dynamic Configuration Service
 
@@ -1005,102 +856,11 @@ This section defines the complete bootstrap sequence for an Pangrova cluster, fr
 
 ### 8.1 Bootstrap Phase Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         System Bootstrap Sequence                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Phase A: Infrastructure (external dependencies)                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  A1. ZooKeeper Quorum (≥3 nodes)    → Election, registration, locks    │   │
-│  │  A2. PostgreSQL Cluster (primary/replica) → Query state, Catalog, audit │   │
-│  │  A3. Redis Cluster (≥3 primaries)  → Metadata cache, session cache     │   │
-│  │  A4. Object Storage (S3/HDFS)       → Data files, shuffle persistence   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                              │ All ready                                       │
-│                              ▼                                                   │
-│  Phase B: Coordinator cluster (≥2 nodes)                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  B1. haService.start()              → ZK connection                    │   │
-│  │  B2. haService.registerAsCandidate()→ Leader Election                  │   │
-│  │  B3. metadataService.initialize()   → Catalog load (PostgreSQL → memory)│   │
-│  │  B4. workerManager.startDiscovery() → Watch /pangrova/workers            │   │
-│  │  B5. httpServer.start()             → REST API ready                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                              │ HTTP port ready                                  │
-│                              ▼                                                   │
-│  Phase C: Worker cluster (≥1 node)                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  C1. WorkerCatalogRuntime.discover() → Load role connector plugins     │   │
-│  │  C2. nativeBridge.loadLibrary()      → Load the Native library          │   │
-│  │  C3. nativeBridge.initializeVelox()  → Velox engine initialization        │   │
-│  │  C4. memoryManager.initialize()      → Memory pool initialization         │   │
-│  │  C5. flightServer.start()           → Data Plane ready                 │   │
-│  │  C6. httpServer.start()             → Control Plane ready              │   │
-│  │  C7. serviceRegistry.register()     → ZK Ephemeral Node               │   │
-│  │  C8. serviceRegistry.startHeartbeat()→ First heartbeat                 │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                              │ Coordinator discovers Workers                    │
-│                              ▼                                                   │
-│  Phase D: System readiness determination                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  D1. Coordinator detects ≥1 Worker ACTIVE                              │   │
-│  │  D2. Catalog health check passes (≥1 Catalog ACTIVE)                    │   │
-│  │  D3. SELECT 1 executes successfully                                    │   │
-│  │  D4. Load Balancer health check passes → start accepting external traffic│  │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![System Bootstrap Sequence](../../website/static/img/diagrams/generated/day-2-20-f20477f797.svg)
 
 ### 8.2 Startup Sequence Diagram
 
-```
-Timeline →
-
-ZooKeeper    PgSQL    Redis    Coordinator-1    Coordinator-2    Worker-1    Worker-2    LB
-    │          │        │           │                │              │           │         │
-    │ Ready    │        │           │                │              │           │         │
-    ├──────────┤ Ready  │           │                │              │           │         │
-    │          ├────────┤ Ready     │                │              │           │         │
-    │          │        ├──────────►│                │              │           │         │
-    │          │        │           │ Phase B        │              │           │         │
-    │          │        │           │ start()        │ start()      │           │         │
-    │◄─────────────────────────────┤ ZK connect     │              │           │         │
-    │◄──────────────────────────────────────────────┤ ZK connect   │           │         │
-    │          │        │           │                │              │           │         │
-    │          │◄───────────────────┤ load catalogs  │              │           │         │
-    │◄─────────────────────────────┤ watch workers   │              │           │         │
-    │          │        │           │ HTTP ready     │ HTTP ready   │           │         │
-    │          │        │           │                │              │           │         │
-    │          │        │           │                │              │ Phase C   │         │
-    │          │        │           │                │              │ start()   │ start() │
-    │          │        │           │                │              │ native    │ native  │
-    │          │        │           │                │              │ init      │ init    │
-    │          │        │           │                │              │ flight    │ flight  │
-    │          │        │           │                │              │ http      │ http    │
-    │◄──────────────────────────────────────────────────────────────┤ register  │         │
-    │◄─────────────────────────────────────────────────────────────────────────┤ register│
-    │          │        │           │                │              │           │         │
-    │          │        │           │ CHILD_ADDED    │ CHILD_ADDED  │           │         │
-    │          │        │           │ Worker-1       │ Worker-1     │           │         │
-    │          │        │           │ Worker-2       │ Worker-2     │           │         │
-    │          │        │           │                │              │           │         │
-    │          │        │           │◄───────────────────────────────┤ heartbeat│         │
-    │          │        │           │◄──────────────────────────────────────────┤heartbeat│
-    │          │        │           │                │              │           │         │
-    │          │        │           │ Phase D        │              │           │         │
-    │          │        │           │ ≥1 Worker ACTIVE              │           │         │
-    │          │        │           │ SELECT 1 OK    │              │           │         │
-    │          │        │           │                │              │           │         │
-    │          │        │           │────────────────────────────────────────────────────►│
-    │          │        │           │                │              │           │  LB     │
-    │          │        │           │                │              │           │  health │
-    │          │        │           │                │              │           │  check  │
-    │          │        │           │                │              │           │  pass   │
-    │          │        │           │                │              │           │         │
-    │          │        │           │ ═══ SYSTEM READY ═══          │           │         │
-```
+![Timeline →](../../website/static/img/diagrams/generated/day-2-21-e3b38f8436.svg)
 
 ### 8.3 Health Check Endpoints
 
@@ -1151,40 +911,7 @@ actual database, ZooKeeper, and object-store clients.
 
 ### 9.1 Failure Classification and Response
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Incident Response Matrix                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Severity classification:                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level │ Impact scope          │ Response│ Recovery│ Notification       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  P0    │ Whole cluster down    │ < 5min  │ < 30min │ All + mgmt         │   │
-│  │  P1    │ Partial feature outage│ < 15min │ < 1h    │ On-call + owner    │   │
-│  │  P2    │ Severe perf. drop     │ < 30min │ < 4h    │ On-call            │   │
-│  │  P3    │ Non-critical fault    │ < 2h    │ < 24h   │ Ticket             │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Error code -> SOP quick routing:                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  PangrovaErrorCode          │ Failure domain │ SOP section                │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  TRANSPORT-0001           │ Coordinator     │ §9.2                   │   │
-│  │  TRANSPORT_CONNECTION_FAILED│                │                        │   │
-│  │  WORKER-0002              │ Worker          │ §9.3                   │   │
-│  │  WORKER_LOST              │                 │                        │   │
-│  │  NATIVE-0001..0007        │ Worker/Native   │ §9.3 (Native crash)    │   │
-│  │  NATIVE-0001              │ Worker/Native   │ §9.3 (Native crash)    │   │
-│  │  RESOURCE-0001            │ Query/Resource  │ §9.4                   │   │
-│  │  RUNTIME-0003             │ Query/Resource  │ §9.4                   │   │
-│  │  RUNTIME-0004             │ Query/Resource  │ §9.4                   │   │
-│  │  FILE-0005               │ Storage         │ §9.5                   │   │
-│  │  TRANSPORT-0001           │ Network/Storage │ §9.5                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Incident Response Matrix](../../website/static/img/diagrams/generated/day-2-23-915f5d0e04.svg)
 
 ### 9.1.1 Error-code routing
 
@@ -1222,97 +949,13 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 
 > **Related error code**: `TRANSPORT-0001` (`TRANSPORT_CONNECTION_FAILED`) — see [resilience.md §2.2](../architecture/resilience.md)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    Coordinator Failure Recovery SOP                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Symptom: Coordinator node is unresponsive or crashed                           │
-│                                                                                  │
-│  Diagnostic steps:                                                              │
-│  1. Check process status: ps aux | grep pangrova-coordinator                      │
-│  2. Check port listening: netstat -tlnp | grep 8080                             │
-│  3. Check logs: tail -f /var/log/pangrova/coordinator.log                         │
-│  4. Check ZK registration: zkCli.sh ls /pangrova/coordinators                     │
-│                                                                                  │
-│  Recovery steps:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Step 1: Confirm the other Coordinators are healthy                     │   │
-│  │          curl http://coordinator-2:8080/v1/health                          │   │
-│  │                                                                          │   │
-│  │  Step 2: Remove the failed node from the LB                             │   │
-│  │          haproxy-cli disable server pangrova/coordinator-1                │   │
-│  │                                                                          │   │
-│  │  Step 3: Attempt to restart the service                                 │   │
-│  │          /opt/pangrova/bin/pangrova-stop.sh --coordinator && /opt/pangrova/bin/pangrova-coordinator.sh --daemon                           │   │
-│  │                                                                          │   │
-│  │  Step 4: Check startup logs, confirm no anomalies                       │   │
-│  │          tail -f /var/log/pangrova/coordinator.log                            │   │
-│  │                                                                          │   │
-│  │  Step 5: After the health check passes, add back to the LB              │   │
-│  │          haproxy-cli enable server pangrova/coordinator-1                 │   │
-│  │                                                                          │   │
-│  │  Step 6: Verify queries work                                            │   │
-│  │          pangrova-cli -e "SELECT 1"                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  If restart fails:                                                              │
-│  • Check JVM OOM: dmesg | grep -i oom                                           │
-│  • Check disk space: df -h                                                      │
-│  • Check ZK connection: zkCli.sh stat                                           │
-│  • Consider rolling back the version or replacing the node                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Coordinator Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-24-e5c80b2ae9.svg)
 
 ### 9.3 Worker Failure Recovery
 
 > **Related error codes**: `WORKER-0002` (`WORKER_LOST`), `NATIVE-0004` (`NATIVE_INIT_FAILED`), `NATIVE-0001` (`NATIVE_JNI_EXCEPTION`) — see [resilience.md §2.2](../architecture/resilience.md)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       Worker Failure Recovery SOP                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Symptom: Worker node unresponsive, task failures, Native layer crash           │
-│                                                                                  │
-│  Diagnostic steps:                                                              │
-│  1. Check process status: ps aux | grep pangrova-worker                           │
-│  2. Check Native crash: ls /var/log/pangrova/core.*                               │
-│  3. Check memory usage: free -h && cat /proc/meminfo                            │
-│  4. Check Spill directory: df -h /data/spill                                    │
-│                                                                                  │
-│  Recovery steps:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Step 1: Mark the Worker as DRAINING (if still responsive)              │   │
-│  │          ssh worker-1 /opt/pangrova/bin/pangrova-stop.sh --worker                  │   │
-│  │                                                                          │   │
-│  │  Step 2: Wait for existing tasks to finish or time out (up to 5 minutes)│   │
-│  │          watch "bin/pangrova-cluster-status.sh"    │   │
-│  │                                                                          │   │
-│  │  Step 3: Stop the Worker service                                        │   │
-│  │          /opt/pangrova/bin/pangrova-stop.sh --worker                                   │   │
-│  │                                                                          │   │
-│  │  Step 4: Clean up the Spill directory (if the disk is full)             │   │
-│  │          rm -rf /data/spill/*                                           │   │
-│  │                                                                          │   │
-│  │  Step 5: Check Core Dump (if the Native layer crashed)                  │   │
-│  │          gdb /opt/pangrova/lib/libpangrova_native.so /var/log/pangrova/core.* │   │
-│  │                                                                          │   │
-│  │  Step 6: Restart the Worker                                             │   │
-│  │          /opt/pangrova/bin/pangrova-worker.sh --daemon                                  │   │
-│  │                                                                          │   │
-│  │  Step 7: Verify the Worker registered successfully                      │   │
-│  │          curl http://coordinator:8080/api/workers | jq                │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Common causes of Native crashes:                                               │
-│  • OOM: increase the memory limit or enable Spill                               │
-│  • Segfault: check Native library version compatibility                         │
-│  • Assertion failure: possibly a data issue, check the input data               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Worker Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-25-e0cc15c18e.svg)
 
 ### 9.4 Query Timeout/OOM Recovery
 
@@ -1320,40 +963,7 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 >
 > Diagnostic tip: If the error code is `RESOURCE-0001`, check Native layer memory first (the `pangrova.native.memory_used_bytes` metric), because a Native OOM is mapped to this error code by the Native-to-Java error path documented in [resilience.md §3.3](../architecture/resilience.md).
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Query Timeout/OOM Recovery SOP                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Symptom: query timeout, out-of-memory errors, Spill failure                    │
-│                                                                                  │
-│  Diagnostic steps:                                                              │
-│  1. View query details: EXPLAIN ANALYZE <query>                                 │
-│  2. Check resource usage: SELECT * FROM system.runtime.queries WHERE state='RUNNING'│
-│  3. Check memory allocation: SELECT * FROM system.runtime.memory_pools          │
-│                                                                                  │
-│  Recovery steps:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Step 1: Cancel the problematic query                                   │   │
-│  │          CALL system.cancel_query('query-id')                           │   │
-│  │                                                                          │   │
-│  │  Step 2: Analyze the query plan, identify bottlenecks                   │   │
-│  │  • Full scan of a large table -> add filters or partition pruning       │   │
-│  │  • Large-table Join -> consider Broadcast or add filters                │   │
-│  │  • High-cardinality aggregation -> increase memory or enable Spill      │   │
-│  │                                                                          │   │
-│  │  Step 3: Optimize the query or adjust resources                         │   │
-│  │                                                                          │   │
-│  │  Step 4: Re-run the query                                               │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Preventive measures:                                                           │
-│  • Set a reasonable query timeout: query.max-execution-time = 30m               │
-│  • Enable query complexity limits: query.max-scan-rows = 10000000000            │
-│  • Configure resource queues to isolate large queries                           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Timeout/OOM Recovery SOP](../../website/static/img/diagrams/generated/day-2-26-013b7a09eb.svg)
 
 ### 9.5 Storage Failure Recovery
 
@@ -1361,41 +971,7 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 >
 > Diagnostic tip: If the error code is `STORAGE_ERROR` and originates from the Native layer (NativeError error_code 200-299, error_type=`IO_ERROR`), it indicates a read failure in the Native I/O layer; check S3/HDFS connectivity and credentials.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       Storage Failure Recovery SOP                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Symptom: S3/HDFS access failure, corrupted data files, metadata inconsistency  │
-│                                                                                  │
-│  S3 access failure:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Check S3 service status: aws s3 ls s3://bucket/                     │   │
-│  │  2. Check credential validity: aws sts get-caller-identity              │   │
-│  │  3. Check network connectivity: curl -I https://s3.amazonaws.com        │   │
-│  │  4. Check throttling: view CloudWatch S3 metrics                        │   │
-│  │  5. Temporary measure: increase retry count and timeout                 │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Corrupted data files:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Identify corrupted files: check file paths in the error log         │   │
-│  │  2. Check file integrity: parquet-tools meta <file>                     │   │
-│  │  3. Restore from backup or regenerate                                   │   │
-│  │  4. For an Iceberg table, roll back to the previous snapshot:           │   │
-│  │     ALTER TABLE t ROLLBACK TO SNAPSHOT <snapshot-id>                    │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Metadata inconsistency:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Refresh metadata cache: CALL system.sync_table_metadata('catalog.db.table')│   │
-│  │  2. Check Iceberg metadata.json integrity                               │   │
-│  │  3. Run orphan-file cleanup: VACUUM TABLE t RETAIN 168 HOURS DRY RUN    │   │
-│  │  4. If necessary, restore from metadata history                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Storage Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-27-a66dae51c0.svg)
 
 ### 9.6 Failure Recovery Checklist
 

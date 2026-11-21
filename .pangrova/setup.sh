@@ -17,9 +17,17 @@ fi
   printf 'ERROR canonical rules directory must exist in .pangrova\n' >&2
   exit 1
 }
-for rule in architecture code-standards development testing build-pipeline ci-gates workflow; do
+for rule in architecture code-standards development testing build-pipeline ci-gates; do
   [[ -f "$PROJECT_ROOT/.pangrova/rules/$rule.md" ]] || {
     printf 'ERROR missing canonical rule: %s.md\n' "$rule" >&2
+    exit 1
+  }
+done
+# AGENTS.md is the only discovery entry, so an unindexed rule is never read.
+for path in "$PROJECT_ROOT"/.pangrova/rules/*.md; do
+  rule="$(basename "$path")"
+  grep -qF "\`$rule\`" "$PROJECT_ROOT/AGENTS.md" || {
+    printf 'ERROR AGENTS.md does not index rule: %s\n' "$rule" >&2
     exit 1
   }
 done

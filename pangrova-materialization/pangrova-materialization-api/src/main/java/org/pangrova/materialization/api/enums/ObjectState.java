@@ -26,6 +26,7 @@ public enum ObjectState {
         return name();
     }
 
+    /** Returns whether a materialized object may move from this state to {@code target}. */
     public boolean canTransitionTo(ObjectState target) {
         return switch (this) {
             case CREATING -> target == ACTIVE || target == FAILED || target == DROPPING;

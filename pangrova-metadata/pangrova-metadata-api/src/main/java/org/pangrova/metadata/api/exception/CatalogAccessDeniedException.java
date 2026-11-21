@@ -1,7 +1,6 @@
 package org.pangrova.metadata.api.exception;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.metadata.api.exception.MetadataException;
 
 /**
  * Thrown when a tenant attempts to access a catalog they are not authorized for.

@@ -15,8 +15,10 @@ import java.util.TreeMap;
 
 /** Authenticated cache scope; secrets and connection properties are stored only as a digest. */
 record MetadataResolutionCacheKey(
-        String tenantId, String user, String sessionDigest, QualifiedTableRef tableRef, CatalogDeploymentIdentity deployment) {
-    static MetadataResolutionCacheKey of(MetadataSessionContext session, QualifiedTableRef tableRef, CatalogDeploymentIdentity deployment) {
+        String tenantId, String user, String sessionDigest, QualifiedTableRef tableRef,
+                CatalogDeploymentIdentity deployment) {
+    static MetadataResolutionCacheKey of(MetadataSessionContext session, QualifiedTableRef tableRef,
+            CatalogDeploymentIdentity deployment) {
         ConnectorSession connector = DefaultConnectorSession.fromSessionContext(
                 session, tableRef.catalog(), tableRef.schema());
         return new MetadataResolutionCacheKey(session.tenantId(), connector.getUser(), digest(session, connector),

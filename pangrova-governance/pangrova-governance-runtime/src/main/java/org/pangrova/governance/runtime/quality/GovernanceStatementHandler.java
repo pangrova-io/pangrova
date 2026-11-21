@@ -42,6 +42,7 @@ public class GovernanceStatementHandler {
         return ruleStore.getRulesForTable(catalogName, schemaName, tableName);
     }
 
+    /** Runs every enabled quality rule of a table and raises alerts for failures. */
     public List<QualityCheckResult> handleRunCheck(String catalogName, String schemaName,
                                                     String tableName) {
         List<DataQualityRule> rules = ruleStore.getRulesForTable(

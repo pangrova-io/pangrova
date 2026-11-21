@@ -115,7 +115,9 @@ public final class CoordinatorOptions {
             ConfigOptions.key("coordinator.shuffle.mode")
                     .enumType(ShuffleMode.class)
                     .defaultValue(ShuffleMode.NATIVE)
-                    .withDescription("NATIVE uses Arrow Flight shuffle; LOCAL pins disk-backed exchanges to one Worker; REMOTE delegates to the "
+                    .withDescription(
+                            "NATIVE uses Arrow Flight shuffle; LOCAL pins disk-backed exchanges to one Worker; "
+                            + "REMOTE delegates to the "
                             + "external shuffle service so a dead Worker's output can be re-read instead of "
                             + "recomputed. REMOTE requires endpoints, shared PostgreSQL execution authority "
                             + "and mutual TLS.")
@@ -213,7 +215,8 @@ public final class CoordinatorOptions {
                     .withDescription("Enable speculative copies of straggling tasks with exact-attempt drain cleanup")
                     .build();
 
-    public static final ConfigOption<String> PLACEMENT_PROVIDER = ConfigOptions.key("coordinator.query.placement-provider")
+    public static final ConfigOption<String> PLACEMENT_PROVIDER = ConfigOptions.key(
+            "coordinator.query.placement-provider")
             .stringType()
             .defaultValue("load-balanced")
             .withDescription("Installed worker placement strategy used to rank eligible workers")
@@ -275,7 +278,8 @@ public final class CoordinatorOptions {
             .withDescription("Metadata database password, supplied separately from the JDBC URL")
             .build();
 
-    public static final ConfigOption<String> METADATA_CACHE_L2_PROVIDER = ConfigOptions.key("metadata.cache.l2.provider")
+    public static final ConfigOption<String> METADATA_CACHE_L2_PROVIDER = ConfigOptions.key(
+            "metadata.cache.l2.provider")
             .stringType().defaultValue("disabled")
             .withDescription("Metadata L2 provider ID (disabled, memory or redis)").build();
 

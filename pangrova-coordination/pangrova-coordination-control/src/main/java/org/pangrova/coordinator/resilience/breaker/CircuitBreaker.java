@@ -219,7 +219,8 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
             if (current.state() != CircuitBreakerPhase.OPEN) {
                 // State changed by another thread, re-evaluate
                 return current.state() == CircuitBreakerPhase.CLOSED
-                        || (current.state() == CircuitBreakerPhase.HALF_OPEN && current.halfOpenProbes() < halfOpenMaxCalls);
+                        || (current.state() == CircuitBreakerPhase.HALF_OPEN
+                                && current.halfOpenProbes() < halfOpenMaxCalls);
             }
 
             long elapsed = clock.instant().toEpochMilli() - current.openedAt().toEpochMilli();

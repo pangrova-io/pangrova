@@ -18,7 +18,6 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import org.pangrova.file.access.FileSpaceAccessService;
 import org.pangrova.file.access.FileUrlService;
-import org.pangrova.server.coordinator.http.endpoint.file.StageFileUrlService;
 import org.pangrova.server.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;

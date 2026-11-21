@@ -52,11 +52,13 @@ import static org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleCo
 /** Owns the Pangrova shuffle service control channels, allocations and confirmed publications. */
 @ThreadSafe
 public final class PangrovaShuffleCoordinator
-        implements ShuffleCoordinatorSession, ShuffleCleanupRecovery, RecoverableShuffleControl, ExternalShuffleDescriptorEncoder {
+        implements ShuffleCoordinatorSession, ShuffleCleanupRecovery, RecoverableShuffleControl,
+                ExternalShuffleDescriptorEncoder {
 
     private static final Logger LOG =
             LoggerFactory.getLogger(PangrovaShuffleCoordinator.class);
     private static final long RPC_TIMEOUT_MS = 10_000;
+    private static final long GRANT_RENEWAL_MARGIN_MS = 30_000L;
     private static final long CAPABILITY_REFRESH_MARGIN_MS = 60_000;
 
     private final List<ShuffleServiceAddress> endpoints;
@@ -194,8 +196,8 @@ public final class PangrovaShuffleCoordinator
 
     @Override
     public ShuffleProviderDescriptor describe(String allocationId, ShuffleServiceAddress commitAddress,
-            List<ShuffleServerEndpoint> endpoints, int partitionCount) {
-        return PangrovaAllocationCodec.encode(allocationId, commitAddress, endpoints, partitionCount);
+            List<ShuffleServerEndpoint> serverEndpoints, int partitionCount) {
+        return PangrovaAllocationCodec.encode(allocationId, commitAddress, serverEndpoints, partitionCount);
     }
 
     private Allocation allocation(ShuffleHandle handle, ShuffleRegistration registration) {
@@ -285,7 +287,8 @@ public final class PangrovaShuffleCoordinator
         ShuffleCommitReceipt result = validateFinalization(publication, registration, response);
         var observer = evidence.find(queryId);
         if (observer != null) {
-            observer.finalized(registration, allocation(handle, registration), registered.owner(), result, response.toByteArray());
+            observer.finalized(registration, allocation(handle, registration), registered.owner(), result,
+                    response.toByteArray());
         }
         finalizedShuffles.put(key, result);
         LOG.info("event=shuffle_finalized queryId={} stageId={} shuffleId={} "
@@ -431,20 +434,21 @@ public final class PangrovaShuffleCoordinator
         if (allocationId == null || allocationId.isBlank()) {
             throw new IllegalArgumentException("shuffle task grant requires an allocation");
         }
+        ShuffleAccessOperation accessOperation = switch (operation) {
+            case READ -> ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ;
+            case WRITE -> ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE;
+        };
         return operations.executeGrant(() -> {
             ensureOpen();
             var task = PangrovaShuffleControlProtocol.toProtocol(attempt);
             var renewed = stubFor(destination).withDeadlineAfter(RPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                     .renewAccess(RenewAccessRequest.newBuilder()
-                            .setOperation(switch (operation) {
-                                case READ -> ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ;
-                                case WRITE -> ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE;
-                            })
+                            .setOperation(accessOperation)
                             .setShuffleId(allocationId)
                             .setExecutionOwner(task.getExecutionOwner())
                             .setTaskAttempt(task).build()).getAccessCapability();
             if (renewed.getToken().isEmpty()
-                    || renewed.getExpiresAtEpochMs() <= System.currentTimeMillis() + 30_000L) {
+                    || renewed.getExpiresAtEpochMs() <= System.currentTimeMillis() + GRANT_RENEWAL_MARGIN_MS) {
                 throw new SecurityException("shuffle service returned an invalid task grant");
             }
             return new ShuffleAccess(renewed.getToken().toByteArray(), renewed.getExpiresAtEpochMs());

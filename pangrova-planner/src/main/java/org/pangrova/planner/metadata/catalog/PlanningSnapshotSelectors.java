@@ -34,6 +34,7 @@ public final class PlanningSnapshotSelectors {
                 Map.copyOf(properties), session.getQueryAuthority());
     }
 
+    /** Returns the snapshot pinned for a table in the session properties, if any. */
     public static OptionalLong snapshot(ConnectorSession session, String catalog, String schema, String table) {
         String value = session.getProperties().get(
                 PROPERTY_PREFIX + tableKey(catalog, schema, table));

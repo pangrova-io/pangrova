@@ -1,5 +1,4 @@
 package org.pangrova.testing.property;
-
 import org.pangrova.testing.testkit.TestProjectPaths;
 
 import net.jqwik.api.Arbitraries;
@@ -119,7 +118,7 @@ class SpiImplementationPropertyTest {
             "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java",
             "pangrova-worker/src/main/java/org/pangrova/worker/PangrovaWorker.java",
             "pangrova-worker/src/main/java/org/pangrova/worker/task/TaskManager.java",
-            "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/QueryManager.java",
+            "pangrova-query/src/main/java/org/pangrova/query/runtime/QueryManager.java",
             "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java",
             "pangrova-worker/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java"
     );

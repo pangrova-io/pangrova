@@ -160,14 +160,20 @@ class StructuralPolicyTest(unittest.TestCase):
             policy.mkdir(parents=True)
             script = root / '.pangrova/setup.sh'
             script.write_text((ROOT / '.pangrova/setup.sh').read_text())
-            (root / 'AGENTS.md').write_text('Canonical entry point')
-            for name in ('architecture', 'code-standards', 'development', 'testing',
-                         'build-pipeline', 'ci-gates', 'workflow'):
+            names = ('architecture', 'code-standards', 'development', 'testing',
+                     'build-pipeline', 'ci-gates')
+            (root / 'AGENTS.md').write_text(' '.join(f'`{name}.md`' for name in names))
+            for name in names:
                 (policy / f'{name}.md').write_text(name)
             result = subprocess.run(['bash', str(script), '--check'], capture_output=True)
             self.assertEqual(result.returncode, 0)
             self.assertFalse((root / '.claude').exists())
             self.assertFalse((root / '.qoder').exists())
+            (policy / 'unindexed.md').write_text('unindexed')
+            result = subprocess.run(['bash', str(script), '--check'], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b'unindexed.md', result.stderr)
+            (policy / 'unindexed.md').unlink()
             (policy / 'testing.md').unlink()
             self.assertNotEqual(subprocess.run(['bash', str(script), '--check'],
                                               capture_output=True).returncode, 0)
@@ -182,6 +188,113 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertNotIn('-Pcoverage', workflow)
         self.assertNotIn('diff-coverage-check.sh', workflow)
         self.assertEqual(workflow.count('verify -Pstatic-analysis'), 1)
+
+    def test_native_jobs_take_their_toolchain_from_the_verified_action(self):
+        action = (ROOT / '.github/actions/setup-native-build/action.yml').read_text()
+        self.assertIn('setup-native-build-env.sh --check-tools', action)
+        self.assertIn('rustup', action)
+        self.assertIn('autoconf', action)
+        self.assertIn('llvm', action)
+        self.assertIn('Free runner disk space', action)
+        self.assertIn('libssl-dev', action)
+        self.assertIn('zlib1g-dev', action)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn('/usr/include/openssl/ssl.h', bootstrap)
+        self.assertIn('/usr/include/zlib.h', bootstrap)
+        self.assertIn('PANGROVA_CMAKE_BIN', bootstrap)
+        self.assertIn('CMAKE_LAUNCHER_FLAGS', bootstrap)
+        self.assertIn('ccache', action)
+        self.assertIn('install_folly() {', bootstrap)
+        self.assertIn(
+            '-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX', bootstrap
+        )
+        self.assertLess(bootstrap.index('install_folly() {'),
+                        bootstrap.index('install_velox_deps'))
+        asan = (ROOT / 'pangrova-worker-native/bin/setup-native-asan-env.sh').read_text()
+        self.assertIn('PANGROVA_CMAKE_BIN', asan)
+        self.assertIn('--check-tools', asan)
+        self.assertIn('setup-native-asan-env.sh --check-tools',
+                      (ROOT / '.github/workflows/ci.yml').read_text())
+        self.assertIn('20 GB', action)
+        for workflow_name in ('ci.yml', 'release.yml'):
+            workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
+            # A whole Velox tree exceeds the 10 GB repository cache limit and a
+            # cold build exceeds the runner disk; cache only the install prefixes.
+            self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
+            self.assertIn('~/.cache/ccache', workflow, workflow_name)
+            self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
+        for workflow_name in ('ci.yml', 'release.yml'):
+            workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
+            matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
+            jobs = [workflow[m.end():(matches[index + 1].start() if index + 1 < len(matches)
+                                   else len(workflow))] for index, m in enumerate(matches)]
+            bootstrapping = [job for job in jobs if 'setup-native-build-env.sh' in job]
+            self.assertTrue(bootstrapping, workflow_name)
+            for job in bootstrapping:
+                self.assertIn('./.github/actions/setup-native-build', job, workflow_name)
+                self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
+
+    def test_native_failures_publish_the_complete_log_tail(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertNotIn("awk 'length {print \"::error::\"", workflow)
+        self.assertEqual(workflow.count('report_failure() {'), 6)
+        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 6)
+        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 6)
+        self.assertEqual(workflow.count('bash -x'), 5)
+        for marker in ('setup-native-build-env.sh 2>&1', 'setup-native-asan-env.sh 2>&1'):
+            self.assertIn(marker, workflow)
+
+    def test_asan_prepares_dependencies_without_building_release_velox(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split('\n  jmh-benchmarks:', 1)[0]
+        self.assertNotIn('PANGROVA_NATIVE_BUILD_PHASE:', native)
+        self.assertIn("PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' "
+                      "&& 'dependencies' || 'all' }}", sanitizer)
+        self.assertIn('setup-native-asan-env.sh --check-tools', sanitizer)
+        self.assertIn('setup-native-asan-env.sh 2>&1', sanitizer)
+        self.assertIn('run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}', sanitizer)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
+
+    def test_native_configure_build_and_tests_publish_filtered_diagnostics(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        action_path = ROOT / '.github/actions/run-native-step/action.yml'
+        action = action_path.read_text()
+        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 6)
+        self.assertIn('bash -e -o pipefail -c "$STEP_COMMAND"', action)
+        self.assertIn("'--- error diagnostics ---'", action)
+        self.assertIn('working-directory: ${{ inputs.working-directory }}', action)
+
+    def test_macos_release_builds_dependencies_before_lance_and_configure(self):
+        release = (ROOT / '.github/workflows/release.yml').read_text()
+        native = release.split('  native-build:\n', 1)[1].split('\n  release:', 1)[0]
+        steps = re.split(r'\n      - ', native)
+        tools = next(index for index, step in enumerate(steps)
+                     if 'uses: ./.github/actions/setup-native-build' in step)
+        setup = [(index, step) for index, step in enumerate(steps)
+                 if re.search(r'^\s+run: ./pangrova-worker-native/bin/'
+                              r'setup-native-build-env\.sh\s*$', step, re.MULTILINE)]
+        self.assertEqual(len(setup), 1, 'Release must run the full dependency bootstrap')
+        index, step = setup[0]
+        self.assertIn('if: "!matrix.platform.docker-build"', step)
+        lance = next(index for index, step in enumerate(steps)
+                     if 'run: ./pangrova-worker-native/bin/build-lance-ffi.sh' in step)
+        configure = next(index for index, step in enumerate(steps)
+                         if 'cmake --preset dev-release' in step)
+        self.assertLess(tools, index)
+        self.assertLess(index, lance)
+        self.assertLess(lance, configure)
+
+    def test_daily_tests_exclude_end_to_end_suites(self):
+        pom = (ROOT / 'pom.xml').read_text()
+        self.assertIn('routing-integration,native-required,performance,e2e', pom)
+        self.assertIn('pangrova.e2e.excludedClasses', pom)
+        self.assertIn('<exclude>${pangrova.e2e.excludedClasses}</exclude>', pom)
+        self.assertIn('"none"', pom)
+        base = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
+                       'org/pangrova/testing/integration/e2e/SqlE2ETestBase.java').read_text()
+        self.assertIn('@E2ETest', base)
 
     def test_production_regression_retains_same_source_image_identity(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
@@ -243,6 +356,88 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertEqual({item['classifier'] for item in matrix},
                          {'linux-x86_64', 'linux-aarch_64', 'osx-x86_64', 'osx-aarch_64'})
         self.assertEqual(matrix[0]['name'], 'linux-x86_64')
+
+    def test_linux_native_and_sanitizers_share_a_pinned_runner_release(self):
+        platforms = {item['name']: item['runner'] for item in scope.NATIVE_PLATFORMS}
+        runner = platforms['linux-x86_64']
+        self.assertRegex(runner, r'^ubuntu-\d+\.\d+$')
+        self.assertEqual(platforms['linux-aarch_64'], f'{runner}-arm')
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
+            '\n  jmh-benchmarks:', 1)[0]
+        self.assertIn(f'    runs-on: {runner}\n', sanitizer)
+
+    @staticmethod
+    def _cache_steps(section):
+        steps = re.split(r'\n      - name: ', section)[1:]
+        return {step.split('\n', 1)[0].strip(): step for step in steps
+                if 'actions/cache' in step}
+
+    def test_native_dependency_cache_is_layered_and_scoped(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
+            '\n  jmh-benchmarks:', 1)[0]
+        runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
+                      if item['name'] == 'linux-x86_64')
+        native_caches = self._cache_steps(native)
+        sanitizer_caches = self._cache_steps(sanitizer)
+        deps = native_caches['Cache native dependency prefixes']
+        deps_key = re.search(r'^\s+key: (.+)$', deps, re.MULTILINE).group(1)
+        self.assertEqual(
+            deps_key.replace('${{ matrix.platform.runner }}', runner),
+            re.search(r'^\s+key: (.+)$', sanitizer_caches[
+                'Cache native dependency prefixes'], re.MULTILINE).group(1))
+        self.assertIn("hashFiles('pangrova-worker-native/dependency-versions.txt', "
+                      "'.github/actions/setup-native-build/action.yml', "
+                      "'pangrova-worker-native/patches/*')", deps_key)
+        self.assertNotIn('setup-native-build-env.sh', deps_key)
+        for name in ('Cache dependency archives', 'Cache native dependency prefixes',
+                     'Cache Velox build layer'):
+            self.assertNotIn('restore-keys:', native_caches[name])
+        velox = native_caches['Cache Velox build layer']
+        for path in ('_build/release/_deps', '_build/release/lib', 'CMakeCache.txt'):
+            self.assertIn(path, velox)
+        self.assertIn("'pangrova-worker-native/patches/velox-*.patch'", velox)
+        self.assertNotIn("'pangrova-worker-native/patches/*'", velox)
+        ccache = native_caches['Cache compiler results']
+        self.assertIn('${{ github.sha }}', ccache)
+        self.assertIn('restore-keys:', ccache)
+        self.assertNotIn('patches/*', ccache)
+        self.assertIn('matrix.sanitizer.name',
+                      sanitizer_caches['Cache compiler results'])
+
+    def test_dependency_lock_matches_the_bootstrap(self):
+        lock = {}
+        for line in (ROOT / 'pangrova-worker-native/dependency-versions.txt').read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            key, value = line.split('=', 1)
+            lock[key] = value
+        self.assertIn('PANGROVA_DEPENDENCY_BUILD', lock)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn(f'VELOX_REF="${{VELOX_REF:-{lock["VELOX_REF"]}}}"', bootstrap)
+        self.assertIn(f'xxHash/archive/refs/tags/v{lock["XXHASH_VERSION"]}.tar.gz',
+                      bootstrap)
+
+    def test_baseline_workflow_warms_the_same_layers(self):
+        baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
+        self.assertIn('schedule:', baseline)
+        self.assertIn('pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
+
+    def test_dependency_baseline_consumers_are_opt_in(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_ARTIFACT == 'true'", native)
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", native)
+        revision = ("tr -d '\\n' < pangrova-worker-native/dependency-versions.txt "
+                    "| sha256sum | cut -c1-16")
+        self.assertIn(revision, native)
+        baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
+        self.assertIn(revision, baseline)
 
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
@@ -315,6 +510,11 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertIn('workflow_dispatch:', reference)
         self.assertNotIn('schedule:', reference)
         self.assertNotIn('  fuzzer:', self.workflow)
+
+    def test_scheduled_benchmark_requires_provisioned_fleet(self):
+        benchmark = (ROOT / '.github/workflows/nightly-tpc-benchmark.yml').read_text()
+        self.assertIn("if: github.event_name != 'schedule' || vars.TPC_BENCHMARK_CONFIG_DIR != ''",
+                      benchmark)
 
     def result(self, runtime='false', performance='false', native=None, pr=True, overrides=None):
         # Execute the workflow's actual final-check program with synthetic GitHub

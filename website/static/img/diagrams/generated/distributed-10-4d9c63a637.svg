@@ -1,0 +1,301 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="961" height="703" viewBox="0 0 961 703" role="img">
+<rect width="961" height="703" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="959.5" height="701.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">PangrovaWorker.start()</text>
+<line x1="76.3" y1="53.0" x2="76.3" y2="72.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="62.5" x2="81.0" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="81.0" y1="62.5" x2="90.4" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="62.5" x2="99.8" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">        Open the Worker catalog inventory from bundled factories and configured plugin JARs</text>
+<line x1="76.3" y1="72.0" x2="76.3" y2="91.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="91.0" x2="76.3" y2="110.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="100.5" x2="81.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="81.0" y1="100.5" x2="90.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="100.5" x2="99.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="325.4" y1="100.5" x2="334.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="334.8" y1="100.5" x2="344.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="344.2" y1="100.5" x2="353.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="353.6" y1="100.5" x2="363.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="363.0" y1="100.5" x2="372.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="372.4" y1="100.5" x2="381.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="381.8" y1="100.5" x2="391.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="391.2" y1="100.5" x2="400.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="400.6" y1="100.5" x2="410.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="410.0" y1="100.5" x2="419.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="419.4" y1="100.5" x2="428.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="428.8" y1="100.5" x2="438.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="100.5" x2="447.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="100.5" x2="457.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="457.0" y1="100.5" x2="466.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="466.4" y1="100.5" x2="475.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="475.8" y1="100.5" x2="485.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="485.2" y1="100.5" x2="494.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="494.6" y1="100.5" x2="504.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="504.0" y1="100.5" x2="513.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="513.4" y1="100.5" x2="522.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="522.8" y1="100.5" x2="532.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="532.2" y1="100.5" x2="541.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="541.6" y1="100.5" x2="551.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="551.0" y1="100.5" x2="560.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="560.4" y1="100.5" x2="569.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="569.8" y1="100.5" x2="579.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="579.2" y1="100.5" x2="588.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="588.6" y1="100.5" x2="598.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="598.0" y1="100.5" x2="607.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="607.4" y1="100.5" x2="616.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="616.8" y1="100.5" x2="626.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="626.2" y1="100.5" x2="635.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="635.6" y1="100.5" x2="645.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="645.0" y1="100.5" x2="654.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="654.4" y1="100.5" x2="663.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="663.8" y1="100.5" x2="673.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="673.2" y1="100.5" x2="682.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="682.6" y1="100.5" x2="692.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="692.0" y1="100.5" x2="701.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="701.4" y1="100.5" x2="710.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="710.8" y1="100.5" x2="720.2" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="720.2" y1="100.5" x2="729.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="729.6" y1="100.5" x2="739.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="739.0" y1="100.5" x2="748.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="748.4" y1="100.5" x2="757.8" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">        Phase 1: Native Engine</text>
+<line x1="76.3" y1="110.0" x2="76.3" y2="129.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="110.0" x2="113.9" y2="129.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="119.5" x2="118.6" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="119.5" x2="128.0" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="119.5" x2="137.4" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 114.0 L410.8 125.0 L399.8 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">            loadLibrary()                JNI: System.loadLibrary("pangrova_native")</text>
+<line x1="76.3" y1="129.0" x2="76.3" y2="148.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="129.0" x2="113.9" y2="148.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M503.2 133.0 L503.2 144.0 L514.2 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">                                          Failure   abort startup (fail-fast)</text>
+<line x1="76.3" y1="148.0" x2="76.3" y2="167.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="157.5" x2="118.6" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="148.0" x2="113.9" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="157.5" x2="128.0" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="157.5" x2="137.4" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 152.0 L410.8 163.0 L399.8 157.5 z" fill="#D97706"/>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">            initializeVelox()            Create Velox MemoryPool, IO ThreadPool,</text>
+<line x1="76.3" y1="167.0" x2="76.3" y2="186.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">                                          Compute ThreadPool, SpillManager</text>
+<line x1="76.3" y1="186.0" x2="76.3" y2="205.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">                                          Internally calls NativeRuntime.nativeInit(configJson)</text>
+<line x1="76.3" y1="205.0" x2="76.3" y2="224.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">                                          (see native-execution.md §5.3)</text>
+<line x1="76.3" y1="224.0" x2="76.3" y2="243.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M503.2 228.0 L503.2 239.0 L514.2 233.5 z" fill="#D97706"/>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">                                          Failure   abort startup (fail-fast)</text>
+<line x1="76.3" y1="281.0" x2="76.3" y2="300.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="300.0" x2="76.3" y2="319.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="309.5" x2="81.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="81.0" y1="309.5" x2="90.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="309.5" x2="99.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="297.2" y1="309.5" x2="306.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="306.6" y1="309.5" x2="316.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="316.0" y1="309.5" x2="325.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="325.4" y1="309.5" x2="334.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="334.8" y1="309.5" x2="344.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="344.2" y1="309.5" x2="353.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="353.6" y1="309.5" x2="363.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="363.0" y1="309.5" x2="372.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="372.4" y1="309.5" x2="381.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="381.8" y1="309.5" x2="391.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="391.2" y1="309.5" x2="400.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="400.6" y1="309.5" x2="410.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="410.0" y1="309.5" x2="419.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="419.4" y1="309.5" x2="428.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="428.8" y1="309.5" x2="438.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="309.5" x2="447.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="309.5" x2="457.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="457.0" y1="309.5" x2="466.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="466.4" y1="309.5" x2="475.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="475.8" y1="309.5" x2="485.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="485.2" y1="309.5" x2="494.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="494.6" y1="309.5" x2="504.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="504.0" y1="309.5" x2="513.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="513.4" y1="309.5" x2="522.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="522.8" y1="309.5" x2="532.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="532.2" y1="309.5" x2="541.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="541.6" y1="309.5" x2="551.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="551.0" y1="309.5" x2="560.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="560.4" y1="309.5" x2="569.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="569.8" y1="309.5" x2="579.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="579.2" y1="309.5" x2="588.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="588.6" y1="309.5" x2="598.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="598.0" y1="309.5" x2="607.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="607.4" y1="309.5" x2="616.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="616.8" y1="309.5" x2="626.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="626.2" y1="309.5" x2="635.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="635.6" y1="309.5" x2="645.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="645.0" y1="309.5" x2="654.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="654.4" y1="309.5" x2="663.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="663.8" y1="309.5" x2="673.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="673.2" y1="309.5" x2="682.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="682.6" y1="309.5" x2="692.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="692.0" y1="309.5" x2="701.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="701.4" y1="309.5" x2="710.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="710.8" y1="309.5" x2="720.2" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="720.2" y1="309.5" x2="729.6" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="729.6" y1="309.5" x2="739.0" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="739.0" y1="309.5" x2="748.4" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="748.4" y1="309.5" x2="757.8" y2="309.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">        Phase 2: Java Layer</text>
+<line x1="76.3" y1="319.0" x2="76.3" y2="338.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="319.0" x2="113.9" y2="338.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="328.5" x2="118.6" y2="328.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="328.5" x2="128.0" y2="328.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="328.5" x2="137.4" y2="328.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M429.6 323.0 L429.6 334.0 L418.6 328.5 z" fill="#D97706"/>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">            resourceManager.initialize()   Set Native memory limit (resource-management.md §2)</text>
+<line x1="76.3" y1="338.0" x2="76.3" y2="357.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="338.0" x2="113.9" y2="357.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">                                          Register JVM GC listener</text>
+<line x1="76.3" y1="357.0" x2="76.3" y2="376.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="366.5" x2="118.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="357.0" x2="113.9" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="366.5" x2="128.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="366.5" x2="137.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 361.0 L410.8 372.0 L399.8 366.5 z" fill="#D97706"/>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">            taskManager.initialize()     Create Task queue, Pull Loop threads</text>
+<line x1="76.3" y1="376.0" x2="76.3" y2="395.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="395.0" x2="76.3" y2="414.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="404.5" x2="81.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="81.0" y1="404.5" x2="90.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="404.5" x2="99.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="353.6" y1="404.5" x2="363.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="363.0" y1="404.5" x2="372.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="372.4" y1="404.5" x2="381.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="381.8" y1="404.5" x2="391.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="391.2" y1="404.5" x2="400.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="400.6" y1="404.5" x2="410.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="410.0" y1="404.5" x2="419.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="419.4" y1="404.5" x2="428.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="428.8" y1="404.5" x2="438.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="404.5" x2="447.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="404.5" x2="457.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="457.0" y1="404.5" x2="466.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="466.4" y1="404.5" x2="475.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="475.8" y1="404.5" x2="485.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="485.2" y1="404.5" x2="494.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="494.6" y1="404.5" x2="504.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="504.0" y1="404.5" x2="513.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="513.4" y1="404.5" x2="522.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="522.8" y1="404.5" x2="532.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="532.2" y1="404.5" x2="541.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="541.6" y1="404.5" x2="551.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="551.0" y1="404.5" x2="560.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="560.4" y1="404.5" x2="569.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="569.8" y1="404.5" x2="579.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="579.2" y1="404.5" x2="588.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="588.6" y1="404.5" x2="598.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="598.0" y1="404.5" x2="607.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="607.4" y1="404.5" x2="616.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="616.8" y1="404.5" x2="626.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="626.2" y1="404.5" x2="635.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="635.6" y1="404.5" x2="645.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="645.0" y1="404.5" x2="654.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="654.4" y1="404.5" x2="663.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="663.8" y1="404.5" x2="673.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="673.2" y1="404.5" x2="682.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="682.6" y1="404.5" x2="692.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="692.0" y1="404.5" x2="701.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="701.4" y1="404.5" x2="710.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="710.8" y1="404.5" x2="720.2" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="720.2" y1="404.5" x2="729.6" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="729.6" y1="404.5" x2="739.0" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="739.0" y1="404.5" x2="748.4" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="748.4" y1="404.5" x2="757.8" y2="404.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">        Phase 3: Network Services</text>
+<line x1="76.3" y1="414.0" x2="76.3" y2="433.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="414.0" x2="113.9" y2="433.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="423.5" x2="118.6" y2="423.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="423.5" x2="128.0" y2="423.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="423.5" x2="137.4" y2="423.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 418.0 L410.8 429.0 L399.8 423.5 z" fill="#D97706"/>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">            flightServer.start()         Bind Data Plane port (default 8082)</text>
+<line x1="76.3" y1="433.0" x2="76.3" y2="452.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="433.0" x2="113.9" y2="452.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">                                          Now able to accept Shuffle/Result connections</text>
+<line x1="76.3" y1="452.0" x2="76.3" y2="471.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="452.0" x2="113.9" y2="471.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="461.5" x2="118.6" y2="461.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="461.5" x2="128.0" y2="461.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="461.5" x2="137.4" y2="461.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 456.0 L410.8 467.0 L399.8 461.5 z" fill="#D97706"/>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">            httpServer.start()           Bind Control Plane port (default 8080)</text>
+<line x1="76.3" y1="471.0" x2="76.3" y2="490.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="471.0" x2="113.9" y2="490.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">                                          Now able to accept Task submissions</text>
+<line x1="76.3" y1="490.0" x2="76.3" y2="509.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="499.5" x2="118.6" y2="499.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="490.0" x2="113.9" y2="499.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="499.5" x2="128.0" y2="499.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="499.5" x2="137.4" y2="499.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 494.0 L410.8 505.0 L399.8 499.5 z" fill="#D97706"/>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">            metricsExporter.start()      Prometheus /metrics endpoint ready</text>
+<line x1="76.3" y1="509.0" x2="76.3" y2="528.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="537.5" x2="81.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="76.3" y1="528.0" x2="76.3" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="81.0" y1="537.5" x2="90.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="90.4" y1="537.5" x2="99.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="391.2" y1="537.5" x2="400.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="400.6" y1="537.5" x2="410.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="410.0" y1="537.5" x2="419.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="419.4" y1="537.5" x2="428.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="428.8" y1="537.5" x2="438.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="537.5" x2="447.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="537.5" x2="457.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="457.0" y1="537.5" x2="466.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="466.4" y1="537.5" x2="475.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="475.8" y1="537.5" x2="485.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="485.2" y1="537.5" x2="494.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="494.6" y1="537.5" x2="504.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="504.0" y1="537.5" x2="513.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="513.4" y1="537.5" x2="522.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="522.8" y1="537.5" x2="532.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="532.2" y1="537.5" x2="541.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="541.6" y1="537.5" x2="551.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="551.0" y1="537.5" x2="560.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="560.4" y1="537.5" x2="569.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="569.8" y1="537.5" x2="579.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="579.2" y1="537.5" x2="588.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="588.6" y1="537.5" x2="598.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="598.0" y1="537.5" x2="607.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="607.4" y1="537.5" x2="616.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="616.8" y1="537.5" x2="626.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="626.2" y1="537.5" x2="635.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="635.6" y1="537.5" x2="645.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="645.0" y1="537.5" x2="654.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="654.4" y1="537.5" x2="663.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="663.8" y1="537.5" x2="673.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="673.2" y1="537.5" x2="682.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="682.6" y1="537.5" x2="692.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="692.0" y1="537.5" x2="701.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="701.4" y1="537.5" x2="710.8" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="710.8" y1="537.5" x2="720.2" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="720.2" y1="537.5" x2="729.6" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="729.6" y1="537.5" x2="739.0" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="739.0" y1="537.5" x2="748.4" y2="537.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve">        Phase 4: Cluster Registration</text>
+<line x1="113.9" y1="547.0" x2="113.9" y2="566.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="556.5" x2="118.6" y2="556.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="556.5" x2="128.0" y2="556.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="556.5" x2="137.4" y2="556.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 551.0 L410.8 562.0 L399.8 556.5 z" fill="#D97706"/>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">            serviceRegistry.register()   ZK creates /pangrova/workers/{workerId}</text>
+<line x1="113.9" y1="566.0" x2="113.9" y2="585.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">                                          ephemeral node (§3.3)</text>
+<line x1="113.9" y1="585.0" x2="113.9" y2="604.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">                                          Coordinator discovers this Worker via Watch</text>
+<line x1="113.9" y1="613.5" x2="118.6" y2="613.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="604.0" x2="113.9" y2="613.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="613.5" x2="128.0" y2="613.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="613.5" x2="137.4" y2="613.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M410.8 608.0 L410.8 619.0 L399.8 613.5 z" fill="#D97706"/>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">            startHeartbeat()             Report resource status every 10s (§5.2)</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">                                          Includes memory_pressure, running_task_count,</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">                                          available_memory_bytes, cpu_usage</text>
+</g>
+</svg>

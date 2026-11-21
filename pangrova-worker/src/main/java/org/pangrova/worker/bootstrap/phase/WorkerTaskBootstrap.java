@@ -56,6 +56,13 @@ public final class WorkerTaskBootstrap {
                         org.pangrova.worker.catalog.WorkerCatalogRuntime catalogs) {
             nativeExecutor.setCatalogRuntime(catalogs);
         }
+        var workerBackend = refs.workerExecutedTaskBackend();
+        if (workerBackend != null) {
+            var composite = new org.pangrova.worker.execution.CompositeTaskExecutor(
+                    executor, workerBackend);
+            ownership.retain(composite);
+            executor = composite;
+        }
         injectShuffleHmacKey(refs);
         RemoteTaskStatusReporter reporter = createStatusReporter(config, observability);
         refs.setStatusReporter(reporter);
@@ -245,7 +252,8 @@ public final class WorkerTaskBootstrap {
         for (var factory : java.util.ServiceLoader.load(NativeShuffleWorkerFactory.class,
                 WorkerTaskBootstrap.class.getClassLoader())) {
             var id = factory.providerId();
-            if (id == null || !id.matches("[a-z][a-z0-9-]*") || factory.apiVersion() != NativeShuffleWorkerFactory.API_VERSION
+            if (id == null || !id.matches("[a-z][a-z0-9-]*")
+                    || factory.apiVersion() != NativeShuffleWorkerFactory.API_VERSION
                     || factories.putIfAbsent(id, factory) != null) {
                 throw new IllegalArgumentException("Invalid or duplicate Worker shuffle factory: " + id);
             }
@@ -258,7 +266,8 @@ public final class WorkerTaskBootstrap {
         }
         var security = config.transportSecurityConfig();
         var tls = security.enabled() ? new NativeShuffleWorkerFactory.Tls(
-                java.nio.file.Path.of(security.certificateChainPath()), java.nio.file.Path.of(security.privateKeyPath()),
+                java.nio.file.Path.of(security.certificateChainPath()), java.nio.file.Path.of(
+                        security.privateKeyPath()),
                 java.nio.file.Path.of(security.rootCaPath())) : null;
         var session = java.util.Objects.requireNonNull(factory.open(new NativeShuffleWorkerFactory.Configuration(
                 config.resourceConfig().shuffleChannelLimits(), tls, selected.properties())), "Worker shuffle session");

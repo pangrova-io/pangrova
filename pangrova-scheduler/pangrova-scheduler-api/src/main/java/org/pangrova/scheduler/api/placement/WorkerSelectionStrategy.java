@@ -2,8 +2,6 @@ package org.pangrova.scheduler.api.placement;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.scheduler.api.placement.WorkerSelectionRequest;
-
 import java.util.Optional;
 
 /**

@@ -30,13 +30,16 @@ public final class PangrovaDistribution implements RelTrait {
     public static final PangrovaDistribution HASH = new PangrovaDistribution(DistributionType.HASH, List.of());
 
     /** Full data copy broadcast to every node. */
-    public static final PangrovaDistribution BROADCAST = new PangrovaDistribution(DistributionType.BROADCAST, List.of());
+    public static final PangrovaDistribution BROADCAST = new PangrovaDistribution(DistributionType.BROADCAST,
+            List.of());
 
     /** All data on a single node. */
-    public static final PangrovaDistribution SINGLETON = new PangrovaDistribution(DistributionType.SINGLETON, List.of());
+    public static final PangrovaDistribution SINGLETON = new PangrovaDistribution(DistributionType.SINGLETON,
+            List.of());
 
     /** Data evenly distributed across nodes without key affinity. */
-    public static final PangrovaDistribution ROUND_ROBIN = new PangrovaDistribution(DistributionType.ROUND_ROBIN, List.of());
+    public static final PangrovaDistribution ROUND_ROBIN = new PangrovaDistribution(DistributionType.ROUND_ROBIN,
+            List.of());
 
     /** No specific distribution requirement — any distribution satisfies this. */
     public static final PangrovaDistribution ANY = new PangrovaDistribution(DistributionType.ANY, List.of());

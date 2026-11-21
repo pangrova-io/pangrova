@@ -13,16 +13,9 @@ only restates the Dynamic Table-specific SQL and scheduling surface.
 
 ## Production path
 
-```
-CREATE / ALTER ... REFRESH
-  └─ KernelDynamicTableService
-        └─ MaterializationService (pangrova-materialization)
-              ├─ reserve a refresh attempt       (durable, idempotent command)
-              ├─ compile the stored definition   (query cluster, captured session defaults)
-              ├─ native CTAS into the generation  (__pangrova_materializations.__pg_mat_<32 hex>)
-              ├─ verify commit evidence           (snapshot id, fingerprint, manifest hash)
-              └─ CAS publish the new head         (object revision)
-```
+![Dynamic table refresh: trigger, plan, execute, publish, and record with explicit attempt state](../../website/static/img/diagrams/refresh-flow.svg)
+
+![CREATE / ALTER ... REFRESH](../../website/static/img/diagrams/generated/dynamic-table-manual-full-refresh-01-da09093c6a.svg)
 
 Every statement goes through the kernel; no DDL or refresh path writes a
 physical generation directly, and no coordinator process holds the published
@@ -79,9 +72,10 @@ DROP DYNAMIC TABLE iceberg.sales.orders_rollup CASCADE;
 - `REFRESH_MODE = SNAPSHOT` selects full recomputation.
 - `REFRESH_MODE = AUTO` persists incremental mode. It never degrades to full
   behind the user's back: creation or refresh fails closed unless a registered
-  incremental strategy applies to the definition. Only the append-only tier is
-  registered today; partition-replace, affected-key, and CDC tiers are not
-  available and are rejected rather than approximated.
+  incremental strategy applies to the definition. Append-only and partition
+  replacement are registered; partition replacement requires a partition-aligned
+  definition and a connector-proven change set. Affected-key and CDC strategies
+  are not registered and are rejected rather than approximated.
 - `REFRESH_MODE = CDC`, `WAREHOUSE`, and `WITH` properties are rejected.
 - `SUSPEND` / `RESUME` change scheduling only; they do not alter the
   definition or the published generation.

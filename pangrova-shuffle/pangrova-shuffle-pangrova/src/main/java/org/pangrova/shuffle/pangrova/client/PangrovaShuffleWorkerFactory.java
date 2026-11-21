@@ -23,11 +23,13 @@ public final class PangrovaShuffleWorkerFactory implements NativeShuffleWorkerFa
     public Session open(Configuration configuration) {
         var properties = configuration.properties();
         for (String key : properties.keySet()) {
-            if (!"rpc-timeout-ms".equals(key)) throw new IllegalArgumentException("Unknown Pangrova Worker shuffle property: " + key);
+            if (!"rpc-timeout-ms".equals(key)) throw new IllegalArgumentException(
+                    "Unknown Pangrova Worker shuffle property: " + key);
         }
         long timeout;
         try {
-            timeout = Long.parseLong(properties.getOrDefault("rpc-timeout-ms", Long.toString(DEFAULT_RPC_TIMEOUT_MILLIS)));
+            timeout = Long.parseLong(properties.getOrDefault("rpc-timeout-ms", Long.toString(
+                    DEFAULT_RPC_TIMEOUT_MILLIS)));
         } catch (NumberFormatException invalid) {
             throw new IllegalArgumentException("Invalid Pangrova Worker shuffle rpc-timeout-ms");
         }
@@ -40,7 +42,8 @@ public final class PangrovaShuffleWorkerFactory implements NativeShuffleWorkerFa
     }
 
     /** Admission outlives both pools so failed drains cannot free credits in a replacement Worker. */
-    record WorkerSession(RemoteShuffleChannelAdmission admission, RemoteShuffleClientPool.PoolOptions options, long rpcTimeoutMillis)
+    record WorkerSession(RemoteShuffleChannelAdmission admission, RemoteShuffleClientPool.PoolOptions options,
+            long rpcTimeoutMillis)
             implements Session {
         @Override public ShuffleCapabilityDescriptor capabilities() { return CAPABILITIES; }
 

@@ -150,7 +150,8 @@ public final class WorkerHttpBootstrap {
     static ManagedBlobStorage copyStorage(Map<String, String> configuration, Iterable<BlobStorageFactory> factories) {
         var factory = BlobStorageFactory.select(configuration, factories);
         if (!(factory instanceof ManagedBlobStorageFactory managed)) {
-            throw new IllegalArgumentException("FILE backend does not support managed COPY staging: " + factory.providerId());
+            throw new IllegalArgumentException("FILE backend does not support managed COPY staging: "
+                    + factory.providerId());
         }
         return Objects.requireNonNull(managed.createForCopy(configuration), "COPY storage factory returned null");
     }

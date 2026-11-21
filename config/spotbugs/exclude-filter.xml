@@ -161,6 +161,144 @@
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
 
+    <!-- Injected collaborators (stores, registries, dispatchers, caches and connector handles)
+         are shared by design; copying them would detach the owning service's state.
+         Match only the observed collaborator field in each holder. -->
+    <Match>
+        <Class name="org.pangrova.coordinator.metadata.MetadataBootstrap"/>
+        <Field name="~(materializationRepository|metadataService)"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.governance.runtime.classification.ColumnTagBindings"/>
+        <Field name="events"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.CatalogMetadata"/>
+        <Field name="tags"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.registry.CatalogRegistry$QueryCatalog"/>
+        <Field name="~(handle|metadata)"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.persistence.table.api.provider.TableStores"/>
+        <Field name="~(control|governance|statistics)"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.IcebergConnector"/>
+        <Field name="ownedFileIO"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory"/>
+        <Field name="cache"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.ddl.CatalogTableDdl"/>
+        <Field name="~(catalogRegistry|eventDispatcher)"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.governance.CatalogColumnTags"/>
+        <Field name="catalogRegistry"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.resolution.CatalogTableResolution"/>
+        <Field name="~(cache|catalogRegistry)"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.query.audit.QueryAuditEmitter"/>
+        <Field name="events"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="~org\.pangrova\.table\.(observation\.TableVersionObservations|ownership\.TableControlService|registration\.TableRegistrations|rename\.TableRenames)"/>
+        <Field name="store"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.worker.memory.NativeMemoryCoordinator"/>
+        <Field name="spillController"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- These fields hold Map.copyOf/OrderedMaps.immutableCopy/Map.ofEntries results or an
+         immutable protobuf message; the accessors return that unmodifiable state. -->
+    <Match>
+        <Class name="org.pangrova.observability.sdk.config.ObservabilityConfig"/>
+        <Field name="otlpHeaders"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPayload"/>
+        <Field name="fields"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.security.auth.ldap.LdapAuthenticatorFactory"/>
+        <Field name="CONFIGURATION_KEYS"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.streaming.api.cdc.CdcRow"/>
+        <Field name="columns"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.query.stage.Stage$PublishedShuffle"/>
+        <Field name="owner"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Calcite reads the schema's table map. It is an empty unmodifiable map without a catalog registry, otherwise a
+         read-only view whose entrySet is unmodifiable and whose get() resolves cache misses. -->
+    <Match>
+        <Class name="org.pangrova.planner.metadata.catalog.LazyMetadataSchema"/>
+        <Method name="getTableMap"/>
+        <Field name="~(cachedTableMap|fallbackTableMap)"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Drift validation samples a fraction of synchronized tables; the sample has no
+         security meaning. -->
+    <Match>
+        <Class name="org.pangrova.metadata.outbox.MetadataSyncService"/>
+        <Method name="validateSyncedSample"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
+
+    <!-- The record constructors store OrderedMaps.immutableCopy results; the accessors
+         return those unmodifiable, insertion-ordered maps. -->
+    <Match>
+        <Class name="org.pangrova.types.value.TypedRow"/>
+        <Method name="values"/>
+        <Field name="values"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.types.value.ColumnValue$MapValue"/>
+        <Method name="entries"/>
+        <Field name="entries"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!-- The record constructor copies every sample row into an unmodifiable list and
+         collects them with Stream.toList(); the accessor returns that frozen list. -->
+    <Match>
+        <Class name="org.pangrova.governance.api.quality.QualityQueryResult"/>
+        <Method name="failingSamples"/>
+        <Field name="failingSamples"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
     <!--
         Immutable record/DTO types returned from factory methods:
         the caller receives the reference and owns it — no defensive copy needed.
@@ -550,7 +688,7 @@
         concrete service classes has a finalizer; the abstract store owns no resource itself.
     -->
     <Match>
-        <Class name="~org\.pangrova\.(security\.core\.audit\.AuditEventEmitter|security\.core\.authentication\.AuthenticationManager|security\.policy\.builtin\.authorization\.DynamicRbacAccessControl)"/>
+        <Class name="~org\.pangrova\.(security\.audit\.AuditEventEmitter|security\.authentication\.AuthenticationManager|security\.policy\.authorization\.DynamicRbacAccessControl)"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
 
@@ -565,7 +703,7 @@
 
     <!-- Service objects are injected collaborators whose identity and mutable state are intentional. -->
     <Match>
-        <Class name="~org\.pangrova\.security\.(core\.audit\.AuditLogger|policy\.builtin\.authorization\.DynamicRbacAccessControl|core\.rowfilter\.RowLevelSecurityFilter|core\.tenant\.TenantResolver|core\.tenant\.(TenantLifecycleManager|TenantStatementHandler))"/>
+        <Class name="~org\.pangrova\.security\.(audit\.AuditLogger|policy\.authorization\.DynamicRbacAccessControl|rowfilter\.RowLevelSecurityFilter|tenant\.TenantResolver|tenant\.(TenantLifecycleManager|TenantStatementHandler))"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
@@ -574,7 +712,7 @@
         deliberately returns its owned char array so erase() can zero the exact bytes used by binders.
     -->
     <Match>
-        <Class name="~org\.pangrova\.(security\.core\.audit\.CompositeAuditEventWriter|security\.api\.authentication\.AuthenticationRequest)"/>
+        <Class name="~org\.pangrova\.(security\.audit\.CompositeAuditEventWriter|security\.api\.authentication\.AuthenticationRequest)"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
 
@@ -2158,13 +2296,13 @@
     <!-- SplitBlockBloomFilter is final, has a private constructor, and exposes only
          read-only probes and serialization; its builder cannot mutate a built filter. -->
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData" />
+        <Class name="org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData" />
         <Method name="filter" params="" returns="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData" />
+        <Class name="org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData" />
         <Method name="&lt;init&gt;" params="org.pangrova.indexing.api.data.BloomFilterIndexData,org.pangrova.common.bloom.SplitBlockBloomFilter" returns="void" />
         <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Bug pattern="EI_EXPOSE_REP2" />
@@ -2248,9 +2386,14 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.query.QueryManagerContext" />
-        <Field name="~(auditEmitter|lineageEmitter|queryDispatcher|stateJournal)" />
+        <Class name="org.pangrova.query.runtime.QueryManagerContext" />
+        <Field name="~(admission|journal|queryDispatcher)" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.query.runtime.QueryManager" />
+        <Field name="journalLifecycle" />
+        <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.execution.QueryDispatcherContext" />
@@ -2373,7 +2516,7 @@
     <!-- These fields borrow owner-managed live services, classloaders, allocators, or execution handles. Copying them would detach lifecycle and shared state; only the listed class/field/type pairs are excluded. -->
     <Match>
         <Class name="org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator" />
-        <Field name="queryManager" type="org.pangrova.coordinator.query.QueryManager" />
+        <Field name="queryManager" type="org.pangrova.query.runtime.QueryManager" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
@@ -2626,6 +2769,16 @@
         <Field name="outputHandle" type="org.pangrova.connector.api.metadata.ConnectorOutputTableHandle" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
+    <!-- The plan borrows the connector-owned output handle and immutable protobuf binding for the exact task. -->
+    <Match>
+        <Class name="org.pangrova.coordinator.streaming.CdcWriteAuthority$CdcWritePlan" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.query.task.TaskStatusReceiver" />
+        <Field name="cdcCompletions" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
     <Match>
         <Class name="org.pangrova.scheduler.speculation.SpeculativeStageHandler" />
         <Field name="launcher" type="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
@@ -2802,7 +2955,7 @@
          the internal bitmap to the serializer, after which the accumulator is dropped.
          Cloning would double bitmap memory for every distinct key during index build. -->
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bitmap.serializer.ContainerAccumulator"/>
+        <Class name="org.pangrova.indexing.strategies.bitmap.serializer.ContainerAccumulator"/>
         <Method name="toBitmap"/>
         <Field name="bitmap"/>
         <Bug pattern="EI_EXPOSE_REP"/>

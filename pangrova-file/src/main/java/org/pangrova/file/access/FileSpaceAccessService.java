@@ -145,7 +145,8 @@ public final class FileSpaceAccessService {
         authorizeStageLink(principal, space);
         Resolved resolved = descriptor(principal, space, requireObjectPath(path), FileOperation.READ);
         context.audit().granted(principal.principal(), tenantId(principal), space,
-                resolved.grant().path(), FileOperation.READ, resolved.grant().expiresAtEpochMillis(), resolved.grant().workerUrl());
+                resolved.grant().path(), FileOperation.READ, resolved.grant().expiresAtEpochMillis(),
+                        resolved.grant().workerUrl());
         return resolved.grant();
     }
 

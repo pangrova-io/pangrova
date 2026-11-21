@@ -8,6 +8,7 @@ import org.pangrova.common.api.annotation.Stable;
 @Stable(since = "1.0")
 public interface CacheStoreFactory {
     int API_VERSION = 1;
+
     /** Unique nonblank configuration ID, without surrounding whitespace. disabled is reserved. */
     String id();
     int apiVersion();

@@ -29,9 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Covers A9 acceptance criteria:
  * <ul>
- *   <li>AC1: 列加密写入 — encrypted columns written via Parquet column encryption</li>
- *   <li>AC2: 有权解密 — authorized user can read decrypted values</li>
- *   <li>AC3: 无权报错 — unauthorized user gets a permission/decryption error</li>
+ *   <li>AC1: encrypted columns are written via Parquet column encryption</li>
+ *   <li>AC2: an authorized user can read decrypted values</li>
+ *   <li>AC3: an unauthorized user gets a permission/decryption error</li>
  * </ul>
  *
  * <p>Table property format: {@code 'encryption.column.keys' = 'test-key:ssn,credit_card'}

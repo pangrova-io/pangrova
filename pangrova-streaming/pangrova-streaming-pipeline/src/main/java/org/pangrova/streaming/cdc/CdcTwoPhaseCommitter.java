@@ -14,8 +14,8 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Stages and publishes one source batch and persists its complete checkpoint. Catalog publication and JDBC do not share a
- * transaction: ambiguous catalog outcomes still require durable reconciliation.
+ * Stages and publishes one source batch and persists its complete checkpoint. Catalog publication and JDBC do
+ * not share a transaction: ambiguous catalog outcomes still require durable reconciliation.
  */
 final class CdcTwoPhaseCommitter {
 

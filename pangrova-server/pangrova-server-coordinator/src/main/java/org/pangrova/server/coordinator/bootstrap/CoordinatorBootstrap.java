@@ -15,7 +15,7 @@ import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
@@ -49,7 +49,8 @@ public final class CoordinatorBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final CurrentModelAuthority modelAuthority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
-    private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
+    private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority,
+            CoordinatorTableWriteAuthority.create());
     private final org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
             new org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
@@ -67,6 +68,7 @@ public final class CoordinatorBootstrap {
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
+    private CdcWorkerRuntime cdcWorkerRuntime;
     private QueryBootstrap query;
     private HttpBootstrap http;
     private HighAvailabilityBootstrap ha;
@@ -137,6 +139,7 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         query = buildQueryBootstrap();
         query.start();
+        startCdcWorkerRuntime();
         ha = buildHighAvailabilityBootstrap();
         ha.setClaimedExecutionRecovery(claimed ->
                 query.recoverWriteCommitIntents(claimed, ha.haService()));
@@ -149,6 +152,27 @@ public final class CoordinatorBootstrap {
         wireQueryOwnershipTracking();
         http = buildHttpBootstrap();
         http.start();
+    }
+
+    private void startCdcWorkerRuntime() {
+        if (streamingBootstrap == null) {
+            return;
+        }
+        cdcWorkerRuntime = new CdcWorkerRuntime(
+                streamingBootstrap.stateStore(),
+                streamingBootstrap.offsetStore(),
+                streamingBootstrap.sourceRegistry(),
+                metadataBootstrap.catalogRegistry(),
+                query.queryDispatcher().taskDispatcher(),
+                query.queryDispatcher().workerSelector(),
+                query.taskTracker(),
+                query.taskStatusReceiver(),
+                query.writeCommitJournal(),
+                query.queryDispatcher().writeAuthorityResolver(),
+                config.coordinatorId());
+        streamingBootstrap.enableWorkerDispatch();
+        streamingBootstrap.attachWorkerRuntime(cdcWorkerRuntime);
+        LOG.info("event=cdc_worker_runtime_started");
     }
 
     private QueryBootstrap buildQueryBootstrap() {
@@ -263,7 +287,8 @@ public final class CoordinatorBootstrap {
 
     private void closeOwnedResources() {
         CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
-                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, http, moduleWiring,
+                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, cdcWorkerRuntime,
+                http, moduleWiring,
                 nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
                 metadataDataSource, security, observability, coordinationProvider));
     }
@@ -300,7 +325,8 @@ public final class CoordinatorBootstrap {
             coordinationProvider = CoordinatorLeaseBootstrap.resolve(metadataDataSource);
             distributedLease = java.util.Objects.requireNonNull(coordinationProvider.lease(), "coordination lease");
             SchemaMigrationRunner.migrate(metadataDataSource);
-            coordinatorRegistry = java.util.Objects.requireNonNull(coordinationProvider.registry(), "coordinator registry");
+            coordinatorRegistry = java.util.Objects.requireNonNull(coordinationProvider.registry(),
+                    "coordinator registry");
             aiInfrastructureStores = AiInfrastructureStores.jdbc(
                     metadataDataSource, artifactStores.builds(metadataDataSource));
             CatalogDeploymentRepository deployments = new PostgresCatalogDeploymentRepository(metadataDataSource);
@@ -316,16 +342,21 @@ public final class CoordinatorBootstrap {
             try {
                 var federationFactory = new PluginFederationHandleFactory(cl, secretResolver, cache);
                 metadataBootstrap = MetadataBootstrap.initialize(
-                        loadTableStores(cl, metadataDataSource), deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
+                        loadTableStores(cl, metadataDataSource), deployments, tables, projections,
+                                new PostgresMetadataSyncRepository(metadataDataSource),
                         connectorHandleFactory, federationFactory,
                         new JdbcMaterializationRepository(metadataDataSource),
                         new JdbcMaterializationCatalog(metadataDataSource), cache);
             } catch (RuntimeException | Error failure) {
-                try { cache.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    cache.close();
+                } catch (RuntimeException cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
                 throw failure;
             }
             LOG.info("event=phase_started phase=metadata");
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             throw new BootstrapFailedException("Metadata", e);
         }
     }

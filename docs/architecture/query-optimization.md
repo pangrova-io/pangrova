@@ -1,5 +1,6 @@
 ---
 title: "Query Optimization"
+description: "Materialized views, caches, throttling, routing, statistics, and runtime filters"
 sidebar_label: "Query Optimization"
 ---
 
@@ -14,23 +15,7 @@ sidebar_label: "Query Optimization"
 
 ## 1. Query Optimization Capabilities Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Optimization Capabilities                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Capability matrix:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability           │ Note                        │ Implementation    │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Materialized View    │ Precompute acceleration     │ Incremental refresh + query rewrite│  │
-│  │  Query Result Cache   │ Result cache                │ Semantic fingerprint + TTL│   │
-│  │  Query Throttling     │ Query throttling            │ Token bucket + priority│   │
-│  │  Query Routing        │ Smart routing               │ Load-aware + affinity│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query optimization surfaces: implemented Calcite rules and runtime filters, target caches and cross-stage pruning, and admission, routing, and materialized-view controls](../../website/static/img/diagrams/optimization-surfaces.svg)
 
 ---
 
@@ -38,35 +23,7 @@ sidebar_label: "Query Optimization"
 
 ### 2.1 Materialized View Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Materialized View Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Materialized view lifecycle:                                                    │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  CREATE MV ──► Initial Build ──► Incremental Refresh ──► Query Rewrite │   │
-│  │       │              │                   │                      │        │   │
-│  │       ▼              ▼                   ▼                      ▼        │   │
-│  │  • Define query   • Full compute      • Incremental update    • Transparent rewrite│   │
-│  │  • Refresh policy  • Write to storage   • Change capture        • Cost estimation│   │
-│  │  • Partition strategy • Metadata registration • Merge compute      • Freshness check│   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Refresh strategies:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Strategy          │ Trigger condition     │ Applicable scenario        │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  ON DEMAND         │ Manual trigger        │ Large tables, low-frequency updates│   │
-│  │  ON SCHEDULE       │ Scheduled trigger     │ Reports, T+1 scenarios     │   │
-│  │  ON COMMIT         │ After base table commit│ Small tables, high real-time requirements│   │
-│  │  INCREMENTAL       │ Based on change log   │ Aggregation queries that support increments│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Materialized View Architecture](../../website/static/img/diagrams/generated/query-optimization-01-20add8c49e.svg)
 
 ### 2.2 Materialized View Management
 
@@ -74,18 +31,7 @@ Materialized views and Dynamic Tables share one durable materialization
 kernel. There is no in-memory view manager, no separate metadata store, and no
 merge-on-read path.
 
-```
-DDL (StatementDispatcher)
-  └─ MaterializationDdlRegistration (Server Coordinator)
-        ├─ KernelDynamicTableService        (DYNAMIC_TABLE)
-        └─ KernelMaterializedViewService    (MATERIALIZED_VIEW)
-              └─ MaterializationService (pangrova-materialization-lifecycle)
-                    ├─ repository: objects, definitions, attempts, generations
-                    ├─ catalog:    published head read model
-                    ├─ planner:    AST -> planned definition in the query cluster
-                    ├─ execution:  native CTAS into __pg_mat_<32 hex>
-                    └─ publication: commit evidence + CAS head swap
-```
+![DDL (StatementDispatcher)](../../website/static/img/diagrams/generated/query-optimization-02-3ec6810328.svg)
 
 Server Coordinator constructs the refresh strategy registry when it registers the
 DDL handlers. Each statement uses that registry with its own identity, planner,
@@ -158,26 +104,7 @@ authorization and policy application. Candidates are published
 `MATERIALIZED_VIEW` generations of the authenticated tenant, read through the
 unified materialization kernel; there is no separate in-memory view registry.
 
-```
-CompilationPhase
-  ├─ compileForPolicyApplication      (no optimization facts)
-  ├─ AccessControl + column masks + row filters
-  │     └─ observed policies → rewrite disabled when non-empty
-  ├─ time-travel extraction
-  │     └─ snapshot overrides → rewrite disabled
-  └─ optimizeProtectedQuery(plan, allowRewrite)
-        └─ MaterializedViewRewritePass
-              ├─ candidates: published, same catalog+schema, sources intersect
-              ├─ per-candidate guards
-              │     ├─ generation age <= pangrova.mv_rewrite_max_staleness
-              │     ├─ requester holds unfiltered SELECT on the view
-              │     └─ deterministic SPJG definition (no outer join,
-              │        DISTINCT, grouping sets, window, sort, set op)
-              ├─ compile definition in the query cluster (no recursive rewrite)
-              ├─ RelOptMaterializations.useMaterializedViews
-              └─ post-check: output shape unchanged and scans restricted to
-                    original sources plus the exact published generation
-```
+![CompilationPhase](../../website/static/img/diagrams/generated/query-optimization-03-c3dd855ee5.svg)
 
 Any failed guard, unplannable definition, or unexpected substitution returns
 the original plan; a rewrite never falls back to an approximate result. The
@@ -269,35 +196,7 @@ DROP DYNAMIC TABLE iceberg.sales.orders_rollup CASCADE;
 
 ### 3.1 Result Cache Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Result Cache Architecture                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Cache flow:                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Query ──► Semantic Fingerprint ──► Cache Lookup ──► Hit/Miss          │   │
-│  │    │              │                      │               │               │   │
-│  │    │              ▼                      ▼               ▼               │   │
-│  │    │       • SQL normalization       • Fingerprint match   Hit: return cached result│   │
-│  │    │       • Parameter extraction    • Freshness check     Miss: execute query│   │
-│  │    │       • Hash computation        • Permission check │               │   │
-│  │    │                                                     ▼               │   │
-│  │    └─────────────────────────────────────────────► Cache result         │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Cache levels:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Level              │ Storage location│ Capacity    │ Latency            │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  L1 (Local)         │ JVM Heap      │ 100MB       │ < 1ms              │   │
-│  │  L2 (Distributed)   │ Redis         │ 10GB        │ < 10ms             │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Result Cache Architecture](../../website/static/img/diagrams/generated/query-optimization-05-a3240a3a19.svg)
 
 ### 3.2 Semantic Fingerprint Computation
 
@@ -413,34 +312,7 @@ CALL system.clear_query_cache();
 
 ### 4.1 Throttling Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Throttling Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Throttling dimensions:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Dimension          │ Throttling method     │ Configuration example      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Global             │ Global concurrency limit│ max_concurrent_queries=100│   │
-│  │  Per User           │ Per-user concurrency limit│ user_max_concurrent=10    │   │
-│  │  Per Tenant         │ Per-tenant concurrency limit│ tenant_max_concurrent=50  │   │
-│  │  Per Resource Queue │ Queue-level limit     │ queue_max_concurrent=20   │   │
-│  │  Per Query Type     │ Query-type limit      │ ddl_max_concurrent=5      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Throttling algorithms:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Algorithm          │ Characteristics       │ Applicable scenario        │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Token Bucket       │ Allows bursts         │ General queries (Guava RateLimiter)│  │
-│  │  Leaky Bucket       │ Smooth throttling     │ Write operations           │   │
-│  │  Sliding Window     │ Precise control       │ API calls (Planned)        │   │
-│  │  Concurrency Limit  │ Concurrency control   │ Resource-intensive (Semaphore)│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Throttling Architecture](../../website/static/img/diagrams/generated/query-optimization-10-52cc4eb13a.svg)
 
 ### 4.2 Throttling Service
 
@@ -648,15 +520,7 @@ no `SHOW STATS` statement.
 
 After a successful write commit (INSERT / MERGE / CTAS), Pangrova automatically collects lightweight statistics on the affected data files.
 
-```
-Write Commit Flow:
-  CommitTask.commit()
-    → onCommitSuccess()
-      → StatisticsCollector.collectIncremental(newDataFiles)
-        → sample rows (default 1% or min 10000 rows)
-        → update column stats (min, max, NDV, null_count, avg_size)
-        → merge into table-level statistics
-```
+![Write Commit Flow:](../../website/static/img/diagrams/generated/query-optimization-17-607d93bf92.svg)
 
 **Collected metrics per column**:
 
@@ -711,17 +575,7 @@ Statistics storage location depends on the Connector type. The design principle 
 
 **Iceberg Statistics Storage** (primary path):
 
-```
-TableMetadata
-  └── properties
-        ├── pangrova.stats.row_count = "1000000"
-        ├── pangrova.stats.last_updated_snapshot = "3847291038"
-        ├── pangrova.stats.last_updated_time = "2025-02-09T03:00:00Z"
-        └── pangrova.stats.columns
-              ├── order_id  → { min, max, ndv, null_count, avg_size }
-              ├── amount    → { min, max, ndv, null_count, avg_size, histogram }
-              └── order_time → { min, max, ndv, null_count, avg_size }
-```
+![TableMetadata](../../website/static/img/diagrams/generated/query-optimization-20-321eecd106.svg)
 
 **Federation Statistics Storage** (PostgreSQL fallback):
 
@@ -742,13 +596,7 @@ CREATE TABLE table_statistics (
 
 
 
-```
-CBO Optimizer requests statistics
-  → ConnectorMetadata.getTableStatistics(catalogSchemaTable)
-    → if Iceberg/Paimon: read from TableMetadata.properties (via ConnectorMetadata.getTableStatistics() — see 04 §1.2)
-    → if Federation: read from PostgreSQL table_statistics (via MetadataStore)
-    → if not found: return UNKNOWN (CBO falls back to heuristic estimation)
-```
+![CBO Optimizer requests statistics](../../website/static/img/diagrams/generated/query-optimization-22-5b96ebdb51.svg)
 
 **StatisticsCollector as Connector SPI**: `StatisticsCollector.collectIncremental()` (§6.3) is not a standalone class but delegates to `ConnectorMetadata.getTableStatistics()` ([connectors.md §1.2](./connectors.md)) for connector-specific collection. Each connector implements its own collection strategy (Iceberg: file metadata scan; Paimon: snapshot stats; JDBC: `SHOW TABLE STATUS` or sampling). The read path uses `ConnectorMetadata.getTableStatistics()` directly; there is no separate StatisticsProvider type.
 
@@ -821,31 +669,7 @@ query-optimization:
 
 The existing three-strategy statistics model (§6) has four gaps: inaccurate sampling for skewed columns, stale statistics between scheduled collections, histograms disabled by default, and unreliable heuristic fallback. OPT-004 introduces four improvements that layer on top of the existing infrastructure without replacing it.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                  Enhanced Statistics Collection Pipeline                      │
-│                                                                              │
-│  ┌────────────────────┐   ┌──────────────────────┐   ┌──────────────────┐  │
-│  │ File-Level Stats   │   │ Adaptive Sampling     │   │ Auto Histogram   │  │
-│  │ (Iceberg/Parquet   │   │ (1%-10% based on      │   │ (equi-height,    │  │
-│  │  footer metadata)  │   │  cardinality & churn)  │   │  256 buckets)    │  │
-│  └────────┬───────────┘   └──────────┬────────────┘   └────────┬─────────┘  │
-│           │                          │                          │            │
-│           ▼                          ▼                          ▼            │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                    Unified ColumnStatistics Store                     │   │
-│  │  (min, max, null_count, row_count, NDV, avg_size, histogram,        │   │
-│  │   confidence_score)                                                  │   │
-│  └──────────────────────────────────┬──────────────────────────────────┘   │
-│                                     │                                      │
-│                                     ▼                                      │
-│                        ┌──────────────────────────┐                        │
-│                        │ Staleness-Aware CBO       │                        │
-│                        │ (confidence-weighted       │                        │
-│                        │  cardinality estimates)    │                        │
-│                        └──────────────────────────┘                        │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+![Enhanced Statistics Collection Pipeline](../../website/static/img/diagrams/generated/query-optimization-24-751de012d9.svg)
 
 **Improvement 1 — Adaptive Sampling Rate**: Replaces the fixed 1% sampling rate (§6.3) with a dynamic rate (1%–10%) based on column cardinality, table change ratio, and whether prior statistics exist. High-cardinality or heavily-modified tables receive higher sampling rates for more accurate NDV estimates.
 
@@ -989,49 +813,23 @@ function getStatisticsWithConfidence(table: Table):
 
 ## 9. Dynamic Partition Pruning & Runtime Filter (OPT-002)
 
-> **Status: target design.** Only static partition pruning is currently available.
-> The runtime-filter components below, including the target Native dynamic-filter
-> sink and Bloom-filter delivery, are proposed and are not current behavior.
+> **Status: partially implemented.** Same-task Native hash-join runtime filters
+> (exact domains and bounded Bloom filters, including aliased probe columns) and a
+> bounded literal INNER/SEMI membership rule are implemented, and typed initial
+> filter bindings can be injected into a running task. Automatic cross-stage
+> collection of build-side key domains remains target design: distributed probe
+> splits are still enumerated with `DynamicFilter.ALL`.
 
 
 
 
 ### 9.1 Architecture Description
 
-Static partition pruning (performed by Calcite optimization rules at planning time) is the only pruning mechanism currently available. No runtime filter propagation exists — the target Native dynamic-filter sink placeholder in the native reader pipeline (see [native-execution.md](./native-execution.md)) receives no filters because none are generated. This means star-schema queries scan all fact-table partitions even when a dimension filter could eliminate 90%+ of I/O.
+Static partition pruning performed by Calcite optimization rules at planning time is the only mechanism that reduces file I/O before execution. Same-task Native hash-join runtime filters can reduce probe scan output after the complete build hash table is available, and the HEP literal-join rule can add a bounded membership predicate, but neither prevents underlying file reads and neither is an automatic cross-stage publisher. Distributed star-schema queries therefore still enumerate probe splits with `DynamicFilter.ALL` and may scan all fact-table partitions even when a dimension filter could eliminate most I/O.
 
 OPT-002 introduces a two-phase runtime filter framework: filter generation on the build side of a join, and multi-level filter application on the probe side. The framework leverages the enhanced statistics from OPT-004 (§8) — specifically file-level column stats and histograms — to estimate filter selectivity and decide filter type.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Runtime Filter Framework                                 │
-│                                                                              │
-│  Build Side (dimension table)          Probe Side (fact table)               │
-│  ┌──────────────────────┐             ┌────────────────────────────┐        │
-│  │ Scan dimension table  │             │ Scan fact table             │        │
-│  │ WHERE filter_predicate│             │ WITH RuntimeFilter applied  │        │
-│  └──────────┬───────────┘             └──────────────┬─────────────┘        │
-│             │                                         │                      │
-│             ▼                                         │                      │
-│  ┌──────────────────────┐    filter propagation       │                      │
-│  │ RuntimeFilter         │───────────────────────────▶│                      │
-│  │ Generator             │  (via Coordinator or        │                      │
-│  │ (min-max for Phase 1) │   direct Worker push)       │                      │
-│  └──────────────────────┘                             │                      │
-│                                                       ▼                      │
-│                                        ┌────────────────────────────┐        │
-│                                        │ HashJoin                    │        │
-│                                        │ (reduced probe-side data)   │        │
-│                                        └────────────────────────────┘        │
-│                                                                              │
-│  Filter Application Levels:                                                  │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ Level 1: Partition Pruning — skip entire partitions via metadata       │  │
-│  │ Level 2: Row Group Pruning — skip row groups using column stats       │  │
-│  │ Level 3: Row-Level Filtering — filter individual rows within groups   │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Runtime Filter Framework](../../website/static/img/diagrams/generated/query-optimization-29-6dff9a6ffc.svg)
 
 **Phase 1 Scope** (this section): Min/max range filter for partition pruning. The Coordinator collects build-side min/max values after the build stage completes and pushes them to probe-side `ConnectorSplitSource` instances for partition-level and row-group-level pruning.
 
@@ -1098,7 +896,7 @@ function propagateRuntimeFilter(buildStageId, probeStageId, filter):
 
 | Aspect | Current (static pruning only) | With OPT-002 Phase 1 (min/max runtime filter) |
 |--------|-------------------------------|------------------------------------------------|
-| Performance | Full fact table scan for star-schema joins; 10-100x unnecessary I/O | 90%+ I/O reduction for selective dimension filters; 3-10x query speedup |
+| Performance | Static predicates may leave substantial fact-table data to scan | Runtime filters may reduce scanned data; I/O savings and latency improvements require workload measurements |
 | Complexity | Simple — static pruning only | Medium — filter generation, Coordinator-mediated propagation, multi-level application |
 | Risk | None | Low — runtime filter is additive; worst case is no pruning (filter too broad) |
 | Memory overhead | None | Negligible for min/max filters (two scalar values per filter) |
@@ -1178,21 +976,7 @@ Phase 1-2 filters apply within a single stage boundary. Phase 3 enables filter p
 
 #### 9.6.1 Propagation Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Coordinator                                │
-│                                                                   │
-│  ┌─────────────────┐     register      ┌──────────────────────┐  │
-│  │ Build Stage      │────────────────▶ │ RuntimeFilterRegistry │  │
-│  │ (completed)      │                  │ (stageId → filter)    │  │
-│  └─────────────────┘                  └──────────┬───────────┘  │
-│                                                   │ broadcast    │
-│                                    ┌──────────────┼──────────┐  │
-│                                    ▼              ▼          ▼  │
-│                               Worker-1       Worker-2    Worker-N │
-│                               (probe stage tasks apply filter)   │
-└──────────────────────────────────────────────────────────────────┘
-```
+![Coordinator](../../website/static/img/diagrams/generated/query-optimization-35-dff961bf11.svg)
 
 #### 9.6.2 Propagation Pseudocode
 
@@ -1276,34 +1060,7 @@ The design below describes proposed Connector distribution metadata and rack-awa
 
 ### 11.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Distribution-Aware CBO                          │
-│                                                                  │
-│  ConnectorMetadata                                               │
-│    .getTableDistribution()                                       │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐    │
-│  │ DataDistribution │───▶│ DistributionAwareCostModel       │    │
-│  │  • partitioning  │    │  extends PangrovaCostModel          │    │
-│  │  • sortOrder     │    │                                    │    │
-│  │  • locality      │    │  estimateExchangeCost()            │    │
-│  └─────────────────┘    │  estimateJoinCost()                │    │
-│                          │    ├─ co-located? → no shuffle     │    │
-│                          │    ├─ pre-sorted? → merge join     │    │
-│                          │    └─ default → hash join + shuffle│    │
-│                          └──────────────────────────────────┘    │
-│                                     │                            │
-│                                     ▼                            │
-│                          ┌──────────────────────┐                │
-│                          │ TopologyAwareNetwork  │                │
-│                          │  local = 0            │                │
-│                          │  rackLocal = 10       │                │
-│                          │  crossRack = 100      │                │
-│                          └──────────────────────┘                │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Distribution-Aware CBO](../../website/static/img/diagrams/generated/query-optimization-37-df8b18ff42.svg)
 
 **Problem**: The current `PangrovaCostModel` uses three static unit costs (CPU 1.0/row, I/O 10.0/byte, Network 100.0/byte) and does not account for data distribution properties. This causes unnecessary shuffles when tables are already co-partitioned on join keys, and misses merge join opportunities when data is pre-sorted.
 
@@ -1423,25 +1180,7 @@ and recovery. It must not replace source subtrees before those stages are wired.
 
 ### 12.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              CTE Materialization Decision                         │
-│                                                                  │
-│  WITH cte AS (expensive_subquery)                                │
-│  SELECT * FROM cte t1 JOIN cte t2 ON ...                         │
-│                                                                  │
-│  Calcite Plan Analysis:                                          │
-│    referenceCount(cte) = 2                                       │
-│    cteCost = estimateCost(cte)                                   │
-│                                                                  │
-│    inlineCost = cteCost × 2        (compute twice)               │
-│    materializeCost = cteCost + overhead  (compute once + store)  │
-│                                                                  │
-│    materializeCost < inlineCost?                                 │
-│      YES → materialize to Worker memory as virtual table         │
-│      NO  → inline (Calcite default)                              │
-└─────────────────────────────────────────────────────────────────┘
-```
+![CTE Materialization Decision](../../website/static/img/diagrams/generated/query-optimization-42-cd9dda1fcc.svg)
 
 **Problem**: Calcite defaults to inlining CTEs — each reference re-computes the subquery. For `WITH cte AS (expensive_agg) SELECT * FROM cte t1 JOIN cte t2`, the expensive aggregation runs twice.
 

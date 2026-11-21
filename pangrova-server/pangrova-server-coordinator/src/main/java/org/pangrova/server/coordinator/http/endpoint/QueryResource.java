@@ -19,7 +19,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.profiling.QueryProfileService;
@@ -77,7 +77,8 @@ public final class QueryResource {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
             }
-            receipt = idempotencyRegistry.submit(identity.principal(), key, request, () -> submitWithIdempotency(request, identity));
+            receipt = idempotencyRegistry.submit(identity.principal(), key, request, () -> submitWithIdempotency(
+                    request, identity));
         } else {
             receipt = doSubmit(UUID.randomUUID().toString(), request, identity);
         }

@@ -112,7 +112,6 @@ public final class VersionRange {
         return original;
     }
 
-
     private record Constraint(VersionComparison operator, SemanticVersion bound) {
         boolean test(SemanticVersion version) {
             int cmp = version.compareTo(bound);

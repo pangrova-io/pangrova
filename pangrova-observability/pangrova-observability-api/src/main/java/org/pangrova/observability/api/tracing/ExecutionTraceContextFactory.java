@@ -1,7 +1,6 @@
 package org.pangrova.observability.api.tracing;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.observability.api.tracing.ExecutionTraceContext;
 
 /**
  * Explicitly selected, thread-safe execution correlation provider.

@@ -83,3 +83,6 @@ secrets/
 # Persistent local Worker incarnation authority (retain across restarts, never commit)
 /data/worker-admission/
 /pangrova-testing/pangrova-testing-integration-tests/data/worker-admission/
+
+# Local Qoder Sites publication staging
+site-publish/

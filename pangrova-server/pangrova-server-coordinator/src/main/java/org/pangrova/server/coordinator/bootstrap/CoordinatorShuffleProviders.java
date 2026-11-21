@@ -38,7 +38,8 @@ final class CoordinatorShuffleProviders {
         try {
             var actual = session.capabilities().capabilities();
             if (!actual.containsAll(required) || !factory.capabilities().capabilities().containsAll(actual)) {
-                throw new IllegalStateException("Shuffle provider session does not satisfy the configured capabilities");
+                throw new IllegalStateException(
+                        "Shuffle provider session does not satisfy the configured capabilities");
             }
             return session;
         } catch (RuntimeException | Error failure) {
@@ -54,7 +55,8 @@ final class CoordinatorShuffleProviders {
     private static ShuffleCoordinatorFactory configuredFactory(CoordinatorBootstrapConfig config,
             Set<ShuffleCapability> required) {
         return select(config.featureFlags().shuffleProvider(), required,
-                ServiceLoader.load(ShuffleCoordinatorFactory.class, CoordinatorShuffleProviders.class.getClassLoader()));
+                ServiceLoader.load(ShuffleCoordinatorFactory.class,
+                        CoordinatorShuffleProviders.class.getClassLoader()));
     }
 
     private static Set<ShuffleCapability> requiredCapabilities(CoordinatorBootstrapConfig config) {
@@ -91,7 +93,8 @@ final class CoordinatorShuffleProviders {
         Map<String, ShuffleCoordinatorFactory> installed = new HashMap<>();
         for (var factory : factories) {
             String id = factory.providerId();
-            if (id == null || !id.matches("[a-z][a-z0-9-]*") || factory.apiVersion() != ShuffleCoordinatorFactory.API_VERSION) {
+            if (id == null || !id.matches("[a-z][a-z0-9-]*")
+                    || factory.apiVersion() != ShuffleCoordinatorFactory.API_VERSION) {
                 throw new IllegalArgumentException("Invalid shuffle coordinator factory: " + id);
             }
             if (installed.putIfAbsent(id, factory) != null) {
@@ -103,7 +106,8 @@ final class CoordinatorShuffleProviders {
             throw new IllegalArgumentException("Unknown shuffle coordinator provider: " + selected);
         }
         if (!factory.capabilities().capabilities().containsAll(required)) {
-            throw new IllegalArgumentException("Shuffle provider " + selected + " lacks required capabilities " + required);
+            throw new IllegalArgumentException("Shuffle provider " + selected + " lacks required capabilities "
+                    + required);
         }
         return factory;
     }

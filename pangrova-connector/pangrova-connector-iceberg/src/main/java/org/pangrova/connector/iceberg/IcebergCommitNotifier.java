@@ -17,7 +17,6 @@ import java.util.function.Consumer;
  */
 final class IcebergCommitNotifier {
 
-
     private final String catalogName;
     private volatile CommitListener commitListener;
     private volatile Consumer<String> splitCacheInvalidator;

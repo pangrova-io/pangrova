@@ -36,7 +36,6 @@ final class AiEmbeddingInvocationSupport {
 
     private AiEmbeddingInvocationSupport() {}
 
-
     record EmbeddingResult(EmbeddingBatchResult providerResult, long inputBytes) {}
 
     static EmbeddingInputKind embeddingInputKind(AiInvocationRequest request) {

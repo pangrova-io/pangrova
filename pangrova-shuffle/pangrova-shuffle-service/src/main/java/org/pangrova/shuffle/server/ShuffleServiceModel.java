@@ -13,7 +13,6 @@ final class ShuffleServiceModel {
 
     private ShuffleServiceModel() {}
 
-
     record AllocationIdentity(
             String shuffleId,
             String queryId,

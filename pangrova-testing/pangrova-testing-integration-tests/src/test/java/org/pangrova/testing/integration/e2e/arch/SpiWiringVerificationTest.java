@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 package org.pangrova.testing.integration.e2e.arch;
+import org.pangrova.query.runtime.QueryManager;
 
 import java.util.Map;
 import java.util.UUID;
@@ -87,7 +88,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SpiWiringVerificationTest {
 
     private static final String ENTRY_POINT_QUERY_MANAGER =
-            "org.pangrova.coordinator.query.QueryManager";
+            "org.pangrova.query.runtime.QueryManager";
     private static final String ENTRY_POINT_WORKER_BOOTSTRAP =
             "org.pangrova.worker.bootstrap.WorkerBootstrap";
     // Production coordinator process entry. Wires HA coordination (e.g.

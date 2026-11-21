@@ -34,7 +34,8 @@ final class TimeTravelExtractor {
                                                       RefSnapshotResolver resolver) {
         var parsed = TimeTravelSqlClauses.extract(sql);
         var routes = org.pangrova.query.session.BranchRoutingContext.fromSessionProperties(context.sessionProperties());
-        if (!routes.hasRouting() && parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {
+        if (!routes.hasRouting()
+                && parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {
             return CompilationPhase.TimeTravelResult.passthrough(sql);
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(context);

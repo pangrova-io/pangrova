@@ -13,6 +13,7 @@ public enum FileOperation {
         return name().toLowerCase(Locale.ROOT);
     }
 
+    /** Parses a case-insensitive wire name, rejecting unknown operations. */
     public static FileOperation parse(String wireName) {
         return switch (wireName == null ? "" : wireName.trim().toLowerCase(Locale.ROOT)) {
             case "head" -> HEAD;

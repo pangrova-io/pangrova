@@ -28,6 +28,7 @@ public final class ColumnTagBindings {
         return events;
     }
 
+    /** Binds a column tag on the current table record and publishes the assignment event. */
     public void setTag(TableControlRecord admitted, String column, String tagKey, String value, String actor) {
         Objects.requireNonNull(value, "value");
         if ("pii_type".equals(tagKey) && TagBasedSecurityPolicy
@@ -44,6 +45,7 @@ public final class ColumnTagBindings {
                 column, tagKey, previous, value);
     }
 
+    /** Removes a column tag binding, if present, and publishes the removal event. */
     public void unsetTag(TableControlRecord admitted, String column, String tagKey) {
         String reference = reference(column, tagKey);
         TableControlRecord record = current(admitted);
@@ -53,6 +55,7 @@ public final class ColumnTagBindings {
         emitRemoval(record, existing.orElseThrow());
     }
 
+    /** Returns the tag keys and values bound to one column of the current table record. */
     public Map<String, String> listTags(TableControlRecord admitted, String column) {
         Objects.requireNonNull(column, "column");
         TableControlRecord record = current(admitted);
@@ -66,6 +69,7 @@ public final class ColumnTagBindings {
         return Map.copyOf(result);
     }
 
+    /** Republishes every persisted column tag of active tables and returns the number replayed. */
     public int replayAll() {
         int replayed = 0;
         for (TableControlRecord record : authority.listLive()) {
@@ -84,6 +88,7 @@ public final class ColumnTagBindings {
         return replayed;
     }
 
+    /** Removes every column tag of a table and returns the number removed. */
     public int clearTable(UUID tableId) {
         TableControlRecord record = authority.findById(tableId).orElseThrow();
         int removed = 0;
@@ -96,6 +101,7 @@ public final class ColumnTagBindings {
         return removed;
     }
 
+    /** Republishes column tags under the reserved rename identity and returns the number moved. */
     public int renameTable(TableRef from, TableRef to) {
         TableControlRecord record = authority.find(to.catalog(), to.schema(), to.table())
                 .orElseThrow(() -> new IllegalStateException("Renamed table identity is missing"));

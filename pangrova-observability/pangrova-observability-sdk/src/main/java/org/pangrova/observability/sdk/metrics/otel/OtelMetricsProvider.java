@@ -49,7 +49,8 @@ public final class OtelMetricsProvider implements MetricsProvider {
             MetricAttributes attributes, Supplier<OptionalDouble> sample) {
         var dimensions = OtelAttributeConverter.toOtel(attributes);
         var gauge = meter.gaugeBuilder(name).setDescription(description).setUnit(unit)
-                .buildWithCallback(measurement -> sample.get().ifPresent(value -> measurement.record(value, dimensions)));
+                .buildWithCallback(measurement -> sample.get().ifPresent(value -> measurement.record(value,
+                        dimensions)));
         return new OtelObservableDoubleGauge(gauge);
     }
 

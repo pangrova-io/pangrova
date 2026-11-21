@@ -42,7 +42,6 @@ final class CommitStatusVerifier {
      */
     static final int MAX_VERIFICATION_ATTEMPTS = 2;
 
-
     /**
      * Result of commit status verification, including the outcome and diagnostic context.
      */

@@ -15,6 +15,7 @@ public final class CommitTimeoutException extends CommitStateUnknownException {
     private final long elapsedMs;
     private final long timeoutMs;
 
+    /** Reports a commit whose outcome is unknown after the timeout; the caller must not assume failure. */
     public CommitTimeoutException(String tableIdentifier, long elapsedMs, long timeoutMs,
                            Throwable cause) {
         super(new IllegalStateException(

@@ -39,7 +39,10 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
             }
         };
         assertThatThrownBy(() -> new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), factory.providerId(), java.util.List.of(factory))).isSameAs(failure);
-        assertThat(acquired.get()).hasSize(1).allMatch(thread -> !thread.isAlive());
+        // Shutdown is asynchronous: the acquired executor must terminate, but the
+        // thread may still be unwinding when the constructor throws.
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(acquired.get()).hasSize(1).allMatch(thread -> !thread.isAlive()));
     }
 
     @Test

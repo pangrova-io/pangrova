@@ -22,7 +22,8 @@ public class TaskStateMachine {
     private static final Map<ScheduledTaskState, Set<ScheduledTaskState>> TRANSITIONS = Map.of(
             ScheduledTaskState.PENDING, Set.of(ScheduledTaskState.SCHEDULED),
             // A short task's exact FINISHED report can arrive before its RUNNING report.
-            ScheduledTaskState.SCHEDULED, Set.of(ScheduledTaskState.RUNNING, ScheduledTaskState.FINISHED, ScheduledTaskState.FAILED),
+            ScheduledTaskState.SCHEDULED, Set.of(ScheduledTaskState.RUNNING, ScheduledTaskState.FINISHED,
+                    ScheduledTaskState.FAILED),
             ScheduledTaskState.RUNNING, Set.of(ScheduledTaskState.FINISHED, ScheduledTaskState.FAILED),
             ScheduledTaskState.FAILED, Set.of(ScheduledTaskState.ABANDONED),
             ScheduledTaskState.FINISHED, Set.of(),
@@ -65,6 +66,7 @@ public class TaskStateMachine {
 
     public boolean isTerminal() {
         ScheduledTaskState current = state.get();
-        return current == ScheduledTaskState.FINISHED || current == ScheduledTaskState.FAILED || current == ScheduledTaskState.ABANDONED;
+        return current == ScheduledTaskState.FINISHED || current == ScheduledTaskState.FAILED
+                || current == ScheduledTaskState.ABANDONED;
     }
 }

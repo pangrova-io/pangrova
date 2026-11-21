@@ -1,10 +1,6 @@
 package org.pangrova.observability.api.tracing;
 
-import org.pangrova.observability.api.tracing.Context;
-import org.pangrova.observability.api.tracing.Span;
 import org.pangrova.observability.api.enums.SpanKind;
-import org.pangrova.observability.api.tracing.TextMapGetter;
-import org.pangrova.observability.api.tracing.TextMapSetter;
 
 import org.pangrova.common.api.annotation.Stable;
 

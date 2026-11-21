@@ -127,7 +127,8 @@ public final class IcebergExpressionToSubstrait {
         if (expr instanceof BoundPredicate<?> predicate) {
             return convertPredicate(predicate, schema, fieldIdToIndex);
         }
-        throw new UnsupportedIcebergExpressionException("Unsupported expression type: " + expr.getClass().getSimpleName());
+        throw new UnsupportedIcebergExpressionException("Unsupported expression type: "
+                + expr.getClass().getSimpleName());
     }
 
     private Expression convertBinaryBoolean(String name,
@@ -319,7 +320,8 @@ public final class IcebergExpressionToSubstrait {
         if (complex != null) {
             return complex;
         }
-        throw new UnsupportedIcebergExpressionException("Unsupported literal type: " + value.getClass().getSimpleName());
+        throw new UnsupportedIcebergExpressionException("Unsupported literal type: "
+                + value.getClass().getSimpleName());
     }
 
     private Literal convertScalarLiteral(Object value) {

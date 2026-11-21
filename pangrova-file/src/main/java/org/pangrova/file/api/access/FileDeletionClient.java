@@ -1,7 +1,5 @@
 package org.pangrova.file.api.access;
 
-import org.pangrova.file.api.access.FileAccessGrant;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 

@@ -1,7 +1,6 @@
 package org.pangrova.metadata.api.exception;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.metadata.api.exception.MetadataException;
 
 /**
  * Thrown when attempting to create a catalog that already exists.

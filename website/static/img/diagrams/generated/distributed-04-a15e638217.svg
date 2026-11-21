@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="331" height="380" viewBox="0 0 331 380" role="img">
+<rect width="331" height="380" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="329.5" height="378.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">stateDiagram-v2</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">    [*] --&gt; QUEUED</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">    QUEUED --&gt; PLANNING</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">    PLANNING --&gt; SCHEDULING</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">    SCHEDULING --&gt; RUNNING</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    RUNNING --&gt; FINISHING</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">    FINISHING --&gt; FINISHED</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    QUEUED --&gt; FAILED</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">    PLANNING --&gt; FAILED</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    SCHEDULING --&gt; FAILED</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    RUNNING --&gt; FAILED</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    FINISHING --&gt; FAILED</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">    QUEUED --&gt; CANCELLED</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">    PLANNING --&gt; CANCELLED</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">    SCHEDULING --&gt; CANCELLED</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">    RUNNING --&gt; CANCELLED</text>
+</g>
+</svg>

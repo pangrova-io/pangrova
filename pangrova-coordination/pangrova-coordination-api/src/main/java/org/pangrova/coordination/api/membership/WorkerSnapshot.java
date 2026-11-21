@@ -38,6 +38,7 @@ public record WorkerSnapshot(
 ) {
     private static final int MAX_TCP_PORT = 65535;
 
+    /** Validates ports and identity fields of an immutable Worker membership snapshot. */
     public WorkerSnapshot(
         String workerId,
         String host,
@@ -60,7 +61,8 @@ public record WorkerSnapshot(
         String incarnationId) {
         this(workerId, host, httpPort, transportPort, protocolVersion, rackId,
                 dataLocality, memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeatMs,
-                registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort, admissionDomainId, incarnationId, null);
+                registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort,
+                        admissionDomainId, incarnationId, null);
     }
 
     /** Creates a snapshot for a worker without a dedicated COPY task TLS listener. */

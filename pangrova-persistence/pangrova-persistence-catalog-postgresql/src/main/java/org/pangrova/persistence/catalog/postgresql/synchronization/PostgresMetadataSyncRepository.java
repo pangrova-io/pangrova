@@ -119,7 +119,8 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
         }
     }
 
-    private static void reserveOrReplay(Connection connection, long observationEpoch, MetadataSyncCompletion completion) throws SQLException {
+    private static void reserveOrReplay(Connection connection, long observationEpoch,
+            MetadataSyncCompletion completion) throws SQLException {
         if (lockUnlessReplay(connection, completion)) return;
         var existing = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRelation.INTENT);
         if (existing.isPresent()) {
@@ -135,7 +136,8 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
                     new IllegalStateException("Recover the existing catalog completion before submitting another run"));
         }
         requireCheckpoint(connection, completion);
-        if (!CatalogProjectionSql.isCurrentObservation(connection, completion.scope().catalogName(), observationEpoch)) {
+        if (!CatalogProjectionSql.isCurrentObservation(connection, completion.scope().catalogName(),
+                observationEpoch)) {
             throw new MetadataSyncConflictException("Catalog observation has been superseded");
         }
         SyncCompletionRows.insert(connection, completion, SyncCompletionRelation.INTENT);

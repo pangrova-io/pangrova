@@ -20,8 +20,8 @@ import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.result.CoordinatorResultBuffer;
@@ -34,7 +34,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.observability.sdk.metrics.CoordinatorMetrics;
@@ -66,6 +66,7 @@ import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.TestCluster;
+import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
 import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;
@@ -129,6 +130,7 @@ import org.pangrova.query.dispatch.StatementExecutionFactory;
  */
 @Tag("integration")
 @Testcontainers
+@E2ETest
 public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlE2ETestBase.class);
@@ -917,19 +919,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.persistence.query.postgresql.audit.JdbcQueryAuditStore(
                             metadataDataSourcePool));
         }
+        var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                auditEmitter, queryAudit, null, dispatcher, null);
         return new QueryManagerContext(
                 dispatcher,
                 TRACING_PROVIDER,
                 METRICS_PROVIDER,
-                new org.pangrova.security.tenant.TenantResolver(store),
-                new org.pangrova.security.tenant.QuotaChecker(),
-                null,
-                auditEmitter,
-                queryAudit,
-                null,
-                null,
-                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(),
-                null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.tenant(
+                        new org.pangrova.security.tenant.TenantResolver(store),
+                        new org.pangrova.security.tenant.QuotaChecker()),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                audit,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(),
+                        audit),
                 null,
                 org.pangrova.query.api.submission.AsyncSubmitConfig.defaultEnabled(),
                 sharedAsyncQueryExecutor(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
@@ -3035,7 +3038,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static void restoreSharedStatusDelivery() {
-        statusReportDelivery = statusReporter::report;
+        // Harness unit tests exercise this path without bootstrapping the shared
+        // environment; a null reporter has nothing to restore.
+        statusReportDelivery = statusReporter == null ? null : statusReporter::report;
     }
 
     protected static void reportToSharedCoordinator(

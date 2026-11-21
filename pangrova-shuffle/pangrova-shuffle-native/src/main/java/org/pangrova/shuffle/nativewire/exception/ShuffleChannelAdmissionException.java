@@ -11,6 +11,7 @@ public final class ShuffleChannelAdmissionException extends PangrovaException {
     private final int occupied;
     private final int limit;
 
+    /** Reports that a shuffle channel scope reached its admission limit. */
     public ShuffleChannelAdmissionException(String scope, int occupied, int limit) {
         super(PangrovaErrorCode.RUNTIME_RESOURCE_EXHAUSTED,
                 "Shuffle ManagedChannel admission rejected: scope=" + scope

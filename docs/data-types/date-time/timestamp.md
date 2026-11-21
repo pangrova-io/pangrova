@@ -27,3 +27,15 @@ Ordinary timestamp columns default to precision 6. The current DDL grammar
 accepts only bare `TIMESTAMP`; `TIMESTAMP(p)` is not parsed, and `TIMESTAMP_NS`
 is the precision-9 spelling. `TIME` uses up to six fractional digits, matching the
 Native Worker's microsecond time storage.
+
+## Connector mappings
+
+| Connector | Write mapping | Read mapping |
+|-----------|---------------|--------------|
+| Apache Iceberg | `TimestampType.withoutZone()` | `TIMESTAMP` or `TIMESTAMP_NS` by declared precision |
+| Apache Paimon | `TimestampType` (precision default 6) | `TIMESTAMP` |
+| Lance | Canonical Arrow timestamp schema, subject to Native validation | Declared timestamp identity retained in managed catalog metadata |
+
+`TIMESTAMP WITH TIME ZONE` maps to an Iceberg timestamp with UTC adjustment and to Paimon's
+`LocalZonedTimestampType`. A `TIMESTAMP` value has no timezone; converting it to a
+zoned timestamp depends on the session timezone.

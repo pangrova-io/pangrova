@@ -19,8 +19,66 @@ import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.build.antlr.PangrovaSqlBaseVisitor;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
 
-import org.pangrova.parser.api.ast.*;
-import org.pangrova.parser.api.ast.statement.*;
+import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SourceLocation;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableAction;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.AlterEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.AlterIndexStatement;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewAction;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.AlterStageAction;
+import org.pangrova.parser.api.ast.statement.AlterStageStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.AlterVolumeAction;
+import org.pangrova.parser.api.ast.statement.AlterVolumeStatement;
+import org.pangrova.parser.api.ast.statement.BackfillColumnStatement;
+import org.pangrova.parser.api.ast.statement.CancelBackfillStatement;
+import org.pangrova.parser.api.ast.statement.CreateBranchStatement;
+import org.pangrova.parser.api.ast.statement.CreateEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.CreateIndexStatement;
+import org.pangrova.parser.api.ast.statement.CreateStageStatement;
+import org.pangrova.parser.api.ast.statement.CreateStorageProfileStatement;
+import org.pangrova.parser.api.ast.statement.CreateTagStatement;
+import org.pangrova.parser.api.ast.statement.CreateVolumeStatement;
+import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DescribeMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DescribeStageStatement;
+import org.pangrova.parser.api.ast.statement.DescribeVolumeStatement;
+import org.pangrova.parser.api.ast.statement.DropBranchStatement;
+import org.pangrova.parser.api.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DropEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.DropIndexStatement;
+import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DropStageStatement;
+import org.pangrova.parser.api.ast.statement.DropStorageProfileStatement;
+import org.pangrova.parser.api.ast.statement.DropTagStatement;
+import org.pangrova.parser.api.ast.statement.DropVolumeStatement;
+import org.pangrova.parser.api.ast.statement.ListStageStatement;
+import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.api.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.RemoveStageStatement;
+import org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement;
+import org.pangrova.parser.api.ast.statement.ShowBackfillStatusStatement;
+import org.pangrova.parser.api.ast.statement.ShowBranchesStatement;
+import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
+import org.pangrova.parser.api.ast.statement.ShowDynamicTablesStatement;
+import org.pangrova.parser.api.ast.statement.ShowEmbeddingModelsStatement;
+import org.pangrova.parser.api.ast.statement.ShowIndexesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializedViewsStatement;
+import org.pangrova.parser.api.ast.statement.ShowStagesStatement;
+import org.pangrova.parser.api.ast.statement.ShowStorageProfilesStatement;
+import org.pangrova.parser.api.ast.statement.ShowTagsStatement;
+import org.pangrova.parser.api.ast.statement.ShowVolumesStatement;
+import org.pangrova.parser.api.ast.statement.UseBranchStatement;
 import org.pangrova.parser.api.ast.statement.stream.AlterStreamAction;
 import org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement;
 import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
@@ -71,6 +129,15 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
                 : Map.of();
         return new CreateDynamicTableStatement(name, query, targetLag, refreshMode, warehouse,
                 properties, incrementalStrategy(ctx.incrementalStrategy()));
+    }
+
+    @Override
+    public org.pangrova.parser.api.ast.CreateContinuousQueryStatement visitCreateContinuousQuery(
+            PangrovaSqlParser.CreateContinuousQueryContext ctx) {
+        return new org.pangrova.parser.api.ast.CreateContinuousQueryStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                parent.visitQuery(ctx.query()),
+                parsePositiveTargetLag(ctx.STRING_LITERAL()));
     }
 
     @Override

@@ -19,6 +19,7 @@ public final class SubstraitPlanCodec {
 
     private SubstraitPlanCodec() {}
 
+    /** Parses a Substrait plan with a bounded recursion limit. */
     public static Plan parse(byte[] bytes) throws InvalidProtocolBufferException {
         try {
             CodedInputStream input = CodedInputStream.newInstance(bytes);

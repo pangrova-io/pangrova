@@ -66,7 +66,7 @@ public final class QueryProfileService {
     }
 
     private static long nanosToMillis(long nanos) {
-        return nanos / 1_000_000L;
+        return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(nanos);
     }
 
     private static List<FlameGraphFrame> flameFrames(List<OperatorNode> tree) {

@@ -1,7 +1,5 @@
 package org.pangrova.indexing.api.pruning;
 
-import org.pangrova.indexing.api.pruning.RowGroupPruningSummary;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

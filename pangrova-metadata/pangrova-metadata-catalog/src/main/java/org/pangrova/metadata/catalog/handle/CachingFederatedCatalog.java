@@ -33,12 +33,14 @@ public final class CachingFederatedCatalog implements FederatedCatalog {
     private final CatalogDeploymentIdentity deployment;
     private final Cache<String, TableStatistics> localStatsCache;
 
-    public CachingFederatedCatalog(FederatedCatalog delegate, TieredMetadataCache cache, CatalogDeploymentIdentity deployment) {
+    public CachingFederatedCatalog(FederatedCatalog delegate, TieredMetadataCache cache,
+            CatalogDeploymentIdentity deployment) {
         this(delegate, cache, deployment, DEFAULT_STATS_MAX_SIZE, DEFAULT_STATS_TTL);
     }
 
     /** Creates a caching wrapper with custom local statistics cache bounds. */
-    public CachingFederatedCatalog(FederatedCatalog delegate, TieredMetadataCache cache, CatalogDeploymentIdentity deployment,
+    public CachingFederatedCatalog(FederatedCatalog delegate, TieredMetadataCache cache,
+            CatalogDeploymentIdentity deployment,
                                    long statsMaxSize, Duration statsTtl) {
         this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
         this.cache = Objects.requireNonNull(cache, "cache must not be null");

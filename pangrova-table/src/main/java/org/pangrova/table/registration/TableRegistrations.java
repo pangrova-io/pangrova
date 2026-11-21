@@ -36,6 +36,7 @@ public final class TableRegistrations {
     private final TableControlSettings settings;
     private final Clock clock;
 
+    /** Creates table registration operations over the control store. */
     public TableRegistrations(TableControlStore store, TableCatalogAuthority catalogAuthority,
             TableControlSettings settings, Clock clock) {
         this.store = store;
@@ -69,7 +70,8 @@ public final class TableRegistrations {
         if (!settings.enabled()) {
             return Optional.empty();
         }
-        return registerCreated(catalog, schema, table, ownerPrincipal, identity, version, catalogAuthority.current(catalog));
+        return registerCreated(catalog, schema, table, ownerPrincipal, identity, version, catalogAuthority.current(
+                catalog));
     }
 
     private Optional<TableControlRecord> registerCreated(String catalog, String schema, String table,
@@ -195,7 +197,8 @@ public final class TableRegistrations {
         }
 
         TableControlRecord adopted = withIdentity(newRecord(
-                catalog, schema, table, ownerPrincipal, TableControlProvenance.ADOPTED, now, catalogAuthority.current(catalog))
+                catalog, schema, table, ownerPrincipal, TableControlProvenance.ADOPTED, now,
+                        catalogAuthority.current(catalog))
                         .ownershipMode(OwnershipMode.LINKED),
                 identity, version, now)
                 .build();
@@ -283,12 +286,14 @@ public final class TableRegistrations {
         store.save(current.retiredAt(clock.instant()));
     }
 
+    /** Registers write ownership for an explicitly allowlisted legacy table. */
     public TableControlRecord registerAllowlisted(String catalog, String schema, String table) {
         if (!settings.enabled() || !settings.isLegacyWriteAllowlisted(catalog + "." + schema + "." + table)) {
             throw new AccessDeniedException("Explicit legacy write ownership is required");
         }
         Instant now = clock.instant();
-        TableControlRecord legacy = newRecord(catalog, schema, table, "", TableControlProvenance.CREATED, now, catalogAuthority.current(catalog))
+        TableControlRecord legacy = newRecord(catalog, schema, table, "", TableControlProvenance.CREATED, now,
+                catalogAuthority.current(catalog))
                 .format(UNKNOWN_FORMAT)
                 .properties(Map.of("legacy-write-allowlist", "true"))
                 .build();
@@ -299,7 +304,8 @@ public final class TableRegistrations {
     }
 
     private static TableControlRecord.Builder newRecord(String catalog, String schema, String table,
-            String ownerPrincipal, TableControlProvenance provenance, Instant now, CatalogDeploymentIdentity deployment) {
+            String ownerPrincipal, TableControlProvenance provenance, Instant now,
+                    CatalogDeploymentIdentity deployment) {
         return TableControlRecord.builder()
                 .tableId(UUID.randomUUID())
                 .name(catalog, schema, table)

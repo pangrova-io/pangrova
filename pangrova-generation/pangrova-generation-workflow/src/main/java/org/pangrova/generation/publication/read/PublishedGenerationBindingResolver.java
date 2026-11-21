@@ -89,7 +89,8 @@ public final class PublishedGenerationBindingResolver {
     }
 
     private static boolean matchesCoverage(GenerationSourceCoverage coverage, long published, long requested) {
-        return coverage == GenerationSourceCoverage.COMPLETE_GENERATION ? published == requested : published >= requested;
+        return coverage == GenerationSourceCoverage.COMPLETE_GENERATION ? published == requested
+                : published >= requested;
     }
 
     private boolean matchesPublishedSourceRanges(

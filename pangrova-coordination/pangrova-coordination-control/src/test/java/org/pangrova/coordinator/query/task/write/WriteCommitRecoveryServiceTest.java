@@ -56,7 +56,7 @@ class WriteCommitRecoveryServiceTest {
                 "coord-A",
                 "process-A",
                 1L,
-                null, null);
+                null, null, null);
     }
 
     @Test

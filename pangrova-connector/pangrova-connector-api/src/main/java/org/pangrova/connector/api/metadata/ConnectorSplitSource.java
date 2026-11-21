@@ -1,7 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorSplit;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

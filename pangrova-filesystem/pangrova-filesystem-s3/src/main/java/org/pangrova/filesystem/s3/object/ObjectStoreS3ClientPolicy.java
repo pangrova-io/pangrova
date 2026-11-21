@@ -27,6 +27,7 @@ public final class ObjectStoreS3ClientPolicy {
 
     private ObjectStoreS3ClientPolicy() {}
 
+    /** Applies the bounded call, attempt, connection and socket timeouts used for object-store clients. */
     public static void configure(S3ClientBuilder builder) {
         builder.overrideConfiguration(config -> config
                 .apiCallTimeout(CALL_TIMEOUT)

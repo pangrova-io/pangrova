@@ -1,8 +1,5 @@
 package org.pangrova.security.api.authentication;
 
-import org.pangrova.security.api.authentication.AuthenticationRequest;
-import org.pangrova.security.api.authentication.AuthenticationResult;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Map;

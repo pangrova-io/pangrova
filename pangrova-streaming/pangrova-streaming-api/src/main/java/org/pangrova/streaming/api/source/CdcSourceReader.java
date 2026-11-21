@@ -4,6 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -62,6 +63,32 @@ public interface CdcSourceReader extends AutoCloseable {
     /** Last known unconsumed offset distance across assigned partitions, sampled on the polling thread. */
     default OptionalLong currentLag() {
         return OptionalLong.empty();
+    }
+
+    /**
+     * Returns the current exclusive end offset of each source partition.
+     *
+     * <p>Bounded Worker ingestion uses this to prove that an admitted interval is
+     * exhausted when compacted logs contain gaps and no record reaches its end.
+     * Implementations that cannot expose exact log ends must reject the call rather
+     * than fabricate completion.</p>
+     *
+     * @param partitions exact topic partitions requested by the admitted task
+     * @return current exclusive end offset for each requested partition
+     */
+    default Map<TopicPartitionOffset, Long> endOffsets(
+            Collection<TopicPartitionOffset> partitions) {
+        throw new UnsupportedOperationException(
+                "Source does not expose exact end offsets");
+    }
+
+    /**
+     * Returns the exact partitions known for this reader's subscribed source.
+     * The Coordinator uses this to allocate one bounded range per partition.
+     */
+    default List<TopicPartitionOffset> partitions() {
+        throw new UnsupportedOperationException(
+                "Source does not expose its partition inventory");
     }
 
     @Override

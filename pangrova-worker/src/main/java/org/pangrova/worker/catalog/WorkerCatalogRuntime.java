@@ -6,7 +6,6 @@ import org.pangrova.worker.catalog.WorkerCatalogRegistry.CatalogRuntime;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.worker.connector.session.TaskConnectorSession;
-import org.pangrova.worker.catalog.CatalogResourceResolver;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;

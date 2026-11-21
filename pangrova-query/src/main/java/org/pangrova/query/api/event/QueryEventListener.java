@@ -1,9 +1,5 @@
 package org.pangrova.query.api.event;
 
-import org.pangrova.query.api.event.QueryCompletedEvent;
-import org.pangrova.query.api.event.QueryCreatedEvent;
-import org.pangrova.query.api.event.SplitCompletedEvent;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

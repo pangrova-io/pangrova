@@ -50,6 +50,7 @@ public final class CatalogTableResolution {
         this(catalogRegistry, cache, DEFAULT_MAX_SIZE, DEFAULT_TTL);
     }
 
+    /** Creates a resolver with a bounded, time-limited cache keyed by session and deployment. */
     public CatalogTableResolution(CatalogRegistry catalogRegistry, MetadataCache cache,
             long resolutionCacheMaxSize, Duration resolutionCacheTtl) {
         this.catalogRegistry = catalogRegistry;
@@ -84,6 +85,7 @@ public final class CatalogTableResolution {
                 .build();
     }
 
+    /** Resolves a table under the current catalog deployment and its admitted control record. */
     public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
         CatalogDeploymentIdentity deployment = catalogRegistry.requireCurrentCatalogIdentity(tableRef.catalog());
         TableControlView admitted = ownership(tableRef);
@@ -113,7 +115,8 @@ public final class CatalogTableResolution {
         return cached.ownershipMode() == owner.ownershipMode()
                 && cached.tableId().equals(owner.tableId())
                 && cached.controlRevision() == owner.metadataRevision()
-                && (owner.ownershipMode() == OwnershipMode.OBSERVED || cached.versionToken().equals(owner.versionToken()));
+                && (owner.ownershipMode() == OwnershipMode.OBSERVED || cached.versionToken().equals(
+                        owner.versionToken()));
     }
 
     private TableControlView ownership(QualifiedTableRef tableRef) {
@@ -129,7 +132,8 @@ public final class CatalogTableResolution {
             CatalogDeploymentIdentity deployment, TableControlView admitted) {
         CatalogHandle handle = catalogRegistry.getCatalog(tableRef.catalog());
         var descriptor = handle.getDescriptor();
-        if (!deployment.incarnationId().equals(descriptor.incarnationId()) || deployment.revision() != descriptor.revision()) {
+        if (!deployment.incarnationId().equals(descriptor.incarnationId())
+                || deployment.revision() != descriptor.revision()) {
             throw new AccessDeniedException("Catalog deployment changed during table resolution for " + tableRef);
         }
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
@@ -163,11 +167,13 @@ public final class CatalogTableResolution {
                 admitted.ownershipMode(), admitted.tableId(), versionToken, admitted.metadataRevision());
     }
 
+    /** Reads current table metadata from the catalog, bypassing the unscoped tiered cache. */
     public TableMetadata currentMetadata(MetadataSessionContext session, QualifiedTableRef tableRef) {
         // The tiered store has no authenticated scope. Never use it as authority
         // for tenant-specific DDL validation, or to read back an ALTER result.
         CatalogDeploymentIdentity deployment = catalogRegistry.requireCurrentCatalogIdentity(tableRef.catalog());
-        return toTableMetadata(tableRef, resolveFromCatalog(session, tableRef, deployment, ownership(tableRef)).tableMetadata());
+        return toTableMetadata(tableRef, resolveFromCatalog(session, tableRef, deployment, ownership(
+                tableRef)).tableMetadata());
     }
 
     private static TableMetadata toTableMetadata(QualifiedTableRef ref, ConnectorTableMetadata connMeta) {

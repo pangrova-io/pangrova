@@ -27,6 +27,7 @@ public final class CoordinatorTaskResource {
         this.receiver = checkNotNull(receiver, "receiver must not be null");
     }
 
+    /** Accepts a Worker task status report and returns whether the Worker should continue. */
     @POST
     @Path("/status-report")
     public Response taskStatusReport(TaskStatusReport report) {

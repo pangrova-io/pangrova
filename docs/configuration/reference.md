@@ -70,10 +70,12 @@ Role and shared options are declared in `org.pangrova.config.constants`. Domain-
 | `worker.registration.max-attempts` | `5` | Registration attempts |
 | `worker.registration.initial-backoff` / `max-backoff` | `"1s"` / `"30s"` | Registration retry backoff |
 | `worker.cdc.enabled` | `true` | Enable CDC processing |
+| `worker.cdc.kafka.bootstrap-servers` | — | Kafka bootstrap servers for Worker-JVM CDC ingestion; absent leaves the JVM CDC backend unconfigured |
+| `worker.cdc.kafka.properties.*` | — | Additional Kafka consumer properties; topic/group/auto-commit remain Worker-pinned |
 | `worker.internal-auth-secret` | — | Shared `X-Internal-Auth` secret |
 | `worker.ai.authorization.*` | fail closed | AI model/capability/permission allowlists and invocation ceilings; see [Worker configuration](worker.md#workerai) |
 | `worker.ai.models.<id>.*` | — | Exact versioned provider/model descriptor; no implicit model or credential fallback |
-| `worker.ai.file.*` | — | Governed FILE S3 backend, external capability secret, limits and HTTPS-import policy; required when AI functions are registered |
+| `worker.ai.file.*` | — | Optional governed FILE storage (`s3`, `local`, or `oss`), external capability secret, limits and HTTPS-import policy; required for FILE and blob-backed multimodal paths, not ordinary text-only AI |
 
 ## Feature Flags (shared)
 
@@ -101,6 +103,14 @@ Coordinator:
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
 | `pangrova.index.basePath` | — (required when indexing is enabled) | Index artifact directory; no default |
 
+## External Shuffle Service
+
+`bin/pangrova-shuffle.sh` reads a separate strict YAML file (default
+`$PANGROVA_CONF_DIR/shuffle.yml`) with `server`, `database`, `object-storage`, `security`,
+and optional `limits` sections. It does not merge `coordinator.yml` or `worker.yml` and does
+not accept the `PANGROVA_*` dot-path overrides. Unknown keys fail startup. See
+[External Shuffle Service](shuffle-service.md) for every key, default, and validation rule.
+
 ## Environment Variables
 
 Launch scripts (`bin/`):
@@ -110,12 +120,13 @@ Launch scripts (`bin/`):
 | `PANGROVA_HOME` | Installation root |
 | `PANGROVA_CONF_DIR` | Config directory (default: `$PANGROVA_HOME/etc`) |
 | `PANGROVA_LOG_DIR` | Log directory |
-| `PANGROVA_JAVA_OPTS` | Extra JVM options |
+| `PANGROVA_JAVA_OPTS` | Replaces configured JVM options; Coordinator/Worker launchers still append required module-access and logging properties |
 | `PANGROVA_ROLE` | Logback log role and filename override; it does not select the process role |
 | `PANGROVA_COORDINATOR_URL` | Coordinator URL for worker scripts |
 
-Config overrides: any YAML key can be overridden by a `PANGROVA_*` environment
-variable (e.g. `PANGROVA_COORDINATOR_PORT=9090` → `coordinator.port`). See
+Config overrides: `PANGROVA_*` variables map to dot-separated keys
+(e.g. `PANGROVA_COORDINATOR_PORT=9090` → `coordinator.port`). Hyphenated keys
+require explicit YAML environment placeholders. See
 [Configuration model](index.md) for the full mapping rules and priority order.
 
 **See Also:** [Configuration model](index.md), [Coordinator](coordinator.md),

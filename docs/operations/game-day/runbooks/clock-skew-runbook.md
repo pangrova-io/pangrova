@@ -18,31 +18,7 @@ description: "Diagnose and recover from coordinator or metadata clock skew"
 
 ## Decision Tree
 
-```
-Clock skew suspected?
-  │
-  ├─► What are the symptoms?
-  │     │
-  │     ├─► HTTP 401 errors on a specific coordinator
-  │     │     └─► Check: is that coordinator's clock ahead? → Step 1
-  │     │
-  │     ├─► Unexpected JDBC lease expiry / leader thrashing
-  │     │     └─► Check: is the leader coordinator's clock severely skewed? (Lease
-  │     │         timing uses the database clock, so skew only disrupts renewals) → Step 3
-  │     │
-  │     ├─► Trace spans out of order in Tempo/Jaeger
-  │     │     └─► Check all nodes for clock drift → Step 1 (observability impact only)
-  │     │
-  │     └─► Iceberg snapshot timestamps disordered
-  │           └─► Investigate after clock correction; may need snapshot repair → Step 5
-  │
-  └─► Is the skew > 60 seconds?
-        │
-        ├─► YES ──► Exceeds the JWT clock-skew tolerance; tokens expiring within
-        │           the skew window will be rejected — urgent NTP fix → Step 2
-        │
-        └─► NO  ──► Within the JWT tolerance; monitor and resync NTP → Step 2
-```
+![Clock skew suspected?](../../../../website/static/img/diagrams/generated/clock-skew-runbook-01-b2725cdb20.svg)
 
 ---
 

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="895" height="228" viewBox="0 0 895 228" role="img">
+<rect width="895" height="228" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="893.5" height="226.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">Native Velox Pipeline (RowVector)</text>
+<line x1="57.5" y1="53.0" x2="57.5" y2="72.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="72.0" x2="57.5" y2="91.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="81.5" x2="62.2" y2="81.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="62.2" y1="81.5" x2="71.6" y2="81.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M211.79999999999998 76.0 L211.79999999999998 87.0 L222.79999999999998 81.5 z" fill="#D97706"/>
+<path d="M428.0 76.0 L428.0 87.0 L439.0 81.5 z" fill="#D97706"/>
+<path d="M569.0000000000001 76.0 L569.0000000000001 87.0 L580.0000000000001 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">     Result output   Native result server   Arrow Flight   client</text>
+<line x1="57.5" y1="91.0" x2="57.5" y2="110.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="110.0" x2="57.5" y2="129.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="119.5" x2="62.2" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="62.2" y1="119.5" x2="71.6" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M221.2 114.0 L221.2 125.0 L232.2 119.5 z" fill="#D97706"/>
+<path d="M512.6000000000001 114.0 L512.6000000000001 125.0 L523.6000000000001 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">     Shuffle output   Native callback partitioning   PrestoVectorSerde pages</text>
+<line x1="57.5" y1="129.0" x2="57.5" y2="148.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M230.6 133.0 L230.6 144.0 L241.6 138.5 z" fill="#D97706"/>
+<path d="M540.8000000000001 133.0 L540.8000000000001 144.0 L551.8000000000001 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">                       Native Flight DoGet(partition)   downstream Native ExchangeSource</text>
+<line x1="57.5" y1="148.0" x2="57.5" y2="167.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="176.5" x2="62.2" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="167.0" x2="57.5" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="62.2" y1="176.5" x2="71.6" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M221.2 171.0 L221.2 182.0 L232.2 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">     Operator spill   Velox-managed local spill</text>
+</g>
+</svg>

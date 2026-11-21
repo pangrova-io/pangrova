@@ -59,19 +59,7 @@ results separately. Native CTest uses only the existing repository suppression,
 unchanged. Check one actual runtime load, and capture source, native binaries,
 cache, suppression and runtime SHA before and after every qualified cohort.
 
-The tested private runtime SHA is
-`8a5abbbefc987a78d136692d0b846e33fef3cf33f16b87bbe70f475e7af5cc6f`.
-Twenty-three calibration controls matched expected results. The original seven
-failing Native cases then passed, followed by unfiltered 4085/4085 CTest PASS
-in 1790.21 seconds on the unchanged NULL-policy cohort. This is host qualification
-and does not qualify later Lance, ANN or function-cohort source changes. Those
-changes require fresh Native builds and complete CTest runs.
-
-The checked-in build script was also replayed into a second new private prefix.
-Its runtime SHA is
-`335db5f29a170315aa8f1c538ee1a50516299729090031a71ba772e83e08c7a0`.
-The build succeeded and all 23 controls matched their expected outcomes against
-that actual loaded runtime. Build paths can change the resulting binary SHA, so
-the earlier 4085-test result belongs to the first runtime and source cohort; it
-is not transferred to the replayed artifact. The controls live under
-`test-tools/toolchain`, outside the Native GoogleTest source glob.
+A qualified runtime matches all 23 calibration controls, then passes the complete
+unfiltered Native CTest suite on the unchanged cohort. Build paths change the runtime
+binary, so qualification belongs to one runtime SHA and source cohort; later Lance,
+ANN or function-cohort changes require fresh Native builds and complete CTest runs.

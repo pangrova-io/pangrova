@@ -22,7 +22,8 @@ public final class PostgresTableStoreFactory implements TableStoreFactory {
 
     @Override
     public TableStores create(Optional<DataSource> dataSource) {
-        DataSource source = dataSource.orElseThrow(() -> new IllegalArgumentException("PostgreSQL requires a data source"));
+        DataSource source = dataSource.orElseThrow(() -> new IllegalArgumentException(
+                "PostgreSQL requires a data source"));
         return new TableStores(
                 new JdbcTableControlStore(source),
                 new JdbcTableControlStatisticsStore(source),

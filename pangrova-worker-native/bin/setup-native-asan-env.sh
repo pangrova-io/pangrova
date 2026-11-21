@@ -11,11 +11,35 @@ set -euo pipefail
 ASAN_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PANGROVA_HOME="${PANGROVA_HOME:-$HOME/.pangrova}"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ -x "${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}" ]]; then
+    PANGROVA_BREW="${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}"
+  else
+    PANGROVA_BREW="$(command -v brew || true)"
+  fi
+  HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
+  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
+  FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
+fi
 VELOX_HOME="${VELOX_HOME:-$PANGROVA_HOME/velox}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 ASAN_PREFIX="${PANGROVA_ASAN_DEPS_PREFIX:-$PANGROVA_HOME/native-deps-asan}"
 ASAN_VELOX_BUILD_DIR="${PANGROVA_ASAN_VELOX_BUILD_DIR:-$VELOX_HOME/_build/asan-ci}"
-NPROC="${PANGROVA_ASAN_BUILD_JOBS:-2}"
+if [[ -n "${PANGROVA_ASAN_BUILD_JOBS:-}" ]]; then
+  NPROC="$PANGROVA_ASAN_BUILD_JOBS"
+else
+  NPROC=2
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    memory_gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    memory_gb=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo 2>/dev/null || echo 0)
+  fi
+  if [[ "$memory_gb" -gt 0 && $(( memory_gb / 6 )) -lt "$NPROC" ]]; then
+    NPROC=$(( memory_gb / 6 ))
+    [[ "$NPROC" -lt 1 ]] && NPROC=1
+  fi
+fi
 # ExternalProject CMake/Make builds do not inherit the outer Ninja job limit.
 export CMAKE_BUILD_PARALLEL_LEVEL="$NPROC"
 export NUM_THREADS="$NPROC"
@@ -24,9 +48,18 @@ ABSEIL_SOURCE="$WORK_DIR/abseil-cpp"
 PROTOBUF_SOURCE="$WORK_DIR/protobuf"
 RE2_SOURCE="$WORK_DIR/re2"
 GRPC_SOURCE="$WORK_DIR/grpc"
+FOLLY_SOURCE="$VELOX_HOME/deps-download/folly"
 ASAN_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+CHECK_TOOLS=0
+case "${1:-}" in
+  "") ;;
+  --check-tools) CHECK_TOOLS=1 ;;
+  *) printf 'Usage: %s [--check-tools]\n' "$0" >&2; exit 2 ;;
+esac
+[[ "$#" -le 1 ]] || { printf 'Usage: %s [--check-tools]\n' "$0" >&2; exit 2; }
 
 require_source_revision() {
   local source="$1" revision="$2" actual expected
@@ -37,7 +70,22 @@ require_source_revision() {
 }
 
 command -v cmake >/dev/null 2>&1 || die "cmake not found"
+CMAKE_LAUNCHER_FLAGS=""
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="${CCACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ccache}"
+  export CCACHE_COMPRESS=1
+  export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
+  mkdir -p "$CCACHE_DIR"
+  CMAKE_LAUNCHER_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+fi
+# Reject a package-manager cmake shim that has no Modules directory, and keep
+# the working binary ahead of anything the Velox dependency setup adds.
+PANGROVA_CMAKE_BIN="$(command -v cmake)"
+"$PANGROVA_CMAKE_BIN" --version >/dev/null 2>&1 \
+  || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
+export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
+command -v patch >/dev/null 2>&1 || die "patch not found"
 [[ -f "$ABSEIL_SOURCE/CMakeLists.txt" ]] || \
   die "Abseil source missing; run setup-native-build-env.sh first"
 [[ -f "$PROTOBUF_SOURCE/CMakeLists.txt" ]] || \
@@ -46,11 +94,30 @@ command -v ninja >/dev/null 2>&1 || die "ninja not found"
   die "RE2/gRPC source missing; run setup-native-build-env.sh first"
 [[ -f "$VELOX_HOME/CMakeLists.txt" ]] || \
   die "Velox source missing; run setup-native-build-env.sh first"
+if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+  [[ -f "$FOLLY_SOURCE/CMakeLists.txt" ]] || \
+    die "Folly source missing; run setup-native-build-env.sh first"
+fi
 require_source_revision "$ABSEIL_SOURCE" "${ABSEIL_VERSION:-20240116.2}"
 require_source_revision "$PROTOBUF_SOURCE" "${PROTOBUF_VERSION:-v25.3}"
 require_source_revision "$RE2_SOURCE" "${RE2_VERSION:-2024-07-02}"
 require_source_revision "$GRPC_SOURCE" "${GRPC_VERSION:-v1.65.0}"
+if [[ "$CHECK_TOOLS" == 1 ]]; then
+  printf 'ASan dependency toolchain and sources verified\n'
+  exit 0
+fi
+libevent_prefix=""
+if [[ "$(uname -s)" == "Darwin" && -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+  source "$ASAN_SCRIPT_DIR/resolve-darwin-libevent.sh"
+  libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW")"
+fi
+
 bash "$(dirname "${BASH_SOURCE[0]}")/apply-velox-patches.sh" apply "$VELOX_HOME"
+arrow_build_patch="$ASAN_SCRIPT_DIR/../patches/velox-arrow-build-flags.patch"
+if ! git -C "$VELOX_HOME" apply --reverse --check "$arrow_build_patch" >/dev/null 2>&1; then
+  git -C "$VELOX_HOME" apply --check "$arrow_build_patch"
+  git -C "$VELOX_HOME" apply "$arrow_build_patch"
+fi
 
 mkdir -p "$ASAN_PREFIX"
 
@@ -93,7 +160,7 @@ build_asan_dependency "$RE2_SOURCE" "$RE2_SOURCE/build-asan-ci" \
 
 asan_ssl_args=()
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
+  [[ -n "$OPENSSL_PREFIX" ]] && asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
 fi
 build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -105,7 +172,39 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DgRPC_ABSL_PROVIDER=package -DgRPC_PROTOBUF_PROVIDER=package \
     -DgRPC_RE2_PROVIDER=package -DgRPC_CARES_PROVIDER=module \
     -DgRPC_SSL_PROVIDER=package -DgRPC_ZLIB_PROVIDER=package \
-    "${asan_ssl_args[@]}"
+    ${asan_ssl_args[@]+"${asan_ssl_args[@]}"}
+
+build_asan_folly() {
+  if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+    local openssl_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch"
+    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 \
+        -i "$openssl_patch" >/dev/null 2>&1; then
+      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
+      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
+    fi
+    local socket_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-socket-function-types.patch"
+    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 -i "$socket_patch" >/dev/null 2>&1; then
+      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
+      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
+    fi
+    local architecture_flags
+    architecture_flags="$(source "$VELOX_HOME/scripts/setup-helper-functions.sh"; get_cxx_flags)"
+    build_asan_dependency "$FOLLY_SOURCE" "$WORK_DIR/folly-asan-build" \
+      -DCMAKE_CXX_STANDARD=20 \
+      "-DCMAKE_CXX_FLAGS=$ASAN_FLAGS $architecture_flags" \
+      "-DCMAKE_PREFIX_PATH=$ASAN_PREFIX;$VELOX_HOME/deps-install${libevent_prefix:+;$libevent_prefix}${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DFOLLY_LIBRARY_SANITIZE_ADDRESS=ON -DFOLLY_HAVE_INT128_T=ON \
+      -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DGFLAGS_SHARED=FALSE \
+      "-DCMAKE_PROJECT_folly_INCLUDE=$ASAN_SCRIPT_DIR/../cmake/AsanFollyCompat.cmake" \
+      ${asan_ssl_args[@]+"${asan_ssl_args[@]}"}
+    PANGROVA_ASAN_FOLLY_PREFIX="$ASAN_PREFIX"
+  fi
+  [[ -f "$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly/folly-config.cmake" ]] || \
+    die "ASan Folly package is missing: $PANGROVA_ASAN_FOLLY_PREFIX"
+}
+
+build_asan_folly
 
 # The hosted Linux runner cannot hold both complete Release and ASan Velox
 # object trees.  Release setup has already installed the shared/native
@@ -123,22 +222,21 @@ configure_asan_velox() {
   # never add its native-deps prefix: Protobuf and Abseil must remain ASan-only.
   velox_prefix_path="$ASAN_PREFIX;$VELOX_HOME/deps-install"
   velox_platform_args=()
-  if [[ -n "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
-    local folly_config="$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly"
-    [[ -f "$folly_config/folly-config.cmake" ]] || die "ASan Folly package is missing: $folly_config"
-    velox_platform_args+=("-Dfolly_DIR:PATH=$folly_config")
-  fi
+  local folly_config="$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly"
+  velox_platform_args+=(-Dfolly_SOURCE=SYSTEM "-Dfolly_DIR:PATH=$folly_config")
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    velox_prefix_path+=";$PANGROVA_HOME/homebrew"
-    velox_platform_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
-    velox_platform_args+=("-DBISON_EXECUTABLE=$PANGROVA_HOME/homebrew/opt/bison/bin/bison")
-    velox_platform_args+=("-DFLEX_EXECUTABLE=$PANGROVA_HOME/homebrew/opt/flex/bin/flex")
-    velox_platform_args+=("-DFLEX_INCLUDE_DIR=$PANGROVA_HOME/homebrew/opt/flex/include")
+    [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
+    [[ -n "$OPENSSL_PREFIX" ]] && velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    [[ -n "$BISON_PREFIX" ]] && velox_platform_args+=("-DBISON_EXECUTABLE=$BISON_PREFIX/bin/bison")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_EXECUTABLE=$FLEX_PREFIX/bin/flex")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
   fi
   # Release + -O1/-g1 keeps the monolithic archive small enough for a hosted
   # runner while retaining symbolized ASan stacks.  Full -g makes libvelox.a
   # several gigabytes and exhausts the runner before Pangrova can link.
-  cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja \
+  # Velox gives the environment selector precedence over CMake cache variables.
+  # Use the bundled resolver so the matching Arrow patch target exists.
+  Arrow_SOURCE=BUNDLED cmake -S "$VELOX_HOME" -B "$ASAN_VELOX_BUILD_DIR" -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$ASAN_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
     -DPANGROVA_FUNCTION_SELECTION_DECLARATION="$ASAN_SCRIPT_DIR/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json" \
     -DPANGROVA_FUNCTION_SDK_PATCH_FILE="$ASAN_SCRIPT_DIR/../patches/velox-function-metadata-snapshot.patch" \
@@ -151,7 +249,7 @@ configure_asan_velox() {
     -DCMAKE_EXE_LINKER_FLAGS="$ASAN_FLAGS" \
     -DCMAKE_SHARED_LINKER_FLAGS="$ASAN_FLAGS" \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    "${velox_platform_args[@]}" \
+    ${velox_platform_args[@]+"${velox_platform_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
@@ -166,6 +264,7 @@ configure_asan_velox() {
     -DVELOX_ENABLE_EXAMPLES=OFF \
     -DVELOX_ENABLE_SUBSTRAIT=ON \
     -DVELOX_ENABLE_ARROW=ON \
+    "-DCMAKE_PROJECT_Arrow_INCLUDE:FILEPATH=$ASAN_SCRIPT_DIR/../cmake/AsanArrowSource.cmake" \
     -DVELOX_ENABLE_PARQUET=ON \
     -DVELOX_ENABLE_HIVE_CONNECTOR=ON \
     -DVELOX_ENABLE_PRESTO_FUNCTIONS=ON \
@@ -184,6 +283,15 @@ configure_asan_velox() {
 # cached Protobuf and Abseil paths belong to the requested dependency cohort.
 configure_asan_velox
 
+# Use the matching SDK's authoritative Arrow external-project source, not a
+# guessed system source or the Release tree which CI may already have retired.
+# Building libvelox does not fetch Arrow (it is not linked into the archive), so
+# materialize and patch the ExternalProject source before consuming it.
+cmake --build "$ASAN_VELOX_BUILD_DIR" --target arrow_ep-patch --parallel "$NPROC"
+arrow_source="$ASAN_VELOX_BUILD_DIR/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep/cpp"
+[[ -f "$arrow_source/CMakeLists.txt" ]] || \
+  die "Matching SDK Arrow source missing: $arrow_source"
+
 # A cached archive must still incorporate the reviewed source patch.
 cmake --build "$ASAN_VELOX_BUILD_DIR" --target velox --parallel "$NPROC"
 PANGROVA_FUNCTION_INSPECTOR_ASAN=1 bash "$ASAN_SCRIPT_DIR/record-function-provenance.sh" "$VELOX_HOME" \
@@ -195,11 +303,6 @@ grep -Eq '^CMAKE_CXX_FLAGS:.*-fsanitize=address' \
   "$ASAN_VELOX_BUILD_DIR/CMakeCache.txt" || \
   die "ASan Velox cache does not contain address-sanitizer flags"
 
-# Use the matching SDK's authoritative Arrow external-project source, not a
-# guessed system source or the Release tree which CI may already have retired.
-arrow_source="$ASAN_VELOX_BUILD_DIR/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep/cpp"
-[[ -f "$arrow_source/CMakeLists.txt" ]] || \
-  die "Matching SDK Arrow source missing: $arrow_source"
 arrow_build="$WORK_DIR/arrow-flight-asan-build"
 arrow_platform_args=()
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -230,7 +333,7 @@ cmake -S "$arrow_source" -B "$arrow_build" -GNinja \
     -Dlz4_SOURCE=BUNDLED -DARROW_WITH_BROTLI=OFF -DARROW_WITH_BZ2=OFF \
     -DARROW_DEPENDENCY_USE_SHARED=OFF -DARROW_PROTOBUF_USE_SHARED=OFF \
     -DProtobuf_SOURCE=SYSTEM -DgRPC_SOURCE=SYSTEM \
-    "${asan_ssl_args[@]}" "${arrow_platform_args[@]}"
+    ${asan_ssl_args[@]+"${asan_ssl_args[@]}"} ${arrow_platform_args[@]+"${arrow_platform_args[@]}"}
 cmake --build "$arrow_build" --target arrow_flight_shared --parallel "$NPROC"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   python3 "$ASAN_SCRIPT_DIR/isolate-arrow-macos-exports.py" --build-dir "$arrow_build" \
@@ -254,6 +357,7 @@ export Protobuf_DIR="$ASAN_PREFIX/lib/cmake/protobuf"
 export VELOX_BUILD_DIR="$ASAN_VELOX_BUILD_DIR"
 export PANGROVA_ASAN_PROTOBUF_LIB="$ASAN_PREFIX/lib/libprotobuf.a"
 export PANGROVA_ASAN_ABSL_DIR="$ASAN_PREFIX/lib/cmake/absl"
+export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"
 EOF
 
 printf 'ASan dependencies ready: %s\n' "$ASAN_VELOX_BUILD_DIR"

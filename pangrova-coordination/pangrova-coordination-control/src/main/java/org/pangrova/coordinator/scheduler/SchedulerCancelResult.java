@@ -27,7 +27,8 @@ public record SchedulerCancelResult(SchedulerCancellationStatus status, String e
     }
 
     public static SchedulerCancelResult pending() {
-        return new SchedulerCancelResult(SchedulerCancellationStatus.PENDING, "Execution owner has not drained", true, null);
+        return new SchedulerCancelResult(SchedulerCancellationStatus.PENDING, "Execution owner has not drained",
+                true, null);
     }
 
     public static SchedulerCancelResult failed(String message, boolean retryable) {

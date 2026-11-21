@@ -48,8 +48,6 @@ import java.util.concurrent.atomic.AtomicLong;
 @ThreadSafe
 public final class SpillMetrics {
 
-
-
     /** Recommended duration buckets for spill operations. */
     private static final List<Double> DURATION_BOUNDARIES_S =
             List.of(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0);

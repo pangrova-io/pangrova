@@ -2,7 +2,6 @@ package org.pangrova.parser.api.parse;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-
 import org.pangrova.parser.api.exception.ParseException;
 
 import org.pangrova.parser.api.ast.Statement;

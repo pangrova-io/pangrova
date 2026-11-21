@@ -20,14 +20,15 @@ final class AiCapabilityConfigParser {
     static Set<AiOperation> operations(String raw, String modelName) {
         var operations = EnumSet.noneOf(AiOperation.class);
         for (String token : csv(raw)) {
-            operations.add(switch (token.toLowerCase(Locale.ROOT)) {
+            AiOperation operation = switch (token.toLowerCase(Locale.ROOT)) {
                 case "inference" -> AiOperation.TEXT_GENERATION;
                 case "multimodal" -> AiOperation.MULTIMODAL_GENERATION;
                 case "embedding" -> AiOperation.EMBEDDING;
                 case "reranking" -> AiOperation.RERANKING;
                 default -> throw configurationFailure(
                         "Unknown capability '" + token + "' for AI model '" + modelName + "'");
-            });
+            };
+            operations.add(operation);
         }
         if (operations.isEmpty()) {
             throw configurationFailure("AI model '" + modelName + "' has no capabilities");

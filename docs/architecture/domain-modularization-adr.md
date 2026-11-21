@@ -3,216 +3,545 @@ title: "Domain Modularization ADR"
 description: "Accepted decisions for domain contracts, implementations, and process assembly"
 ---
 
-# ADR: 领域契约、实现与进程装配分离
+# ADR: Separation of Domain Contracts, Implementations, and Process Assembly
 
-决定日期为 2026-11-01。架构已接受，正在实施，整仓发行验收待完成。
+Decision date: 2026-11-01. The architecture is accepted and being implemented;
+repository-wide release acceptance remains to be completed.
 
-本 ADR 替代此前中央 SPI、合并领域 owner 和独立 SPI 制品的目标决策。
-阶段划分与退出条件见下文“实施顺序及退出条件”；历史执行记录保留在 git 历史与 CI
-记录中，不是本轮完成证明。实际生效的模块边界以 `.pangrova/modules.yaml` 为准；
-未实施的目标不得写成现状。
+This ADR supersedes the earlier target decisions for a central SPI, merged domain
+owners, and standalone SPI artifacts. Phase boundaries and exit conditions are in
+"Implementation Order and Exit Conditions" below; historical execution records
+remain in Git history and CI records and are not proof of completion for this
+round. `.pangrova/modules.yaml` governs the module boundaries actually in effect;
+unimplemented targets must not be written as current state.
 
-## 决策
+## Decision
 
-- 领域只有一个制品时，源码和 POM 直接放在领域目录。只有一个实现且全部调用方都在本领域的契约，和实现放在同一制品。多个实现共用的契约独立发布；外部调用方需要避免引入实现时也保留独立制品。
-- 领域值、调用契约、扩展接口和强类型工厂统一使用 `.api.<能力>` 包。Provider JAR 在
-  `META-INF/services/<工厂完整类名>` 注册实现。服务发现、配置校验与实例创建分别可验证。
-  Paimon 的 Hive 工厂以标识选择实现，接受类型化的 CatalogContext，返回由调用方管理的 Catalog。
-  Pangrova 的 AI 与 CDC 格式沿用这一方式，各能力分别声明返回值和资源所有权。
+- When a domain has only one artifact, its source and POM live directly in the
+  domain directory. A contract with a single implementation whose callers are all
+  in the domain shares that implementation's artifact. Contracts shared by multiple
+  implementations are released separately; a separate artifact is also kept when
+  external callers need to avoid pulling in an implementation.
+- Domain values, calling contracts, extension interfaces, and strongly typed
+  factories uniformly use `.api.<capability>` packages. Provider JARs register
+  implementations in `META-INF/services/<factory fully-qualified class name>`.
+  Service discovery, configuration validation, and instance creation are
+  independently verifiable. Paimon's Hive factory selects an implementation by
+  identifier, accepts a typed CatalogContext, and returns a Catalog managed by the
+  caller. Pangrova's AI and CDC formats follow the same approach, with each
+  capability declaring its return value and resource ownership.
   [HiveCatalogFactory](https://github.com/apache/paimon/blob/master/paimon-hive/paimon-hive-catalog/src/main/java/org/apache/paimon/hive/HiveCatalogFactory.java) · [HiveCatalog](https://github.com/apache/paimon/blob/master/paimon-hive/paimon-hive-catalog/src/main/java/org/apache/paimon/hive/HiveCatalog.java)
-- Parser、Batch、File、Planner、Query、Semantic、Table、Worker 的目标均为领域根目录直接构建单个 JAR。
-  Batch 的 Arrow SDK 为可选依赖，值类型调用方可独立加载。File 的访问服务消费精确查找与刷新契约，持久化实现承担事务与存储。
-- 客户端有 HTTP SDK、CLI、JDBC 三个入口。Common 的 `org.pangrova.common.client` 按 query、result、metadata、session、version、error 组织共享契约。结果端点和协议值归 result，Common 无需依赖 Transport；
-- Common 的 `org.pangrova.common.json` 统一拥有 JSON mapper、持久化编码和纯 JDK 字符串转义。Jackson databind 与 JSR-310 在 Common 中为可选依赖；调用 mapper 的制品显式声明所需依赖，客户端 DTO 仅依赖 Jackson 注解。
-  HTTP SDK 拥有真实 REST 请求、凭据和重试，Transport Client 拥有结果传输与 Arrow 解码。CLI 直接消费 QueryClient，HTTP 类实现该接口。
-- QueryId 与 ExecutionAnchor 分别标识跨协议查询和跨查询/后台任务的执行归属，归 Execution API。Query 发布生命周期、审计与日志重放契约。依赖具体任务请求、生成列协议与 Native 运行能力的提交前校验和绑定由 Execution Binding 实施。
-- Table 发布 ownership、统计、维护及治理绑定所需要的操作。Table Persistence API 独立拥有后端工厂及一组属于相同 authority 的仓储实例。Worker 单 JAR 同时包含任务控制与 JNI，Server Worker 拥有进程装配。
-- Function 的单一契约制品直接由 `pangrova-function/pom.xml` 构建。AI 的多个实现共享 `pangrova-ai-api`，
-  `pangrova-ai-openai` 和 `pangrova-ai-qwen` 分别发布真实工厂，`pangrova-ai-http` 复用受控 HTTP
-  和兼容的 chat 编码。Server 以运行时依赖选择 Provider，Worker 和 Control 的生产代码只依赖领域契约。
-- 独立流程制品以实际职责命名。包可直接以业务能力命名，例如 HTTP 请求处理归 `http.request`，血缘归 `lineage`。新增层级必须能说明调用方及其拥有的状态或资源。Provider 拥有技术实现，Server 拥有进程装配和生命周期；后端与 SDK 通过领域契约隔离。
-- Java 的具名枚举、异常、纯常量类按所属制品进入 `.enums`、`.exception`、`.constants`。实现侧状态类型留在相应实现制品，状态转换仍由原生命周期对象持有。Source wire 值与 JNI 异常变更同时更新服务描述符、原生类名和发行测试。实现选择采用工厂标识，枚举名称不承担 Provider 注册。
-- Planner 实现生成可执行的 Protocol/Substrait 片段，因此实现层显式依赖 Protocol。Planner 的公共契约保持最小 classpath；由独立类加载器覆盖其公开签名。Module manifest 不再支持用 milestone 暂时放行未声明的边。
-- 基础类型属于 Types，批数据属于 Batch。它们不能通过 Connector 才能被引擎使用。
-- 物化调用契约和扩展契约统一由 `pangrova-materialization-api` 发布。领域值与服务端口位于
-  `.api.domain`、`.api.port`。扩展点按定义、策略、刷新和改写分入 `.api`；
-  注册表的重复 ID 检查、完整性校验和策略选择归 Materialization Lifecycle。
-  持久化命令及已发布版本读取端口由 `pangrova-persistence-materialization-api` 拥有。
-  Server 用同一数据源构造 PostgreSQL 实现，各条语句复用这两个实例。
-- 查询事件、统计观察值及监听器扩展契约归 Query API，进程内分发归 Query。
-  Observability API 不反向依赖 Query；事件观察不拥有查询状态、持久化提交或重放保证。
-- Query 独占查询状态转换、实际 Connector 操作作用域、终态物理清理与历史保留。
-  Coordinator 的编排器借用这些内部实现；等待结果不能授予调用方完成状态机内部 Future 的权力。
-  逻辑终态、Native 写完成、发布完成与物理 drain 分别记录，不以一个完成标志替代。
-- 所有查询写入共用 Query API 的 WriteAuthorityRequest / WriteAuthorityResolver；普通写入与
-  生成列写入都在分配前通过 Execution Binding 的 WriteAuthorityAdmission 校验真实当前授权回执。
-  授权实现由 Server 在构造时固定，不能运行中 setter 替换；未配置时写入显式拒绝。
-  生成列 Catalog 属性 codec 归 Generation Codec，Proto wire 类型仍归 Protocol。
-  当前权限事务与提交 fencing 不因移动契约而改变；同步 resolver 不宣称独立取消或超时能力。
-- StatementCategory 是 Query API 的纯观察值；AST 分类、精确目标解析与 CALL 参数绑定归
-  Query，只依赖 Parser API 和值契约。权限入口与执行使用同一绑定，不分别解析目标。
-  分类穷尽内建语句类型；分类、注册和真实支持状态分别验证，不能以 QUERY 默认值隐藏遗漏。
-- 视图创建模式由 Connector API 明确区分 CREATE、IF_NOT_EXISTS、CREATE_OR_REPLACE，
-  原子冲突判断由实现拥有。Security API 的 ViewAccessControl 定义当前 CREATE_VIEW/ALTER/DROP
-  检查；创建权限不隐含覆盖权限。现有 Iceberg 视图是 catalog 实例内存状态，不宣称重启持久性。
-- 租户成员 SQL 归 Server 入口适配，原子成员授权与写入归 Security Persistence。
-  必须检查 exact ACTIVE tenant 的当前 OWNER/ADMIN，不能信任历史 session role 或修改
-  allowedSchemas 来表示成员。成员授权不支持跨租户转移或撤销特权角色；SQL 无 NOOP 认证旁路。
-- 领域绑定只接收其实际输入：检索绑定接收 vector/reranker plan，制品解析接收 artifact/merge intent，
-  不反向依赖完整 Query/DAG Context。精确模型匹配归 Scheduler Policy，消费调用方已确认活跃的
-  capability inventory；Embedding Catalog 部署 fence 校验归 AI Control。模型身份、服务限制
-  或实现不唯一时拒绝，不能按“最新”选择；Protocol 只拥有能力 wire identity 的结构比较。
-- Query API 持有查询会话和 DAG 终态通知；绑定 live/durable authority、wire 写配置及检索意图的 QueryExecutionScope 归 Execution Binding，
-  不依赖 Coordinator 调度入口。分片查询只接收真实 session、快照选择与写模式；序列化只接收列名。
-  控制面 Worker 适配、生成结果读取和 Shuffle 持久化证据各在其能力边界，不能反向耦合 DAG 入口。
-  缓存亲和路由归 placement，选择器直接借用同一个拓扑实例；不能经由 Query 分片租约管理器获取路由。
-- QuerySession 归 Query API，借用实际查询 authority 和不可变 tracing snapshot。
-  捕获与激活契约归 Observability API 同制品，SDK 实现由 Server 显式注入；
-  Session 不隐式选择 Provider，tenant/property enrichment 必须保留全部可信执行字段。
-- Parser API 拥有 AST、解析与恢复诊断契约；ANTLR tree、可变位置注册表、缓存和类型字符串
-  解析留在 Core。扩展通过 API parser 委托，不接收实现类。Core 详细恢复树明确属于实现工具。
-- 孤立能力按真实需求完成闭环：SQL GRANT/REVOKE 由 Server 适配到 Security 的原子持久化端口；
-  PostgreSQL 在同一授权 gate/事务中完成当前校验、委派链、revision 和审计回执。
-  Parser AST 存在不是支持证据；对应 SQL、真实后端、装配和 Native/HTTP 验证必须同时记录。
-- Persistence 按领域端口和实际 PostgreSQL/Memory 后端拆分。JDBC 协作协议与 support
-  单独隔离；跨领域事务由强类型 workflow 的一个协调者持有连接与提交权。
-- Coordination 的注册、租约和查询并发配额端口统一归 Persistence Coordination API，
-  其中真实 quorum 扩展放在同制品 `.api.provider`。PostgreSQL 和 Memory 是独立制品，
-  Server 选择实现，WorkerManager 必须接收显式 Registry；Core 不再隐式构造 Memory。
-  PostgreSQL 配额表由唯一 schema 初始化创建，Provider 只能校验，不能重建或重置活跃权威。
-  Memory 只保证进程内状态；测试配额 fake 不成为生产 Provider。
-- Metadata 拥有 Catalog 部署、解析、投影、同步和失效；Table 拥有引擎表身份、
-  ownership、观察、注册、rename、维护与统计。外部 Catalog 仍拥有外部表事实。
-- 一个事实、状态机和资源只有一个权威 owner。禁止以拆模块为由复制状态、弱化 CAS、
-  fencing、权限检查、原子提交或失败处理。
-- 发布代际的 reader pin 获取必须持有实际查询 authority 的 operation permit；查询
-  生命周期使用同一租约服务续租和释放。逻辑终态不等于物理 drain，二者之间继续续租。
-  缺少 authority 或租约服务时不得暴露可执行代际；可选物化视图改写可以拒绝候选并读取
-  原始源表。元数据发现不因此提前创建查询或租约。租约不能承诺进程暂停、存储失联超过
-  租期后的无限保护；恢复与失租 fencing 需要单独验证。
-- Coordinator 装配控制面，Worker 装配执行面。Coordinator 不依赖 Worker 或
-  JNI 执行运行时；Standalone 复用两种角色装配，不引入新的微服务。
-  Worker 的独立与嵌入入口现由 `pangrova-server-worker` 发布，两者共用 `WorkerConfiguration` 并安装生产 Catalog runtime。
-  三个进程入口共用 `pangrova-server-bootstrap` 加载角色配置。Standalone 启动 Worker 或注册关闭钩子失败时，按获取顺序逆序释放已启动角色，保留主异常。
-- 插件工厂强类型化，启动时校验 ID、兼容性、角色、能力和作用域。缺失或失败显式拒绝，
-  不静默切换 Memory。插件更新依靠重启，不支持热卸载。
-- AQE 的倾斜检测通过 Shuffle API 的 SkewDetector 注入，Server 选择 builtin 实现。
-  Planner 仅适配真实统计与决策，不复制检测算法、不依赖 Shuffle 实现制品。
-  热分区识别、并行度启发式和实际 range split 是不同能力，不能相互替代支持声明。
-- Shuffle 统一控制契约，由 Worker 的 JNI 包管理 Native 绑定，Direct 的数据传输在 C++ 内完成。
-  显式表达 incarnation、exchange generation、producer/consumer attempt、seal、
-  commit receipt、取消、背压和 buffer 所有权。容错保证必须由能力与部署共同确认。
-- Celeborn 是未来 Provider；本轮以现有 Direct、Local、自研远端验证抽象，不创建
-  Celeborn 空模块，也不宣称已集成。
-- Native 保持 Java 控制、JNI 桥接、C++20 执行和单共享库发行。
-- 新项目直接修改所有调用方，不保留旧 FQN 转发壳，不建设数据迁移、双写或旧库兼容。
-  空库初始化资源归 schema-migrations。PostgreSQL 的 public 与 shuffle 分别维护版本历史；Shuffle Service 通过运行依赖加载同一资源制品，Coordinator 的恢复测试使用相同的两套真实 schema。
+- Parser, Batch, File, Planner, Query, Semantic, Table, and Worker each target a
+  single JAR built directly from the domain root. Batch's Arrow SDK is an optional
+  dependency, so value-type callers can load independently. File's access service
+  consumes exact-lookup and refresh contracts, while persistence implementations
+  own transactions and storage.
+- Clients have three entry points: HTTP SDK, CLI, and JDBC. Common's
+  `org.pangrova.common.client` organizes shared contracts by query, result,
+  metadata, session, version, and error. Result endpoints and protocol values
+  belong to result, and Common does not depend on Transport.
+- Common's `org.pangrova.common.json` exclusively owns the JSON mapper, persistence
+  encoding, and pure-JDK string escaping. Jackson databind and JSR-310 are optional
+  dependencies in Common; artifacts that call the mapper declare the required
+  dependencies explicitly, and client DTOs depend only on Jackson annotations.
+  The HTTP SDK owns real REST requests, credentials, and retries; Transport Client
+  owns result transport and Arrow decoding. The CLI consumes QueryClient directly,
+  and the HTTP classes implement that interface.
+- QueryId and ExecutionAnchor identify cross-protocol queries and cross-query/
+  background-task execution ownership, respectively, and belong to Execution API.
+  Query publishes lifecycle, audit, and log-replay contracts. Pre-submission
+  validation and binding that depend on concrete task requests, generated-column
+  protocols, and Native runtime capability are implemented by Execution Binding.
+- Table publishes the operations required by ownership, statistics, maintenance,
+  and governance binding. Table Persistence API independently owns backend
+  factories and a set of repository instances belonging to the same authority.
+  The Worker single JAR contains both task control and JNI, and Server Worker owns
+  process assembly.
+- Function's single contract artifact is built directly from
+  `pangrova-function/pom.xml`. AI's multiple implementations share
+  `pangrova-ai-api`; `pangrova-ai-openai` and `pangrova-ai-qwen` each publish real
+  factories, and `pangrova-ai-http` reuses governed HTTP and compatible chat
+  encoding. Server selects providers through runtime dependencies, and Worker and
+  Control production code depend only on domain contracts.
+- Standalone process artifacts are named by actual responsibility. Packages may be
+  named directly after business capabilities, for example HTTP request handling in
+  `http.request` and lineage in `lineage`. A new layer must explain its callers and
+  the state or resources it owns. Providers own technical implementations; Server
+  owns process assembly and lifecycle; backends and SDKs are isolated by domain
+  contracts.
+- Java named enums, exceptions, and pure constant classes enter `.enums`,
+  `.exception`, and `.constants` in their owning artifact. Implementation-side
+  state types remain in the corresponding implementation artifact, and the
+  original lifecycle object still owns state transitions. Source wire values and
+  JNI exception changes update the service descriptor, native class names, and
+  distribution tests together. Implementation selection uses factory identifiers;
+  enum names do not carry provider registration.
+- The Planner implementation generates executable Protocol/Substrait fragments, so
+  the implementation layer explicitly depends on Protocol. Planner's public
+  contracts keep a minimal classpath; an independent classloader covers its public
+  signatures. The module manifest no longer supports temporarily allowing
+  undeclared edges through milestones.
+- Base types belong to Types and batch data to Batch. They must be usable by the
+  engine without going through Connector.
+- Materialization calling and extension contracts are published uniformly by
+  `pangrova-materialization-api`. Domain values and service ports live in
+  `.api.domain` and `.api.port`. Extension points are split into `.api` by
+  definition, policy, refresh, and rewrite; duplicate-ID checks, completeness
+  validation, and policy selection of the registry belong to Materialization
+  Lifecycle. Persistence commands and published-version read ports are owned by
+  `pangrova-persistence-materialization-api`. Server constructs the PostgreSQL
+  implementation from the same data source, and each statement reuses these two
+  instances.
+- Query events, statistics observations, and listener extension contracts belong
+  to Query API; in-process dispatch belongs to Query. Observability API does not
+  depend on Query in reverse; event observation owns no query state, persistence
+  commit, or replay guarantee.
+- Query exclusively owns query state transitions, the actual Connector operation
+  scope, terminal physical cleanup, and history retention. Coordinator orchestrators
+  borrow these internal implementations; waiting for a result does not grant the
+  caller the right to complete internal Futures of the state machine. Logical
+  terminal state, Native write completion, publication completion, and physical
+  drain are recorded separately; one completion flag does not replace them.
+- All query writes share Query API's WriteAuthorityRequest / WriteAuthorityResolver;
+  ordinary writes and generated-column writes both validate the real current
+  authority receipt through Execution Binding's WriteAuthorityAdmission before
+  allocation. Server fixes the authority implementation at construction time and
+  cannot replace it through a runtime setter; writes are explicitly rejected when
+  it is not configured. The generated-column Catalog property codec belongs to
+  Generation Codec, while the Proto wire types remain in Protocol. Current
+  authority transactions and commit fencing do not change because contracts move;
+  the synchronous resolver does not claim independent cancellation or timeout
+  capability.
+- StatementCategory is a pure observation value of Query API; AST classification,
+  exact target resolution, and CALL parameter binding belong to Query and depend
+  only on Parser API and value contracts. The authority entry and execution use the
+  same binding and do not resolve the target separately. Classification is
+  exhaustive over built-in statement types; classification, registration, and
+  actual support status are verified separately, and a QUERY default must not hide
+  omissions.
+- Connector API explicitly distinguishes CREATE, IF_NOT_EXISTS, and
+  CREATE_OR_REPLACE view creation modes, and the implementation owns atomic
+  conflict decisions. Security API's ViewAccessControl defines the current
+  CREATE_VIEW/ALTER/DROP checks; create authority does not imply overwrite
+  authority. Existing Iceberg views are in-memory state of the catalog instance
+  and do not claim restart persistence.
+- Tenant-membership SQL belongs to the Server entry adapter; atomic membership
+  authorization and writes belong to Security Persistence. It must check the
+  current OWNER/ADMIN of the exact ACTIVE tenant and must not trust historical
+  session roles or modify allowedSchemas to represent membership. Membership
+  authorization does not support cross-tenant transfer or privileged-role
+  revocation; SQL has no NOOP authentication bypass.
+- Domain bindings receive only their actual inputs: retrieval binding receives
+  vector/reranker plans, artifact resolution receives artifact/merge intents, and
+  neither depends in reverse on the full Query/DAG Context. Exact model matching
+  belongs to Scheduler Policy and consumes the capability inventory the caller has
+  confirmed active; Embedding Catalog deployment fence validation belongs to AI
+  Control. Reject when model identity, service limits, or implementation are not
+  unique; never choose by "latest". Protocol owns only the structural comparison of
+  capability wire identity.
+- Query API holds query sessions and DAG terminal notifications; QueryExecutionScope,
+  which binds live/durable authority, wire write configuration, and retrieval
+  intent, belongs to Execution Binding and does not depend on the Coordinator
+  scheduling entry. Fragment queries receive only the real session, snapshot
+  selection, and write mode; serialization receives only column names. Control-plane
+  Worker adapters, generated-result reads, and shuffle persistence evidence stay
+  within their capability boundaries and must not couple back to the DAG entry.
+  Cache-affinity routing belongs to placement, and selectors borrow the same
+  topology instance directly; routing must not be obtained through the Query
+  fragment lease manager.
+- QuerySession belongs to Query API and borrows the actual query authority and an
+  immutable tracing snapshot. Capture and activation contracts belong to
+  Observability API in the same artifact, and Server injects the SDK implementation
+  explicitly; Session does not select a provider implicitly, and tenant/property
+  enrichment must preserve all trusted execution fields.
+- Parser API owns AST and parse/recovery diagnostic contracts; the ANTLR tree,
+  mutable position registry, cache, and type-string parsing stay in Core.
+  Extensions delegate through API parsers and do not receive implementation
+  classes. Core's detailed recovery tree explicitly belongs to implementation
+  tooling.
+- Isolated capabilities are closed according to real demand: SQL GRANT/REVOKE is
+  adapted by Server to Security's atomic persistence ports; PostgreSQL completes
+  current checks, delegation chains, revisions, and audit receipts in the same
+  authority gate/transaction. Parser AST presence is not evidence of support; the
+  corresponding SQL, real backend, assembly, and Native/HTTP validation must be
+  recorded together.
+- Persistence is split by domain ports and actual PostgreSQL/Memory backends. The
+  JDBC collaboration protocol and support are isolated separately; cross-domain
+  transactions are owned by one strongly typed workflow coordinator that holds the
+  connection and commit authority.
+- Coordination registration, lease, and query concurrency quota ports belong
+  uniformly to Persistence Coordination API, with the real quorum extension in the
+  same artifact's `.api.provider`. PostgreSQL and Memory are independent artifacts,
+  Server selects the implementation, and WorkerManager must receive an explicit
+  Registry; Core no longer constructs Memory implicitly. PostgreSQL quota tables
+  are created by the single schema initializer, and providers may only validate,
+  never rebuild or reset active authority. Memory guarantees only in-process state;
+  test quota fakes do not become production providers.
+- Metadata owns Catalog deployment, parsing, projection, synchronization, and
+  invalidation; Table owns engine table identity, ownership, observation,
+  registration, rename, maintenance, and statistics. External catalogs still own
+  external table facts.
+- One fact, state machine, and resource have exactly one authoritative owner.
+  Copying state, weakening CAS, fencing, authority checks, atomic commit, or
+  failure handling on the grounds of module splitting is forbidden.
+- Acquiring a reader pin for a published generation must hold the actual query
+  authority's operation permit; the query lifecycle renews and releases it through
+  the same lease service. Logical terminal state does not equal physical drain, and
+  renewal continues between them. Executable generations must not be exposed when
+  the authority or lease service is missing; optional materialized-view rewrites
+  may reject candidates and read the original source table. Metadata discovery does
+  not create queries or leases early. Leases cannot promise unlimited protection
+  after a process pause or storage outage longer than the lease term; recovery and
+  lost-lease fencing require separate validation.
+- Coordinator assembles the control plane and Worker assembles the execution plane.
+  Coordinator does not depend on Worker or the JNI execution runtime; Standalone
+  reuses both role assemblies and introduces no new microservice. Worker's
+  standalone and embedded entries are published by `pangrova-server-worker`, both
+  share `WorkerConfiguration`, and both install the production Catalog runtime.
+  The three process entries share `pangrova-server-bootstrap` to load role
+  configuration. If Standalone fails to start the Worker or register a shutdown
+  hook, it releases started roles in reverse acquisition order and preserves the
+  primary exception.
+- Plugin factories are strongly typed and validate ID, compatibility, role,
+  capability, and scope at startup. Missing or failed plugins are rejected
+  explicitly; there is no silent switch to Memory. Plugin updates require a
+  restart and do not support hot unload.
+- AQE skew detection is injected through Shuffle API's SkewDetector, and Server
+  selects the builtin implementation. Planner only adapts real statistics and
+  decisions, does not copy detection algorithms, and does not depend on Shuffle
+  implementation artifacts. Hot-partition identification, parallelism heuristics,
+  and actual range splits are distinct capabilities and cannot substitute for each
+  other in support claims.
+- Shuffle unifies the control contract; the Worker's JNI package manages Native
+  bindings, and Direct data transfer happens inside C++. It explicitly expresses
+  incarnation, exchange generation, producer/consumer attempts, seal, commit
+  receipt, cancellation, backpressure, and buffer ownership. Fault-tolerance
+  guarantees must be confirmed jointly by capability and deployment.
+- Celeborn is a future provider. The abstraction is validated with the existing
+  Direct, Local, and in-house remote implementations; there is no empty Celeborn
+  module and no claimed integration.
+- Native keeps Java control, JNI bridging, C++20 execution, and a single shared
+  library distribution.
+- The new project modifies all callers directly, retains no old-FQN forwarding
+  shells, and builds no data migration, dual-write, or legacy compatibility. Empty
+  database initialization resources belong to schema-migrations. PostgreSQL's
+  public and shuffle schemas maintain separate version histories; Shuffle Service
+  loads the same resource artifact as a runtime dependency, and Coordinator
+  recovery tests use the same two real schemas.
 
-公共接口和工厂统一归 `.api`。实现包和类直接说明其拥有的操作、数据或资源。删除只转发调用的层；重复实现合并到实际被调用的类型。HTTP、Flight、JNI、OpenTelemetry 和数据库事务都按具体协议或能力命名。接口需要交代凭据的来源、调用者可见的错误和资源释放顺序。
+Public interfaces and factories uniformly belong to `.api`. Implementation
+packages and classes directly state the operations, data, or resources they own.
+Delete layers that only forward calls; merge duplicate implementations into the
+type actually called. HTTP, Flight, JNI, OpenTelemetry, and database transactions
+are named by concrete protocol or capability. Interfaces must explain the origin of
+credentials, caller-visible errors, and resource-release order.
 
-## 平铺领域的实际包边界
+## Actual Package Boundaries of Flat Domains
 
-这些领域的根 POM 各自发布一个 JAR。`ModuleDependencyPropertyTest` 核对根路径、制品、主源码和子模块声明。领域内部仍检查源码依赖方向。
+Each of these domains publishes one JAR from its root POM.
+`ModuleDependencyPropertyTest` checks the root path, artifacts, main source, and
+submodule declarations. Source dependency direction is still checked inside the
+domain.
 
-| 制品 | 同一 JAR 内的职责 | 跨边界的调用 |
+| Artifact | Responsibilities within the same JAR | Calls across the boundary |
 |---|---|---|
-| Parser | `api.ast` 按表达式、语句族和类型组织。`parse/build/format/diagnostic` 消费这些类型。 | 调用方依赖解析结果和 AST，ANTLR 构树细节留在实现内部。 |
-| Batch | `api.block/page/reader` 描述数据访问。`arrow` 持有 Arrow 表示、流验证和脱离缓冲区后的值转换。 | 只读取通用接口的调用方可在独立类加载器中加载契约。 |
-| File | `api.space/profile/authority` 描述访问所需的读操作。`access/directory` 执行授权与目录管理，`worker` 实现委托访问。 | PostgreSQL 可以加载同一 File JAR，但其源码仅可引用 File 的 `.api`。Server 注入仓储。 |
-| Planner | `api.fragment/metadata/statistics` 暴露规划输入输出。`analysis/validation/optimization/cost/substrait` 分别分析、校验、优化、估算和序列化。 | Coordinator 借用 Planner 准备计划。Worker 读取协议，无需装入 Planner。 |
-| Query | `api.submission/session/lifecycle/journal` 描述会话、状态与重放。`lifecycle/stage/dispatch/recovery/retention` 执行业务流程。 | 状态转换归 Query。HTTP 响应映射、持久化和执行进程各自消费对应契约。 |
-| Semantic | `api.identity/version/validation/publication` 定义身份、不可变版本、校验结果和发布约束。`validation` 校验定义。 | 后端持有版本和已发布指针的原子写，版本契约保留 CAS 结果。 |
-| Table | `api.ownership/observation/rename/maintenance/statistics/policy` 区分表身份、维护操作和绑定。实现按同名能力组织调用。 | 后端事务与仓储选择归 Persistence 和 Server。 |
-| Worker | `task.state` 拥有任务状态约束，`task.report` 拥有状态上报与确认，`execution` 执行任务，`jni` 管理 JNI 边界。 | Bootstrap 持有生产状态上报客户端，TaskManager 借用它。失败启动和正常关闭都在任务退出后释放该客户端。 |
+| Parser | `api.ast` is organized by expression, statement family, and type. `parse/build/format/diagnostic` consume these types. | Callers depend on parse results and AST; ANTLR tree construction details stay inside the implementation. |
+| Batch | `api.block/page/reader` describes data access. `arrow` owns the Arrow representation, stream validation, and value conversion after detaching from buffers. | Callers that only read generic interfaces can load the contracts in an independent classloader. |
+| File | `api.space/profile/authority` describes the read operations required for access. `access/directory` performs authorization and directory management, and `worker` implements delegated access. | PostgreSQL may load the same File JAR, but its source may reference only File's `.api`. Server injects the repository. |
+| Planner | `api.fragment/metadata/statistics` exposes planning inputs and outputs. `analysis/validation/optimization/cost/substrait` analyze, validate, optimize, estimate, and serialize. | Coordinator borrows Planner to prepare plans. Workers read the protocol and need not load Planner. |
+| Query | `api.submission/session/lifecycle/journal` describes sessions, state, and replay. `lifecycle/stage/dispatch/recovery/retention` execute business flows. | Query owns state transitions. HTTP response mapping, persistence, and execution processes each consume the corresponding contract. |
+| Semantic | `api.identity/version/validation/publication` defines identity, immutable versions, validation results, and publication constraints. `validation` validates definitions. | The backend owns atomic writes of versions and published pointers, and the version contract retains CAS results. |
+| Table | `api.ownership/observation/rename/maintenance/statistics/policy` separates table identity, maintenance operations, and bindings. Implementations organize calls by same-named capability. | Backend transactions and repository selection belong to Persistence and Server. |
+| Worker | `task.state` owns task state constraints, `task.report` owns status reporting and acknowledgement, `execution` executes tasks, and `jni` manages the JNI boundary. | Bootstrap holds the production status-reporting client, and TaskManager borrows it. Failed startup and normal shutdown both release that client after task exit. |
 
-## 七个多制品家族的划分依据
+## Rationale for the Seven Multi-Artifact Families
 
-下列路径来自生产依赖。若将路径首尾合为同一 JAR，中间制品会反向依赖合并后的 JAR。判断时同时考虑入口、可替换实现与实际编译依赖。
+The paths below come from production dependencies. If the first and last paths
+were combined into one JAR, the middle artifact would depend in reverse on the
+merged JAR. Entry points, replaceable implementations, and actual compile
+dependencies are all considered.
 
-| 家族 | 制品边界 | 保留该边界的原因 |
+| Family | Artifact boundaries | Why the boundary is retained |
 |---|---|---|
-| Scheduler | 调度契约、调度流程、内置 placement 实现 | Query 直接使用 placement 契约。调度流程需要 Query、配额和集群状态。Server 通过 `WorkerSelectionStrategyFactory` 装入配置的策略。仅内置的 load-balanced 工厂已随包发行。 |
-| Streaming | CDC 与更新契约、流处理运行时、格式与写入实现 | PostgreSQL 与 Coordinator 都消费流处理契约。运行时负责恢复、checkpoint 和 watermark。Canal、Debezium、Maxwell 各有服务描述符条目。Writer 的运行入口和能力单独验收。 |
-| Cache | `cache-api`、`cache-memory`、`cache-redis` | Cache API 以组与条目代际约束并发填充，两种 Provider 各自发现和关闭。Metadata 借用该契约保存可重建投影，Connector Catalog 与 PostgreSQL outbox 保留各自权威。Server Coordinator 的 Redis 依赖仅在运行时安装。 |
-| Metadata | Catalog 契约、Catalog 与投影运行时、表投影编码 | `metadata-catalog → persistence-catalog-api → metadata-api`。Catalog PostgreSQL 和跨域 Workflow PostgreSQL 需要相同的表投影编码，两者均无需创建 Catalog 注册表。通用 Jackson 配置归 Common。 |
-| Materialization | 定义与扩展契约、物化流程、内置刷新策略 | `materialization-lifecycle → persistence-materialization-api → materialization-api`。流程持有 attempt 与发布顺序。三种刷新策略消费同一快照输入，结果仍由同一个物化流程发布。 |
-| Indexing | 索引契约、构建和生命周期、查询谓词编码、内置策略 | `indexing-lifecycle → persistence-indexing-api → indexing-api`。Iceberg 和 Protocol 使用契约。构建流程持有 attempt，策略工厂与编码器都无需创建构建协调器；内置制品有九条 `IndexStrategyProvider` 注册。 |
-| Generation | 生成身份与值、共享编码、提交与发布流程 | `generation-workflow → persistence-generation-api → generation-api`。Iceberg、Paimon、Planner 与 PostgreSQL 均直接使用编码。提交与发布流程负责选择现有代际、绑定输入和校验提交结果。 |
-| Execution | 执行身份和期限、提交前任务绑定 | `execution-binding → generation-api → execution-api`，也有经 Protocol 返回身份契约的路径。Query、持久化和 wire 可以单独加载身份契约。另一制品只负责提交前的任务请求、选项、split、授权和租约绑定。 |
+| Scheduler | Scheduling contracts, scheduling flow, builtin placement implementation | Query uses placement contracts directly. The scheduling flow needs Query, quotas, and cluster state. Server loads the configured strategy through `WorkerSelectionStrategyFactory`. Only the builtin load-balanced factory ships with the package. |
+| Streaming | CDC and update contracts, streaming runtime, format and write implementations, Worker-JVM mutation backend | Both PostgreSQL and Coordinator consume streaming contracts. The runtime owns recovery, checkpoints, and watermarks. Canal, Debezium, and Maxwell each have service-descriptor entries. The Worker backend consumes the runtime's exact-range ingestor and the Worker task SPI; it never publishes a catalog snapshot. Writer runtime entry points and capabilities are accepted separately. |
+| Cache | `cache-api`, `cache-memory`, `cache-redis` | Cache API constrains concurrent population by group and entry generation, and the two providers discover and close independently. Metadata borrows the contract to hold rebuildable projections, while Connector Catalog and the PostgreSQL outbox retain their own authority. Server Coordinator's Redis dependency is installed only at runtime. |
+| Metadata | Catalog contracts, Catalog and projection runtime, table projection encoding | `metadata-catalog → persistence-catalog-api → metadata-api`. Catalog PostgreSQL and cross-domain Workflow PostgreSQL need the same table projection encoding, and neither needs to create a Catalog registry. General Jackson configuration belongs to Common. |
+| Materialization | Definition and extension contracts, materialization flow, builtin refresh strategies | `materialization-lifecycle → persistence-materialization-api → materialization-api`. The flow owns attempts and publication order. All three refresh strategies consume the same snapshot input, and results are still published by the same materialization flow. |
+| Indexing | Index contracts, build and lifecycle, query predicate encoding, builtin strategies | `indexing-lifecycle → persistence-indexing-api → indexing-api`. Iceberg and Protocol use the contracts. The build flow owns attempts, and neither strategy factories nor encoders need to create a build coordinator; the builtin artifact registers nine `IndexStrategyProvider` implementations. |
+| Generation | Generation identity and values, shared encoding, commit and publication flow | `generation-workflow → persistence-generation-api → generation-api`. Iceberg, Paimon, Planner, and PostgreSQL all use the encoding directly. The commit and publication flow selects existing generations, binds inputs, and validates commit results. |
+| Execution | Execution identity and deadlines, pre-submission task binding | `execution-binding → generation-api → execution-api`, with another path returning identity contracts through Protocol. Query, persistence, and wire can load identity contracts separately. The other artifact is responsible only for pre-submission task requests, options, splits, authority, and lease binding. |
 
-真正只服务单一实现的辅助代码与其调用方同包维护。对于已有一组能力包的流程制品，不在每个能力包下再建 `core`，也不按表中每个操作生产一个 JAR。更名或合并应保留以上调用路径与端口的可验证边界。
+Helper code that truly serves a single implementation is maintained in the same
+package as its callers. For process artifacts that already have a set of capability
+packages, do not create another `core` under each capability package, and do not
+produce one JAR per operation in the tables above. Renames or merges must preserve
+the verifiable boundaries of these call paths and ports.
 
-## 上游源码与本项目的取舍
+## Trade-offs Relative to Upstream Sources
 
-- Iceberg 的构建分别声明 API、Core、Arrow、Parquet、云后端及其 bundle。Pangrova 采用同样的依赖方向，让调用者按契约编译，由发行层决定是否携带实现 SDK。每个领域是否拆 JAR 仍由实际调用和生命周期决定。[Iceberg 构建定义](https://github.com/apache/iceberg/blob/main/settings.gradle)
-- Paimon 的 `AbstractCatalog` 在 Catalog 层组织表操作，分别使用文件访问、Schema 管理和表提交组件。Pangrova 将外部表的快照与提交交给 Connector，将本地控制面记录交给分域 Persistence。物化的命令、候选代际和已发布头共享原子操作，新增后端需要验证这些操作的并发与重放语义。[Paimon Catalog 实现](https://github.com/apache/paimon/blob/master/paimon-core/src/main/java/org/apache/paimon/catalog/AbstractCatalog.java)
-- SeaTunnel 将工厂标识和配置校验声明在 Factory，数据源类型和发现入口属于 TableSourceFactory。Paimon 的 HiveCatalogFactory 接受 CatalogContext，返回契约 Catalog。Pangrova 同样按能力声明强类型工厂，Server 负责选择与校验，后端负责 SDK 实例及其关闭。[SeaTunnel Factory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/Factory.java) · [SeaTunnel TableSourceFactory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/TableSourceFactory.java) · [Paimon HiveCatalogFactory](https://github.com/apache/paimon/blob/master/paimon-hive/paimon-hive-catalog/src/main/java/org/apache/paimon/hive/HiveCatalogFactory.java)
-- Trino 在 `ServerMainModule.setup` 读取角色配置，安装 CoordinatorModule 或 WorkerModule，然后建立共享绑定。这里的 Module 是进程内装配单元。Pangrova 把角色选择与公共生命周期放在 Server，另外用 Maven 依赖和真实 JAR 检查约束 JNI 的加载范围。[Trino ServerMainModule](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/ServerMainModule.java)
+- Iceberg's build declares API, Core, Arrow, Parquet, cloud backends, and their
+  bundles separately. Pangrova follows the same dependency direction so callers
+  compile against contracts and the distribution layer decides whether to carry
+  implementation SDKs. Whether each domain splits into JARs is still determined by
+  actual calls and lifecycle. [Iceberg build definition](https://github.com/apache/iceberg/blob/main/settings.gradle)
+- Paimon's `AbstractCatalog` organizes table operations at the Catalog layer using
+  separate file access, schema management, and table commit components. Pangrova
+  assigns external table snapshots and commits to Connector and local control-plane
+  records to domain-specific Persistence. Materialization commands, candidate
+  generations, and published heads share atomic operations, and a new backend must
+  validate their concurrency and replay semantics. [Paimon Catalog implementation](https://github.com/apache/paimon/blob/master/paimon-core/src/main/java/org/apache/paimon/catalog/AbstractCatalog.java)
+- SeaTunnel declares factory identifiers and configuration validation in Factory,
+  with data-source types and discovery entry points in TableSourceFactory. Paimon's
+  HiveCatalogFactory accepts CatalogContext and returns contract Catalog. Pangrova
+  likewise declares strongly typed factories by capability, with Server selecting
+  and validating and the backend owning the SDK instance and its close.
+  [SeaTunnel Factory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/Factory.java) · [SeaTunnel TableSourceFactory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/TableSourceFactory.java) · [Paimon HiveCatalogFactory](https://github.com/apache/paimon/blob/master/paimon-hive/paimon-hive-catalog/src/main/java/org/apache/paimon/hive/HiveCatalogFactory.java)
+- Trino reads role configuration in `ServerMainModule.setup`, installs
+  CoordinatorModule or WorkerModule, and then establishes shared bindings. Here
+  Module is an in-process assembly unit. Pangrova keeps role selection and common
+  lifecycle in Server and separately constrains JNI loading scope with Maven
+  dependencies and real JAR checks. [Trino ServerMainModule](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/ServerMainModule.java)
 
-### SQL 文本与解析扩展的缓存归属
+### Cache Ownership of SQL Text and Parse Extensions
 
-Common 的 `SqlText` 保留字面量、引号标识符、注释正文和行注释结束位置。Parser 用它折叠内置语法 token 之间的空白。Planner 的诊断基线还对引号外的 ASCII 字母折叠大小写，两者保留各自的缓存和身份语义。
+Common's `SqlText` retains literals, quoted identifiers, comment bodies, and line
+comment end positions. Parser uses it to collapse whitespace between built-in
+syntax tokens. Planner's diagnostic baseline also folds the case of ASCII letters
+outside quotes; both retain their own cache and identity semantics.
 
-注册扩展后，Parser 使用注册表快照的版本和原始 SQL 作为键。解析器选择、解析和缓存写入属于同一快照；替换或注销扩展后，旧解析即使较晚完成，也只能写入旧版本的键。缓存容量限制同样适用于旧版本条目。
+After extensions are registered, Parser uses the registry snapshot version and the
+original SQL as the key. Parser selection, parsing, and cache writes belong to the
+same snapshot; after an extension is replaced or unregistered, an older parse,
+even if it finishes later, can only write under the old-version key. Cache capacity
+limits apply equally to old-version entries.
 
-## 循环依赖的判定与处理
+## Determining and Handling Cycles
 
-先选定图及分析范围，再定义边。制品图中的 `A → B` 表示 Maven 构建 A 需要 B，包图表示 A 的生产源码引用 B 的类型，等待图表示 A 的当前操作必须等 B 满足某个条件才能继续。在**同一张图**中，从 A 沿依赖边经过其他节点又回到 A，即构成循环，包含 `A → B → C → A` 等间接路径。按强连通分量（SCC）列出所有互相可达的节点，并给出至少一条闭合路径和逐边出处。文件直接 include 自己也算环；同包类之间的引用归包内审查。
+First choose the graph and analysis scope, then define edges. In the artifact
+graph, `A → B` means building A with Maven requires B; in the package graph, A's
+production source references a type from B; in the wait graph, A's current
+operation must wait for B to satisfy a condition before continuing. In the **same
+graph**, going from A along dependency edges through other nodes and back to A
+constitutes a cycle, including indirect paths such as `A → B → C → A`. List all
+mutually reachable nodes by strongly connected component (SCC), and provide at
+least one closed path with the source of each edge. A file that directly includes
+itself also counts as a cycle; references between classes in the same package are
+reviewed within the package.
 
-评审还需标明阶段和条件。例如 Worker 上报完成时，按角色可以画出双向消息流；只有两个操作在同一可达状态下都必须等待对方，且没有可独立推进的一方，才构成生命周期等待环。排查这类问题需写出等待的具体条件、由谁触发、触发者此刻能否运行。超时终止可以释放资源，无法使原本互等的正常启动流程成功。
+A review must also state phases and conditions. For example, when Workers report
+completion, a bidirectional message flow can be drawn by role; a lifecycle wait
+cycle exists only when both operations must wait for each other in the same
+reachable state and neither can make independent progress. Investigating such a
+problem requires writing down the specific wait condition, who triggers it, and
+whether the trigger can run at that moment. Timeout termination can release
+resources but cannot make a startup flow that originally waited on itself succeed.
 
-调用接口与扩展接口同属领域的 `.api.<能力>`。单实现且只在本领域使用时随领域制品发布。多种实现共用的契约独立发布。合并前应将候选制品收缩为一个节点，检查所有经外部制品返回的路径；合并后继续检查 JAR 内的包。若调用包返回 SPI 类型、SPI 又接收调用包中的请求类型，先找出双方各自消费的最小契约。例如读取方只需要批数据时，批数据及其所有权由平铺的 Batch 模块定义，读取接口和工厂分别引用它。若确属同一能力且总是共同演进，可将相关接口放入该能力包。Core、Provider 或 Server 的合并须单独论证。
+Calling interfaces and extension interfaces both belong to the domain's
+`.api.<capability>`. A single implementation used only within the domain ships
+with the domain artifact. Contracts shared by multiple implementations are
+released separately. Before merging, collapse candidate artifacts into one node
+and check every path that returns through external artifacts; after merging,
+continue checking packages inside the JAR. If a calling package returns an SPI
+type and the SPI also accepts request types from the calling package, first find
+the minimal contract each side consumes. For example, when the reader side needs
+only batch data, the batch data and its ownership are defined by the flat Batch
+module, and the read interface and factory reference it separately. If they truly
+are the same capability and always evolve together, the related interfaces may be
+placed in that capability package. Merging Core, Provider, or Server requires
+separate justification.
 
-| 检查对象 | 判定与处理 |
+| Object of inspection | Decision and handling |
 |---|---|
-| Maven 制品 | 在实际启用的 profile 下检查整个 reactor 的构建顺序。生产依赖、测试依赖、classifier 和构建插件分开追踪。只要 Maven 必须先构建对方，就要纳入构建图。聚合父 POM 列出子模块不构成生产代码依赖。 |
-| Java 生产包 | 检查发行制品之间及同一 JAR 内部的能力包。两个以上包互相可达即形成一个强连通分量。用真实类型引用定位边，包括方法签名、泛型、注解、工厂返回值和全限定引用。一个包内部多个类协作按职责判断。 |
-| 插件与运行角色 | Server 可以装入 Provider，Provider 通过领域接口被调用。验证工厂的类加载器、服务描述符和角色发行 classpath，检查 Core 是否仍在运行时按实现类名回查 Provider。 |
-| Native | 对每个目标验证 CMake 构建顺序。Native 门禁解析仓库源码内的字面量 include，任何文件闭环都报告逐边行号并失败。按 OBJECT 目标对应的源码目录汇总，command、jni、engine、capabilities、indexing、vector、udf、lance 目前属于同一个强连通分量。例如 command 引用 JNI 的 RuntimeInitializer，JNI 又引用 command 的 FlightServerRegistry。使用 `python3 .pangrova/scripts/check-native-includes.py pangrova-worker-native/src --components` 导出边和证据。组件源码依赖和 CMake 目标构建顺序分别验收。 |
-| 运行时生命周期 | 将“必须等待对方完成才能继续”画成等待边。禁止 A 等 B ready 而 B 同时等 A ready，也禁止持锁回调让对方等待同一把锁。Server 可以先创建实例，再注册回调，能力确认后才开放接入。每个资源指定唯一关闭方，借用者先停止使用，由所属方释放。通过启动失败、取消、并发和逆序关闭测试验证。 |
+| Maven artifacts | Check the whole reactor build order under actually enabled profiles. Track production dependencies, test dependencies, classifiers, and build plugins separately. If Maven must build the other side first, include it in the build graph. An aggregator parent POM listing submodules does not constitute a production-code dependency. |
+| Java production packages | Check capability packages across distribution artifacts and within the same JAR. Two or more mutually reachable packages form one strongly connected component. Locate edges with real type references, including method signatures, generics, annotations, factory return values, and fully-qualified references. Collaboration among multiple classes in one package is judged by responsibility. |
+| Plugins and runtime roles | Server may install providers, and providers are called through domain interfaces. Validate the factory's classloader, service descriptor, and role distribution classpath, and check whether Core still looks up providers at runtime by implementation class name. |
+| Native | Validate CMake build order for each target. The Native gate parses literal includes in repository source; any file cycle is reported with per-edge line numbers and fails. Group by the source directory corresponding to each OBJECT target; command, jni, engine, capabilities, indexing, vector, udf, and lance currently belong to the same strongly connected component. For example, command references JNI's RuntimeInitializer, and JNI references command's FlightServerRegistry. Use `python3 .pangrova/scripts/check-native-includes.py pangrova-worker-native/src --components` to export edges and evidence. Component source dependencies and CMake target build order are accepted separately. |
+| Runtime lifecycle | Draw "must wait for the other to complete" as wait edges. A must not wait for B ready while B waits for A ready, and a lock-holding callback must not make the other side wait for the same lock. Server may create instances first, then register callbacks, and only expose access after capability confirmation. Each resource has exactly one closer; borrowers stop using it first and the owner releases it. Verify with startup failure, cancellation, concurrency, and reverse-shutdown tests. |
 
-### 断开哪一条边
+### Which Edge to Cut
 
-**API 之间也执行同一规则。** 若 `A-api → B-api → A-api`，逐边标出引入依赖的公开签名。先判断请求、返回值、错误或回调由谁解释，谁有权改变其语义。只有身份、约束和生命周期都一致的值才归到同一契约。若 B 需要回报 A 的处理结果，B 可以声明它实际调用的完成通知接口，由 A 提供实现、装配入口传入实例。此时 B 编译时只认识自己的通知契约。若通知属于持久化提交的一部分，还要核对下面的事务要求。
+**The same rule applies between APIs.** If `A-api → B-api → A-api`, mark the public
+signatures on each edge that introduce the dependency. First determine who
+interprets the request, return value, error, or callback, and who has the authority
+to change its semantics. Only values with consistent identity, constraints, and
+lifecycle belong to the same contract. If B needs to report the result of A's
+processing, B may declare the completion-notification interface it actually calls,
+with A providing the implementation and the assembly entry passing the instance.
+B then knows only its own notification contract at compile time. If the
+notification is part of a persistence commit, also check the transaction
+requirements below.
 
-**装配也要能排序。** 若 A 的构造器需要已启动的 B，同时 B 的构造器需要已启动的 A，评审应写出各自首次真正使用对方的时刻。构造、订阅回调、开放流量可以分阶段执行，负责装配的入口必须在订阅完成后才允许业务回调，并在关闭时先停止新回调、等待在途调用退出，再释放回调使用的资源。若两个对象在构造阶段就必须共同决定同一个状态转换，将转换收回同一 owner。将引用包装为 `Supplier` 仍需验证首次取值的顺序。
+**Assembly must also be orderable.** If A's constructor needs a started B and B's
+constructor needs a started A, the review must state when each first actually uses
+the other. Construction, subscription callbacks, and exposing traffic can be
+phased; the assembly entry must allow business callbacks only after subscriptions
+complete, and on shutdown must stop new callbacks, wait for in-flight calls to
+exit, and then release resources used by the callbacks. If two objects must jointly
+decide the same state transition during construction, return that transition to a
+single owner. Wrapping references in `Supplier` still requires validating the
+first-fetch order.
 
-1. **先找语义 owner。** 记录谁拥有值的身份与校验、谁决定状态转换、谁提交事务，以及双方实际需要哪些操作。先删除残留 import、错误 scope 或失效的依赖声明。同一对模块可能有多条独立路径，逐条检查。
-2. **共享值回到定义其语义的最小 owner。** 跨 Query、Generation 和执行协议的执行租约属于 Execution。Protocol 可以引用身份契约，查询状态机无需随 wire DTO 进入 Worker。外观类似但生命周期或作用域不同的值仍分别拥有。
-3. **领域定义所需操作，实现依赖该契约。** File 的授权服务需要按名称或 ID 查询空间、读取当前 profile。File 声明 `FileSpaceLookup` 和 `CurrentStorageProfile` 两个读契约。Persistence 的 `FileSpaceRegistry` 和 `StorageProfileRegistry` 分别扩展它们，Server 注入实际实例。编译依赖从 Persistence 指向 File，运行时 File 可以通过接口调用仓储。历史 revision、冲突和权限失败的语义必须保留。
-4. **多方编排放到真正的调用者。** 两个领域协同完成一次操作时，由拥有业务流程的一方编排。涉及跨域原子写时使用强类型 workflow，保留同一连接、锁顺序、fence 和提交 owner。Server 负责装配，事务提交由工作流实现负责。
-5. **按独立性确定制品。** 如果两个包共同维护同一状态机、共享同一生命周期，又没有独立调用者，可以把相关行为收回拥有该状态机的能力包，并删除转发层。只合并 Maven 模块仍须检查内部包图。多种实现共享独立契约，工厂放在领域的 `.api`，通过服务描述符发现。不得通过搬入 Common、静态 setter 或双向 lookup 隐藏依赖。
-6. **后端联测放到能同时依赖两侧的位置。** 若 Table 的测试使用真实 Memory 后端，而该后端实现 Table 接口，这组测试放进 Memory 或 Integration Tests。保留原断言、真实对象和故障覆盖。生产代码读取的方法由其生产依赖提供。
+1. **Find the semantic owner first.** Record who owns the value's identity and
+   validation, who decides state transitions, who commits transactions, and which
+   operations each side actually needs. First remove leftover imports, incorrect
+   scopes, or stale dependency declarations. The same pair of modules may have
+   multiple independent paths; check each one.
+2. **Shared values return to the smallest owner that defines their semantics.**
+   Execution leases across Query, Generation, and the execution protocol belong to
+   Execution. Protocol may reference identity contracts, and the query state
+   machine need not enter Worker with wire DTOs. Values that look similar but have
+   different lifecycles or scopes are still owned separately.
+3. **The domain defines the required operations, and implementations depend on the
+   contract.** File's authorization service needs to look up spaces by name or ID
+   and read the current profile. File declares two read contracts,
+   `FileSpaceLookup` and `CurrentStorageProfile`. Persistence's `FileSpaceRegistry`
+   and `StorageProfileRegistry` extend them respectively, and Server injects the
+   actual instances. The compile dependency points from Persistence to File, and at
+   runtime File can call the repository through the interface. The semantics of
+   historical revisions, conflicts, and authorization failures must be preserved.
+4. **Place multi-party orchestration with the real caller.** When two domains
+   together complete an operation, the side that owns the business flow orchestrates
+   it. Cross-domain atomic writes use a strongly typed workflow that preserves the
+   same connection, lock order, fence, and commit owner. Server performs assembly,
+   and the workflow implementation owns transaction commit.
+5. **Determine artifacts by independence.** If two packages jointly maintain the
+   same state machine, share the same lifecycle, and have no independent callers,
+   the related behavior can be returned to the capability package that owns the
+   state machine, and the forwarding layer deleted. Merging Maven modules alone
+   still requires checking the internal package graph. Multiple implementations
+   share an independent contract, with factories in the domain's `.api` discovered
+   through service descriptors. Do not hide dependencies by moving them into
+   Common, static setters, or bidirectional lookups.
+6. **Place backend integration tests where both sides can be depended on.** If
+   Table's test uses a real Memory backend and that backend implements Table
+   interfaces, put this test group in Memory or Integration Tests. Preserve the
+   original assertions, real objects, and failure coverage. Methods read by
+   production code are provided by their production dependencies.
 
-**涉及事务时，先判定回调是否允许延后。** 例如 Metadata 投影和失效 outbox 必须由 PostgreSQL 在同一事务写入，通知投递可以在提交后执行。若将写入 outbox 改成进程内异步事件，进程在提交后退出就会丢失通知。这种拆法即使消除了 Java 包环，也不满足验收条件。若发现两条工作流分别先锁 A 再锁 B、先锁 B 再锁 A，先确认两条路径是否能并发持锁；对可达的等待环统一获取顺序，保留获取锁后的权限与 fence 复查，并用两个独立事务验证竞争结果。
+**When transactions are involved, first decide whether the callback can be
+deferred.** For example, Metadata projections and invalidation outbox must be
+written by PostgreSQL in the same transaction, while notification delivery can
+happen after commit. If writing to the outbox is changed to an in-process
+asynchronous event, a process that exits after commit will lose the notification.
+Even if this split eliminates a Java package cycle, it does not satisfy acceptance.
+If two workflows lock A then B and lock B then A respectively, first confirm
+whether the two paths can hold locks concurrently; for reachable wait cycles,
+unify the acquisition order, preserve the authority and fence recheck after
+acquiring locks, and validate the contention result with two independent
+transactions.
 
-### 合入条件
+### Merge Conditions
 
-Native 组件按有向边逐步消环。现有八个组件同属一个强连通分量，单独比较分量个数或成员数会漏掉分量内部新增的反向依赖。`check-native-includes.py` 对分量内的每条有向边核对已知范围。引入全新组件环、通过新组件绕回、在旧分量内增加环边，均由现有 Native 边界门禁阻断，并报告源码位置。独立组件之间可以增加符合职责的单向边。消除组件之间最后一处循环引用时，同批从门禁移除对应记录并重新扫描；仅删除一个 include 时仍需检查同方向的其他调用方。
+Native components eliminate cycles incrementally along directed edges. The eight
+existing components belong to one strongly connected component; comparing only
+component count or member count would miss new reverse dependencies inside the
+component. `check-native-includes.py` checks every directed edge inside the
+component against the known scope. Introducing a new component cycle, routing back
+through a new component, or adding a cycle edge inside the old component is blocked
+by the existing Native boundary gate, which reports source locations. Independent
+components may add one-way edges that match responsibilities. When eliminating the
+last circular reference between components, remove the corresponding record from
+the gate in the same batch and rescan; deleting only one include still requires
+checking other callers in the same direction.
 
-每一批迁移由修改该依赖的开发者提交一条可复核记录，至少列出**图的种类、闭合路径及逐边出处、语义 owner、要删除的边、替换后的依赖方向、验证命令与结果**。同一强连通分量可能包含多个环；切断示例环后须对整张图重算分量。跨域事务还要验证原事务边界，生命周期改动还要验证启动失败、取消和资源释放。
+Each migration batch is submitted by the developer modifying the dependency as a
+reviewable record listing at least **the graph kind, the closed path and per-edge
+sources, the semantic owner, the edge to delete, the replacement dependency
+direction, and the validation commands and results**. A strongly connected
+component may contain multiple cycles; after cutting the example cycle, recompute
+components on the whole graph. Cross-domain transactions must also validate the
+original transaction boundary, and lifecycle changes must validate startup failure,
+cancellation, and resource release.
 
-- **直接阻断合入**：启用的 Maven reactor 无法排序、Java 生产包出现多包闭环、Native 仓内源码出现文件 include 闭环，或进程必须互等才能完成启动、取消或关闭。即使图无环，违反角色边界的单向依赖也要单独拒绝，例如 Coordinator 制品携带 Worker 执行实现。
-- **Native 已知组件耦合**：触及现有组件环时，记录变更前后相关组件边及源码位置，按语义 owner 移动类型、反转调用或从入口注册实现。新增或扩大的组件环须先消除。目标拆分完成时复查本次涉及的组件，只有在组件图上消除互相可达的路径后，才可将对应组件标记为解耦。Lance 与任务命令都通过 `engine/resource/WorkerStorageBinding` 校验仓库路径、Catalog 和租户。Native include 门禁阻断已删除的 `lance → command`、`lance → jni`、`engine → command` 与 `udf → command` 直连。Lance 的 schema 指纹命令借用命令入口提供的内存 governor。JNI 在创建 JVM 函数回调时一次性绑定执行错误上报契约。Velox 的算子统计在 `engine/velox/runner/TaskStatsEncoding` 编码。执行器绑定正 handle 时同时绑定 `TaskFailureReporter`，HandleRegistry 在错误上报时重新核验 handle。JNI 入口将同一 registry 的清理操作传给引擎，在重启、退出或初始化失败时先收回任务，再关闭池与线程。仍存在 `engine → jni → command` 等间接路径。
-- **允许的双向交互**：请求与响应、进度回报和完成通知可以双向传递。编译时双方依赖稳定契约；启动与关闭分别检查等待顺序。ServiceLoader、反射类名、延迟构造、事件总线、`optional` 或 `test` scope 都不能替代真实依赖方向的验证。
+- **Directly block merge**: the enabled Maven reactor cannot be ordered, Java
+  production packages form a multi-package cycle, repository-native source has a
+  file include cycle, or processes must wait on each other to complete startup,
+  cancellation, or shutdown. Even when the graph is acyclic, a one-way dependency
+  that violates a role boundary is rejected separately, for example a Coordinator
+  artifact carrying a Worker execution implementation.
+- **Known Native component coupling**: when touching an existing component cycle,
+  record the relevant component edges and source locations before and after the
+  change, and move types, reverse calls, or register implementations from entry
+  points according to the semantic owner. New or expanded component cycles must be
+  eliminated first. When the target split completes, recheck the components
+  involved; mark a component decoupled only after mutually reachable paths
+  disappear from the component graph. Lance and task commands both validate the
+  repository path, Catalog, and tenant through
+  `engine/resource/WorkerStorageBinding`. The Native include gate blocks the
+  removed direct `lance → command`, `lance → jni`, `engine → command`, and
+  `udf → command` edges. The Lance schema-fingerprint command borrows the memory
+  governor provided by the command entry. JNI binds the execution error-reporting
+  contract once when creating the JVM function callback. Velox operator statistics
+  are encoded in `engine/velox/runner/TaskStatsEncoding`. The executor binds
+  `TaskFailureReporter` together with the positive handle, and HandleRegistry
+  revalidates the handle when reporting errors. The JNI entry passes cleanup
+  operations for the same registry to the engine, withdrawing tasks before closing
+  pools and threads on restart, exit, or initialization failure. Indirect paths
+  such as `engine → jni → command` still exist.
+- **Allowed bidirectional interaction**: requests and responses, progress reports,
+  and completion notifications may flow in both directions. At compile time both
+  sides depend on stable contracts; startup and shutdown check wait order
+  separately. ServiceLoader, reflective class names, deferred construction, event
+  buses, `optional`, or `test` scope cannot replace validation of the real
+  dependency direction.
 
-平铺之前，先在现有依赖图上把拟合并的制品视作一个节点。若存在一条从拟合并制品出发、经过仍独立发布的制品、再回到拟合并集合的路径，合并后就会成环。例如合并 Metadata Catalog 和 API，会把 `metadata-catalog → persistence-catalog-api → metadata-api` 变成 `metadata → persistence-catalog-api → metadata`。此时保留独立契约，或先按语义归属消除那条依赖，再重新检查。合并集合内部的直接依赖在制品图中消失，同一 JAR 内的包仍要逐个检查。
+Before flattening, treat the artifacts to be merged as one node on the existing
+dependency graph. If a path exists from the candidate merge artifact through an
+artifact still released independently and back to the merged set, the merge will
+create a cycle. For example, merging Metadata Catalog and API would turn
+`metadata-catalog → persistence-catalog-api → metadata-api` into
+`metadata → persistence-catalog-api → metadata`. In that case, keep the
+independent contract or first remove that dependency according to semantic
+ownership and recheck. Direct dependencies inside the merged set disappear from the
+artifact graph, but packages inside the same JAR still need individual checks.
 
-在改 POM 前，可以对候选叶制品执行只读预检。Metadata 的两个候选制品还存在一条经 codec 返回的独立路径：
+Before changing POMs, a read-only precheck can be run on candidate leaf artifacts.
+Metadata's two candidate artifacts still have an independent path returning through
+codec:
 
 ```bash
 .pangrova/scripts/generate-module-baseline.py --check-merge pangrova-metadata-catalog pangrova-metadata-api
 ```
 
-当前输出为 `metadata-catalog → metadata-codec → metadata-api`，两条边都是 compile。工具沿本地 POM 的显式依赖（含 test、runtime）搜索一条离开再返回合并集合的最短路径，发现时打印各边的 scope 和 POM 并返回 1。因此即使消除了经 Persistence 返回的路径，这次平铺仍会制造环。预检覆盖当前源码树的直接声明。继承、profile、插件、生成代码和运行时类加载仍按下列门禁核对。
+The current output is `metadata-catalog → metadata-codec → metadata-api`, and both
+edges are compile. The tool searches explicit dependencies in local POMs
+(including test and runtime) for the shortest path that leaves and returns to the
+merged set, printing each edge's scope and POM and returning 1 when found. Thus
+even after eliminating the path returning through Persistence, this flattening
+would still create a cycle. The precheck covers direct declarations in the current
+source tree. Inheritance, profiles, plugins, generated code, and runtime class
+loading are still checked by the gates below.
 
-**同批平铺多个领域时，同时收缩所有候选组。** 例如 A 的实现使用 B 的 API，B 的实现使用 A 的 API。单独平铺任一领域时构建都能排序，同时平铺却会得到 `A → B → A`。对同一条命令重复使用 `--check-merge`，每组列出准备合并为一个制品的叶模块。工具在合并后的图上搜索经过候选组的闭环，并输出形成闭环的原始 POM 边。一次只检查其中一组会漏掉这种依赖。
+**When flattening multiple domains in the same batch, collapse all candidate
+groups together.** For example, A's implementation uses B's API and B's
+implementation uses A's API. Flattening either domain alone keeps the build
+orderable, but flattening both yields `A → B → A`. Repeat `--check-merge` for the
+same command, with each group listing the leaf modules to merge into one artifact.
+The tool searches the merged graph for a cycle through the candidate groups and
+prints the original POM edges forming the cycle. Checking only one group at a time
+misses this dependency.
 
-- 给出修改前后依赖路径和涉及的具体类型。主源码包图中包含两个或更多包的强连通分量必须清零。调整 `allowedImports`、`friendExports` 或生成 baseline 只能记录有依据的单向边。
-- 对默认及本次涉及的发行 profile 验证 reactor。运行 `PackageDependencyAcyclicityPropertyTest` 检查默认 reactor 主源码。报告针对每个包含环的强连通分量列出一条实际闭合路径，以及分量内部每条边的源码位置。`ModuleDependencyPropertyTest` 另行校验包归属、允许的边及服务注册。检查实际 JAR 与单角色运行 classpath，验证反射、生成代码和 JNI 入口。
-- 对变化的路径执行至少一条真实调用及相应失败场景。带事务的路径核对失败回滚和失主拒绝，资源边界核对失败清理与只关闭一次。每条路径记录实际结果，构建、包图和运行时证据分别给出。
+- Provide dependency paths before and after the change and the specific types
+  involved. Strongly connected components containing two or more packages in the
+  main-source package graph must be reduced to zero. Adjusting `allowedImports`,
+  `friendExports`, or regenerating the baseline can only record justified one-way
+  edges.
+- Validate the reactor for the default and affected distribution profiles. Run
+  `PackageDependencyAcyclicityPropertyTest` on the default reactor main source.
+  The report lists one actual closed path for each cyclic strongly connected
+  component and the source location of every edge inside the component.
+  `ModuleDependencyPropertyTest` separately validates package ownership, allowed
+  edges, and service registrations. Check the actual JARs and single-role runtime
+  classpath to validate reflection, generated code, and JNI entry points.
+- Execute at least one real call and the corresponding failure scenario for each
+  changed path. Transactional paths validate failure rollback and lost-owner
+  rejection; resource boundaries validate failure cleanup and exactly-once close.
+  Record the actual result for each path, with build, package-graph, and runtime
+  evidence reported separately.
 
-从仓库根目录可复查发行 profile 的构建顺序，以及生产包的循环检测和门禁自身的回归用例：
+From the repository root, the distribution-profile build order, production-package
+cycle detection, and the gate's own regression cases can be rechecked:
 
 ```bash
 mvn -B -ntp -Pnative-runtime,full-regression validate
@@ -221,241 +550,502 @@ mvn -B -ntp -pl :pangrova-testing-kit -am \
   -Dsurefire.failIfNoSpecifiedTests=false test
 ```
 
-包图报告位于 `pangrova-testing/pangrova-testing-kit/target/package-dependency-cycles.txt`。验收需要报告同时列出实际扫描的包数和 `Cyclic components: 0`。Maven 的 `validate` 校验当前 profile 的 reactor 排序；发布前仍执行完整的 `verify` 和角色启动测试。
+The package-graph report is at
+`pangrova-testing/pangrova-testing-kit/target/package-dependency-cycles.txt`.
+Acceptance requires the report to list the actual number of scanned packages and
+`Cyclic components: 0`. Maven `validate` checks the reactor order for the current
+profile; full `verify` and role startup tests are still executed before release.
 
-**审查示例。** 列血缘的派生种类曾由 Query 的嵌套枚举声明，Governance API 为引用这个值需要加载 Query。该词汇由 Governance 解释，现归 `governance.api.enums.ColumnDerivationKind`。Planner 的 Calcite 列血缘、Query 的列记录和 Governance 的数据集列记录使用同一个值。Planner 与 Query 分别单向依赖 Governance API；Coordinator 可以直接转交派生种类。查询执行、状态转换与重放仍由 Query 拥有。审查类似变更时，提交记录应列出原引用、新方向、语义 owner 和相应门禁或行为测试。
+**Review example.** The derived kind used for lineage was once declared by a
+nested enum in Query, and Governance API had to load Query to reference that value.
+Governance interprets this vocabulary, so it now belongs to
+`governance.api.enums.ColumnDerivationKind`. Planner's Calcite column lineage,
+Query's column record, and Governance's dataset column record use the same value.
+Planner and Query each depend one-way on Governance API; Coordinator can pass the
+derived kind directly. Query execution, state transitions, and replay remain owned
+by Query. When reviewing similar changes, the commit record should list the
+original references, the new direction, the semantic owner, and the corresponding
+gate or behavior test.
 
-**Shuffle 的双向运行时调用。** Coordinator 调度使用 ShuffleTaskAccess 与 RecoverableShuffleControl。Pangrova 远端 Provider 使用同一契约制品中的 ShuffleLifecycleEvidence 记录注册和终态回执。Server 将 DurableStageShuffleEvidence 注入 Provider，证据写入沿用 Generation 的事务边界。两侧各自只需要引用 shuffle-api，换后端时无需把协调器或持久化实现放进插件类加载器。
+**Shuffle's bidirectional runtime calls.** Coordinator scheduling uses
+ShuffleTaskAccess and RecoverableShuffleControl. The Pangrova remote provider uses
+ShuffleLifecycleEvidence from the same contract artifact to record registration and
+terminal receipts. Server injects DurableStageShuffleEvidence into the provider, and
+evidence writes follow Generation's transaction boundary. Each side needs to
+reference only shuffle-api; switching backends does not require placing the
+coordinator or persistence implementation in the plugin classloader.
 
-**Worker 的内存回调。** `NativeRuntime` 接受内存包定义的 `AllocationListener`。原先 `NativeSpillController` 的无参构造器自行绑定 `NativeRuntime::nativeRequestReclaim`，产生了 `worker.jni → worker.memory → worker.jni`。Worker 的 `NativeRuntimeBootstrap` 现在将回收操作注入 Spill 控制器。JNI 可以继续通知内存仲裁器释放计费，内存仲裁器也可以请求真实的 Native 回收，生产包只保留 `worker.jni → worker.memory`。分别检查包图、回收字节数和仲裁器释放的额度。
+**Worker's memory callback.** `NativeRuntime` accepts the `AllocationListener`
+defined by the memory package. Previously the no-argument constructor of
+`NativeSpillController` bound `NativeRuntime::nativeRequestReclaim` itself,
+creating `worker.jni → worker.memory → worker.jni`. Worker's
+`NativeRuntimeBootstrap` now injects the reclaim operation into the Spill
+controller. JNI can continue to notify the memory arbiter to release accounting,
+and the memory arbiter can request real Native reclamation; the production package
+retains only `worker.jni → worker.memory`. Check the package graph, reclaimed byte
+counts, and the quota released by the arbiter separately.
 
-**Coordinator 与 Worker。** Coordinator 下发任务、Worker 上报状态，两个方向的网络消息可以同时存在。任务身份和 attempt 由 Execution 契约拥有，消息结构由 Protocol 拥有。两端分别依赖契约，并由各自的 Server 装配传输实现。独立启动时，Coordinator 等待 Worker 上线属于调度条件；若二者都要等待对方 ready 才开放注册入口，就会产生启动等待环。角色联测要覆盖两者以不同顺序启动、Worker 延迟注册和退出。
+**Coordinator and Worker.** Coordinator dispatches tasks and Workers report status;
+network messages can exist in both directions at the same time. Task identity and
+attempt are owned by Execution contracts, and message structure is owned by
+Protocol. Both ends depend on contracts and assemble transport implementations in
+their own Servers. During independent startup, Coordinator waiting for a Worker to
+come online is a scheduling condition; a startup wait cycle exists only if both
+wait for the other to be ready before opening registration entry points. Role
+integration tests must cover different startup orders, delayed Worker registration,
+and exit.
 
-构建和包的逐条边可以通过 `.pangrova/scripts/generate-module-baseline.py --graph-dir target/architecture` 导出。module-dependencies.dot 保留本地 POM 声明的 scope，package-ownership.dot 列出所有模块及其主源码包。profile 激活后的构建顺序与真实角色发行物另外验证。
+Every build and package edge can be exported with
+`.pangrova/scripts/generate-module-baseline.py --graph-dir target/architecture`.
+module-dependencies.dot retains scopes declared in local POMs, and
+package-ownership.dot lists all modules and their main-source packages. The build
+order after profile activation and real role distribution artifacts are validated
+separately.
 
-## 实施顺序及退出条件
+## Implementation Order and Exit Conditions
 
-| 阶段 | 范围 | 退出条件 |
+| Phase | Scope | Exit condition |
 | --- | --- | --- |
-| P0 | 核对工作区、模块、FQN、能力、资源与事务台账 | 每个现存模块有归属，现状和目标可分别核验 |
-| P1 | Types、Batch、Execution 契约与 Common 清理 | 基础契约以最小 classpath 加载，通用模型独立于 Connector |
-| P2 | Server、Transport、Plugin 与 Standalone 装配 | 两种角色依赖隔离，验证三种启动方式、失败清理和关闭 |
-| P3 | 全领域统一 API/SPI 制品，迁移包与调用方 | 实际 JAR、服务注册与插件加载一致，旧类及 split package 清零 |
-| P4 | 按领域拆 Persistence 端口与已有后端 | 空库初始化归 Schema Migrations，后端契约及并发检查通过 |
-| P5 | Metadata、Table、Generation、Materialization 状态与事务 | 验证当前授权、CAS、fence、outbox、提交未知和恢复 |
-| P6 | Parser、Planner、Protocol、Query、Scheduler 分工 | 完整查询入口到执行路径通过，Protocol 只拥有 wire 语义 |
-| P7 | Direct、Local、自研 Shuffle 统一抽象 | 三个真实后端验证 attempt、receipt、取消、背压和故障保证 |
-| P8 | 其余领域与可替换 Provider | 已宣称能力可达，显式装配，资源按作用域关闭 |
-| P9 | Worker、Native、客户端、测试基础设施 | JNI、取消、结果传输和独立多 Worker 验证通过 |
-| P10 | 清理与发行 | 全量回归、逐类与能力复核、实际发行物检查和同环境性能对比完成 |
+| P0 | Reconcile worktree, modules, FQN, capabilities, resources, and transaction ledger | Every existing module has an owner; current state and target can be verified separately |
+| P1 | Types, Batch, Execution contracts, and Common cleanup | Base contracts load with a minimal classpath; the general model is independent of Connector |
+| P2 | Server, Transport, Plugin, and Standalone assembly | The two roles' dependencies are isolated; three startup modes, failure cleanup, and shutdown are validated |
+| P3 | Unified API/SPI artifacts across domains, migrating packages and callers | Actual JARs, service registration, and plugin loading agree; old classes and split packages are zero |
+| P4 | Split Persistence ports and existing backends by domain | Empty-database initialization belongs to Schema Migrations; backend contracts and concurrency checks pass |
+| P5 | Metadata, Table, Generation, Materialization state and transactions | Validate current authority, CAS, fence, outbox, unknown commit, and recovery |
+| P6 | Parser, Planner, Protocol, Query, Scheduler division | The full query entry-to-execution path passes; Protocol owns only wire semantics |
+| P7 | Unified abstraction for Direct, Local, and in-house Shuffle | Three real backends validate attempt, receipt, cancellation, backpressure, and fault guarantees |
+| P8 | Remaining domains and replaceable providers | Claimed capabilities are reachable, explicitly assembled, and resources close by scope |
+| P9 | Worker, Native, clients, test infrastructure | JNI, cancellation, result transport, and independent multi-Worker validation pass |
+| P10 | Cleanup and release | Full regression, per-class and capability review, actual distribution-artifact inspection, and same-environment performance comparison complete |
 
-每批迁移完整能力闭包：生产源码、测试、POM、服务注册、反射类名、配置、
-类加载策略、manifest 与文档一起更新。纯结构移动与行为改变分别验证。
-编译成功或目录齐全都不构成阶段完成。
+Each migration batch covers the complete capability closure: production source,
+tests, POM, service registration, reflective class names, configuration,
+classloading policy, manifest, and documentation are updated together. Pure
+structural moves and behavior changes are validated separately. A successful
+compile or a complete directory tree does not constitute phase completion.
 
-## 验证
+## Validation
 
-先运行受影响模块，再扩大到消费者和全 reactor。共享契约的最小 classpath、
-公开签名、模块无环、唯一包 owner、插件类身份、真实 JAR 中旧类清理均须验证。
-JNI/协议/Native 行为改变按 build-pipeline 执行完整链路，涉及内存所有权或并发
-增加 ASan。最终运行 `mvn -q -Pfull-regression verify`。
+Run affected modules first, then expand to consumers and the full reactor. The
+minimal classpath of shared contracts, public signatures, module acyclicity,
+unique package owners, plugin class identity, and old-class cleanup in real JARs
+must all be validated. JNI/protocol/Native behavior changes run the full chain per
+build-pipeline; memory-ownership or concurrency changes add ASan. Finally run
+`mvn -q -Pfull-regression verify`.
 
-持久化验证包括空库、CAS 竞争、幂等冲突、失主、权限变化、关联原子性、提交未知、
-恢复和 outbox。Shuffle 验证包括多 producer/partition、空分区、重试与推测隔离、
-未知提交、活跃读取与清理竞争、取消、有界队列、descriptor、权限和 Native buffer。
-不能用假实现替代真实 Provider 或端到端证据。
+Persistence validation includes empty databases, CAS contention, idempotent
+conflicts, lost owners, authority changes, related-entity atomicity, unknown
+commits, recovery, and outbox. Shuffle validation includes multiple
+producers/partitions, empty partitions, retries and speculative isolation, unknown
+commits, active-read and cleanup races, cancellation, bounded queues, descriptors,
+authorization, and Native buffers. Fake implementations must not replace real
+providers or end-to-end evidence.
 
-每批记录实际命令、退出状态、首次失败、修复、环境阻塞和未完成项。原有通过结果
-不继承为本批通过；未支持能力显式标记，不能以类或接口存在宣称支持。
+Validation records the actual commands, exit status, first failure, fix,
+environment blockers, and unfinished items. Earlier passing results are not
+inherited by a later change; unsupported capabilities are marked explicitly, and
+the existence of a class or interface must not be used to claim support.
 
-## 本轮证据
+## Implemented Execution Base and Shared Encoding Boundaries
 
-逐类处置、生产调用、事实与资源 owner 以及对应测试见[模块重构处置台账](./modularization-dispositions.md)。台账区分已核查的调用链和待验收的能力。
+`pangrova-execution-api` owns SDK-free task stage/purpose/deadline;
+`pangrova-execution-binding` owns canonical request/option/split binding,
+authority context, and exact lease identity. Inputs no longer depend on Planner
+StageNode, and Core does not depend on Coordinator, Worker, or PostgreSQL
+implementations. This boundary does not take over scheduling, authority
+transactions, lease renewal, or Native resources.
 
+`pangrova-shuffle-api` owns Common/JDK-only domain contracts; Planner and
+Operations depend only on that contract artifact. The former ShuffleTransport
+implemented only Native service binding and has been removed from the general API.
+NativeShuffleProducerRegistration lives in the `org.pangrova.worker.shuffle`
+package of `pangrova-worker` and registers producers through the task owner's
+protected command channel using a borrowed executor handle. The C++
+FlightServerRegistry holds the process-shared listening port. The Worker task
+owner drains active reads and writes, unregisters the producer, and then releases
+the executor. Direct bytes remain in C++.
+`org.pangrova.shuffle.api.worker.ShuffleByteEgress` in the unified artifact
+defines real batch delivery, producer completion, and abort callbacks, used by the
+assembled remote implementation. Batch completion does not equal producer commit,
+and producer commit does not equal exchange publication. Caller buffers are
+borrowed only during the synchronous callback; rowCount is not a batch sequence;
+task and query IDs only index the authorized complete attempt binding.
+Pangrova remote delivery is assembled by factories from both roles. Workers
+connect to JNI through strongly typed contracts in `pangrova-shuffle-native`, and
+Coordinator requests registration, publication, and authorization through Shuffle
+API. `pangrova-shuffle-pangrova` owns the client, egress, reads, mTLS, and
+connection quotas. Server installs the implementation in role runtime packages.
+The former onPartitionCommitted and DefaultShuffleByteEgress have been deleted.
 
-## 已实施的 Execution 基础与共享编码边界
+Setting `coordinator.shuffle.mode` and `worker.shuffle.mode` to `LOCAL` enables
+Native local-disk exchange. The scheduler selects one Worker for a DAG with an
+exchange and checks that Worker's admission domain, incarnation, tenant admission,
+and operator capabilities each time. Production tasks carry `MEMORY_AND_DISK`; the
+Flight service forcibly writes batches to anonymous disk segments by producer
+handle, using process-shared disk, file, and transport quotas. After all upstream
+stages complete, downstream reads with a partition ticket issued by that process,
+and the Worker verifies the process's real Flight address before establishing a
+connection. After read completion or cancellation, the Native registration and
+reader release data and handles. LOCAL rejects speculative execution, replacement
+attempts, Worker-generation recovery, and persisted publication receipts.
 
-`pangrova-execution-api` 拥有 SDK 无关的 task stage/purpose/deadline；
-`pangrova-execution-binding` 拥有 canonical 请求/选项/split 绑定、授权上下文和精确 lease 身份。
-输入不再依赖 Planner StageNode，Core 不依赖 Coordinator、Worker 或 PostgreSQL 实现。
-该边界不接管调度、权限事务、lease 续租或 Native 资源。
+Java LocalFsSpoolStore provides explicit attempt segments and cleanup for Java
+callers. Generation can store versioned allocation descriptors for any provider;
+the Pangrova remote implementation currently encodes and recovers them. Celeborn
+integration is follow-up work.
 
-`pangrova-shuffle-api` 拥有 Common/JDK-only 的领域契约；Planner 和 Operations 只依赖该
-契约制品。原 ShuffleTransport 只实现 Native 服务绑定，现已从通用 API 删除。NativeShuffleProducerRegistration 位于 `pangrova-worker` 的
-`org.pangrova.worker.shuffle` 包，通过任务所有者的受保护命令通道操作借用
-的 executor handle 注册 producer。C++ FlightServerRegistry 持有进程共享监听端口。Worker 任务所有者排空活动读写后注销该 producer，再释放 executor。Direct 字节仍在 C++。
-统一制品内的 `org.pangrova.shuffle.api.worker.ShuffleByteEgress` 定义真实的批数据交付、
-生产者完成与中止回调，由已装配的远端实现使用。批数据完成不等于 producer commit，
-producer commit 不等于 exchange 发布。调用方 buffer 仅在同步回调期间借用；rowCount
-不是 batch sequence；任务和 query ID 只索引已授权的完整 attempt 绑定。
-Pangrova 远端交付由两种角色的工厂装配。Worker 通过 `pangrova-shuffle-native` 的强类型契约接入 JNI，Coordinator 通过 Shuffle API 请求注册、发布和授权。`pangrova-shuffle-pangrova` 拥有客户端、egress、读取、mTLS 和连接配额。Server 在角色运行包中安装实现。旧 onPartitionCommitted 和 DefaultShuffleByteEgress 已删除。
+The new `pangrova-security-codec` is an independent boundary for actually shared
+encoding infrastructure: it exclusively owns the canonical encoding and digest of
+DeferredAuthorizationScope, depends on Security/Connector API and Jackson, and does
+not depend on the database or runtime Core. Encoding was moved verbatim out of the
+PostgreSQL Provider; Security API does not take on complex serialization, and
+transactions and current authority checks remain with the original owner.
 
-将 `coordinator.shuffle.mode` 与 `worker.shuffle.mode` 设为 `LOCAL` 会启用 Native 本地磁盘交换。调度器给有 exchange 的 DAG 选择一个 Worker，逐次核对该 Worker 的 admission domain、incarnation、租户准入与算子能力。生产任务携带 `MEMORY_AND_DISK`，Flight 服务按 producer handle 强制把批数据写入匿名磁盘段，使用进程共享的磁盘、文件及传输配额。上游阶段全部完成后，下游用该进程签发的分区票据读取，Worker 在建立连接前核对本进程的真实 Flight 地址。读完或取消后由 Native registration 和 reader 释放数据与句柄。LOCAL 拒绝推测执行、替换 attempt、Worker 换代恢复和持久化发布回执。
-
-Java LocalFsSpoolStore 为 Java 调用者提供显式 attempt 段和清理。Generation 能保存任意 Provider 的版本化分配描述符，当前由 Pangrova 远端实现编解码和恢复。Celeborn 接入属于后续工作。
-
-新增 `pangrova-security-codec` 是实际共享编码基础设施的独立边界：唯一拥有
-DeferredAuthorizationScope 的规范编码与摘要，依赖 Security/Connector API 和 Jackson，
-不依赖数据库或运行时 Core。编码从 PostgreSQL Provider 原样迁出，Security API
-不承担复杂序列化，事务与当前权限判断仍归原 owner。
-
-具体语义、调用方与未完成边界以当前代码、测试和 `.pangrova/modules.yaml` 为准。
-
-
-## Shuffle 独立能力与有效保证
-
-统一 API 制品的 `org.pangrova.shuffle.api.capability` 拥有 ShuffleCapability 和
-ShuffleCapabilityDescriptor。消费者重试、生产者重试、推测 attempt 隔离、计算 Worker 退出后
-可读、存储 Worker 故障后可读、Coordinator session 恢复、阻塞/流水读取、partition/range
-读取、retention 和 cleanup 分别声明；无隐含能力，也不从存储介质或 PUSH/PULL 推导。
-有效保证只能是实现、部署与本次 exchange 证据的交集。descriptor 是不可变值，不能充当
-commit receipt、当前授权、reader lease 或缩容批准。没有旧类型兼容壳。
-
-旧 FTE policy helper 的失败入口明确为 consumer failure，避免把输入可重读误当作 producer
-输出可安全重放。它与重试校验器尚未进入生产 DAG，不构成已上线的任务级 FTE 保证。
-原 SpoolingExchangeManager 已退役。Local spool 文件自身只能确认单一 attempt、partition 的完整性。
-生产重试 owner 仍是 Stage/RetryStageHandler；不得把测试中的 helper 直接并行装配成第二个
-权威。后续通用 session/receipt 必须连接该真实 owner，并验证部署和每次 exchange 的状态。
-
-
-## Local 文件存储原语边界
-
-`pangrova-shuffle-local` 拥有真实 LocalFs 文件实现及唯一 SpoolStoreFactory 服务注册；
-SpoolStore/Reader/Writer/Factory/Context 归统一 API 制品的 `org.pangrova.shuffle.api.spool`。
-Core 的 Java 页入口 `SpoolBackedExchangeManager.open` 接收装配方的类加载器，枚举工厂后按配置的精确 ID 创建后端。缺失、空白和重复 ID 在创建 Store 前报错。Manager 在关闭时释放 Store。Core 对 Local 后端只有测试依赖。
-
-读取必须提供不可变 SpoolReadSelection，明确选择 producer → attempt；禁止选择最大 attempt、
-将 long 截为 int，或把缺少的已选 segment 当作空数据。文件格式有 magic/version、逐批边界和
-SHA-256、结束记录与总数检查；一次读最多一个有界批次。写完成只完成一个 attempt/partition
-segment，不等于 exchange 发布。并发写同一 attempt 和覆盖已完成 segment 均拒绝。
-
-目录有唯一 OS 文件锁 owner；读写资源存活时拒绝 cleanup，关闭后可重试。Store 关闭先处理
-其资源再释放目录，异常保留并向上传播。新项目不读取旧 raw 拼接文件，不建设数据迁移或
-双写工具。文件落盘、原子移动和重新打开文件均不构成节点故障、session 恢复或缩容保证。
-
-Java spool exchange 明确接收选择器，并只接受其支持的批格式和阻塞读模式；失败读取不转为
-正常 EOF，aborted sink 不允许伪成功 finish。该组件仍未接入 Native，存储键仍缺少完整的
-application incarnation/exchange generation；通用 session、receipt、异步有界数据面和 Native
-适配必须继续完成后，才能声明完整 Local Provider 支持。现有生命周期原型与 inventory 的
-装配缺口不因文件实现拆分而消失。
-
-### 自研 Shuffle Provider 与共享编码边界
-
-Server Coordinator 在 REMOTE 模式下通过 `ShuffleCoordinatorFactory` 发现配置指定的工厂。工厂验证配置，创建进程专属的 `ShuffleCoordinatorSession`。QueryExecutionBootstrap 将会话契约注入 DAG，停止查询后由 Server 关闭会话。PangrovaShuffleCoordinator 通过 Provider 自有的服务描述符注册，Server 运行发行物装入该实现。其注册、发布、清理、task grant、gRPC 通道、mTLS 及响应校验都归 `pangrova-shuffle-pangrova`。DAG 通过 `ShuffleTaskAccess` 为绑定好的 Worker incarnation 和 attempt 申请短期授权。每次 grant 独立并发，关闭时先排空已受理的 grant。实现 `RecoverableShuffleControl` 的后端可接收本次执行的 `ShuffleLifecycleEvidence` journal。Generation 在当前 owner 与 allocation 下持久化经校验的不可变回执及原始无凭据响应。回调接口随 Shuffle API 发布，Provider 和 Coordination Control 只共同依赖契约，二者无编译依赖。
-
-ExchangeTaskAttempt、ExchangeAttemptFence、ExchangeChannelContext 的实际中立身份归统一 Shuffle API
-的 `.api.identity`；不复制身份、不修改字段或 fencing 校验。共享 producer-set 与 partition-manifest
-摘要算法归 Protocol 的 `.shuffle.codec`，客户端、服务端与 Coordinator 共同使用，保持编码字节不变。
-这类 canonical wire 编码不放入最小 API，也不要求 Provider 依赖业务 Core。
-
-Pangrova 远端 reader 接收自身实现制品中的 PangrovaPartitionRead，内容为已选择的 channel 和预期
-服务端发布证据。凭据在批边界续期。每个 source 的 gRPC 取消域包含续期和分区读取请求，关闭时先取消两种请求，再等待读取退出和 RPC 结束，最后归还通道租约。Producer 的取消域也覆盖写入、续期及提交确认，取消后等待活动调用退出。取消提交 RPC 时保留提交结果未知的语义。Worker 负责 Native 输入绑定。
-Worker 通过 `worker.shuffle.provider` 选择 `NativeShuffleWorkerFactory`，只向选中的工厂传递其配置前缀。工厂校验参数并打开会话，Worker 在发布资源前核验部署实际启用的能力。每个 Worker generation 的生产与读取池共享通道总额和端点限额。NativeShuffleReaders 从已验证的外部绑定打开对应分区，由远端实现选择其端点并校验发布证据。NativeExchangeAttempts 在 Worker 和 Provider 之间统一编码、解码执行 owner、attempt fence 和 Worker incarnation。Worker 生产制品仅编译依赖 Shuffle 契约及 Native wire 边界，Server Worker 在实际发行时装入选定实现。Worker 在认证注册时报告实际的 mode 与 Provider ID，Coordinator 在成员可参与调度前核对部署。WorkerSnapshot 将部署信息与该进程 incarnation 一并写入 Memory 或 PostgreSQL，接管、恢复和心跳重建时继续核对。
-
-PangrovaPartitionRead 是进程内读请求。Coordinator 发布使用 `ShufflePublication` 精确指定 query、stage、generation 和 allocation；过期请求在读取缓存或调用 RPC 前被拒绝。`ShuffleCommitReceipt` 保存确认的逻辑 producer 集合摘要以及每个输出分区的末序号、行数、字节数和内容摘要。Stage 在新 generation 清除旧 receipt。阻塞交换调度在上游回执可用后才释放下游，读绑定在同一锁内捕获路由、owner 与回执。每个远端读绑定携带 allocation、epoch、逻辑 producer 集合摘要，以及指定输出分区的末序号、行数、字节数和 manifest SHA-256。Java 与 Native 在准入时检查证据完整性。Worker 在向 Native 投递 chunk 前检查已发布的上界，在向 Native 确认完成前核对 Coordinator 回执、服务终止帧和本地重算的 manifest。空分区同样需要完整回执和终止帧。
-远端读取的传输失败或内容损坏通过 Shuffle API 的 `exception.ShuffleReadException` 分类，Pangrova Provider 在自身的 `client.exception` 包构造后端错误。Native wire 的通道配额错误在 `nativewire.exception` 生成可重试的执行协议诊断；Worker 通过该类型报告实占通道数和限制。
-
-当前远端服务确认逻辑 producer 集合，尚不能核验调用方选定的推测 attempt，因此装配时拒绝与推测执行同时启用。Direct 与 Local 各自使用原有 attempt 绑定。Shuffle API 读取及写出生命周期接口仅使用领域类型。当前任务传输与 Native wire 仍表达端点、提交地址与短期授权。使用其他传输布局的 Provider 需实现相应任务绑定及显式 producer attempt 选取。
-
-持久化 journal 接收 allocation ID、Provider ID、正整数版本和最多 1 MiB 的不可变 payload。Generation 保存这个信封及共享的执行代、生产者集合和分区数。PangrovaAllocationCodec 的 v1 只编码分配 ID、提交地址和精确的分区范围，恢复时拒绝凭据字段、未知字段、范围冲突或非规范字节。Coordinator 通过配置的控制端点，以当前 owner 的 fence 申请该既有 allocation 的 finalize grant，再申请当前访问凭据并比对原始描述符。准备分区时，实际读写绑定通过同一个 Provider 编码器，在 PostgreSQL 取得当前权限与分区锁的事务中核对注册记录。
-
-### Pangrova 远端分区读取与清理
-
-服务在验证当前 consumer、读授权、分区范围与 finalized receipt 后才登记一次读取。PostgreSQL 同一 query 行锁串行化读 pin 的创建和 cleanup 的准入。授权或请求截止中较早的时间决定可读期限，批次边界同时检查当前 execution owner 与已登记的 pin。保护期额外覆盖对象存储的单次 GET 超时，使读期限末尾已经开始的 I/O 有时间排空。
-
-有活跃 pin 时，任一服务实例发起的 cleanup 都会收到可重试的前置条件失败。已进入 CLEANING 的 scope 拒绝新读。背压暂停保留 pin；发送结束、取消和失败释放 pin，正在进行的 I/O 结束后才释放。服务进程崩溃后，数据库的截止时间允许清理继续。分区元数据提前结束时须拒绝返回 terminal。该机制保护一次有期限的授权读取，Provider 的容错和推测执行仍分别按 factory 声明准入。
-
-### 撤销虚假的 Local 发布与库存安全推断（2026-11-03）
-
-SpoolingExchangeManager 与 LocalSpillLifecycleManager 没有生产调用，且无法从单个文件完成推导
-整个 exchange 发布，本轮删除这两个重复原型及其假提交测试。真实 Local Provider 的 I/O、选择
-attempt、ServiceLoader、关闭和 reader 清理保护保留并验证。Native LOCAL 复用有签名票据的 Worker 级磁盘交换。持久化 session/receipt 与节点退出后读取仍属未支持能力。
-
-DAG 缺少外部生命周期时使用显式 UnavailableExternalShuffleLifecycle：注册和提交失败，清理仅因
-不存在任何外部分配而不执行动作。Direct Native 的任务/输出资源仍由原 owner 清理。ShuffleHandle
-LOCAL 不使用空端点表示注册成功。未知 stage 和过期 generation 的发布请求均拒绝，空输出分区在回执中有显式记录。
-
-ShuffleDataInventory 取消基于列表和 retention 的默认缩容判断；具体 owner 必须提供完整且 fenced
-的当前证据。InMemoryShuffleDataInventory 保留在 Coordination 测试源码，模拟手工诊断记录，返回 UNKNOWN，即使为空、被标记
-已消费或介质为 persistent。安全缩容仍需要 Worker incarnation、关闭接纳、完整执行/reader 库存与
-移除期间有效的证明；当前 WorkerManager 的 task-count 排空逻辑尚不能替代这些要求。
+Concrete semantics, callers, and unfinished boundaries are governed by the current
+code, tests, and `.pangrova/modules.yaml`.
 
 
-### Worker 注册身份撤销边界（2026-11-03）
+## Shuffle Independent Capabilities and Effective Guarantees
 
-Coordination API 拥有 WorkerRegistrationIdentity（logical ID、admission domain、incarnation），
-Persistence 的 WorkerRegistry 定义按该身份原子注销。PostgreSQL 通过同一 DELETE 的三个条件实现，
-Memory 在同一 per-key compute 比较；不得退回无条件 logical ID 删除或先查后删。HTTP wire 使用
-已有 WorkerExecutionIdentity，由 Coordinator 转换，不把 Protocol 引入 Persistence API。
+`org.pangrova.shuffle.api.capability` in the unified API artifact owns
+ShuffleCapability and ShuffleCapabilityDescriptor. Consumer retries, producer
+retries, speculative-attempt isolation, readability after a compute Worker exits,
+readability after a storage Worker failure, Coordinator session recovery,
+blocking/pipelined reads, partition/range reads, retention, and cleanup are
+declared separately; there are no implicit capabilities, and none are inferred
+from storage medium or PUSH/PULL. The effective guarantee can only be the
+intersection of the implementation, the deployment, and the evidence of this
+exchange. The descriptor is an immutable value and cannot serve as a commit
+receipt, current authority, reader lease, or scale-down approval. There is no
+legacy-type compatibility shell.
 
-WorkerRegistrationClient 的作用域是一项进程注册尝试，首次发送前绑定原身份，重试及实际停机
-DELETE 复用该身份。WorkerManager 的本地条件移除使用原始观察，后端另保护不同 incarnation。
-这不替代完整的安全缩容、持久化接纳状态或物理资源 drain；既有 Shuffle inventory 缺口继续实施。
-
-
-### Worker 心跳与自动修复的身份所有权（2026-11-03）
-
-WorkerRegistry 的 heartbeat 必须携带完整 WorkerRegistrationIdentity，并返回原子条件更新后的
-WorkerSnapshot 或 empty。Core 不得先发布本地成功再持久化，也不得从逻辑 ID 推测发送者身份。
-缺失与替换通过 Coordination API 的 WorkerHeartbeatStatus 表达，由 HTTP 入口映射响应。
-
-初次注册与自动修复分开：客户端首次发送前固定进程身份，后续请求只能调用条件刷新。PostgreSQL
-在一条条件 ON CONFLICT 写入内核验身份，Memory 用单 key compute；禁止先读再无条件 upsert。
-明确被替换的 Worker 通过现有 TaskAdmissionRegistry 永久关闭新准入/发布，Sender 不再自动恢复。
-关闭准入不接管取消、Native handle、output reader 和 shutdown 的资源所有权，也不证明已经排空。
-
-首次无条件注册的全局排序、持久化 DECOMMISSIONING、readiness/admission 状态整合和精确库存仍属
-后续工作；不得据此批交付声称安全缩容或完整 Shuffle 生命周期已经完成。
+The failure entry of the former FTE policy helper is explicitly a consumer
+failure, avoiding treating input re-readability as safe replay of producer output.
+It and the retry validator have not entered the production DAG and do not
+constitute a task-level FTE guarantee that has shipped. The former
+SpoolingExchangeManager has been retired. Local spool files alone can confirm only
+the integrity of a single attempt and partition. The production retry owner remains
+Stage/RetryStageHandler; test helpers must not be assembled in parallel as a
+second authority. Future general session/receipt support must connect to that real
+owner and validate deployment and per-exchange state.
 
 
-### Metadata 共享编码边界（2026-11-03）
+## Local File Storage Primitive Boundaries
 
-Metadata API/SPI 同制品，领域值不依赖持久化端口。Catalog Persistence API 依赖 Metadata API；
-PostgreSQL Provider 不依赖 Metadata Catalog。原表元数据编码由缓存与 PostgreSQL 两条真实路径复用，
-因此 `pangrova-metadata-codec` 拥有 `TableMetadataSerializer`；通用 JSON 读写直接复用 Common 的 `CanonicalJsonMapper`。
-部署历史读取不得默认返回不存在；不支持历史查询必须显式拒绝，不能用 current 代替历史 revision。
-失效清理由窄化端口注入领域调度器，Server 持有真实 Provider 的生命周期。
-此边界不代表剩余 Metadata 跨域 workflow、Table 默认后端和 Governance 归属已经完成。
+`pangrova-shuffle-local` owns the real LocalFs file implementation and the sole
+SpoolStoreFactory service registration; SpoolStore/Reader/Writer/Factory/Context
+belong to `org.pangrova.shuffle.api.spool` in the unified API artifact. Core's Java
+page entry `SpoolBackedExchangeManager.open` receives the assembler's classloader,
+enumerates factories, and creates the backend by the configured exact ID. Missing,
+blank, and duplicate IDs fail before creating a Store. The Manager releases the
+Store on close. Core has only a test dependency on the Local backend.
 
-### Metadata 同步进度的领域端口（2026-11-03）
+Reads must provide an immutable SpoolReadSelection that explicitly selects
+producer → attempt; selecting the maximum attempt, truncating long to int, or
+treating a missing selected segment as empty data is forbidden. The file format has
+magic/version, per-batch boundaries and SHA-256, an end record, and total-count
+checks; one read covers at most one bounded batch. Write completion completes only
+one attempt/partition segment and does not equal exchange publication. Concurrent
+writes to the same attempt and overwriting a completed segment are rejected.
 
-同步进度及诊断已从组合 MetadataStore 抽出到 Catalog Persistence 的 `synchronization` 契约，PostgreSQL Provider 由 Server 显式装配。进度绑定部署 incarnation/revision，仅允许来源声明的完整覆盖边界推进；本地结束时间和诊断历史不构成进度。原子完成、幂等回执与提交未知确认的边界由当前 Catalog Persistence 实现与测试约束。投影事务、其余组合 Store 和 Federation SPI 的拆分仍属后续工作。
+The directory has a single OS file-lock owner; cleanup is rejected while read/write
+resources are alive and may be retried after close. Store close handles its
+resources before releasing the directory, preserving and propagating exceptions.
+The new project does not read old raw concatenated files and builds no data
+migration or dual-write tooling. Files landing on disk, atomic moves, and reopening
+files do not constitute node-failure, session-recovery, or scale-down guarantees.
 
-### Catalog 部署与投影组合 Store 退役（2026-11-03）
+Java spool exchange explicitly receives a selector and accepts only the batch
+formats and blocking read mode it supports; a failed read is not converted into a
+normal EOF, and an aborted sink is not allowed to finish as a false success. This
+component is still not integrated with Native, and storage keys still lack the
+complete application incarnation/exchange generation; a complete Local Provider
+support claim requires general session, receipt, asynchronous bounded data plane,
+and Native adaptation to be completed. Existing lifecycle-prototype and inventory
+assembly gaps do not disappear because the file implementation was split out.
 
-组合 MetadataStore 及 PostgresMetadataStore 已退役，无转发壳。部署、表投影、schema 投影、同步进度分别通过独立端口注入；Server 选择 PostgreSQL Provider。领域 Core 不依赖后端辅助类，事务支持包通过 manifest 限制为制品内部使用。原 SQL 与逐操作 outbox 原子性保留；完整扫描的条件投影事务仍是后续工作，不能由这次职责拆分推导为已完成。
+### In-house Shuffle Provider and Shared Encoding Boundaries
+
+In REMOTE mode, Server Coordinator discovers the configured factory through
+`ShuffleCoordinatorFactory`. The factory validates configuration and creates a
+process-specific `ShuffleCoordinatorSession`. QueryExecutionBootstrap injects the
+session contract into the DAG, and Server closes the session after stopping the
+query. PangrovaShuffleCoordinator registers through the provider's own service
+descriptor, and the Server runtime distribution installs that implementation. Its
+registration, publication, cleanup, task grant, gRPC channel, mTLS, and response
+validation all belong to `pangrova-shuffle-pangrova`. The DAG requests short-lived
+authorization for the bound Worker incarnation and attempt through
+`ShuffleTaskAccess`. Each grant is independently concurrent, and shutdown first
+drains accepted grants. A backend implementing `RecoverableShuffleControl` can
+receive the `ShuffleLifecycleEvidence` journal for that execution. Generation
+persists the validated immutable receipt and the original credential-free response
+under the current owner and allocation. Callback interfaces are published with
+Shuffle API; Provider and Coordination Control depend only on the shared contract
+and have no compile dependency on each other.
+
+The actual neutral identities of ExchangeTaskAttempt, ExchangeAttemptFence, and
+ExchangeChannelContext belong to `.api.identity` in the unified Shuffle API;
+identities are not copied, fields are not modified, and fencing validation is not
+changed. The shared producer-set and partition-manifest digest algorithms belong to
+Protocol's `.shuffle.codec`, used together by the client, server, and Coordinator
+while keeping encoded bytes unchanged. These canonical wire encodings are not
+placed in the minimal API and do not require providers to depend on business Core.
+
+The Pangrova remote reader receives PangrovaPartitionRead from its own
+implementation artifact, containing the selected channel and the expected server
+publication evidence. Credentials are renewed at batch boundaries. Each source's
+gRPC cancellation scope includes renewal and partition-read requests; shutdown
+first cancels both request kinds, then waits for reads to exit and RPCs to finish,
+and finally returns the channel lease. The producer cancellation scope also covers
+writes, renewal, and commit acknowledgement, and waits for active calls to exit
+after cancellation. Canceling a commit RPC preserves the unknown-commit-result
+semantics. The Worker is responsible for Native input binding.
+The Worker selects `NativeShuffleWorkerFactory` through `worker.shuffle.provider`
+and passes only the selected factory's configuration prefix. The factory validates
+parameters and opens a session, and the Worker verifies the capabilities actually
+enabled by the deployment before publishing resources. Production and read pools
+for each Worker generation share total channel and endpoint quotas.
+NativeShuffleReaders open the corresponding partition from the validated external
+binding, and the remote implementation selects its endpoint and validates
+publication evidence. NativeExchangeAttempts uniformly encode and decode execution
+owner, attempt fence, and Worker incarnation between Worker and Provider. The
+Worker production artifact compiles only against Shuffle contracts and the Native
+wire boundary, and Server Worker installs the selected implementation in the actual
+distribution. The Worker reports the actual mode and Provider ID during
+authenticated registration, and Coordinator validates the deployment before the
+member can participate in scheduling. WorkerSnapshot writes deployment information
+and the process incarnation into Memory or PostgreSQL, and takeover, recovery, and
+heartbeat rebuild continue to validate them.
+
+PangrovaPartitionRead is an in-process read request. Coordinator publication uses
+`ShufflePublication` to specify exact query, stage, generation, and allocation;
+stale requests are rejected before reading the cache or calling the RPC.
+`ShuffleCommitReceipt` stores the confirmed logical producer-set digest plus the
+last sequence number, row count, byte count, and content digest of each output
+partition. A stage clears old receipts on a new generation. Blocking exchange
+scheduling releases downstream only after the upstream receipt is available, and
+the read binding captures routing, owner, and receipt under the same lock. Each
+remote read binding carries the allocation, epoch, logical producer-set digest, and
+the last sequence number, row count, byte count, and manifest SHA-256 of the
+specified output partition. Java and Native check evidence completeness at
+admission. The Worker checks the published upper bound before delivering a chunk to
+Native and verifies the Coordinator receipt, service terminal frame, and locally
+recomputed manifest before acknowledging completion to Native. Empty partitions
+also require a complete receipt and terminal frame.
+Transport failures or content corruption in remote reads are classified through
+Shuffle API's `exception.ShuffleReadException`, and the Pangrova provider
+constructs backend errors in its own `client.exception` package. Native wire
+channel-quota errors produce a retryable execution-protocol diagnostic in
+`nativewire.exception`; the Worker reports the actual channel count and limit
+through that type.
+
+The current remote service confirms the logical producer set and cannot yet verify
+the caller-selected speculative attempt, so assembly rejects enabling it together
+with speculative execution. Direct and Local each use their original attempt
+bindings. Shuffle API read and write lifecycle interfaces use only domain types.
+Current task transport and the Native wire still express endpoints, commit
+addresses, and short-lived authorization. Providers using other transport layouts
+must implement the corresponding task binding and explicit producer-attempt
+selection.
+
+The persistence journal accepts an allocation ID, provider ID, positive integer
+version, and an immutable payload of at most 1 MiB. Generation stores this envelope
+plus the shared execution epoch, producer set, and partition count. The
+PangrovaAllocationCodec v1 encodes only the allocation ID, commit address, and exact
+partition range; recovery rejects credential fields, unknown fields, range
+conflicts, or non-canonical bytes. Coordinator uses the configured control endpoint
+to request a finalize grant for the existing allocation under the current owner's
+fence, then requests the current access credential and compares the original
+descriptor. When preparing partitions, the actual read/write binding verifies the
+registration record through the same provider encoder in the transaction that
+acquires the current authority and partition lock in PostgreSQL.
+
+### Pangrova Remote Partition Reads and Cleanup
+
+The service registers a read only after validating the current consumer, read
+authorization, partition range, and finalized receipt. The PostgreSQL row lock on
+the same query serializes read-pin creation and cleanup admission. The earlier of
+the authorization and request deadlines determines the readable deadline, and
+batch boundaries check both the current execution owner and the registered pin.
+The protection window additionally covers a single object-storage GET timeout so
+that I/O already started near the deadline has time to drain.
+
+While an active pin exists, cleanup from any service instance receives a retryable
+precondition failure. A scope already in CLEANING rejects new reads. Backpressure
+pauses retain the pin; send completion, cancellation, and failure release it, but
+release happens only after the in-progress I/O finishes. After a service process
+crash, the database deadline allows cleanup to continue. A partition whose metadata
+ends early must not return a terminal frame. This mechanism protects one
+time-bounded authorized read; provider fault tolerance and speculative execution
+are still admitted separately per factory declaration.
+
+### Retracting False Local Publication and Inventory Safety Inference
+
+SpoolingExchangeManager and LocalSpillLifecycleManager had no production callers
+and could not derive whole-exchange publication from a single file. This round
+deleted both duplicate prototypes and their false-commit tests. The real Local
+Provider's I/O, attempt selection, ServiceLoader, close, and reader-cleanup
+protections were retained and validated. Native LOCAL reuses the Worker-level disk
+exchange with signed tickets. Persisted session/receipt and reads after node exit
+remain unsupported capabilities.
+
+When the DAG lacks an external lifecycle, it uses an explicit
+UnavailableExternalShuffleLifecycle: registration and commit fail, and cleanup
+performs no action solely because no external allocation exists. Direct Native
+task/output resources are still cleaned by their original owner. ShuffleHandle
+LOCAL does not use an empty endpoint to represent successful registration.
+Publication requests for unknown stages and stale generations are rejected, and
+empty output partitions are explicitly recorded in the receipt.
+
+ShuffleDataInventory cancels the default scale-down decision based on lists and
+retention; the concrete owner must provide complete and fenced current evidence.
+InMemoryShuffleDataInventory remains in Coordination test source, simulates manual
+diagnostic records, and returns UNKNOWN even when empty, marked consumed, or on
+persistent media. Safe scale-down still requires Worker incarnation, admission
+closure, complete execution/reader inventory, and proof valid during removal; the
+current WorkerManager task-count drain logic cannot yet replace these requirements.
+
+
+### Worker Registration Identity Revocation Boundary
+
+Coordination API owns WorkerRegistrationIdentity (logical ID, admission domain,
+incarnation), and Persistence's WorkerRegistry defines atomic unregistration by
+that identity. PostgreSQL implements it with three conditions in one DELETE, and
+Memory compares in the same per-key compute; unconditional logical-ID deletion or
+read-then-delete must not return. HTTP wire uses the existing
+WorkerExecutionIdentity, converted by Coordinator, without introducing Protocol
+into Persistence API.
+
+WorkerRegistrationClient's scope is one process registration attempt: it binds the
+original identity before the first send and reuses that identity for retries and
+the actual shutdown DELETE. WorkerManager's local conditional removal uses the
+original observation, and the backend separately protects different incarnations.
+This does not replace complete safe scale-down, persisted admission state, or
+physical resource drain; the existing Shuffle inventory gaps continue to be
+implemented.
+
+
+### Worker Heartbeat and Auto-Repair Identity Ownership
+
+WorkerRegistry heartbeat must carry the complete WorkerRegistrationIdentity and
+return the atomically conditionally updated WorkerSnapshot or empty. Core must not
+publish local success before persisting, nor infer sender identity from the
+logical ID. Missing and replaced cases are expressed through Coordination API's
+WorkerHeartbeatStatus and mapped to responses by the HTTP entry.
+
+Initial registration and auto-repair are separate: the client fixes its process
+identity before the first send, and subsequent requests may only perform
+conditional refresh. PostgreSQL validates identity inside one conditional
+ON CONFLICT write, and Memory uses a single-key compute; read-then-unconditional-upsert
+is forbidden. A Worker explicitly marked replaced permanently closes new
+admission/publication through the existing TaskAdmissionRegistry, and Sender does
+not auto-recover. Closing admission does not take over cancellation, Native
+handles, output readers, or shutdown resource ownership, nor does it prove drain.
+
+Global ordering of the first unconditional registration, persisted
+DECOMMISSIONING, readiness/admission state integration, and exact inventory remain
+follow-up work; safe scale-down and a complete Shuffle lifecycle are not claimed.
+
+
+### Metadata Shared Encoding Boundary
+
+Metadata API/SPI share an artifact, and domain values do not depend on persistence
+ports. Catalog Persistence API depends on Metadata API; the PostgreSQL Provider
+does not depend on Metadata Catalog. The former table metadata encoding was reused
+by both the cache and PostgreSQL paths, so `pangrova-metadata-codec` owns
+`TableMetadataSerializer`; general JSON read/write directly reuses Common's
+`CanonicalJsonMapper`. Deployment-history reads must not default to returning
+"does not exist"; an unsupported history query must be rejected explicitly and
+must not substitute current for a historical revision. Invalidation cleanup is
+injected into the domain scheduler through a narrowed port, and Server owns the
+lifecycle of the real provider. This boundary does not mean the remaining Metadata
+cross-domain workflows, the Table default backend, and Governance ownership are
+complete.
+
+### Domain Ports for Metadata Synchronization Progress
+
+Synchronization progress and diagnostics have been extracted from the composite
+MetadataStore into Catalog Persistence's `synchronization` contract, and the
+PostgreSQL Provider is explicitly assembled by Server. Progress is bound to the
+deployment incarnation/revision and may advance only within the complete coverage
+boundary declared by the source; local end times and diagnostic history do not
+constitute progress. The boundaries of atomic completion, idempotent receipts, and
+unknown-commit acknowledgement are constrained by the current Catalog Persistence
+implementation and tests. Splitting projection transactions, the remaining
+composite Store, and the Federation SPI remains follow-up work.
+
+### Catalog Deployment and Projection Composite Store Retirement
+
+The composite MetadataStore and PostgresMetadataStore have been retired with no
+forwarding shell. Deployment, table projection, schema projection, and
+synchronization progress are injected through independent ports; Server selects
+the PostgreSQL Provider. Domain Core does not depend on backend helper classes, and
+the transaction-support package is restricted by the manifest to artifact-internal
+use. The original SQL and per-operation outbox atomicity are preserved; a
+conditional projection transaction for a full scan remains follow-up work and
+cannot be inferred as complete from this responsibility split.
 
 ### Binary scalar and heap batch ownership
 
-Types owns scalar binary snapshots; construction and raw-value access must not expose the owned byte array. SQL NULL uses the existing NullValue representation, while an empty binary value is valid. Batch API owns NativePage as an encoded heap snapshot, not a JNI handle. New payload reads fail after close; previously returned copies and size/format metadata remain valid. Consumers that need only the encoded size use the non-copying size query. These guarantees do not imply Native zero-copy buffers or completed Shuffle buffer-lease integration.
+Types owns scalar binary snapshots; construction and raw-value access must not
+expose the owned byte array. SQL NULL uses the existing NullValue representation,
+while an empty binary value is valid. Batch API owns NativePage as an encoded heap
+snapshot, not a JNI handle. New payload reads fail after close; previously returned
+copies and size/format metadata remain valid. Consumers that need only the encoded
+size use the non-copying size query. These guarantees do not imply Native zero-copy
+buffers or completed Shuffle buffer-lease integration.
 
 
-### Metadata 投影写事务与回执（2026-11-03）
+### Metadata Projection Write Transactions and Receipts
 
-`TableProjectionRepository`、`SchemaProjectionRepository` 收敛为只读端口。写入统一通过
-`MetadataProjectionTransactions`，携带原始 handle 的完整 Catalog 部署身份和操作 ID。
-PostgreSQL 在同一行锁及事务下校验部署、读取前值与 tenant impact、更新投影、写失效事件和回执。
-同 ID 同内容返回原回执；不同内容拒绝；提交未知通过原 ID 确认，不能重新生成 ID 盲目重试。
-V108 是统一空库初始化资源，不建设历史数据迁移。Server 负责选择该 Provider，Core 无 JDBC/SDK 泄漏。
-这些约束替代上文“逐操作条件投影事务尚未实现”的历史状态，但整轮扫描、source version、同部署并行
-同步与生命周期仍未完成。
+`TableProjectionRepository` and `SchemaProjectionRepository` are narrowed to
+read-only ports. Writes go uniformly through `MetadataProjectionTransactions`,
+carrying the full Catalog deployment identity of the original handle and the
+operation ID. PostgreSQL validates the deployment, reads the prior value and
+tenant impact, updates the projection, and writes the invalidation event and
+receipt under the same row lock and transaction. Same ID with same content returns
+the original receipt; different content is rejected; an unknown commit is confirmed
+through the original ID, and the ID must not be regenerated for blind retries. V108
+is the unified empty-database initialization resource, with no historical data
+migration. Server selects this provider, and Core has no JDBC/SDK leakage. These
+constraints supersede the historical state above that "per-operation conditional
+projection transactions are not yet implemented", but whole-round scanning, source
+version, parallel synchronization under the same deployment, and lifecycle remain
+incomplete.
 
-### Metadata durable request recovery (2026-11-03 implementation update)
+### Metadata durable request recovery
 
-Catalog Persistence now durably accepts immutable projection and completion intents before
-execution. The original IDs are recoverable by Catalog across service/provider recreation;
-Metadata Catalog must recover pending work before observing a new source batch. New IDs cannot
-bypass pending operations. Obsolete requests are rejected under the current deployment fence.
-Projection/outbox/receipt and checkpoint/run receipt retain their separate atomic owners.
-This delivers per-operation recovery. The following decision extends its guarantees to competing observations.
+Catalog Persistence now durably accepts immutable projection and completion intents
+before execution. The original IDs are recoverable by Catalog across
+service/provider recreation; Metadata Catalog must recover pending work before
+observing a new source batch. New IDs cannot bypass pending operations. Obsolete
+requests are rejected under the current deployment fence.
+Projection/outbox/receipt and checkpoint/run receipt retain their separate atomic
+owners. This delivers per-operation recovery. The following decision extends its
+guarantees to competing observations.
 
-### Federation 同部署观察顺序
+### Federation Same-Deployment Observation Order
 
-V115 在部署行持久化观察 epoch。每轮全量、增量和每次实际 push 回调先恢复原 intent，再在同一把部署行锁下开始观察。
-采样沿用本轮 epoch。更新投影或提交同步进度时，服务端验证部署与 epoch；先前的 intent 必须按原 ID 处理完才允许发出新 epoch。
-已落库的逐操作回执在新 epoch 或新部署下仍可确认。这使任意两个 Coordinator 重叠扫描时，较早开始的扫描无法在新观察之后提交新操作或推进 checkpoint。
+V115 persists the observation epoch on the deployment row. Each full round,
+incremental round, and actual push callback first restores the original intent and
+then starts observation under the same deployment row lock. Sampling uses the
+current round's epoch. When updating projections or committing synchronization
+progress, the server validates the deployment and epoch; previous intents must be
+processed under their original IDs before a new epoch may be issued.
+Already-persisted per-operation receipts can still be acknowledged under a new
+epoch or deployment. This ensures that when any two Coordinators scan
+overlappingly, the earlier scan cannot commit new operations or advance the
+checkpoint after a newer observation.
 
-增量覆盖区间用于 checkpoint，表级状态来自独立的权威点读。推送删除会复查源表是否已重建。缓存、超时、权限不足和能力不支持均无法构成缺失证明。
-分次枚举允许部分可见，遗漏的表或 schema 不触发清扫。外部源缺少统一快照或单对象版本时，无法宣称整个 Catalog 在同一源版本下发布，
-也无法对源读取和本地提交作跨系统原子承诺。后续若需要这两项保证，须由源提供可验证的读取边界和版本。
-取消中的底层源 I/O、推送订阅的启动/退出、事件恢复和日志保留仍需各自的能力与生命周期验证。
+The incremental coverage interval feeds the checkpoint, and table-level state comes
+from independent authoritative point reads. A push deletion rechecks whether the
+source table has been rebuilt. Cache misses, timeouts, insufficient authority, and
+unsupported capabilities cannot constitute proof of absence. Incremental
+enumeration permits partial visibility, and omitted tables or schemas do not
+trigger cleanup. When the external source lacks a unified snapshot or single-object
+version, it is impossible to claim that the entire Catalog is published under one
+source version, nor to make a cross-system atomic promise for source reads and
+local commits. If these two guarantees are needed later, the source must provide
+verifiable read boundaries and versions. Underlying source I/O during
+cancellation, push-subscription startup/exit, event recovery, and log retention
+each still require their own capability and lifecycle validation.

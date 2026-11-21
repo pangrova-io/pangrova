@@ -30,9 +30,8 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-batch` | Block/page values and Arrow decode/projection; readers borrow allocator-owned memory |
 | `pangrova-function` | Function metadata and scalar/aggregate/table extension contracts |
 | `pangrova-execution` | Task stage/purpose/deadline values and canonical execution binding |
-| `pangrova-parser` / `pangrova-planner` | Parser API/Core and Planner API/Core; SDK-free contracts with implementation-owned ANTLR/Calcite |
+| `pangrova-parser` / `pangrova-planner` | Separate single-artifact domains containing their public contracts and ANTLR/Calcite implementations |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
-| `pangrova-query` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
 | `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing; PostgreSQL job/stage/exchange storage lives in `pangrova-persistence/pangrova-persistence-generation-postgresql` |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migrations; runtime bootstrap and owner test fixtures consume the same version sequence |
 | `pangrova-query` | Query runtime services and profiling/audit orchestration; JDBC/in-memory durable state lives in `pangrova-persistence/pangrova-persistence-query-*` |
@@ -43,8 +42,8 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-native-bundle` | Platform-specific JNI library packaging |
 | `pangrova-connector` | Iceberg, Paimon and Lance connector modules |
 | `pangrova-metadata` | Metadata API/Core, catalog resolution, projection and synchronization |
-| `pangrova-table` | Table API/Core family: ownership, observation, maintenance, statistics and governance binding |
-| `pangrova-file` | File API/Core/Worker Adapter family: Volume/Stage contracts, authorization, URL issuance, directory refresh and delegated Worker HTTP operations |
+| `pangrova-table` | Single artifact owning table control, observation, maintenance, statistics, and governance binding |
+| `pangrova-file` | Single artifact owning Volume/Stage contracts, authorization, URL issuance, and directory refresh; Worker endpoint assembly lives in the Worker domain |
 | `pangrova-semantic` | Semantic View identity, authorized creation, immutable definition validation, version listing and fenced publication. The PostgreSQL provider owns the active-version CAS and uses the Server-supplied data source |
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
 | `pangrova-filesystem` | SDK-free Filesystem API and independent LOCAL/S3/OSS providers; backend capability limits are documented in the File architecture |
@@ -54,7 +53,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-operations` | DDL/DML operation infrastructure |
 | `pangrova-scheduler` | Cluster admission, quota/resource placement, scheduling strategies and fair/load-balanced execution order |
 | `pangrova-security` / `pangrova-governance` | Authentication, authorization, classification, lineage and quality governance |
-| `pangrova-indexing` | API/Codec/Core family; unified Indexing API and SPI replace the retired central SPI; strategy, JDBC and planner implementation separation remains in progress |
+| `pangrova-indexing` | API, codec, lifecycle, and built-in strategy artifacts; PostgreSQL persistence is owned by the corresponding persistence modules |
 | `pangrova-observability` | Observability contracts/no-op implementations, OpenTelemetry providers and adapters; Query audit ports live in `pangrova-persistence/pangrova-persistence-query-api` and stores in `pangrova-persistence/pangrova-persistence-query-*` |
 | `pangrova-transport` / `pangrova-client` | Client result transport, REST, JDBC and CLI |
 | `pangrova-standalone` | Single-JVM Coordinator/Worker assembly |
@@ -102,16 +101,10 @@ The benchmark [methodology](../testing/tpc-benchmark-methodology.md) defines evi
 requirements. Keep JMH, complete-suite experiments and the 22-query tail experiment
 separate: they measure different things and enforce different contracts.
 
-## Consolidation decisions
+## Regression reports
 
-Removed the unused `generate-tpc-data.sh`, `start-benchmark-cluster.sh` and
-`stop-benchmark-cluster.sh` forwarding aliases. Use their Python implementations
-above. Repository callers already used those implementations; no benchmark logic
-was removed.
-
-Removed `generate-monthly-report.sh`. It duplicated comparison setup and selected a
-result by filename sorting. Request the existing comparison/report entry point
-with an explicit result and matching baseline instead (from the benchmark module):
+Produce a TPC-H regression report from an explicit result and its matching reviewed
+baseline (from the benchmark module):
 
 ```bash
 mkdir -p reports
@@ -119,18 +112,17 @@ HISTORY_DIR=results REPORT_OUTPUT=reports/tpch-regression.txt \
   scripts/tpch-regression-check.sh results/selected-run.json baseline/reviewed-baseline.json
 ```
 
-The comparator still rejects incomplete or uncalibrated evidence and returns its
-original exit status. Scheduling is an operator decision; this command does not
-create a scheduler or send a notification unless explicitly configured.
+The comparator rejects incomplete or uncalibrated evidence and returns its exit
+status. Scheduling and notification are operator decisions.
 
-The following similar scripts remain separate for concrete reasons:
+## Similar scripts kept separate
+
 
 - `pangrova-coordinator.sh`, `pangrova-worker.sh` and `pangrova-standalone.sh` share
   launcher mechanics but differ in main class, configuration and JVM defaults.
   A future shared launcher should preserve their public names and test argument
   forwarding, environment precedence, classpath resolution, signals and PID
-  ownership, followed by the affected startup/integration chain. This review did
-  not change startup behavior.
+  ownership, followed by the affected startup/integration chain.
 - `pangrova-cli.sh` has client-specific flags and classpath needs; it should not
   acquire server-role defaults through a blanket launcher merge.
 - Container liveness, interactive health, cluster status and recovery measurement
@@ -154,8 +146,5 @@ dependencies and generated caches. `.env.example` templates remain visible.
 Use `git status --short` and `git ls-files -ci --exclude-standard` before publishing;
 ignore rules do not remove content already committed to history.
 
-README and the website share `website/static/img/logo.png`. The architecture in the
-README is maintained as Mermaid source; obsolete target-architecture PNG/HTML
-artwork and the duplicate logo were removed. The redundant resource-directory
-placeholder was removed; the functional Maven root marker and Pages `.nojekyll`
-marker remain.
+README and the website navigation share `website/static/img/logo-transparent.png`.
+The architecture PNG is rendered from `website/static/img/architecture-overview.svg`.

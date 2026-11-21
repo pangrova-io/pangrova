@@ -74,7 +74,7 @@ def main():
         root = Path(directory)
         sources = root / 'src/main/java'
         sources.mkdir(parents=True)
-        jdbc = sources / 'org/pangrova/materialization/store/jdbc/JdbcMaterializationRepository.java'
+        jdbc = sources / 'org/pangrova/persistence/materialization/postgresql/JdbcMaterializationRepository.java'
         jdbc.parent.mkdir(parents=True)
         jdbc.write_text('''class JdbcMaterializationRepository {
     void bind(java.sql.PreparedStatement statement) throws java.sql.SQLException {

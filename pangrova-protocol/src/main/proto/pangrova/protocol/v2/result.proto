@@ -120,6 +120,8 @@ enum TaskReportOrigin {
   TASK_REPORT_ORIGIN_UNSPECIFIED = 0;
   TASK_REPORT_ORIGIN_NATIVE = 1;
   TASK_REPORT_ORIGIN_WORKER_RECONCILED = 2;
+  // Exact successful Worker-JVM task execution; not Native evidence.
+  TASK_REPORT_ORIGIN_WORKER_EXECUTED = 3;
 }
 
 message CoverageReport {
@@ -278,6 +280,8 @@ enum ExecutionDrainState {
   EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER = 2;
   // The exact target incarnation physically exited or joined every execution owner.
   EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED = 3;
+  // The Worker-JVM task released its source, sink and buffers after completion.
+  EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED = 4;
 }
 
 message TaskReport {

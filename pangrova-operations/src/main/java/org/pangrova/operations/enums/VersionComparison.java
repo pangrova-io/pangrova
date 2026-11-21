@@ -17,6 +17,7 @@ public enum VersionComparison {
         this.symbol = symbol;
     }
 
+    /** Returns the comparison for an operator symbol, rejecting unknown symbols. */
     public static VersionComparison fromSymbol(String symbol) {
         for (VersionComparison op : values()) {
             if (op.symbol.equals(symbol)) {

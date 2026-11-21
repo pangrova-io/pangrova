@@ -1,8 +1,5 @@
 package org.pangrova.function.api.table;
 
-import org.pangrova.function.api.table.ReturnColumnDescriptor;
-import org.pangrova.function.api.table.TableFunctionArgument;
-
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;

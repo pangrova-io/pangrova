@@ -52,6 +52,7 @@ public final class DdlTypeMapper {
         }
     }
 
+    /** Maps a parsed DDL type to the engine logical type. */
     public static PangrovaType map(DataTypeSpec spec) {
         if (spec instanceof DataTypeSpec.PrimitiveType primitive) {
             return mapBaseType(primitive.baseType());

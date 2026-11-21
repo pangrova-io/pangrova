@@ -1,7 +1,5 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 

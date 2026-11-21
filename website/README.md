@@ -17,16 +17,25 @@ pnpm run typecheck
 pnpm run build
 ```
 
+The build first runs `pnpm run check:images`: regression tests and a scan of
+repository Markdown image references. Local images must exist and use relative
+paths that also resolve in GitHub previews; external image URLs are not fetched.
+Search uses a hash in the index filename rather than the query string so the
+index resolves in both GitHub Pages and `pnpm serve` under `/pangrova/`.
 Broken routes, Markdown targets and anchors fail the build. Navigation is owned
 by `sidebars.ts`; documentation format is described in
 [the documentation guide](../docs/contributing/documentation.md).
 
 `static/img/` is the shared image source for this site and the root README. The
-root README maintains the current execution diagram as Mermaid source.
-Retain `static/.nojekyll`, which is a GitHub Pages deployment marker.
+root README embeds `static/img/architecture-overview.png`; its editable source is
+`static/img/architecture-overview.svg`. Retain `static/.nojekyll`, which is a
+GitHub Pages deployment marker.
 
-Pull requests validate the site without deployment. Pushes to `main` publish the
-validated `build/` artifact through GitHub Pages; a manual run on `main` can also
-publish. Configure the repository's Pages source as GitHub Actions. No local
-`gh-pages` branch deployment is needed. The canonical URL is
-https://pangrova.github.io/pangrova/.
+The official site is https://pangrova-io.github.io/pangrova/, deployed by
+`.github/workflows/deploy-website.yml` on every push to `main` that changes `docs/`
+or `website/`. For a private repository an organization owner must enable Pages once
+(Settings → Pages → Source: GitHub Actions), which requires a plan that
+includes Pages; the deployment token cannot create the site itself. Pull
+requests build and typecheck the site without deploying. Builds default to the
+`/pangrova/` base path; `PANGROVA_SITE_URL` and `PANGROVA_SITE_BASE_URL` override
+the URL and base path for another host. No `gh-pages` branch is used.

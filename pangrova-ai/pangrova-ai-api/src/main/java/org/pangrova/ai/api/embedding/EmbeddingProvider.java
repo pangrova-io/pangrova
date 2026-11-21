@@ -15,8 +15,6 @@ package org.pangrova.ai.api.embedding;
 
 import org.pangrova.ai.api.enums.AiExecutionMode;
 import org.pangrova.ai.api.enums.AiOperation;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
 import org.pangrova.ai.api.enums.EmbeddingPurpose;
 
 import java.util.ArrayList;

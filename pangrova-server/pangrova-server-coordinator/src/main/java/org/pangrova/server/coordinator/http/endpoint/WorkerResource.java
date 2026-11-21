@@ -167,7 +167,8 @@ public final class WorkerResource {
         var deployment = reportedShuffle(request);
         if (!workerManager.supportsShuffle(deployment) || (request.shuffleMode() != null && deployment == null)) {
             return Response.status(HTTP_STATUS_CONFLICT)
-                    .entity(Map.of("status", "error", "message", "Worker shuffle deployment does not match Coordinator"))
+                    .entity(Map.of("status", "error", "message",
+                            "Worker shuffle deployment does not match Coordinator"))
                     .build();
         }
         WorkerInfo info = toWorkerInfo(request, capabilityInventory, deployment);
@@ -304,7 +305,8 @@ public final class WorkerResource {
     }
 
     private static WorkerShuffleDeployment reportedShuffle(WorkerRegistrationRequest request) {
-        if (request.shuffleMode() == null || ("REMOTE".equals(request.shuffleMode()) && request.shuffleProvider() == null)) {
+        if (request.shuffleMode() == null || ("REMOTE".equals(request.shuffleMode())
+                && request.shuffleProvider() == null)) {
             return null;
         }
         return new WorkerShuffleDeployment(request.shuffleMode(), request.shuffleProvider());

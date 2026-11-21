@@ -43,6 +43,7 @@ public final class JvmDiagnostics implements AutoCloseable {
         this(config, DiagnosticAuthorizer.requireAdminOrOperator());
     }
 
+    /** Creates authorized heap-dump and flight-recorder diagnostics. */
     public JvmDiagnostics(DiagnosticConfig config, DiagnosticAuthorizer authorizer) {
         this.config = Objects.requireNonNull(config, "config");
         this.authorizer = Objects.requireNonNull(authorizer, "authorizer");

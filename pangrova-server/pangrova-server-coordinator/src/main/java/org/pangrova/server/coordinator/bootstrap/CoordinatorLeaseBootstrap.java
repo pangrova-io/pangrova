@@ -21,10 +21,12 @@ final class CoordinatorLeaseBootstrap {
 
     static CoordinationProvider resolve(DataSource dataSource) {
         return open(dataSource, System.getProperty(PREFIX + "backend", "jdbc"),
-                ServiceLoader.load(CoordinationProviderFactory.class, CoordinatorLeaseBootstrap.class.getClassLoader()));
+                ServiceLoader.load(CoordinationProviderFactory.class,
+                        CoordinatorLeaseBootstrap.class.getClassLoader()));
     }
 
-    static CoordinationProvider open(DataSource source, String backend, Iterable<CoordinationProviderFactory> factories) {
+    static CoordinationProvider open(DataSource source, String backend,
+            Iterable<CoordinationProviderFactory> factories) {
         Map<String, CoordinationProviderFactory> names = new HashMap<>();
         for (var factory : factories) {
             if (factory.apiVersion() != CoordinationProviderFactory.API_VERSION) {

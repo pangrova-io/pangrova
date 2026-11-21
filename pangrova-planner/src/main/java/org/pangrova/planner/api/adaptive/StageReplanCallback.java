@@ -2,7 +2,6 @@ package org.pangrova.planner.api.adaptive;
 
 import org.pangrova.common.api.annotation.Internal;
 
-import org.pangrova.planner.api.adaptive.StageReplanDecision;
 
 /**
  * Callback interface invoked by {@code StageReplanCoordinator} after producing a

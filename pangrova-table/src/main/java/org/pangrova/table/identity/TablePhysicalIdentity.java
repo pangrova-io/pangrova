@@ -11,6 +11,7 @@ import java.util.Optional;
 public final class TablePhysicalIdentity {
     private TablePhysicalIdentity() {}
 
+    /** Returns whether the record and observed format identity refer to the same physical table. */
     public static boolean matchesIdentity(TableControlRecord record,
             Optional<TableIdentity> identity) {
         if (identity.isEmpty() || !identity.get().hasFormatUuid()) {
@@ -32,6 +33,7 @@ public final class TablePhysicalIdentity {
         return record.formatTableUuid() != null && !record.formatTableUuid().isBlank();
     }
 
+    /** Copies an observed format identity and version onto a control record builder. */
     public static TableControlRecord.Builder withIdentity(TableControlRecord.Builder builder,
             Optional<TableIdentity> identity, Optional<TableVersionToken> version, Instant now) {
         identity.ifPresent(value -> builder

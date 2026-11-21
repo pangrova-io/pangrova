@@ -21,18 +21,7 @@ sidebar_label: "Native Execution Layer"
 
 ## 1. Overall Architecture
 
-```text
-Coordinator JVM: SQL/planning → canonical v2 task binding → admission/scheduling
-                                      │
-                                      ▼
-Worker JVM: task lifecycle, connector registry, memory arbitration,
-            Iceberg/Paimon page-sink callback, fenced status reporting
-                                      │ JNI control + write callback
-                                      ▼
-Worker Native: Velox plan/operator execution → Native shuffle/result Flight
-               ↑                                      │
-               └──────── Native ExchangeSource ◀──────┘
-```
+![Coordinator JVM: SQL/planning → canonical v2 task binding → admission/scheduling](../../website/static/img/diagrams/generated/native-execution-01-3b9f6c7978.svg)
 
 The main relational execution path places operators and vector Top-K merging on
 Native Workers. The separate Coordinator-local CDC sink remains a migration gap;
@@ -117,49 +106,7 @@ for retry and is reported to the caller.
 
 Building on the core ideas of Velox, Pangrova adopts an architecture that separates the "control plane" from the "data plane":
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Control Plane (Java)                                │
-│                                                                                  │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐      │
-│  │ SQL Parser  │ →  │  Calcite    │ →  │  Substrait  │ →  │   Split     │      │
-│  │  (ANTLR4)   │    │  Optimizer  │    │  Converter  │    │  Manager    │      │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘      │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Connector SPI (Java)                                  │   │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐              │   │
-│  │  │ Metadata  │  │   Split   │  │ Predicate │  │ Statistics│              │   │
-│  │  │  Provider │  │  Manager  │  │  Pushdown │  │  Provider │              │   │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└──────────────────────────────────────┬──────────────────────────────────────────┘
-                                       │
-                                       │ Substrait Plan + Split Info
-                                       │ (Protobuf Serialization)
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              Data Plane (C++ Velox)                              │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Native Connector SPI (C++)                            │   │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐              │   │
-│  │  │DataSource │  │DataSource │  │  Native   │  │  Native   │              │   │
-│  │  │  Factory  │  │  Reader   │  │  Writer   │  │  Spiller  │              │   │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Velox Execution Engine                                │   │
-│  │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐              │   │
-│  │  │ TableScan │  │  Filter   │  │  Project  │  │Aggregation│              │   │
-│  │  │ Operator  │  │ Operator  │  │ Operator  │  │ Operator  │              │   │
-│  │  └───────────┘  └───────────┘  └───────────┘  └───────────┘              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Control Plane (Java)](../../website/static/img/diagrams/generated/native-execution-02-23981612cb.svg)
 
 ## 3. Dual-Layer Connector Architecture
 
@@ -170,104 +117,11 @@ Building on the core ideas of Velox, Pangrova adopts an architecture that separa
 | Java Connector | Java | Metadata, Split planning, transactions | Deep integration with lakehouse format SDKs |
 | Native Connector | C++ | Data reading, vectorized processing | Extreme performance, SIMD optimization |
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Dual-Layer Connector Architecture                        │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Java Connector Layer                                  │   │
-│  │                                                                          │   │
-│  │  Responsibilities:                                                       │   │
-│  │  • Metadata management (Schema, Partition, Statistics)                   │   │
-│  │  • Split planning (file listing, Row Group selection, partition pruning) │   │
-│  │  • Predicate pushdown decisions (which conditions can be pushed down)    │   │
-│  │  • Transaction management (Iceberg Snapshot, Paimon Changelog)           │   │
-│  │  • DDL operations (Create/Alter/Drop Table)                              │   │
-│  │                                                                          │   │
-│  │  Output: bound split metadata (file, offset, length, format, filters)    │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                       │                                         │
-│                                       │ canonical v2 split metadata            │
-│                                       ▼                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Native Connector Layer                                │   │
-│  │                                                                          │   │
-│  │  Responsibilities:                                                       │   │
-│  │  • High-performance data reading (Parquet/ORC Native Reader)             │   │
-│  │  • Vectorized decoding (SIMD accelerated)                                │   │
-│  │  • Column pruning execution                                              │   │
-│  │  • Predicate filtering execution (Row Group/Page level)                  │   │
-│  │  • Delete File merging (Iceberg MOR)                                     │   │
-│  │  • Write serialization (in-memory only, no disk write)                   │   │
-│  │                                                                          │   │
-│  │  Output: Arrow RecordBatch / Velox RowVector                             │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Dual-Layer Connector Architecture](../../website/static/img/diagrams/generated/native-execution-03-58e3157669.svg)
 
 ## 4. Data Flow in Detail
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Query Execution Data Flow                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Coordinator                                                                     │
-│       │                                                                          │
-│       │ Stage DAG + Splits (Substrait Plan + Split Info)                        │
-│       ▼                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  Java Layer                                                              │    │
-│  │       │                                                                  │    │
-│  │       │ 1. Receive Task via HTTP (REST)                                 │    │
-│  │       │ 2. Parse Substrait Plan (Java)                                  │    │
-│  │       │ 3. Allocate Memory Budget                                       │    │
-│  │       ▼                                                                  │    │
-│  │  TaskManager.submitTask(SubstraitPlan, Splits, MemoryBudget)            │    │
-│  │       │                                                                  │    │
-│  └───────┼──────────────────────────────────────────────────────────────────┘    │
-│          │                                                                       │
-│          │ JNI: handle = nativeCreateTaskExecutor(taskRequestBytes)            │
-│          │      nativeStartTask(handle)  // async, returns immediately          │
-│          │ Control: Protobuf commands via nativeCommand(handle, proto)          │
-│          ▼                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  C++ Layer                                                               │    │
-│  │       │                                                                  │    │
-│  │       │ 4. Deserialize Substrait Plan                                   │    │
-│  │       │ 5. Convert to Velox PlanNode                                    │    │
-│  │       │ 6. Create Task with Memory Pool                                 │    │
-│  │       ▼                                                                  │    │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Velox Task Execution                                           │   │    │
-│  │  │                                                                  │   │    │
-│  │  │  Pipeline 1: TableScan → Filter → Project                       │   │    │
-│  │  │       │                                                          │   │    │
-│  │  │       │ Read from Storage (Parquet/ORC via Native I/O)          │   │    │
-│  │  │       │ Vectorized Processing (SIMD)                            │   │    │
-│  │  │       ▼                                                          │   │    │
-│  │  │  Pipeline 2: PartialAgg → Shuffle                               │   │    │
-│  │  │       │                                                          │   │    │
-│  │  │       │ Shuffle Output (via C++ Arrow Flight Server)             │   │    │
-│  │  │       ▼                                                          │   │    │
-│  │  │  Output: Serialized pages via C++ Flight servers                │   │    │
-│  │  │                                                                  │   │    │
-│  │  └─────────────────────────────────────────────────────────────────┘   │    │
-│  │       │                                                                  │    │
-│  └───────┼──────────────────────────────────────────────────────────────────┘    │
-│          │                                                                       │
-│          │ Result: C++ FlightResultServer serves pre-serialized pages           │
-│          │ Shuffle: C++ FlightShuffleServer serves shuffle data                 │
-│          │ Exchange: C++ PangrovaExchangeSource pulls from upstream Flight        │
-│          ▼                                                                       │
-│  Data Exchange (C++ Arrow Flight — no Java data-plane JNI)                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Execution Data Flow](../../website/static/img/diagrams/generated/native-execution-04-1ec0b14651.svg)
 
 ## 5. Native ↔ Java Interaction Protocol
 
@@ -287,15 +141,7 @@ Building on the core ideas of Velox, Pangrova adopts an architecture that separa
 
 ### 5.2 Current Native Data Flow
 
-```text
-Coordinator (plan, task admission, scheduling)
-    → Worker Native Velox operators
-    → Native serialized shuffle queue
-    → Native Flight DoGet
-    → downstream Native ExchangeSource
-    → result Worker Native Flight
-    → client
-```
+![Coordinator (plan, task admission, scheduling)](../../website/static/img/diagrams/generated/native-execution-05-f6bff67b90.svg)
 
 Java does not repeatedly pull shuffle or result batches through JNI. The
 producer queue and Flight demultiplexer provide bounded handoff; producer
@@ -609,7 +455,7 @@ their physical row and locator.
 
 The authoritative Native/JNI build order, mandatory Lance FFI dependency,
 Release packaging, full CTest, ASan and Java/E2E validation gates are in
-[the repository build pipeline](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/build-pipeline.md).
+the repository build pipeline.
 Native resources use the packager's canonical OS/architecture path, including
 `META-INF/native/osx/aarch64/libpangrova_native.dylib`; Maven copies that staged
 resource rather than independently mapping the raw CMake output into test

@@ -23,6 +23,7 @@ import java.util.List;
 public final class FileStruct {
     private FileStruct() {}
 
+    /** Encodes a blob reference and its creation time as a FILE struct row value. */
     public static ColumnValue.RowValue encode(BlobReference reference, LocalDateTime createdAt) {
         if (createdAt == null) {
             throw new IllegalArgumentException("createdAt required");

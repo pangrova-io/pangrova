@@ -258,7 +258,8 @@ public final class JdbcTenantStore implements TenantStore {
                 throw failure;
             }
         } catch (SQLException | RuntimeException failure) {
-            if (committing) throw new org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException(failure);
+            if (committing) throw new org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException(
+                    failure);
             if (failure instanceof RuntimeException runtime) throw runtime;
             throw new TenantPersistenceException("Failed changing tenant membership", failure);
         }

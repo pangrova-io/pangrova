@@ -106,7 +106,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 null,
                 null,
                 0L,
-                null, null);
+                null, null, null);
     }
 
     @Test
@@ -234,7 +234,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 entry.principal(), entry.authorizationReceipt(), null), entry.fragments());
         var forged = new WriteCommitEntry(entry.queryId(), entry.catalogName(), entry.tableName(), entry.state(), entry.timestampMs(),
                 entry.fragments(), entry.writeMode(), fingerprint, entry.tenantId(), entry.principal(), entry.authorizationReceipt(),
-                entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null, null);
+                entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null, null, null);
         assertThat(new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(forged))
                 .isEqualTo(WriteRecoveryOutcome.QUARANTINED);

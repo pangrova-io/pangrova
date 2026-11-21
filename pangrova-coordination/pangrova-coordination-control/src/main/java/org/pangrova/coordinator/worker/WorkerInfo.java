@@ -43,6 +43,7 @@ public record WorkerInfo(
         org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment) implements PlacementWorker {
     private static final int MAX_TCP_PORT = 65535;
 
+    /** Validates the ports and health fields of a Worker view. */
     public WorkerInfo(
         String workerId,
         String host,
@@ -66,7 +67,8 @@ public record WorkerInfo(
         WorkerExecutionIdentity workerExecutionIdentity) {
         this(workerId, host, httpPort, transportPort, resultServerPort, healthState,
                 memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeat, performanceScore,
-                resourcePoolId, protocolVersion, rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, null);
+                resourcePoolId, protocolVersion, rackId, dataLocality, cacheSummary, capabilityInventory,
+                        copyTaskTlsPort, workerExecutionIdentity, null);
     }
 
     /** Compatibility constructor for snapshots without a dedicated COPY task listener. */
@@ -114,7 +116,8 @@ public record WorkerInfo(
                 newState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, shuffleDeployment);
+                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
+                        shuffleDeployment);
     }
 
     /** Returns a Worker snapshot with the updated cache summary. */
@@ -123,7 +126,8 @@ public record WorkerInfo(
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, shuffleDeployment);
+                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
+                        shuffleDeployment);
     }
 
     WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {

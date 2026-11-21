@@ -17,7 +17,6 @@ public record PaimonSystemTableHandle(
         List<MetadataObject> objects,
         String sourceIdentity) implements ConnectorTableHandle {
 
-
     /** One immutable Paimon snapshot or tag JSON object. */
     public record MetadataObject(long snapshotId, String tagName, long schemaId,
             String uri, long length, String sha256) {

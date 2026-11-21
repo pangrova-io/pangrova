@@ -38,7 +38,8 @@ final class WorkerBootstrapLifecycle {
         if (state == WorkerBootstrapState.NEW
                 && refs.cdcConsumer() == null
                 && !(refs.catalogResourceResolver() instanceof AutoCloseable)) return false;
-        if (state != WorkerBootstrapState.NEW && state != WorkerBootstrapState.RUNNING && state != WorkerBootstrapState.CLEANUP_PENDING) {
+        if (state != WorkerBootstrapState.NEW && state != WorkerBootstrapState.RUNNING
+                && state != WorkerBootstrapState.CLEANUP_PENDING) {
             throw new IllegalStateException("WorkerBootstrap cannot shutdown in state " + state);
         }
         ready.set(false);

@@ -55,6 +55,7 @@ public final class AsyncDdlExecutor implements AutoCloseable {
         this.backgroundExecutor = Objects.requireNonNull(backgroundExecutor, "backgroundExecutor");
     }
 
+    /** Persists a pending DDL job and schedules its execution. */
     public DdlJob submit(DdlJob job) {
         if (job.state() != DdlJobState.PENDING) {
             throw new IllegalArgumentException("New DDL jobs must be PENDING");

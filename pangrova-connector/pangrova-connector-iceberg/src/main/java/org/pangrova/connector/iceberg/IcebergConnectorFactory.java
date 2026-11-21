@@ -25,6 +25,7 @@ public class IcebergConnectorFactory implements ConnectorFactory {
 
     private static final String CATALOG_TYPE_KEY = "catalog-type";
     private static final String CATALOG_TYPE_REST = "rest";
+
     @Override
     public int apiVersion() {
         return ConnectorFactoryContract.CURRENT_API_VERSION;

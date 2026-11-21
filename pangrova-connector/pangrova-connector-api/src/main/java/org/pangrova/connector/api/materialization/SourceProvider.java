@@ -1,14 +1,8 @@
 package org.pangrova.connector.api.materialization;
 
 import org.pangrova.connector.api.enums.MaterializationSourceFailureReason;
-import org.pangrova.connector.api.materialization.ChangeProof;
 import org.pangrova.connector.api.enums.ChangeSetMode;
-import org.pangrova.connector.api.materialization.ChangeSetPlan;
-import org.pangrova.connector.api.materialization.MaterializationCapabilities;
 import org.pangrova.connector.api.exception.MaterializationSourceException;
-import org.pangrova.connector.api.materialization.PinnedSource;
-import org.pangrova.connector.api.materialization.SourceRef;
-import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 import org.pangrova.common.api.annotation.Stable;
 

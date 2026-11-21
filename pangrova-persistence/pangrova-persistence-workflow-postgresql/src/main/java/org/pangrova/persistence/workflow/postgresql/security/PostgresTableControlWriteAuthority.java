@@ -31,7 +31,8 @@ import org.pangrova.table.api.policy.GovernanceBinding;
 public final class PostgresTableControlWriteAuthority implements TableControlWriteAuthority {
 
     private final DeferredAuthorization authorization = new DeferredAuthorization(
-            AuthorizationTransactionGate::lockPublication, new JdbcCurrentDirectRoleReader(), new JdbcCurrentGrantReader());
+            AuthorizationTransactionGate::lockPublication, new JdbcCurrentDirectRoleReader(),
+                    new JdbcCurrentGrantReader());
     private final DeferredPolicyReader policies = new DeferredPolicyReader(new JdbcCurrentPolicyReader());
     private final TableControlPolicyProjections projections;
 

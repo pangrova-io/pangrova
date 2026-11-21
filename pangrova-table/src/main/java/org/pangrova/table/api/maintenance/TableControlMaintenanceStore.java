@@ -2,9 +2,6 @@ package org.pangrova.table.api.maintenance;
 
 import org.pangrova.common.api.annotation.Internal;
 
-import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
-import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

@@ -74,7 +74,7 @@ final class CdcPipelineMetrics implements AutoCloseable {
      * @param provider   the metrics provider for creating instruments
      * @param streamName the CDC stream name, used as a dimension tag
      */
-    public CdcPipelineMetrics(MetricsProvider provider, String streamName) {
+    CdcPipelineMetrics(MetricsProvider provider, String streamName) {
         long startTimeNanos = System.nanoTime();
         this.streamAttributes = MetricAttributes.of("stream", streamName);
         this.recordsConsumed = provider.createCounter(

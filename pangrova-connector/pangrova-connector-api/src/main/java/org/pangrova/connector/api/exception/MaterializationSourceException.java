@@ -14,7 +14,6 @@ import org.pangrova.common.api.annotation.Stable;
 @Stable(since = "1.0")
 public final class MaterializationSourceException extends RuntimeException {
 
-
     private final MaterializationSourceFailureReason reason;
 
     /** Creates a source failure with a stable reason and diagnostic message. */

@@ -1,6 +1,5 @@
 package org.pangrova.server.coordinator.enums;
 
-
 import java.util.Locale;
 
 /**

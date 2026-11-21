@@ -34,27 +34,7 @@ boundaries explicitly—an implemented path is not a production qualification.
 Pangrova is a distributed SQL engine with a strict separation between **control
 plane** and **data plane**:
 
-```text
-SQL / JDBC / REST / CLI
-          |
-          v
-  Coordinator JVM
-  parse -> bind -> authorize -> plan -> admit -> schedule -> fence -> commit
-          |
-          v
-  canonical v2 TaskRequest + Substrait plan + execution bindings
-          |
-          v
-  Worker JVM
-  lifecycle / admission / JNI / secrets / governed provider callbacks
-          |
-          v
-  C++ Native (Velox)
-  scan -> filter/project -> join/aggregate -> retrieve -> shuffle -> fill -> output
-          |
-          v
-  Arrow Flight exchange and result stream
-```
+![Query execution path: clients submit SQL over HTTP; the Coordinator parses, plans, authorizes, admits, schedules, fences, and commits; a canonical v2 task binding crosses JNI to the Worker JVM and C++/Velox execution; Arrow Flight returns the result stream](../static/img/diagrams/blog-query-execution.svg)
 
 The Coordinator parses and plans SQL, resolves catalogs and snapshots, authorizes
 access, admits resources, builds the stage DAG, tracks attempts, validates terminal
@@ -403,7 +383,7 @@ that teams can extend and operate the engine themselves.
 - Check [current capability status](/docs/getting-started/capability-status) before
   relying on a feature in production.
 - Review the [roadmap](/docs/getting-started/roadmap) and propose concrete work
-  through [GitHub issues](https://github.com/pangrova/pangrova/issues).
+  through GitHub issues.
 
 Pangrova is developed in the open. If your team has a real lakehouse workload that
 combines relational analytics, retrieval, and governance, we would like to validate

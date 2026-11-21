@@ -45,7 +45,9 @@ public final class DAGLifecycleController {
     private final ShuffleLifecycleManager shuffleLifecycleManager;
     private final LineageEventEmitter lineageEmitter;
     private final List<StageLifecycleHandler> handlers;
+
     private record RegisteredDAG(StageDAG dag, TaskTerminalRegistry terminals) {}
+
     private final ConcurrentHashMap<String, QueryExecutionScope> queryContexts =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RegisteredDAG> queryDags =

@@ -1,7 +1,5 @@
 package org.pangrova.query.api.audit;
 
-import org.pangrova.query.api.audit.QueryAuditRecord;
-
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Optional;

@@ -6,7 +6,6 @@ import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
 
 /**
  * Bridges NativeMetricsPuller to MetricsProvider by registering observable gauges

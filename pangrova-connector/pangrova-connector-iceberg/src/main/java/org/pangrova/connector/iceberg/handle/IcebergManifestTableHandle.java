@@ -26,7 +26,6 @@ public record IcebergManifestTableHandle(
         Map<Integer, List<PartitionSummaryField>> partitionSummarySpecs,
         List<ConnectorTableMetadata.Column> typedColumns) implements ConnectorTableHandle {
 
-
     /** Stable tuple identity and bound rendering; an empty name is outside the unified partition type. */
     public record PartitionSummaryField(String transform, String resultType, int fieldId, String name) {
         public PartitionSummaryField {

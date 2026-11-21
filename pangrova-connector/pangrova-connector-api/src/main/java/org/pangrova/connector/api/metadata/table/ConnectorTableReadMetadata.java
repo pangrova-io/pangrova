@@ -9,7 +9,8 @@ import java.util.Objects;
 
 /** Read metadata distinguishes a proven declaration (including absence) from unavailable historical evidence. */
 @Experimental
-public record ConnectorTableReadMetadata(ConnectorTableMetadata metadata, TableDeclarationEvidence declarationEvidence) {
+public record ConnectorTableReadMetadata(ConnectorTableMetadata metadata,
+        TableDeclarationEvidence declarationEvidence) {
 
     public ConnectorTableReadMetadata {
         Objects.requireNonNull(metadata, "metadata");

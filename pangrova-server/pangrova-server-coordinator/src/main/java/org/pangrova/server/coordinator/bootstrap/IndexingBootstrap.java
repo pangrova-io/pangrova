@@ -4,7 +4,6 @@ import org.pangrova.persistence.generation.api.publication.GenerationPublication
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 
-
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
 import org.pangrova.indexing.descriptor.IndexDescriptorCache;
 import org.pangrova.indexing.evaluation.IndexEvalMetrics;

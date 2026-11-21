@@ -18,7 +18,7 @@ sidebar_label: "Streaming & CDC"
 > Coordinator. The source offset and Iceberg/Paimon catalog do not share an
 > atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
 > Paimon rejects the context-free CDC commit, and UPDATE phases are not one
-> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-proposed-not-implemented)
+> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending)
 > for the required durable Native design and its acceptance criteria. No
 > exactly-once/effectively-once production guarantee is currently claimed.
 
@@ -45,15 +45,16 @@ it does not make source acknowledgement and lake publication one transaction.
 
 The Pangrova streaming module is a **declarative incremental data transformation** engine.
 CDC-related components exist, but complete incremental transformation and automatic
-materialized-view refresh remain incomplete. The default continuous-query refresh
-callback only logs a tick, and continuous-query materialization returns unsupported.
-Stream task registration is conditional. Dynamic-table and materialized-view DDL,
-refresh, scheduling, recovery, and GC are served by the unified materialization
-kernel when durable metadata publication is configured: refreshes claim a durable
-lease, execute Native CTAS, and publish an immutable generation through CAS; a
-restart reconciles reserved attempts from the write-commit journal, and GC is
-fenced by reader pins. That lifecycle does not establish exactly-once CDC output or
-continuous-query materialization.
+materialized-view refresh remain incomplete. Stream task registration is conditional.
+Dynamic-table, continuous-query, and materialized-view DDL, refresh, scheduling,
+recovery, and GC are served by the unified materialization kernel when durable
+metadata publication is configured: refreshes claim a durable lease, execute Native
+CTAS, and publish an immutable generation through CAS; a restart reconciles reserved
+attempts from the write-commit journal, and GC is fenced by reader pins.
+`CREATE CONTINUOUS QUERY ... REFRESH EVERY <interval>` creates a dynamic table whose
+target lag is the declared interval; refresh is interval-driven and full, not
+watermark-gated. That lifecycle does not establish exactly-once CDC output or
+incremental continuous-query materialization.
 
 **Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
 sketches below describe design or component contracts unless explicitly identified
@@ -116,35 +117,18 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 
 | Old Name | New Name | Rationale |
 |---|---|---|
-| 原 `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
+| Former `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
 | StreamWriteSink (old name) | `CdcWriteSink` | Clarifies this writes CDC data, not arbitrary stream output |
 | StreamWriteResult (old name) | `CdcWriteResult` | Consistent with CdcWriteSink |
-| 原 `StreamingWriter` | 原 `IncrementalWriter`（均已退役） | Clarifies incremental batch buffering, not stream processing |
-| 原 `StreamingWriterConfig` | 原 `IncrementalWriterConfig`（均已退役） | Consistent with IncrementalWriter |
+| Former `StreamingWriter` | Former `IncrementalWriter` (both retired) | Clarifies incremental batch buffering, not stream processing |
+| Former `StreamingWriterConfig` | Former `IncrementalWriterConfig` (both retired) | Consistent with IncrementalWriter |
 
 Removed APIs: CheckpointCoordinator and the streaming-local CheckpointStore —
 Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ## 1. Unified Batch-Streaming Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Streaming Architecture                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Capability matrix:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Note                        │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  CDC Ingestion      │ Capture database changes in real time│ Debezium/Flink CDC  │   │
-│  │  Incremental Query  │ Incremental reads based on Changelog│ Iceberg/Paimon native│   │
-│  │  Streaming Ingestion│ Low-latency writes          │ Mini-batch writes   │   │
-│  │  Watermark          │ Event-time semantics        │ Table-level Watermark│   │
-│  │  Upsert             │ Primary key update          │ MOR/COW modes       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Streaming and CDC pipeline: source, CdcSourceReader, format decoding, pipeline buffering, checkpoint state, two-phase commit, connector page-sink writes, and catalog publication](../../website/static/img/diagrams/streaming-pipeline.svg)
 
 ---
 
@@ -152,78 +136,13 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ### 2.1 CDC Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           CDC Ingestion Architecture                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Data flow:                                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────────────┐   │   │
-│  │  │  MySQL  │     │Debezium │     │  Kafka  │     │     Pangrova      │   │   │
-│  │  │PostgreSQL│ ──► │ Connector│ ──► │         │ ──► │  CDC Consumer  │   │   │
-│  │  │  Oracle │     │         │     │         │     │                 │   │   │
-│  │  └─────────┘     └─────────┘     └─────────┘     └────────┬────────┘   │   │
-│  │                                                            │            │   │
-│  │                                                            ▼            │   │
-│  │                                                   ┌─────────────────┐   │   │
-│  │                                                   │  Iceberg/Paimon │   │   │
-│  │                                                   │     Table       │   │   │
-│  │                                                   └─────────────────┘   │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  CDC message format (Debezium):                                                  │
-│  {                                                                               │
-│    "before": {...},     // Data before change (UPDATE/DELETE)                   │
-│    "after": {...},      // Data after change (INSERT/UPDATE)                    │
-│    "op": "c|u|d|r",     // Operation type: create/update/delete/read            │
-│    "ts_ms": 1234567890, // Event timestamp                                      │
-│    "source": {...}      // Source information                                   │
-│  }                                                                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![CDC Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-01-97804f6e4b.svg)
 
 ### 2.2 Unified Write Architecture
 
 **Earlier unified-write proposal (retired).** CDC writes and client writes were to share the retired `TableWriter` batch component, with CDC adding a parsing layer. That hierarchy had no production factory, consumer or close owner and was removed. The coordinator CDC runtime writes through `CdcWriteSink` and `ConnectorPageSinkCdcWriter`; SQL writes use the Worker `NativeWriteExecutor` with the connector page sink. The coordinator owns transaction orchestration and metadata commit and does not write data files.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Unified Write Architecture                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌─────────────────┐     ┌─────────────────┐                                    │
-│  │  CDC Consumer   │     │  Client Write   │                                    │
-│  │  (Debezium parse) │     │  (SQL INSERT)   │                                    │
-│  └────────┬────────┘     └────────┬────────┘                                    │
-│           │                       │                                              │
-│           │ List<CdcRecord>       │ List<Record>                                │
-│           └───────────┬───────────┘                                              │
-│                       ▼                                                          │
-│           ┌───────────────────────┐                                              │
-│           │   TableWriter SPI     │  ← Unified write interface                   │
-│           │   (Iceberg/Paimon)    │                                              │
-│           └───────────┬───────────┘                                              │
-│                       │                                                          │
-│                       │ Send signal after write() completes                      │
-│                       ▼                                                          │
-│           ┌───────────────────────┐                                              │
-│           │ MaintenanceScheduler  │  ← Unified priority trigger model            │
-│           │ (threshold>interval>  │    (threshold > interval > scan)            │
-│           │  scan priority)       │                                              │
-│           └───────────┬───────────┘                                              │
-│                       │                                                          │
-│                       ▼                                                          │
-│           ┌───────────────────────┐                                              │
-│           │ TableMaintenance   │  ← Unified maintenance interface             │
-│           │ (compaction/orphan)   │                                              │
-│           └───────────────────────┘                                              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Unified Write Architecture](../../website/static/img/diagrams/generated/streaming-02-acec7a6186.svg)
 
 ### 2.3 CDC Ingestion Loop
 
@@ -311,7 +230,18 @@ The production relational DML path uses Native Workers to produce fragments for
 one Coordinator-owned, fenced catalog publication. It does not use a Coordinator
 row writer for `INSERT VALUES` or other relational DML.
 
-The current CDC bootstrap is different:
+When the Coordinator hosts both streaming and query roles, the streaming scheduler
+disables its local pipeline and the supervised CDC Worker runtime owns execution:
+
+```text
+StreamingBootstrap
+  -> CdcWorkerRuntime (leader-gated)
+  -> CdcTaskPlanner (bounded topic/partition ranges)
+  -> Worker CDC_INGEST tasks (Kafka read + connector fragment staging)
+  -> WriteCommitJournal intent -> connector publication -> source-offset ack
+```
+
+A streaming-only Coordinator still instantiates the local path:
 
 ```text
 StreamingBootstrap
@@ -320,11 +250,12 @@ StreamingBootstrap
   -> ConnectorPageSinkCdcWriter (Coordinator-local)
 ```
 
-`StreamingBootstrap.createWriteSink()` explicitly reports that Worker dispatch is
-unavailable. An illustrative Native CDC design does not change
-that instantiated path. The CDC sink is not covered by the relational distributed
-write journal. See [Distributed Write](distributed-writes.md) for the current
-publication and repair boundary.
+The local path is not covered by the relational distributed write journal. The Worker
+path journals its intent and fences publication and offset acknowledgement on streaming
+leadership. A live test drives real Kafka through two Worker CDC backends, injects a backend
+failure, and verifies the retry publishes to Paimon exactly once with offsets acknowledged only
+after publication; process-level Worker crash qualification is still required. See
+[Distributed Write](distributed-writes.md) for the current publication and repair boundary.
 
 Schedulers start paused until maintenance leadership is acquired. A dedicated
 control loop reconciles persisted stream states every five seconds, and immediately
@@ -354,7 +285,7 @@ There is no production claim of exactly-once or effectively-once semantics.
 The required repair design must bind tenant, source offset range, table identity,
 snapshot, attempt, and fence to a durable Native batch and one observable catalog
 publication. It is a proposed acceptance contract, not implemented support. See the
-[CDC repair contract](distributed-writes.md#cdc-repair-contract-proposed-not-implemented).
+[CDC repair contract](distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending).
 
 ### 2.6 Retired Table Writer SPI (historical sketch)
 
@@ -724,280 +655,7 @@ record's format.
 3. **Running tasks = maxConcurrentTasks, queue full**: Drop the lowest priority task in the queue. If the new task has higher priority than the dropped task, enqueue the new task; otherwise, drop the new task itself.
 4. **All slots busy + queue full + new task is lowest priority**: Log warning and discard the new task. Metric `maintenance.tasks.dropped` incremented.
 
-```java
-/**
- * Unified Maintenance Scheduler - single priority-based trigger model.
- *
- * Trigger priority (high to low):
- * 1. Threshold trigger (scan-discovered): equality delete files >= maxEqualityDeleteFiles → immediate
- * 2. Interval trigger (write signal): time since last maintenance >= compactionInterval → trigger
- * 3. Scheduled scan trigger: smallFiles >= minFilesToCompact AND interval elapsed → trigger
- *
- * Concurrency: global maxConcurrentTasks with bounded priority queue and backpressure.
- */
-public class MaintenanceScheduler implements AutoCloseable {
-
-    private final TableMaintenance maintenance;
-    private final MetadataService metadataService;
-    private final MaintenanceConfig config;
-    private final ScheduledExecutorService scanScheduler;
-    private final ExecutorService taskExecutor;
-    private final ConcurrentHashMap<String, TableMaintenanceState> tableStates;
-    private final Semaphore concurrencyLimiter;  // permits = maxConcurrentTasks
-    private final PriorityBlockingQueue<MaintenanceTask> taskQueue;
-
-    private final CacheEvictionNotifier cacheEvictionNotifier;  // nullable; see 09 §8.1
-
-    //
-
-    /**
-     * Start the scheduler - enables periodic table scanning.
-     */
-    public void start() {
-        // Periodic scan: evaluate all tables with unified priority model
-        scanScheduler.scheduleAtFixedRate(
-            this::scanAllTablesWithPriority,
-            config.compactionScanInterval().toMinutes(),
-            config.compactionScanInterval().toMinutes(),
-            TimeUnit.MINUTES);
-
-        // Periodic scan for orphan cleanup (lower frequency)
-        scanScheduler.scheduleAtFixedRate(
-            this::scanAndTriggerOrphanCleanup,
-            config.orphanCleanupScanInterval().toHours(),
-            config.orphanCleanupScanInterval().toHours(),
-            TimeUnit.HOURS);
-
-        // Queue consumer: drains taskQueue respecting concurrency limit
-        taskExecutor.submit(this::processTaskQueue);
-    }
-
-    /**
-     * Called by TableWriter after each write() completes.
-     * Evaluates interval trigger (Priority 2).
-     */
-    public void onWriteComplete(String tableName, WriteResult result) {
-        TableMaintenanceState state = tableStates.computeIfAbsent(
-            tableName, k -> new TableMaintenanceState());
-
-        // Skip if task already in-flight for this table
-        if (state.hasInFlightTask()) return;
-
-        Instant now = Instant.now();
-        if (shouldTriggerByInterval(state.lastCompactionTime, config.compactionInterval(), now)) {
-            enqueueWithBackpressure(new MaintenanceTask(tableName, TriggerPriority.INTERVAL, now));
-        }
-    }
-
-    /**
-     * Scan all tables and evaluate triggers with unified priority.
-     * Priority 1 (threshold) checked first, then Priority 3 (scan).
-     */
-    private void scanAllTablesWithPriority() {
-        for (String tableName : metadataService.listAllTables()) {
-            if (!isCompactionEnabled(tableName)) continue;
-
-            TableMaintenanceState state = tableStates.computeIfAbsent(
-                tableName, k -> new TableMaintenanceState());
-            if (state.hasInFlightTask()) continue;
-
-            MaintenanceStatus status = maintenance.getMaintenanceStatus(tableName);
-            Instant now = Instant.now();
-
-            // Priority 1: Threshold trigger — immediate, bypass interval check
-            if (status.equalityDeleteFiles() >= config.maxEqualityDeleteFiles()) {
-                enqueueWithBackpressure(new MaintenanceTask(tableName, TriggerPriority.THRESHOLD, now));
-                continue;  // Highest priority wins, skip lower checks
-            }
-
-            // Priority 3: Scan trigger — requires both threshold AND interval
-            if (status.smallFilesCount() >= config.minFilesToCompact()
-                    && shouldTriggerByInterval(state.lastCompactionTime, config.compactionInterval(), now)) {
-                enqueueWithBackpressure(new MaintenanceTask(tableName, TriggerPriority.SCHEDULED_SCAN, now));
-            }
-        }
-    }
-
-    /**
-     * Enqueue task with backpressure: drop lowest priority when queue is full.
-     *
-     *
-     */
-    private void enqueueWithBackpressure(MaintenanceTask task) {
-        if (taskQueue.size() < config.taskQueueCapacity()) {
-            taskQueue.offer(task);
-        } else {
-            // Queue full: find the lowest priority (highest ordinal) task in queue
-            MaintenanceTask lowestPriority = null;
-            for (MaintenanceTask queued : taskQueue) {
-                if (lowestPriority == null || queued.priority().compareTo(lowestPriority.priority()) > 0) {
-                    lowestPriority = queued;
-                }
-            }
-            if (lowestPriority != null && task.priority().compareTo(lowestPriority.priority()) < 0) {
-                taskQueue.remove(lowestPriority);  // Remove lowest priority
-                taskQueue.offer(task);              // Add higher priority task
-            } else {
-                // New task is lowest priority — drop it
-                metrics.increment("maintenance.tasks.dropped");
-            }
-        }
-    }
-
-    /**
-     * Process task queue respecting global concurrency limit.
-     *
-     * Design:
-     * - Blocks on taskQueue.take() until a task is available
-     * - Acquires concurrency permit before execution (blocks if all slots busy)
-     * - Handles task timeout via Future.get(taskTimeout)
-     * - On task completion: updates table state, releases permit
-     * - On task failure: logs error, increments failure metric, releases permit
-     * - On task timeout: cancels task, marks as failed, releases permit
-     *
-     * Backpressure integration:
-     * - enqueueWithBackpressure() controls queue admission (see above)
-     * - concurrencyLimiter controls execution admission
-     * - Together they form a two-stage backpressure: queue capacity + execution slots
-     */
-    private void processTaskQueue() {
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                // Block until a task is available (priority-ordered: THRESHOLD > INTERVAL > SCAN)
-                MaintenanceTask task = taskQueue.take();
-
-                // Block until a concurrency slot is available
-                concurrencyLimiter.acquire();
-
-                TableMaintenanceState state = tableStates.computeIfAbsent(
-                    task.tableName(), k -> new TableMaintenanceState());
-
-                // Double-check: skip if another task is already in-flight for this table
-                if (!state.trySetInFlight(true)) {
-                    concurrencyLimiter.release();
-                    continue;
-                }
-
-                taskExecutor.submit(() -> {
-                    try {
-                        Future<CompactionResult> future =
-                            maintenance.compactAsync(task.tableName()).toCompletableFuture();
-
-                        // Enforce per-task timeout
-                        CompactionResult result = future.get(
-                            config.taskTimeout().toMillis(), TimeUnit.MILLISECONDS);
-
-                        // Update table state on success
-                        state.setLastCompactionTime(Instant.now());
-                        metrics.increment("maintenance.tasks.completed");
-                        metrics.record("maintenance.compaction.duration",
-                            Duration.between(task.createdAt(), Instant.now()).toMillis());
-
-                        // Notify cache layer if files were rewritten (snapshot may have changed)
-                        if (cacheEvictionNotifier != null && !result.rewrittenFileIds().isEmpty()) {
-                            cacheEvictionNotifier.notifyCompactionCompleted(
-                                task.tableName(), result.rewrittenFileIds());
-                        }
-
-                    } catch (TimeoutException e) {
-                        // Task exceeded taskTimeout — force cancel
-                        log.warn("Maintenance task timed out for table {}, trigger={}",
-                                 task.tableName(), task.priority());
-                        metrics.increment("maintenance.tasks.timeout");
-
-                    } catch (ExecutionException e) {
-                        log.error("Maintenance task failed for table {}: {}",
-                                  task.tableName(), e.getCause().getMessage());
-                        metrics.increment("maintenance.tasks.failed");
-
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-
-                    } finally {
-                        state.trySetInFlight(false);
-                        concurrencyLimiter.release();
-                    }
-                });
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-    }
-
-    private boolean shouldTriggerByInterval(Instant lastTime, Duration interval, Instant now) {
-        if (lastTime == null) return true;
-        return Duration.between(lastTime, now).compareTo(interval) >= 0;
-    }
-}
-
-/**
- * Trigger priority enum — used for queue ordering and backpressure decisions.
- */
-public enum TriggerPriority {
-    THRESHOLD,       // Priority 1 (highest) — equality delete threshold exceeded
-    INTERVAL,        // Priority 2 — time interval elapsed after write
-    SCHEDULED_SCAN   // Priority 3 (lowest) — periodic scan discovered small files
-}
-
-public record MaintenanceTask(
-    String tableName,
-    TriggerPriority priority,
-    Instant createdAt
-) implements Comparable<MaintenanceTask> {
-    @Override
-    public int compareTo(MaintenanceTask other) {
-        // Lower ordinal = higher priority = should be dequeued first
-        return this.priority.compareTo(other.priority);
-    }
-}
-
-public record MaintenanceConfig(
-    // Interval-based triggers (write-triggered, Priority 2)
-    Duration compactionInterval,       // Default: 60 minutes
-    Duration orphanCleanupInterval,    // Default: 360 minutes (6 hours)
-    Duration snapshotExpirationInterval, // Default: 720 minutes (12 hours)
-
-    // Scan intervals (scan-triggered, Priority 3)
-    Duration compactionScanInterval,   // Default: 60 minutes
-    Duration orphanCleanupScanInterval, // Default: 24 hours
-
-    // Thresholds (threshold-triggered, Priority 1)
-    int minFilesToCompact,             // Default: 5 (scan trigger threshold)
-    int maxEqualityDeleteFiles,        // Default: 10 (immediate trigger threshold)
-
-    // Retention settings
-    Duration orphanFileAge,            // Default: 3 days
-    Duration snapshotRetention,        // Default: 7 days
-    int snapshotRetainCount,           // Default: 100
-
-    // Concurrency and backpressure
-    int threads,                       // Default: 4 (task execution threads; executor sized as threads+1)
-    int maxConcurrentTasks,            // Default: 4 (global concurrent limit, must be <= threads)
-    int taskQueueCapacity,             // Default: 16 (bounded queue size)
-    Duration taskTimeout               // Default: 30 minutes (per-task timeout)
-) {
-    public static MaintenanceConfig defaults() {
-        return new MaintenanceConfig(
-            Duration.ofMinutes(60),
-            Duration.ofMinutes(360),
-            Duration.ofMinutes(720),
-            Duration.ofMinutes(60),
-            Duration.ofHours(24),
-            5,
-            10,
-            Duration.ofDays(3),
-            Duration.ofDays(7),
-            100,
-            4,   // threads: task execution threads (executor = threads+1)
-            4,
-            16,
-            Duration.ofMinutes(30)
-        );
-    }
-}
-```
+![/**](../../website/static/img/diagrams/generated/streaming-10-1d154be9af.svg)
 
 ---
 
@@ -1005,34 +663,7 @@ public record MaintenanceConfig(
 
 ### 3.1 Incremental Query Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Incremental Query Architecture                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Incremental read modes:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Mode               │ Note                        │ Applicable scenario │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Snapshot Diff      │ Difference between two snapshots│ Batch incremental sync│   │
-│  │  Changelog Scan     │ Read the Changelog stream  │ Streaming consumption│   │
-│  │  Append Only        │ Read only newly added data  │ Append scenarios    │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Iceberg incremental read:                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Snapshot 100 ──────────────────────────────────► Snapshot 105         │   │
-│  │       │                                                │                │   │
-│  │       │  New files: data-001.parquet, data-002.parquet│                │   │
-│  │       │  Deleted files: delete-001.parquet             │                │   │
-│  │       │                                                │                │   │
-│  │       └────────────────────────────────────────────────┘                │   │
-│  │                                                                          │   │
-│  │  Incremental result = new-file data - rows matched by delete files        │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Incremental Query Architecture](../../website/static/img/diagrams/generated/streaming-11-87b42b7b70.svg)
 
 ### 3.2 Incremental Query SQL
 
@@ -1139,30 +770,7 @@ public class ChangelogReader {
 
 ### 4.1 Mini-Batch Writes
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Streaming Ingestion Architecture                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Mini-Batch write flow:                                                          │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Data Stream ──► Buffer ──► Batch Writer ──► Commit                     │   │
-│  │                    │                            │                        │   │
-│  │                    │ Trigger conditions:        │                        │   │
-│  │                    │ • Data volume >= 128MB     │                        │   │
-│  │                    │ • Time >= 1 minute         │                        │   │
-│  │                    │ • Row count >= 1,000,000   │                        │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Write latency vs. file count trade-off:                                         │
-│  • Low latency (seconds) → many small files → frequent Compaction needed        │
-│  • High latency (minutes) → fewer large files → less Compaction pressure        │
-│  • Recommended: 1-minute Mini-Batch + background automatic Compaction           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Streaming Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-14-b4057e93e3.svg)
 
 ### 4.2 Streaming Ingestion API
 
@@ -1264,29 +872,7 @@ public class StreamingWriter implements AutoCloseable {
 
 ### 5.1 Watermark Concept
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Watermark Management                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Watermark definition:                                                           │
-│  • Indicates "all data with event time <= Watermark has arrived"                │
-│  • Used to handle out-of-order data and trigger window computation              │
-│                                                                                  │
-│  Timeline example:                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Event Time:    10:00  10:01  10:02  10:03  10:04  10:05               │   │
-│  │                   │      │      │      │      │      │                 │   │
-│  │  Data Arrival:   ─●─────●──────●──────●──────●──────●─────────────────│   │
-│  │                   │      │      │      │      │      │                 │   │
-│  │  Watermark:      ─────────────────────●──────────────────────────────│   │
-│  │                                    10:02                               │   │
-│  │                                                                        │   │
-│  │  Meaning: all data before 10:02 has arrived, so the 10:00-10:02 window computation can be triggered│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Watermark Management](../../website/static/img/diagrams/generated/streaming-16-46c1b624f0.svg)
 
 ### 5.2 Table-Level Watermark
 
@@ -1361,34 +947,7 @@ public class WatermarkTracker {
 
 ### 6.1 Upsert Modes
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Upsert Modes                                           │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Mode comparison:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Mode    │ Write method          │ Read method       │ Applicable scenario│   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  COW     │ Read-merge-rewrite    │ Direct read       │ Read-heavy, write-light│   │
-│  │  MOR     │ Append + Delete File │ Merge on read     │ Write-heavy, read-light│   │
-│  │  Paimon  │ LSM Tree             │ Merge on read     │ High-frequency updates│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Iceberg MOR (Merge-On-Read):                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Write:                                                                  │   │
-│  │  1. New data written to Data File                                       │   │
-│  │  2. Deletes/updates written to Delete File (Position Delete or Equality Delete)│   │
-│  │                                                                          │   │
-│  │  Read:                                                                   │   │
-│  │  1. Read Data File                                                      │   │
-│  │  2. Apply Delete File filtering                                         │   │
-│  │  3. Return the merged result                                            │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Upsert Modes](../../website/static/img/diagrams/generated/streaming-19-fa582e3445.svg)
 
 ### 6.2 Upsert SQL
 
@@ -1628,7 +1187,12 @@ See [14 §7](./observability.md) for structured logging format.
 > **Write Interface Hierarchy**: `CdcWriteSink` owns the CDC commit handoff and `ConnectorPageSinkCdcWriter` persists through the connector page sink. SQL writes use the Worker `NativeWriteExecutor` with `ConnectorPageSink`. The former `TableWriter` batch hierarchy was retired; §2.6 keeps its sketch as history. `DataWriter` (02 §6) is deprecated.
 
 
-> **CDC Consumer Deployment**: CDC Consumer runs as an embedded component within Worker processes (default) or as standalone processes. The deployment model is defined here in §3. For cluster-level deployment topology, see [distributed.md §2](./distributed.md). CDC Consumer instances register with ZooKeeper for partition assignment coordination.
+> **CDC execution boundary:** The current streaming bootstrap creates a
+> Coordinator-local `ConnectorPageSinkCdcWriter`; it does not run CDC consumers in
+> Workers and does not require ZooKeeper for partition assignment. ZooKeeper is an
+> optional coordination backend, not a CDC dependency. Distributed native CDC
+> ingestion, atomic source-offset/catalog publication, and exactly-once delivery
+> remain unimplemented. See [Current Capability Status](../getting-started/capability-status.md).
 
 
 > **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.

@@ -114,7 +114,6 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
         private SpoolSinkState status = SpoolSinkState.OPEN;
         private RuntimeException failure;
 
-
         private SpoolWriter writer;
 
         SpoolBackedExchangeSink(SpoolStore store, ExchangeChannelContext context) {

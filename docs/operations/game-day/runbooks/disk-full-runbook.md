@@ -18,26 +18,7 @@ description: "Diagnose and recover from exhausted worker storage"
 
 ## Decision Tree
 
-```
-Disk full suspected on worker?
-  │
-  ├─► Which directory is full?
-  │     │
-  │     ├─► /mnt/spill (spill directory)
-  │     │     └─► Queries that need spill are failing → Step 1A: Spill Recovery
-  │     │
-  │     ├─► /mnt/nvme0/velox-cache (SSD cache)
-  │     │     └─► Cache writes failing, performance degraded → Step 1B: Cache Recovery
-  │     │
-  │     └─► Root filesystem (/)
-  │           └─► Critical: OS disk full → escalate immediately, may need worker restart
-  │
-  └─► Is the worker still HEALTHY in the cluster?
-        │
-        ├─► YES ──► Proceed with cleanup — do not restart
-        │
-        └─► NO  ──► Worker process may have crashed → use worker-crash-runbook instead
-```
+![Disk full suspected on worker?](../../../../website/static/img/diagrams/generated/disk-full-runbook-01-e98b4f342e.svg)
 
 ---
 
@@ -75,43 +56,29 @@ for w in workers:
 
 ## Step 1A: Spill Directory Recovery
 
-The spill directory holds temporary files written by the query engine during memory-pressure events. Spill files for completed queries (including failed ones) should be automatically cleaned up. Files for in-progress queries must not be deleted.
+The spill directory holds temporary files owned by the Worker's task and
+shuffle-lifecycle code. Do not delete spill files by hand while the Worker runs:
+file age does not prove that an owner has drained, and manual deletion can corrupt
+in-flight tasks. Prefer the application-owned cleanup below.
 
 ```bash
-# Check for stale spill files (older than 1 hour are safe to remove)
+# Inspect disk usage and the configured quota; do not delete files here.
 ssh "${TARGET_WORKER}" "
-  echo '=== Spill files older than 1 hour ==='
+  echo '=== Spill files older than 1 hour (inspection only) ==='
   find /mnt/spill -type f -mmin +60 | head -20
+  df -h /mnt/spill
 "
 
-# Get active query IDs from the coordinator before deleting anything
-# (the worker exposes no active-task listing endpoint)
-ACTIVE_QUERIES=$(curl -s http://coordinator:8080/api/queries | \
+# Application-owned cleanup: let the Worker and Coordinator drain the exact
+# attempts, then restart the Worker if its spill state must be reset. There is no
+# admin API for deleting another attempt's spill files.
+ssh "${TARGET_WORKER}" "df -h /mnt/spill"
+curl -s "http://coordinator:8080/api/queries" | \
   python3 -c "
 import json, sys
 queries = json.load(sys.stdin)
-print(' '.join(q['queryId'] for q in queries if q['status'] in ('SUBMITTED', 'RUNNING')))
-" 2>/dev/null || echo "")
-echo "Active query IDs: ${ACTIVE_QUERIES}"
-
-# Delete stale spill files — skip files matching active query IDs
-ssh "${TARGET_WORKER}" "
-  find /mnt/spill -type f -mmin +60 | while read f; do
-    FILENAME=\$(basename \"\$f\")
-    # Skip if filename contains an active query ID
-    SKIP=false
-    for qid in ${ACTIVE_QUERIES}; do
-      [[ \"\${FILENAME}\" == *\"\${qid}\"* ]] && SKIP=true && break
-    done
-    if [[ \"\${SKIP}\" == false ]]; then
-      echo \"Removing: \${f}\"
-      rm -f \"\${f}\"
-    else
-      echo \"Skipping (active query): \${f}\"
-    fi
-  done
-  echo ''
-  df -h /mnt/spill
+active = [q['queryId'] for q in queries if q['status'] in ('SUBMITTED', 'RUNNING')]
+print(f'Active queries: {len(active)}')
 "
 ```
 

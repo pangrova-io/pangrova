@@ -1,9 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.pangrova.connector.api.enums.DeletionMode;
-import org.pangrova.connector.api.metadata.DistributedWriteAbortReceipt;
 
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 
@@ -75,6 +72,11 @@ public interface ConnectorWriteMetadata {
                                 ConnectorTableHandle table,
                                 DeleteFilter filter) {
         throw new UnsupportedOperationException("deleteByFilter not supported");
+    }
+
+    /** Begins a CDC merge operation that stages deletes and inserts for one atomic commit. */
+    default ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
+        throw new UnsupportedOperationException("beginMerge not supported");
     }
 
     /** Begins an overwrite operation that atomically replaces all data in a table. */

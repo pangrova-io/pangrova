@@ -1,5 +1,6 @@
 ---
 title: "Dynamic Filter Lifecycle"
+description: "Static and runtime join filters, published-build behavior, and remaining cross-stage design"
 sidebar_label: "Dynamic Filter Lifecycle"
 ---
 

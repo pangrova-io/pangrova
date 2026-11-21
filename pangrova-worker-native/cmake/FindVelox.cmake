@@ -157,6 +157,89 @@ else()
   message(WARNING "libvelox.a NOT found — Velox symbols will be MISSING.")
 endif()
 
+set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
+  "Isolated ASan Folly install prefix for sanitized native builds")
+
+# Ubuntu's libgflags-dev exposes only a non-PIC static archive, which cannot be
+# linked into a shared object. Resolve the runtime shared gflags on Linux so
+# every gflags link (Velox, Folly, the native library) uses position-independent
+# code instead of failing with a relocation error at link time.
+function(_pangrova_shared_gflags out)
+  find_library(_pangrova_gflags_shared
+    NAMES gflags.so.2.2 gflags.so.2 gflags
+    PATHS /usr/lib /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE} /usr/local/lib
+    NO_DEFAULT_PATH)
+  if(NOT _pangrova_gflags_shared)
+    find_library(_pangrova_gflags_shared NAMES gflags.so.2.2 gflags.so.2 gflags QUIET)
+  endif()
+  if(_pangrova_gflags_shared MATCHES "\\.a$")
+    set(_pangrova_gflags_shared "")
+  endif()
+  set(${out} "${_pangrova_gflags_shared}" PARENT_SCOPE)
+endfunction()
+
+function(_pangrova_prefer_shared_gflags)
+  if(APPLE)
+    return()
+  endif()
+  _pangrova_shared_gflags(_pangrova_gflags_shared_lib)
+  if(NOT _pangrova_gflags_shared_lib)
+    return()
+  endif()
+  foreach(_gflags_target IN ITEMS gflags::gflags gflags_static gflags_shared)
+    if(TARGET ${_gflags_target})
+      get_target_property(_gflags_alias ${_gflags_target} ALIASED_TARGET)
+      get_target_property(_gflags_type ${_gflags_target} TYPE)
+      get_target_property(_gflags_imported ${_gflags_target} IMPORTED)
+      if(NOT _gflags_alias AND _gflags_imported
+          AND NOT _gflags_type STREQUAL "INTERFACE_LIBRARY")
+        set_target_properties(${_gflags_target} PROPERTIES
+          IMPORTED_LOCATION "${_pangrova_gflags_shared_lib}")
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
+if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address" AND NOT PANGROVA_ASAN_FOLLY_PREFIX)
+  message(FATAL_ERROR
+    "ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX with an ASan-instrumented Folly archive")
+endif()
+if(PANGROVA_ASAN_FOLLY_PREFIX)
+  if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+    message(FATAL_ERROR "ASan Folly override requires an ASan native build")
+  endif()
+  set(_ASAN_FOLLY_ARCHIVE "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/libfolly.a")
+  if(NOT EXISTS "${_ASAN_FOLLY_ARCHIVE}" OR
+      NOT EXISTS "${PANGROVA_ASAN_FOLLY_PREFIX}/include/folly/Executor.h")
+    message(FATAL_ERROR "ASan Folly install is incomplete: ${PANGROVA_ASAN_FOLLY_PREFIX}")
+  endif()
+  execute_process(
+    COMMAND "${CMAKE_NM}" -u "${_ASAN_FOLLY_ARCHIVE}"
+    OUTPUT_VARIABLE _ASAN_FOLLY_UNDEFINED
+    RESULT_VARIABLE _ASAN_FOLLY_NM_RESULT
+    ERROR_QUIET)
+  if(NOT _ASAN_FOLLY_NM_RESULT EQUAL 0 OR
+      NOT _ASAN_FOLLY_UNDEFINED MATCHES "_+asan_init")
+    message(FATAL_ERROR
+      "PANGROVA_ASAN_FOLLY_PREFIX does not contain an ASan-instrumented Folly archive")
+  endif()
+  unset(_ASAN_FOLLY_UNDEFINED)
+  set(folly_DIR "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/cmake/folly")
+  find_package(gflags CONFIG REQUIRED)
+  _pangrova_prefer_shared_gflags()
+  find_package(folly CONFIG REQUIRED PATHS "${folly_DIR}" NO_DEFAULT_PATH)
+  # Folly's ASan option also enables UBSan; its exported target owns both runtimes.
+  target_link_libraries(velox_imported INTERFACE Folly::folly)
+  target_include_directories(velox_imported SYSTEM BEFORE INTERFACE
+    "${PANGROVA_ASAN_FOLLY_PREFIX}/include")
+  message(STATUS "ASan Folly archive: ${_ASAN_FOLLY_ARCHIVE}")
+elseif(NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  find_package(gflags CONFIG REQUIRED)
+  _pangrova_prefer_shared_gflags()
+  find_package(folly CONFIG REQUIRED)
+  target_link_libraries(velox_imported INTERFACE Folly::folly)
+endif()
+
 # 3a) deps-install (folly, glog, gflags, fmt, boost, etc.)
 # Search relative to VELOX_HOME and VELOX_INSTALL_PREFIX only — no hardcoded paths.
 set(_DEPS_INSTALL "")
@@ -182,45 +265,8 @@ if(_DEPS_INSTALL)
   endif()
   file(GLOB _DEPS_INSTALL_LIBS "${_DEPS_INSTALL}/lib/*.a")
   if(_DEPS_INSTALL_LIBS)
-    # ASan's libc++ container annotations require Folly's JSON builder to use
-    # the same instrumentation as the reader. Keep the regular Velox archive
-    # for release builds and opt in to an isolated, matching ASan installation.
-    set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
-      "Isolated ASan Folly install prefix for sanitized native builds")
-    if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address" AND
-        NOT PANGROVA_ASAN_FOLLY_PREFIX)
-      message(FATAL_ERROR
-        "ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX with an ASan-instrumented Folly archive")
-    endif()
     if(PANGROVA_ASAN_FOLLY_PREFIX)
-      if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
-        message(FATAL_ERROR "ASan Folly override requires an ASan native build")
-      endif()
-      set(_ASAN_FOLLY_ARCHIVE "${PANGROVA_ASAN_FOLLY_PREFIX}/lib/libfolly.a")
-      if(NOT EXISTS "${_ASAN_FOLLY_ARCHIVE}" OR
-          NOT EXISTS "${PANGROVA_ASAN_FOLLY_PREFIX}/include/folly/Executor.h")
-        message(FATAL_ERROR "ASan Folly install is incomplete: ${PANGROVA_ASAN_FOLLY_PREFIX}")
-      endif()
-      execute_process(
-        COMMAND "${CMAKE_NM}" -u "${_ASAN_FOLLY_ARCHIVE}"
-        OUTPUT_VARIABLE _ASAN_FOLLY_UNDEFINED
-        RESULT_VARIABLE _ASAN_FOLLY_NM_RESULT
-        ERROR_QUIET)
-      if(NOT _ASAN_FOLLY_NM_RESULT EQUAL 0 OR
-          NOT _ASAN_FOLLY_UNDEFINED MATCHES "_+asan_init")
-        message(FATAL_ERROR
-          "PANGROVA_ASAN_FOLLY_PREFIX does not contain an ASan-instrumented Folly archive")
-      endif()
-      unset(_ASAN_FOLLY_UNDEFINED)
-      list(FIND _DEPS_INSTALL_LIBS "${_DEPS_INSTALL}/lib/libfolly.a" _FOLLY_INDEX)
-      if(_FOLLY_INDEX EQUAL -1)
-        message(FATAL_ERROR "Velox deps-install libfolly.a is missing")
-      endif()
-      list(REMOVE_AT _DEPS_INSTALL_LIBS ${_FOLLY_INDEX})
-      list(INSERT _DEPS_INSTALL_LIBS ${_FOLLY_INDEX} "${_ASAN_FOLLY_ARCHIVE}")
-      target_include_directories(velox_imported SYSTEM BEFORE INTERFACE
-        "${PANGROVA_ASAN_FOLLY_PREFIX}/include")
-      message(STATUS "ASan Folly archive: ${_ASAN_FOLLY_ARCHIVE}")
+      list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "/libfolly[^/]*\\.a$")
     endif()
     # Exclude libgflags*.a — glog links gflags dynamically on macOS.
     # Including static gflags causes dual-registration of global flags → fatal error.
@@ -323,6 +369,9 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     # Including Velox's bundled c-ares causes duplicate symbol errors (ares_inet_pton).
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "c-ares-build")
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "libre2\\.a$")
+    if(PANGROVA_ASAN_FOLLY_PREFIX)
+      list(FILTER _VENDORED_LIBS EXCLUDE REGEX "/libfolly[^/]*[.]a$")
+    endif()
     pangrova_select_abseil_targets(_VENDORED_LIBS ${_VENDORED_LIBS})
     target_link_libraries(velox_imported INTERFACE ${_VENDORED_LIBS})
 
@@ -354,6 +403,9 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
   if(_INSTALL_PREFIX_LIBS)
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libvelox\\.a$")
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libre2\\.a$")
+    if(PANGROVA_ASAN_FOLLY_PREFIX)
+      list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "/libfolly[^/]*[.]a$")
+    endif()
     pangrova_select_abseil_targets(_INSTALL_PREFIX_LIBS ${_INSTALL_PREFIX_LIBS})
     if(_INSTALL_PREFIX_LIBS)
       target_link_libraries(velox_imported INTERFACE ${_INSTALL_PREFIX_LIBS})
@@ -365,7 +417,14 @@ endif()
 
 # 6) glog + gflags (prefer shared to avoid dual-registration of gflags globals)
 if(_DEPS_INSTALL AND PANGROVA_PRODUCTION_BUILD)
-  find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
+  if(APPLE)
+    find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
+  else()
+    _pangrova_shared_gflags(_PRODUCTION_GFLAGS)
+    if(NOT _PRODUCTION_GFLAGS)
+      find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
+    endif()
+  endif()
   target_link_libraries(velox_imported INTERFACE "${_PRODUCTION_GFLAGS}")
 endif()
 
@@ -398,7 +457,10 @@ if(NOT APPLE)
   string(FIND "${_velox_libs}" "glog" _glog_linked)
   if(_glog_linked EQUAL -1)
     find_library(_SYS_GLOG NAMES glog QUIET)
-    find_library(_SYS_GFLAGS NAMES gflags QUIET)
+    _pangrova_shared_gflags(_SYS_GFLAGS)
+    if(NOT _SYS_GFLAGS)
+      find_library(_SYS_GFLAGS NAMES gflags QUIET)
+    endif()
     if(_SYS_GLOG)
       target_link_libraries(velox_imported INTERFACE ${_SYS_GLOG})
       message(STATUS "glog (system): ${_SYS_GLOG}")
@@ -425,7 +487,12 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
     if(EXISTS "${_AWS_PREFIX}/lib")
       file(GLOB _AWS_LIBS "${_AWS_PREFIX}/lib/libaws-*.a")
       if(_AWS_LIBS)
-        target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+        if(APPLE)
+          target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+        else()
+          target_link_libraries(velox_imported INTERFACE
+            "-Wl,--start-group" ${_AWS_LIBS} "-Wl,--end-group")
+        endif()
         if(APPLE)
           target_link_libraries(velox_imported INTERFACE
             "-framework Security"
@@ -447,7 +514,12 @@ if(NOT _AWS_LIBS)
   if(PANGROVA_DEPS_PREFIX)
     file(GLOB _AWS_LIBS "${PANGROVA_DEPS_PREFIX}/lib/libaws-*.a")
     if(_AWS_LIBS)
-      target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+      if(APPLE)
+        target_link_libraries(velox_imported INTERFACE ${_AWS_LIBS})
+      else()
+        target_link_libraries(velox_imported INTERFACE
+          "-Wl,--start-group" ${_AWS_LIBS} "-Wl,--end-group")
+      endif()
       if(APPLE)
         target_link_libraries(velox_imported INTERFACE
           "-framework Security" "-framework CoreFoundation" "-lcurl")
@@ -461,6 +533,20 @@ if(NOT _AWS_LIBS)
         "Run: bin/install-aws-sdk.sh")
     endif()
   endif()
+endif()
+
+# The AWS CRT's TLS backend, stemmer and Thrift archives are installed beside
+# the selected AWS SDK when Velox resolves them from the same dependency prefix.
+if(_AWS_LIBS)
+  list(GET _AWS_LIBS 0 _AWS_LIBS_ANCHOR)
+  get_filename_component(_AWS_LIBS_DIR "${_AWS_LIBS_ANCHOR}" DIRECTORY)
+endif()
+if(_AWS_LIBS_DIR AND NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  foreach(_beside s2n stemmer)
+    if(EXISTS "${_AWS_LIBS_DIR}/lib${_beside}.a")
+      target_link_libraries(velox_imported INTERFACE "${_AWS_LIBS_DIR}/lib${_beside}.a")
+    endif()
+  endforeach()
 endif()
 
 if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -510,6 +596,28 @@ endif()
 target_compile_definitions(velox_imported INTERFACE NDEBUG)
 message(STATUS "Velox ABI compat: NDEBUG forced (Velox built in Release mode)")
 
+# 8b) Velox compiles with a CPU baseline recorded in its CMakeCache
+# (-msse4.2/-mavx2 on x86, -march=armv8-a+crc+crypto on ARM). Consumers that
+# include Velox SIMD headers must use the same xsimd default architecture;
+# otherwise crc32U64 instantiates for sse2 where Velox only defines sse4_2.
+if(VELOX_BUILD_DIR)
+  get_filename_component(_VELOX_SOURCE_DIR "${VELOX_BUILD_DIR}/../.." ABSOLUTE)
+  set(_VELOX_HELPER "${_VELOX_SOURCE_DIR}/scripts/setup-helper-functions.sh")
+  if(EXISTS "${_VELOX_HELPER}")
+    execute_process(
+      COMMAND bash -c
+        "export OS=${CMAKE_SYSTEM_NAME}; source '${_VELOX_HELPER}' && get_cxx_flags \"$ENV{CPU_TARGET}\""
+      OUTPUT_VARIABLE _VELOX_CPU_FLAGS
+      ERROR_QUIET
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(_VELOX_CPU_FLAGS MATCHES "-m")
+      separate_arguments(_VELOX_SIMD_FLAGS UNIX_COMMAND "${_VELOX_CPU_FLAGS}")
+      target_compile_options(velox_imported INTERFACE ${_VELOX_SIMD_FLAGS})
+      message(STATUS "Velox SIMD baseline: ${_VELOX_SIMD_FLAGS}")
+    endif()
+  endif()
+endif()
+
 # 9) Apache Thrift (required by Velox Hive connector — force-loaded from libvelox.a)
 # Thrift is built by Arrow's ExternalProject during Velox build.
 if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
@@ -517,6 +625,7 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
   set(_THRIFT_SEARCH_DIRS
     "${VELOX_BUILD_DIR}/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install"
   )
+  set(_PANGROVA_THRIFT_LINKED FALSE)
   foreach(_td ${_THRIFT_SEARCH_DIRS})
     if(EXISTS "${_td}/lib/libthrift.a")
       if(NOT EXISTS "${_td}/include/thrift/TApplicationException.h")
@@ -524,10 +633,27 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
       endif()
       target_include_directories(velox_imported SYSTEM INTERFACE "${_td}/include")
       target_link_libraries(velox_imported INTERFACE "${_td}/lib/libthrift.a")
+      set(_PANGROVA_THRIFT_LINKED TRUE)
       message(STATUS "Thrift: ${_td}/lib/libthrift.a")
       break()
     endif()
   endforeach()
+endif()
+
+# Velox can also resolve Thrift from the dependency prefix that supplied its
+# AWS SDK; the archive and headers are installed together there.
+if(NOT _PANGROVA_THRIFT_LINKED AND _AWS_LIBS_DIR AND EXISTS "${_AWS_LIBS_DIR}/libthrift.a")
+  get_filename_component(_THRIFT_FALLBACK_PREFIX "${_AWS_LIBS_DIR}" DIRECTORY)
+  if(EXISTS "${_THRIFT_FALLBACK_PREFIX}/include/thrift/TApplicationException.h")
+    target_include_directories(velox_imported SYSTEM INTERFACE "${_THRIFT_FALLBACK_PREFIX}/include")
+  endif()
+  target_link_libraries(velox_imported INTERFACE "${_AWS_LIBS_DIR}/libthrift.a")
+  message(STATUS "Thrift: ${_AWS_LIBS_DIR}/libthrift.a")
+endif()
+
+# Thrift and s2n resolve against OpenSSL/curl after the static groups above.
+if(NOT APPLE AND NOT PANGROVA_PRODUCTION_BUILD)
+  target_link_libraries(velox_imported INTERFACE "-lcurl" "-lssl" "-lcrypto")
 endif()
 
 set(VELOX_FOUND TRUE)

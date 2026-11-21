@@ -30,7 +30,8 @@ public final class NativeShuffleProducerRegistration {
     private final CommandChannel commandChannel;
     private final String localHost;
     private final boolean localDisk;
-    private final java.util.concurrent.atomic.AtomicInteger processPort = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger processPort =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final String localTlsIdentity;
 
     /**
@@ -43,6 +44,7 @@ public final class NativeShuffleProducerRegistration {
         this(commandChannel, localHost, localTlsIdentity, false);
     }
 
+    /** Creates the registration, optionally backed by local disk spool storage. */
     public NativeShuffleProducerRegistration(CommandChannel commandChannel, String localHost, String localTlsIdentity,
             boolean localDisk) {
         this.localDisk = localDisk;
@@ -57,10 +59,12 @@ public final class NativeShuffleProducerRegistration {
         if (options.hasShuffle()) {
             boolean disk = options.getShuffle().getPersistenceMode()
                     == org.pangrova.protocol.v2.ShufflePersistenceMode.SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK;
-            if (disk != localDisk) throw new IllegalArgumentException("Task shuffle storage differs from Worker deployment");
+            if (disk != localDisk) throw new IllegalArgumentException(
+                    "Task shuffle storage differs from Worker deployment");
         }
         if (!localDisk) return;
-        if ((options.hasShuffle() || request.getExchangeInputsCount() != 0) && request.getAttempt().getAttemptId() != 0) {
+        if ((options.hasShuffle() || request.getExchangeInputsCount() != 0)
+                && request.getAttempt().getAttemptId() != 0) {
             throw new IllegalArgumentException("Local shuffle cannot execute a replacement attempt");
         }
         for (var input : request.getExchangeInputsList()) {

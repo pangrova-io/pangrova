@@ -17,8 +17,11 @@ public final class RedisCacheStoreFactory implements CacheStoreFactory {
             throw new IllegalArgumentException("Redis cache requires url and namespace");
         }
         final URI url;
-        try { url = URI.create(settings.get("url")); }
-        catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("Invalid Redis cache URL"); }
+        try {
+            url = URI.create(settings.get("url"));
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Invalid Redis cache URL");
+        }
         if (!("redis".equals(url.getScheme()) || "rediss".equals(url.getScheme())) || url.getHost() == null) {
             throw new IllegalArgumentException("Redis cache URL requires redis or rediss and a host");
         }
@@ -29,7 +32,11 @@ public final class RedisCacheStoreFactory implements CacheStoreFactory {
             if (!"PONG".equals(client.ping())) throw new IllegalStateException("Redis cache did not acknowledge PING");
             return new RedisCacheStore(client, namespace);
         } catch (RuntimeException failure) {
-            try { client.close(); } catch (RuntimeException cleanup) { failure.addSuppressed(cleanup); }
+            try {
+                client.close();
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
     }

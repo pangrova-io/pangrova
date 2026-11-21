@@ -45,3 +45,7 @@ canonical empty-database initialization resources, not a historical-data convers
 V112 records the selected CDC source factory on a stream. The provider identifier is required during creation and retained across recovery.
 
 V115 records the current federation observation epoch on the locked catalog deployment row.
+
+V116 binds an optional CDC source identity (stream, ownership epoch, and exact
+topic/partition offset ranges) to the durable write commit journal. The identity is
+all-or-nothing, immutable after insertion, and included in the CDC commit fingerprint.

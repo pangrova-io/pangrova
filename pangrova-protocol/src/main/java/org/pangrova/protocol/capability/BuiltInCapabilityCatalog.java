@@ -241,7 +241,8 @@ public final class BuiltInCapabilityCatalog {
     /** Native HNSW immutable work-page build reference. */
     public static CapabilityRef hnswArtifactBuildPlanRef() {
         return capabilityRef(
-                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_ID, BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_VERSION,
+                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_ID,
+                        BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_BUILD_VERSION,
                 HNSW_ARTIFACT_BUILD_SIGNATURE);
     }
 
@@ -255,14 +256,16 @@ public final class BuiltInCapabilityCatalog {
     /** Immutable source-object-scoped HNSW graph format. */
     public static ArtifactFormatRef hnswArtifactFormat() {
         return artifactFormat(
-                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_ID, BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_ID,
+                        BuiltInCapabilityIdentifiers.HNSW_ARTIFACT_FORMAT_MAJOR,
                 HNSW_ARTIFACT_FORMAT_SIGNATURE);
     }
 
     /** Native IVF-PQ immutable work-page build reference. */
     public static CapabilityRef ivfPqArtifactBuildPlanRef() {
         return capabilityRef(
-                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_ID, BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_VERSION,
+                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_ID,
+                        BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_BUILD_VERSION,
                 IVF_PQ_ARTIFACT_BUILD_SIGNATURE);
     }
 
@@ -276,7 +279,8 @@ public final class BuiltInCapabilityCatalog {
     /** Immutable source-object-scoped IVF-PQ format. */
     public static ArtifactFormatRef ivfPqArtifactFormat() {
         return artifactFormat(
-                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_ID, BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_ID,
+                        BuiltInCapabilityIdentifiers.IVF_PQ_ARTIFACT_FORMAT_MAJOR,
                 IVF_PQ_ARTIFACT_FORMAT_SIGNATURE);
     }
 
@@ -376,7 +380,8 @@ public final class BuiltInCapabilityCatalog {
     /** Immutable Arrow IPC stream emitted by one source work page. */
     public static ArtifactFormatRef tabularExportFormat() {
         return artifactFormat(
-                BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_ID, BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_MAJOR,
+                BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_ID,
+                        BuiltInCapabilityIdentifiers.TABULAR_EXPORT_FORMAT_MAJOR,
                 TABULAR_EXPORT_FORMAT_SIGNATURE);
     }
 

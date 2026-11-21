@@ -7,7 +7,10 @@ description: "Process, scenarios, runbooks, and reporting rules for resilience e
 
 ## Overview
 
-Game days are scheduled monthly exercises where the team intentionally injects faults into the Pangrova cluster to validate resilience, runbooks, and recovery procedures. The goal is to discover weaknesses before they manifest in production.
+This is a proposed staging-exercise playbook, not a record of completed exercises
+or an established operating schedule. Obtain the environment owner's approval,
+confirm the exact fault targets and rollback steps, and use an isolated staging
+cluster. The RTO values below are exercise targets, not measured guarantees.
 
 ## Schedule
 
@@ -65,10 +68,10 @@ A game day is successful when:
 
 | Component | Target RTO | Measurement Tool |
 |-----------|-----------|-----------------|
-| Coordinator failover | < 30 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Worker crash recovery | < 60 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Metadata partition heal | < 120 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
-| Query re-routing | < 10 seconds | [measure-recovery-time.sh](tools/measure-recovery-time.sh) |
+| Coordinator failover | < 30 seconds | `measure-recovery-time.sh` |
+| Worker crash recovery | < 60 seconds | `measure-recovery-time.sh` |
+| Metadata partition heal | < 120 seconds | `measure-recovery-time.sh` |
+| Query re-routing | < 10 seconds | `measure-recovery-time.sh` |
 
 ## Runbooks
 
@@ -83,9 +86,23 @@ Each scenario has a corresponding runbook for live incident response. Runbooks a
 | GD-005: Disk Full on Worker | [disk-full-runbook.md](runbooks/disk-full-runbook.md) | Medium |
 | GD-006: Clock Skew | [clock-skew-runbook.md](runbooks/clock-skew-runbook.md) | Medium |
 
+## Measurement boundary
+
+`measure-recovery-time.sh` records HTTP submission status and request latency; it
+does not poll a query to completion or consume its Arrow results. Its percentiles
+and recovery times therefore measure submission availability, not SQL latency,
+result correctness, or full workload recovery. Validate recovery separately with
+the [CLI batch path](../../getting-started/clients/cli.md#script-mode), consuming
+results and confirming `FINISHED` before recording SQL success.
+
+The current script uses Bash 4+ syntax and GNU-style millisecond `date` output;
+do not assume it runs with stock macOS Bash/date. Use only trusted, fixed endpoint,
+token, query, and output arguments. No fault-injection command in these guides
+should run outside an explicitly approved exercise.
+
 ## Tools
 
-- **Recovery Time Measurement**: [`tools/measure-recovery-time.sh`](tools/measure-recovery-time.sh) — baseline, measure, report, and watch subcommands; computes p50/p95/p99 latency; RTO assessment
+- **Recovery Time Measurement**: `docs/operations/game-day/tools/measure-recovery-time.sh` in the repository — baseline, measure, report, and watch subcommands; computes p50/p95/p99 latency; RTO assessment
 - **Fault Injection**: Pangrova chaos testing framework (`pangrova-testing/pangrova-testing-integration-tests/`)
 - **Monitoring**: Grafana dashboards (staging environment)
 

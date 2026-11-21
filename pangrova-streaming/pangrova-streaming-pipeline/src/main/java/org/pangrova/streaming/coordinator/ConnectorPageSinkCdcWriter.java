@@ -87,6 +87,17 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
         throw new IllegalArgumentException("CDC staged write token was not created by this writer");
     }
 
+    /**
+     * Stages one batch without publishing it and returns the exact connector
+     * fragments for the Coordinator's journaled commit.
+     */
+    public List<byte[]> stageFragments(List<CdcEnvelope> envelopes) {
+        StagedBatch staged = stageLocal(envelopes);
+        return staged.phases.stream()
+                .map(phase -> phase.fragment().clone())
+                .toList();
+    }
+
     @Override
     public void discard(CdcWriteSink.StagedWrite staged) {
         if (staged instanceof StagedBatch batch && batch.owner == this) {
@@ -205,7 +216,6 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     /** One staged write phase (INSERT or DELETE) — its handle and unpublished fragment. */
     private record PhaseStage(
             org.pangrova.connector.api.metadata.ConnectorOutputTableHandle handle, byte[] fragment) {}
-
 
     /** A staged (written-but-unpublished) batch for the local commit path. */
     private static final class StagedBatch implements CdcWriteSink.StagedWrite {

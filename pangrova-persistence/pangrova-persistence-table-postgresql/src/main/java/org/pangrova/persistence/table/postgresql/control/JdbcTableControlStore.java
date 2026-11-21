@@ -166,22 +166,28 @@ public final class JdbcTableControlStore implements TableControlStore {
         }
     }
 
+    private TableControlRecord lockRegistration(Connection connection, TableControlRecord expected)
+            throws SQLException {
+        try (var statement = connection.prepareStatement(FIND_BY_ID + " FOR UPDATE")) {
+            statement.setObject(1, expected.tableId());
+            try (var rows = statement.executeQuery()) {
+                TableControlRecord current = rows.next() ? map(rows) : null;
+                if (!expected.matchesRegistration(current)) {
+                    throw TableControlException.staleWrite("Table registration changed for "
+                            + expected.qualifiedName());
+                }
+                return current;
+            }
+        }
+    }
+
     @Override
     public void replaceRegistration(TableControlRecord expected, TableControlRecord replacement, Instant retiredAt) {
         expected.requireReplacement(replacement);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                TableControlRecord current;
-                try (var statement = connection.prepareStatement(FIND_BY_ID + " FOR UPDATE")) {
-                    statement.setObject(1, expected.tableId());
-                    try (var rows = statement.executeQuery()) {
-                        current = rows.next() ? map(rows) : null;
-                        if (!expected.matchesRegistration(current)) {
-                            throw TableControlException.staleWrite("Table registration changed for " + expected.qualifiedName());
-                        }
-                    }
-                }
+                TableControlRecord current = lockRegistration(connection, expected);
                 writeRevision(connection, UPSERT, current.retiredAt(retiredAt), Optional.empty());
                 writeRevision(connection, INSERT, replacement, Optional.empty());
                 connection.commit();
@@ -190,7 +196,8 @@ public final class JdbcTableControlStore implements TableControlStore {
                 throw failure;
             }
         } catch (SQLException failure) {
-            throw new TableControlException("Failed to replace table registration: " + expected.qualifiedName(), failure);
+            throw new TableControlException("Failed to replace table registration: " + expected.qualifiedName(),
+                    failure);
         }
     }
 

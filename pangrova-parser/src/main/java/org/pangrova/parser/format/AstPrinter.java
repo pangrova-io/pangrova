@@ -4,7 +4,29 @@ import org.pangrova.parser.api.enums.BinaryExpressionOperator;
 import org.pangrova.parser.api.enums.SetOperatorType;
 import org.pangrova.parser.api.enums.SqlJoinType;
 import org.pangrova.parser.api.enums.TableFunctionType;
-import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.AllColumns;
+import org.pangrova.parser.api.ast.CteQuery;
+import org.pangrova.parser.api.ast.CubeGroupBy;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.ExpressionItem;
+import org.pangrova.parser.api.ast.GroupByExpression;
+import org.pangrova.parser.api.ast.GroupByItem;
+import org.pangrova.parser.api.ast.GroupingSets;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.JoinClause;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.RerankClause;
+import org.pangrova.parser.api.ast.RollupGroupBy;
+import org.pangrova.parser.api.ast.SelectItem;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.SortItem;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.TableRef;
+import org.pangrova.parser.api.ast.TimeTravelSpec;
+import org.pangrova.parser.api.ast.ValuesTable;
+import org.pangrova.parser.api.ast.WindowSpec;
 import org.pangrova.parser.api.ast.expression.ArrayConstructor;
 import org.pangrova.parser.api.ast.expression.BinaryExpression;
 import org.pangrova.parser.api.ast.expression.CaseExpression;
@@ -21,7 +43,6 @@ import org.pangrova.parser.api.ast.expression.MapConstructor;
 import org.pangrova.parser.api.ast.expression.NotExpression;
 import org.pangrova.parser.api.ast.expression.NotInExpression;
 import org.pangrova.parser.api.ast.expression.NotInSubqueryExpression;
-import org.pangrova.parser.api.ast.RerankClause;
 import org.pangrova.parser.api.ast.RerankClause.RerankStrategy;
 import org.pangrova.parser.api.ast.expression.StarFunctionCall;
 import org.pangrova.parser.api.ast.expression.StructConstructor;
@@ -228,13 +249,16 @@ public final class AstPrinter {
         var map = new java.util.HashMap<Class<? extends LiteralValue>, Function<LiteralValue, String>>();
         map.put(LiteralValue.IntegerValue.class, v -> String.valueOf(((LiteralValue.IntegerValue) v).value()));
         map.put(LiteralValue.DecimalValue.class, v -> ((LiteralValue.DecimalValue) v).value().toPlainString());
-        map.put(LiteralValue.StringValue.class, v -> "'" + ((LiteralValue.StringValue) v).value().replace("'", "''") + "'");
+        map.put(LiteralValue.StringValue.class, v -> "'" + ((LiteralValue.StringValue) v).value().replace("'",
+                "''") + "'");
         map.put(LiteralValue.BooleanValue.class, v -> ((LiteralValue.BooleanValue) v).value() ? "TRUE" : "FALSE");
         map.put(LiteralValue.NullValue.class, v -> "NULL");
         map.put(LiteralValue.DateValue.class, v -> "DATE '" + ((LiteralValue.DateValue) v).value() + "'");
         map.put(LiteralValue.UuidValue.class, v -> "UUID '" + ((LiteralValue.UuidValue) v).value() + "'");
-        map.put(LiteralValue.TimestampValue.class, v -> "TIMESTAMP '" + ((LiteralValue.TimestampValue) v).value() + "'");
-        map.put(LiteralValue.TimestampWithTimeZoneValue.class, v -> "TIMESTAMP WITH TIME ZONE '" + ((LiteralValue.TimestampWithTimeZoneValue) v).value() + "'");
+        map.put(LiteralValue.TimestampValue.class, v -> "TIMESTAMP '" + ((LiteralValue.TimestampValue) v).value()
+                + "'");
+        map.put(LiteralValue.TimestampWithTimeZoneValue.class, v -> "TIMESTAMP WITH TIME ZONE '" + ((
+                LiteralValue.TimestampWithTimeZoneValue) v).value() + "'");
         map.put(LiteralValue.IntervalValue.class, v -> {
             var iv = (LiteralValue.IntervalValue) v;
             var sb = new StringBuilder("INTERVAL '").append(iv.expression()).append("' ").append(iv.fromUnit());

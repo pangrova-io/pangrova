@@ -102,6 +102,10 @@ final class TaskLifecycleManager {
      * @param callback lifecycle event callbacks (state transition, index cleanup, completion)
      */
     void executeTask(String taskId, TaskInfo info, LifecycleCallback callback) {
+        if (info.isWorkerExecuted()) {
+            executeWorkerExecutedTask(taskId, info, callback);
+            return;
+        }
         boolean creationBegun = false;
         boolean creationDelegated = false;
         try {
@@ -135,6 +139,31 @@ final class TaskLifecycleManager {
         }
     }
 
+    /**
+     * Starts a Worker-JVM task without entering any Native creation, memory,
+     * exchange, shuffle, or resource-drain branch.
+     */
+    private void executeWorkerExecutedTask(
+            String taskId, TaskInfo info, LifecycleCallback callback) {
+        try {
+            requireNotCancelled(info);
+            long handle = deps.taskExecutor().createTask(info.request().canonicalBytes());
+            if (handle <= 0) {
+                throw new IllegalStateException(
+                        "Worker-executed task creation returned no positive owner");
+            }
+            info.setExecutorHandle(handle);
+            Consumer<String> onCompleted = tid -> completionMonitor.onTaskCompleted(
+                    tid, info, callback, () -> releaseAllResources(info, taskId));
+            Consumer<Exception> onError = e -> completionMonitor.onTaskError(
+                    taskId, info, e, callback, () -> releaseAllResources(info, taskId));
+            startExecutor(taskId, info, handle, callback);
+            completionMonitor.startCompletionMonitor(taskId, info, handle, onCompleted, onError);
+        } catch (RuntimeException | Error failure) {
+            handleSetupFailure(taskId, info, callback, failure, false, false);
+        }
+    }
+
     private void handleSetupFailure(String taskId, TaskInfo info, LifecycleCallback callback,
                                    Throwable failure, boolean creationBegun, boolean creationDelegated) {
         if (creationBegun && !creationDelegated) info.nativeCreationRolledBackBeforeEntry();
@@ -152,7 +181,7 @@ final class TaskLifecycleManager {
     }
 
     private void bindWriteResources(String taskId, TaskInfo info) {
-        if (!info.isWriteTask()) {
+        if (!info.isWriteTask() || info.isWorkerExecuted()) {
             return;
         }
         var executor = writeExecutor;
@@ -246,7 +275,8 @@ final class TaskLifecycleManager {
                 .toExchangeInputs(
                         bindings, info.request().taskRequest().getAttempt(),
                         info.request().taskRequest().getDeadlineEpochMs());
-        var consumerAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(info.request().taskRequest().getAttempt());
+        var consumerAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(
+                info.request().taskRequest().getAttempt());
         exchangeTransport.bindInputs(handle, consumerAttempt, inputs);
         LOG.info("event=exchange_sources_wired taskId={} sourceCount={}",
                 info.taskId(), bindings.stream()
@@ -306,6 +336,10 @@ final class TaskLifecycleManager {
         }
         long handle = info.executorHandle();
         if (handle == 0) {
+            return;
+        }
+        if (info.isWorkerExecuted()) {
+            deps.taskExecutor().cancelTask(handle);
             return;
         }
         RuntimeException failure = null;
@@ -479,7 +513,7 @@ final class TaskLifecycleManager {
     }
 
     private void propagateMemoryLimitToNative(TaskInfo info) {
-        if (memoryAllocator != null) {
+        if (memoryAllocator != null && !info.isWorkerExecuted()) {
             memoryAllocator.propagateMemoryLimitToNative(info.memoryAccount(), info.executorHandle());
         }
     }

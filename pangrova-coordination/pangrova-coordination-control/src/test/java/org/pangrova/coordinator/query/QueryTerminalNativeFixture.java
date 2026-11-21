@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.query.api.enums.QueryState;
 
@@ -22,7 +24,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.throttle.QueryThrottlingService;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -72,9 +74,16 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
         var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, transport,
                 new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker, null, null, null, 30L);
         var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
+        var auditPort = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                audit, null, null, dispatcher, null);
         manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
-                null, null, null, null, audit, null, null, throttle, store.journal(),
-                null, null, AsyncSubmitConfig.defaultEnabled(), submissions, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), clock::get);
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, throttle),
+                auditPort,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        store.journal(), auditPort),
+                null, AsyncSubmitConfig.defaultEnabled(), submissions,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), clock::get);
         worker.connect(dispatcher, tracker, workers, manager);
         tracker.openQueryIssuance(queryId);
         operation = tracker.enterQueryOperation(queryId);

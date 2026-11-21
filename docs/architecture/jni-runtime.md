@@ -37,15 +37,7 @@ they must not introduce feature-specific task envelopes or a second proto tree.
 
 The single serialization boundary between Java and Native is the JNI bridge in `pangrova-worker`:
 
-```
-Java Layer                          JNI Runtime                    C++ Layer
-─────────────────────────────────────────────────────────────────────────────
-TaskRequestBuilder.build()    →   nativeCreateTaskExecutor()  →  TaskRequestParser
-  (Java proto serialization)        (byte[] transfer)             (Native proto deserialization)
-
-StatusSerializer              ←   nativeGetTaskStatus()       ←  TaskExecutor.state()
-  (Native proto serialization)      (byte[] transfer)             (C++ state)
-```
+![JNI ownership boundary: Java task lifecycle, connector callbacks, and result transport cross a canonical Protobuf bridge into C++/Velox execution and Native shuffle](../../website/static/img/diagrams/jni-ownership.svg)
 
 **Critical rule:** the byte stream produced by generated Java classes must be
 parsed by C++ classes generated from the exact same canonical descriptor. There
@@ -117,14 +109,7 @@ messages and unknown enum values fail closed.
 
 ### 2.1 Result Data Flow
 
-```
-Native task / output buffers
-  → Native FlightResultServer
-    → Arrow RecordBatch / IPC stream
-      → authenticated result endpoint
-        → client consumes stream to EOF
-          → output acknowledgement / Native task release
-```
+![Native task / output buffers](../../website/static/img/diagrams/generated/jni-runtime-01-79e6ac152c.svg)
 
 Java schedules and issues JNI control commands; `NativeRuntime` has no
 `nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
@@ -138,22 +123,7 @@ IPv4 service cannot receive its Flight traffic through an IPv6-only listener.
 
 ### 2.2 Memory Ownership Hierarchy
 
-```
-C++ side:
-  VeloxMemoryGovernor (singleton) → MemoryManager (singleton)
-    → QueryCtx (per-task) → task MemoryPool (per-task)
-      → RowVector buffers (per-batch, allocated from task pool)
-
-Interop side:
-  ArrowArray / ArrowSchema exported under the task MemoryPool
-    → release callback retains original buffers and required layout buffers
-      → importing consumer owns the transferred release obligation
-
-Client side:
-  client-owned allocator / stream / vectors
-    → consume and close stream and vectors
-      → close allocator after its dependent vectors
-```
+![C++ side:](../../website/static/img/diagrams/generated/jni-runtime-02-885ba8ec78.svg)
 
 ### 2.3 Arrow C Data Interface Ownership Rules
 

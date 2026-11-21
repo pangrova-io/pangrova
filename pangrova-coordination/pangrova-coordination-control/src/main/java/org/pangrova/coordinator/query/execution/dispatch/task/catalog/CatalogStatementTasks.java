@@ -18,6 +18,7 @@ import java.util.Map;
 public final class CatalogStatementTasks {
     private CatalogStatementTasks() {}
 
+    /** Registers the metadata tasks that execute catalog DDL and DESCRIBE CATALOG statements. */
     public static void register(Map<Class<? extends Statement>, MetadataTask<?>> tasks,
                                 DdlExecutor ddl, ShowDescribeExecutor inspection) {
         tasks.put(CreateCatalogStatement.class, new CreateCatalogTask(ddl));

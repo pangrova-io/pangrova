@@ -7,7 +7,8 @@ import java.util.Map;
 
 /** Installed Coordinator factory for the OAUTH2 authenticator. */
 public final class OAuth2AuthenticatorFactory implements AuthenticatorFactory {
-    private static final Map<String, String> CONFIGURATION_KEYS = Map.of("issuer-uri", "issuerUri", "audience", "audience");
+    private static final Map<String, String> CONFIGURATION_KEYS = Map.of("issuer-uri", "issuerUri", "audience",
+            "audience");
 
     @Override
     public String providerId() {

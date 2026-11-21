@@ -12,7 +12,7 @@ platform prerequisites reported by the native bootstrap. Docker is required for
 container tests; a matching native bundle is required for Worker query execution.
 
 ```bash
-git clone https://github.com/pangrova/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
 .pangrova/scripts/build-iceberg-sdk-candidate.sh
@@ -28,7 +28,7 @@ for directory and script ownership.
 
 ## Making a change
 
-1. Search [existing issues](https://github.com/pangrova/pangrova/issues) and explain
+1. Search [existing issues](https://github.com/pangrova-io/pangrova/issues) and explain
    the problem or intended behavior.
 2. Fork the repository and create a focused branch from `main`.
 3. Inspect the implementation, callers and tests. Preserve unrelated changes.

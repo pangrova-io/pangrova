@@ -155,7 +155,8 @@
 
         <!-- JaCoCo agent arg (empty when coverage profile is inactive) -->
         <jacoco.agent.argLine></jacoco.agent.argLine>
-        <pangrova.e2e.excludedGroups>routing-integration,native-required,performance</pangrova.e2e.excludedGroups>
+        <pangrova.e2e.excludedGroups>routing-integration,native-required,performance,e2e</pangrova.e2e.excludedGroups>
+        <pangrova.e2e.excludedClasses>**/e2e/**/*PropertyTest.java</pangrova.e2e.excludedClasses>
         <pangrova.worker.excludedTestGroups>native-required</pangrova.worker.excludedTestGroups>
         <pangrova.coordinator.excludedTestGroups>native-required</pangrova.coordinator.excludedTestGroups>
         <pangrova.metadata.excludedTestGroups>integration</pangrova.metadata.excludedTestGroups>
@@ -895,6 +896,11 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -1170,6 +1176,9 @@
                         </includes>
                         <excludes>
                             <exclude>**/*IntegrationTest.java</exclude>
+                            <!-- jqwik ignores tag filters; full regression overrides
+                                 this with "none" so E2E property tests run there. -->
+                            <exclude>${pangrova.e2e.excludedClasses}</exclude>
                         </excludes>
                         <argLine>@{jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
                         <!-- Single forked JVM reused across test classes.
@@ -1530,6 +1539,7 @@
             <id>full-regression</id>
             <properties>
                 <pangrova.e2e.excludedGroups>native-runtime-owner</pangrova.e2e.excludedGroups>
+                <pangrova.e2e.excludedClasses>none</pangrova.e2e.excludedClasses>
                 <pangrova.worker.excludedTestGroups>none</pangrova.worker.excludedTestGroups>
                 <pangrova.coordinator.excludedTestGroups>none</pangrova.coordinator.excludedTestGroups>
                 <pangrova.metadata.excludedTestGroups>none</pangrova.metadata.excludedTestGroups>

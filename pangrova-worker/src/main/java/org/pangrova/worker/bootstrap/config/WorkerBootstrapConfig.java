@@ -278,6 +278,7 @@ public record WorkerBootstrapConfig(
         public static final double DEFAULT_PRESSURE_THRESHOLD_HIGH = 85.0;
         public static final double DEFAULT_PRESSURE_THRESHOLD_CRITICAL = 95.0;
 
+        /** Validates Worker memory, thread and pressure-threshold settings. */
         public ResourceConfig(
                 long memoryBudgetBytes,
             long systemReservedBytes,
@@ -301,7 +302,8 @@ public record WorkerBootstrapConfig(
                     nodeMemoryBytes, pressureThresholdLow, pressureThresholdMedium, pressureThresholdHigh,
                     pressureThresholdCritical, shuffleRetentionBytes, shuffleTransitBytes, shuffleSpillBytes,
                     shuffleSpillFiles, shuffleSpillDirectory, shuffleChannelLimits,
-                    new ShuffleProvider(org.pangrova.config.constants.WorkerOptions.SHUFFLE_PROVIDER.defaultValue(), java.util.Map.of()));
+                    new ShuffleProvider(org.pangrova.config.constants.WorkerOptions.SHUFFLE_PROVIDER.defaultValue(),
+                            java.util.Map.of()));
         }
 
         public ResourceConfig {

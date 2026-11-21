@@ -1,7 +1,6 @@
 package org.pangrova.connector.api.index;
 
 import org.pangrova.connector.api.enums.IndexEvalResult;
-import org.pangrova.connector.api.index.NativeIndexCapability;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;

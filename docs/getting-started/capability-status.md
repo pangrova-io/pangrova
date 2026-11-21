@@ -29,6 +29,7 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Catalog/schema/table DDL | Java metadata dispatch is wired | Connector support and authenticated session context apply; a DDL handler is not proof of all table-format features |
 | Volume and Stage DDL | Definitions, RBAC, audit, and the file access-ticket flow are wired against the metadata authority | `SHOW`/`DESCRIBE` plus `LIST @stage`/`REMOVE @stage` for SQL. File transfer (single-request, ranged, multipart), recursive listing, version-checked delete, presigned URLs, and role-authorized stable Stage URLs work through the [file access API](catalogs/volumes-stages-files.md). Manual `ALTER STAGE ... REFRESH` publishes a durable directory index after a complete Worker listing. Native Directory projections, automatic index updates, `PUT`/`GET`, SQL URL functions, and `COPY INTO`/`read_files` ingestion are not implemented |
 | Iceberg and Paimon | Connector implementations exist | Table-format capability does not imply equivalent Pangrova SQL support. Paimon merge/file policies have explicit limits |
+| Lance datasets | A managed Lance connector is installed with the Native runtime | Requires the Native Lance FFI and the shared metadata authority. Snapshot reads, `CREATE TABLE`, `INSERT`, `INSERT OVERWRITE`, abort, and time travel are supported; `UPDATE`/`DELETE`/`MERGE`, column DDL, views, system tables, and maintenance are not. See [Lance](connectors/lance.md) |
 | Cross-catalog queries | Shared planning and connector paths exist | Validate the actual join and pushdown shape; no qualified performance advantage is claimed |
 | Standalone `COMPACT`, `OPTIMIZE`, `VACUUM` | Registered; the default bootstrap injects `ControlledTableMaintenance` into `MaintenanceExecutor` | A successful statement does not prove files were rewritten or removed. `OPTIMIZE` maps to compaction; `VACUUM` maps only to orphan cleanup, not snapshot expiration |
 | Catalog maintenance `CALL` | Distinct connector procedure dispatch is wired | Use the connector-specific procedure and arguments. This is not the same path as the standalone statements |
@@ -37,11 +38,11 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Server-side `SET` | Parsed assignment returns `PARSER_UNSUPPORTED_FEATURE` | Supply supported context in query requests or client connection settings |
 | Catalog YAML auto-registration | Documented format, automatic startup loading remains planned | Use SQL `CREATE CATALOG` for the documented registration path |
 
-Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java),
-[plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
-[maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
-[DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
-and [Worker connector write bridge](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/src/main/java/org/pangrova/worker/write/NativeWriteExecutor.java).
+Source evidence: statement bootstrap,
+plan dispatch,
+maintenance executor,
+DDL executor,
+and Worker connector write bridge.
 See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.md),
 [session context](../sql-reference/session.md), and [catalog management](catalogs/catalog-management.md).
 
@@ -52,15 +53,15 @@ See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.m
 | Vector distance SQL | Native functions and relational ordering path exist | Distance ordering alone does not prove ANN acceleration |
 | ANN retrieval | Rewriter and Native index/artifact paths exist | Requires an eligible distance-order/positive-limit query and a matching index binding. An unbound ordinary query can remain exact SQL; a bound ANN task must obey its explicit fallback policy |
 | Full-text / hybrid retrieval / reranking | Components and bounded planning paths exist | Required artifacts, capabilities, model bindings, and supported query shapes apply. Filters are not proof of ANN prefiltering; arbitrary OR/NOT, aggregation, and multi-vector fusion are not a blanket support contract |
-| Text-to-vector query shorthand | Rule code exists but is not wired into the default planner | Use explicit model invocation where supported; do not assume text literals automatically become query vectors |
+| Text-to-vector query shorthand | Wired for auto-embedding columns: the planner rewrites a text literal in a vector distance/similarity call to `AI_EMBED(...,'QUERY')` | Requires a generated auto-embedding column and a configured model/provider. ANN acceleration still requires a literal vector; the shorthand uses exact distance ordering |
 | `AI_EMBED`, `AI_COMPLETE`, and other model functions | Native expressions invoke a governed Worker-local provider callback | Models, provider endpoints, credentials, modalities, and exact capabilities must be configured; a SQL function does not bundle a model service |
 | `FILE_FROM_URL` | HTTPS importer and governed blob storage are implemented | Requires an allowed HTTPS host and importer/storage limits. It does not accept arbitrary S3, HDFS, HTTP, or other source schemes |
 | `FILE` values | Governed claim-check references | The stored URI is an opaque `pangrova-blob://` reference, not a public storage credential or an unrestricted URL |
 | Feature Store / training datasets / embodied workflows | Partial components or product direction | Complete serving, training-export, and operational lifecycles are not established |
 
-Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-indexing/pangrova-indexing-lifecycle/src/main/java/org/pangrova/indexing/planner/vector/VectorSearchRewriter.java),
-[retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
-and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/blob/HttpsBlobImporter.java).
+Source evidence: vector rewriter,
+retrieval intent collection,
+and HTTPS importer.
 Read the [vector reference](../sql-reference/functions/vector-search.md),
 [AI functions](../sql-reference/functions/ai-functions.md), and [FILE type](../data-types/ai-native/file.md)
 for examples and prerequisites.
@@ -70,13 +71,13 @@ for examples and prerequisites.
 | Capability | Current status | Boundary |
 |---|---|---|
 | Stream DDL | Registered when the streaming bootstrap supplies its executor | Registration does not qualify ingestion, recovery, or table-format correctness |
-| CDC data writes | Current bootstrap creates a Coordinator-local `ConnectorPageSinkCdcWriter` | This is a known exception to the Native data-plane target. Catalog publication and source offsets are not one atomic transaction; no exactly-once/effectively-once production guarantee is established |
-| Continuous-query refresh | Default scheduler callback logs a refresh tick | It does not execute the refresh query |
-| Dynamic-table lifecycle | Create/alter/drop/show/describe handlers register when durable metadata publication is configured; the planner rewrites published targets | Continuous-query materialization returns unsupported, and automatic refresh scheduling or exactly-once refresh is not established |
-| Complete automatic materialized-view lifecycle | Definitions can be persisted and recovered for query rewriting | No materialized-view DDL/refresh execution path is registered; do not infer an automatic create/refresh/recovery service from rewrite classes or refresh syntax |
+| CDC data writes | A Coordinator hosting streaming and query roles disables its local pipeline and dispatches bounded `CDC_INGEST` tasks to Worker JVMs; a streaming-only Coordinator retains the local `ConnectorPageSinkCdcWriter` | The Worker path journals each write intent before connector publication and acknowledges source offsets only after publication. A live test exercises real Kafka through two Worker CDC backends with a Paimon merge and an injected backend failure; the retry is exactly once and offsets move only after publication. Catalog publication and source offsets remain separate operations, and process-level Worker crash qualification is still required, so no general exactly-once/effectively-once production guarantee is established |
+| Continuous-query refresh | `CREATE CONTINUOUS QUERY ... REFRESH EVERY <interval>` creates a durable Dynamic Table refreshed by the materialization kernel at that interval | Refresh is interval-driven and full; watermark gating and incremental continuous-query refresh are not implemented |
+| Dynamic-table lifecycle | The durable materialization kernel serves DDL, full and eligible incremental refresh, immutable generation publication, reader pins, recovery, and leader-gated scheduling | Omitting `TARGET_LAG` selects manual refresh; a positive lag enables a durable schedule. Append-only and partition-replacement strategies are bundled; unsupported definitions, affected-key strategy, and CDC refresh are rejected. Continuous queries are created as Dynamic Tables scheduled at the declared `REFRESH EVERY` interval |
+| Materialized-view lifecycle | Create/alter/refresh/drop/show/describe use the same kernel; published views are eligible for transparent planner rewriting | Durable metadata, authorization, supported connectors, and Native execution are required. Refresh strategies and scheduling follow the dynamic-table contract; this is not a blanket exactly-once or production-qualification guarantee |
 
-Source evidence: [streaming bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/StreamingBootstrap.java),
-[planner wiring](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PlannerWiring.java),
+Source evidence: streaming bootstrap,
+planner wiring,
 and the statement bootstrap linked above. See [streaming SQL](../sql-reference/streaming.md)
 and the [current CDC boundary](../architecture/streaming.md).
 
@@ -86,7 +87,7 @@ and the [current CDC boundary](../architecture/streaming.md).
   ZooKeeper is optional. Availability also depends on the durable database, catalog,
   object store, network, and deployment configuration. Multiple Coordinators alone
   do not remove every single point of failure.
-- Native execution uses Velox representations; [Native shuffle serialization](https://github.com/pangrova/pangrova/blob/main/pangrova-worker-native/src/engine/shuffle/ShuffleBatchSerializer.cpp) produces standard
+- Native execution uses Velox representations; Native shuffle serialization produces standard
   Arrow stream batches for Flight. Worker write staging can call Java connector
   page sinks through JNI, including conversion for row-only sinks. Native planning
   does not make every physical I/O operation a pure C++ path. JNI, IPC, conversion,

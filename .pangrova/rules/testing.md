@@ -1,172 +1,96 @@
 # Testing
 
-## Test Categories
+Validation scope is selected in `development.md`; build commands are in
+`build-pipeline.md`.
 
-| Category | Location | Tag | Runner |
-|----------|----------|-----|--------|
-| Unit | `src/test/java/` per module | (default) | JUnit 5 + jqwik |
-| Integration | `src/test/java/` per module | `@Tag("integration")` | JUnit 5 + TestContainers |
-| Routing integration | `pangrova-testing/pangrova-testing-integration-tests` | `@Tag("routing-integration")` | JUnit 5 + one real worker endpoint |
-| Property | `src/test/java/**/property/` | (default) | jqwik |
-| E2E | `pangrova-testing/pangrova-testing-integration-tests` (`integration.e2e`) | `@E2ETest` | JUnit 5 + TestContainers |
-| Smoke | `pangrova-testing/pangrova-testing-integration-tests` (`integration.smoke`, `@SmokeTest`) | `@Tag("smoke")` | JUnit 5 + packaged JNI |
-| Chaos | `pangrova-testing/pangrova-testing-integration-tests` (`integration.chaos`) | `@Tag("chaos")` | JUnit 5 + Toxiproxy |
-| Benchmark | `pangrova-testing/pangrova-testing-benchmark` | — | JMH |
-| C++ Unit | `pangrova-worker-native/test/` | — | GoogleTest |
+## Categories
 
-## Banned Frameworks
+| Category | Location / naming | Marker | Runner |
+|---|---|---|---|
+| Unit | Module `src/test/java`, `*Test` | — | JUnit 5, AssertJ |
+| Property | `property` sub-package, `*PropertyTest` | — | jqwik |
+| Integration | `*IntegrationTest` | `@Tag("integration")` | JUnit 5, TestContainers |
+| Routing integration | `pangrova-testing-integration-tests` | `@Tag("routing-integration")` | One real Worker endpoint |
+| E2E | `pangrova-testing-integration-tests` (`integration.e2e`) | `@E2ETest` (`e2e`, `integration`) | JUnit 5, TestContainers |
+| Smoke | `integration.smoke` | `@SmokeTest` (`smoke`) | Packaged JNI |
+| Chaos | `integration.chaos` | `@Tag("chaos")` | Toxiproxy |
+| Native-dependent | Any Java module | `@Tag("native-required")` | Requires packaged JNI |
+| Native process owner | `pangrova-testing-integration-tests` | `@Tag("native-runtime-owner")` | Own JVM per selection |
+| Performance E2E | `integration.e2e.performance` | `@Tag("performance")` | JUnit 5 |
+| Benchmark | `pangrova-testing-benchmark` | — | JMH |
+| C++ | `pangrova-worker-native/test`, `<Component>Test.cpp` | — | GoogleTest, CTest |
 
-- **Mockito, PowerMock, EasyMock** — all mock frameworks banned. Use real implementations, fakes, or TestContainers.
-- **Catch2, rapidcheck** — C++ side uses GoogleTest exclusively.
-- **`@Disabled`** annotations — banned in tests. Fix the test or remove it.
-- **`java.lang.reflect`** to access private/protected — make the method package-private instead.
+Daily runs exclude `native-required`, `routing-integration`, `performance` and
+`e2e`; the E2E classes require the immutable AI model fixture and the
+same-source production image that full regression provisions.
+`SqlE2ETestBase` carries `@E2ETest` so its subclasses inherit the tag, and the
+integration module excludes `**/e2e/**/*PropertyTest.java` by path because the
+jqwik engine ignores tag filters.
+`-Pfull-regression` includes them and excludes only `native-runtime-owner`, whose
+selections run in isolated JVMs (see `build-pipeline.md`). A Maven run that selects
+no applicable tests is not validation.
 
-## Naming & Location
+Property tests mirror the production package under `property`
+(`org.pangrova.worker.exchange` → `org.pangrova.worker.property.exchange`).
 
-- `*Test.java` — unit tests
-- `*IntegrationTest.java` — component integration tests (external resources when needed)
-- `*PropertyTest.java` — jqwik property-based tests
-- PropertyTest location: `property` sub-package (e.g., `org.pangrova.worker.exchange` → `org.pangrova.worker.property.exchange`)
-- C++ tests: `<Component>Test.cpp` using GoogleTest, parameterized tests (`TEST_P`, `INSTANTIATE_TEST_SUITE_P`) for data-driven
+## Rules
 
-## Test Writing Principles
+- No mock frameworks (Mockito, PowerMock, EasyMock): use real collaborators, small
+  fakes or TestContainers. C++ uses GoogleTest only.
+- No `@Disabled`, `@Ignore` or permanently false assumptions; fix or delete the test.
+- No reflection into private members; make the member package-private instead.
+- Tests are deterministic and isolated: no uncontrolled random seeds, shared mutable
+  state, external public services or network. Wait for readiness and ordering with
+  Awaitility, latches or TestContainers wait strategies, never `Thread.sleep`.
+- Each test method has clear Given/When/Then and verifies one behavior, covering
+  representative equivalence classes and relevant null, empty, limit, overflow and
+  negative boundaries.
 
-- **Given-When-Then**: Each test method has clear setup, action, and assertion
-- **One assertion per behavior**: Test a single logical behavior per method
-- **Boundary values**: Test relevant null, empty, limit, overflow, and negative cases
-- **Equivalence classes**: Partition inputs; test representative from each partition
-- **Deterministic**: No `Thread.sleep`, no random seeds without control, no external network
-- **Self-contained**: No shared mutable state between tests; use `@BeforeEach` for setup
+## Coverage Depth
 
-## Coverage Guidance
+Test observable behavior, not class or line quotas.
 
-- **Changed-line coverage**: Reports are diagnostic, not a PR gate; the former
-  `diff-coverage-check.sh` threshold is retired. Use `-Pcoverage` locally when a
-  report helps locate untested behavior.
-- **Property tests**: Use for serialization, parsing, scheduling, and resource allocation when invariants are stronger than enumerated examples
-- **C++ coverage**: Not gated in CI, but targeted at critical paths (JNI bridge, memory management)
+- New behavior: normal, boundary and important error paths.
+- Bug fixes: a focused regression test where practical.
+- Pure refactors: existing tests that exercise the changed path.
+- Resource ownership and concurrent transitions: cleanup, failure and race coverage at
+  the real boundary.
+- Serialization, parsing, scheduling and allocation: property tests when invariants
+  are stronger than examples.
+- Cross-component behavior: integration tests. User-visible SQL, protocol, JNI and
+  distributed behavior: E2E at the matching boundary. CLI-only formatting needs no
+  parser-to-native test.
 
-## Behavior Coverage
+Coverage reports (`-Pcoverage`) are diagnostic; there is no percentage gate.
 
-Test observable behavior, not a quota of classes, methods, or catch blocks.
+## Containers
 
-- New behavior needs normal cases, relevant boundaries, and important error paths.
-- Bug fixes need a focused regression where practical.
-- Pure refactors may rely on existing tests that exercise the changed path.
-- Resource ownership and concurrent state transitions need cleanup/failure/race
-  coverage at their actual boundary.
-- Cross-component behavior needs integration coverage; user-facing SQL, protocol,
-  JNI, and distributed behavior needs relevant E2E coverage. CLI-only formatting
-  does not require a parser-to-native execution test.
-- Behavior coverage still needs normal, boundary, and error-path tests at the
-  boundaries above; do not manufacture assertions merely to raise a percentage.
+All container tests extend `ContainerTestBase`, use `getHost()`/`getMappedPort()` and
+a Docker network for multi-container scenarios. If Docker is unavailable, report the
+blocker; never disable the test or claim it passed.
 
-## Selecting Regression Scope
+| Service | Specification | Prohibited substitutes |
+|---|---|---|
+| PostgreSQL | `postgres:16-alpine`, user `pangrova` / `pangrova_test`, database `pangrova_meta` (E2E) or `pangrova_metadata_test` (unit); JVM-level singleton `SharedTestContainers.POSTGRES` | H2, SQLite, embedded-pg, shared dev databases, a container per class |
+| LLM inference | `ollama/ollama:0.6.2`, model `tinyllama`, port 11434 | `StubInferenceProvider` in E2E, external APIs, mock HTTP |
+| Fault injection | `ghcr.io/shopify/toxiproxy:2.12.0` for chaos, CDC exactly-once and consensus tests | — |
+| Cluster | `PangrovaClusterContainer` on the image from `deploy/docker/Dockerfile`; Coordinator 8080, Worker 8081, health `GET /v1/health` | — |
 
-Follow `development.md` for validation selection. Full production regression is a
-runtime/build/test CI and release requirement, and a local requirement for broad
-execution changes. Local documentation, tooling and isolated Java changes do not
-automatically require native/ASan/E2E; CI selection follows `ci-gates.md`.
-A missing prerequisite is a reported blocker, never a passing or disabled test.
+A test is multi-worker or distributed only when every advertised Worker has its own
+process/container and endpoint. Multiple Worker IDs behind one endpoint are routing
+integration and must not claim process isolation, remote data movement, partition
+behavior or Worker failure recovery.
 
-## E2E Infrastructure — TestContainers
-
-Use the TestContainer specifications below when a test needs the corresponding
-external service. In-process integration tests do not require unrelated containers.
-
-### Native Library Prerequisite (BLOCKING)
-
-Before E2E tests that load JNI, ensure the native library is built and packaged
-from the source revision under test. Reuse a verified matching artifact when native
-inputs are unchanged; rebuild/repackage after native runtime or packaging changes:
-
-```bash
-cmake --preset dev-release -S pangrova-worker-native
-cmake --build pangrova-worker-native/build --parallel
-./pangrova-worker-native/bin/package-native-lib.sh
-java -version && mvn -version && mvn -q -pl pangrova-worker -am test -Dtest="*NativeLoader*" -Dsurefire.failIfNoSpecifiedTests=false
-```
-
-Treat `UnsatisfiedLinkError` as a real failure: diagnose the library, symbols, and
-classpath, then rerun the affected loader/E2E checks and required broader validation.
-
-### Native Runtime Changes
-
-Native runtime, JNI, packaging, and protocol changes require the applicable
-Java/native chain in `build-pipeline.md`: build, native tests, fresh packaging,
-Java consumers, and E2E/smoke for affected execution paths. Memory, ownership,
-JNI, or native concurrency changes also require ASan validation. Documentation and
-build-tool unit-test changes under the native directory require relevant tooling
-checks; directory location alone does not require rebuilding the runtime.
-
-### 1. Database — PostgreSQL TestContainer
-
-| Property | Value |
-|----------|-------|
-| Image | `postgres:16-alpine` |
-| Database | `pangrova_meta` (E2E) / `pangrova_metadata_test` (unit) |
-| Username | `pangrova` |
-| Password | `pangrova_test` |
-| Pattern | JVM-level singleton (`SharedTestContainers.POSTGRES`) |
-
-**Prohibited**: H2, SQLite, shared dev PostgreSQL, embedded-pg.
-
-### 2. LLM / AI Inference — Ollama TestContainer
-
-| Property | Value |
-|----------|-------|
-| Image | `ollama/ollama:0.6.2` |
-| Model | `tinyllama` |
-| Port | 11434 |
-
-**Prohibited**: StubInferenceProvider in E2E, external API calls, mock HTTP.
-
-### 3. Network Fault Injection — Toxiproxy TestContainer
-
-For chaos/fault-injection tests. Required for CDC EOS tests, distributed consensus tests.
-
-### 4. Multi-Process Cluster — PangrovaClusterContainer
-
-| Property | Value |
-|----------|-------|
-| Image | `pangrova/pangrova:latest` |
-| Coordinator Port | 8080 |
-| Worker Port | 8081 |
-| Health Check | HTTP `/v1/health` → 200 |
-
-A test counts as multi-worker or distributed E2E only when every advertised
-worker has a distinct process/container and endpoint. Multiple worker IDs that
-resolve to one worker endpoint are routing integration; they must use the
-`routing-integration` tag and must not claim process isolation, remote data
-movement, network partition behavior, or worker-level failure recovery.
-
-## Container Lifecycle Rules
-
-- PostgreSQL MUST use JVM-level singleton (not per-class)
-- Docker Network required for multi-container scenarios
-- ALL container tests MUST use `ContainerTestBase` for lifecycle management.
-  If Docker is unavailable, diagnose the prerequisite and report the concrete
-  blocker. Do not disable the test or claim it passed; unrelated host remediation
-  is not mandatory to complete independently verifiable work.
-- No hardcoded ports — use `.getHost()` + `.getMappedPort()`
-- No `Thread.sleep` for readiness — use `Awaitility` or TC wait strategies
-
-## Prohibited Patterns
-
-| Pattern | Why Prohibited | Correct Alternative |
-|---------|---------------|---------------------|
-| H2 in-memory | SQL dialect mismatch | PostgreSQL TestContainer |
-| `StubInferenceProvider` in E2E | Doesn't test real pipeline | Ollama TestContainer |
-| External API calls | Non-reproducible | Ollama TestContainer |
-| `@Disabled` on container tests | Hides failures | Fix the test |
-| New container per test class (PG) | 5-10s overhead | Singleton pattern |
-| Running JNI E2E without a matching native lib | UnsatisfiedLinkError or stale behavior | Verify matching artifact; rebuild/package when inputs changed |
+JNI-loading tests require a Native library built and packaged from the revision under
+test; reuse a verified artifact only when Native inputs are unchanged. Treat
+`UnsatisfiedLinkError` as a real failure.
 
 ## Reference Files
 
 | File | Purpose |
-|------|---------|
-| `pangrova-testing/pangrova-testing-integration-tests/.../SharedTestContainers.java` | PG singleton |
-| `pangrova-testing/pangrova-testing-integration-tests/.../SqlE2ETestBase.java` | Base class |
-| `pangrova-testing/pangrova-testing-kit/.../ContainerTestBase.java` | Docker guard |
-| `pangrova-testing/pangrova-testing-kit/.../PangrovaClusterContainer.java` | Cluster TC |
+|---|---|
+| `pangrova-testing-integration-tests/.../e2e/SharedTestContainers.java` | PostgreSQL singleton |
+| `pangrova-testing-integration-tests/.../e2e/SqlE2ETestBase.java` | SQL E2E base class |
+| `pangrova-testing-kit/.../testkit/ContainerTestBase.java` | Docker guard |
+| `pangrova-testing-kit/.../testkit/PangrovaClusterContainer.java` | Cluster container |
+| `pangrova-testing-kit/.../testkit/E2ETest.java` | E2E marker |

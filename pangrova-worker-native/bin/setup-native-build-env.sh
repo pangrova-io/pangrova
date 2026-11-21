@@ -17,7 +17,7 @@
 #   ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
 #   SKIP_VELOX=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
 #   SKIP_DEPS=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
-#   PANGROVA_NATIVE_BUILD_PHASE=velox|arrow-flight to split Docker cache layers
+#   PANGROVA_NATIVE_BUILD_PHASE=dependencies|velox|arrow-flight to split build phases
 #
 # Output layout:
 #   ~/.pangrova/native-deps/     — abseil + protobuf + RE2 + gRPC (hermetic)
@@ -47,9 +47,44 @@ PROTOBUF_VERSION="${PROTOBUF_VERSION:-v25.3}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+# The macOS dependency builds need Homebrew prefixes. A developer machine may
+# keep a private tree under PANGROVA_HOME; hosted runners use the system one.
+if [[ "$OS" == "Darwin" ]]; then
+  if [[ -x "${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}" ]]; then
+    PANGROVA_BREW="${PANGROVA_BREW:-$PANGROVA_HOME/homebrew/bin/brew}"
+  else
+    PANGROVA_BREW="$(command -v brew || true)"
+  fi
+  HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
+  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  if [[ -z "$OPENSSL_PREFIX" ]]; then
+    # Arrow's bundled thrift still calls APIs removed in OpenSSL 4 (SSLv3_method,
+    # ASN1_STRING_data); build the whole dependency stack against OpenSSL 3.
+    HOMEBREW_NO_AUTO_UPDATE=1 "$PANGROVA_BREW" install openssl@3
+    OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3)"
+  fi
+  BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
+  FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
+fi
 # A caller's explicit build limit must reach both our builds and Velox's
 # dependency installer. CPU count alone does not describe available memory.
-NPROC="${CMAKE_BUILD_PARALLEL_LEVEL:-${BUILD_THREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}}"
+if [[ -n "${CMAKE_BUILD_PARALLEL_LEVEL:-}" || -n "${BUILD_THREADS:-}" ]]; then
+  NPROC="${CMAKE_BUILD_PARALLEL_LEVEL:-$BUILD_THREADS}"
+else
+  NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+  # Velox translation units are memory-hungry; an unbounded core count lets the
+  # compiler be OOM-killed on 7-16 GB runners. Budget roughly 6 GB per job.
+  if [[ "$OS" == "Darwin" ]]; then
+    memory_gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    memory_gb=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo 2>/dev/null || echo 0)
+  fi
+  if [[ "$memory_gb" -gt 0 ]]; then
+    memory_jobs=$(( memory_gb / 6 ))
+    [[ "$memory_jobs" -lt 1 ]] && memory_jobs=1
+    [[ "$NPROC" -gt "$memory_jobs" ]] && NPROC="$memory_jobs"
+  fi
+fi
 if [[ ! "$NPROC" =~ ^[1-9][0-9]*$ ]]; then
   printf 'ERROR: build parallelism must be a positive integer\n' >&2
   exit 1
@@ -91,19 +126,34 @@ check_prerequisites() {
   if [[ "$OS" == "Darwin" && -x "$PANGROVA_HOME/homebrew/bin/brew" ]]; then
     export PATH="$PANGROVA_HOME/homebrew/bin:$PANGROVA_HOME/homebrew/sbin:$PATH"
   fi
-  for cmd in cmake ninja git cargo rustc; do
+  for cmd in cmake ninja git cargo rustc rg; do
     command -v "$cmd" >/dev/null 2>&1 || die "$cmd not found. Install it first."
   done
+  # A package-manager-installed cmake can be a shim without its Modules
+  # directory. Validate and remember the working binary; the setup scripts may
+  # later put such a shim earlier on PATH.
+  PANGROVA_CMAKE_BIN="$(command -v cmake)"
+  "$PANGROVA_CMAKE_BIN" --version >/dev/null 2>&1 \
+    || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
   if [[ "$OS" == "Darwin" ]]; then
     xcode-select -p >/dev/null 2>&1 || die "Xcode CLT required. Run: xcode-select --install"
     command -v brew >/dev/null 2>&1 \
       || die "Homebrew is required by Velox's macOS dependency setup. Install it from https://brew.sh/."
   fi
+  if [[ "$OS" == "Linux" ]]; then
+    # gRPC builds before Velox's setup-ubuntu.sh runs and needs system OpenSSL
+    # and zlib headers. Fail with the package name instead of after a long
+    # dependency build.
+    [[ -f /usr/include/openssl/ssl.h ]] \
+      || die "OpenSSL headers are required (for example: sudo apt-get install -y libssl-dev)"
+    [[ -f /usr/include/zlib.h ]] \
+      || die "zlib headers are required (for example: sudo apt-get install -y zlib1g-dev)"
+  fi
 }
 
 verify_build_tools() {
   log "Verifying existing build tools (no package-manager mutation)"
-  for tool in cmake ninja autoconf automake pkg-config; do
+  for tool in cmake ninja autoconf automake pkg-config patch; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool not found. Install it first."
   done
   if [[ "$OS" == "Darwin" ]]; then
@@ -113,7 +163,17 @@ verify_build_tools() {
   else
     die "Unsupported OS: $OS"
   fi
-  command -v ccache >/dev/null 2>&1 || step "ccache not installed (optional)"
+  if command -v ccache >/dev/null 2>&1; then
+    export CCACHE_DIR="${CCACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ccache}"
+    export CCACHE_COMPRESS=1
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
+    mkdir -p "$CCACHE_DIR"
+    CMAKE_LAUNCHER_FLAGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    step "ccache enabled at $CCACHE_DIR (max $CCACHE_MAXSIZE)"
+  else
+    CMAKE_LAUNCHER_FLAGS=""
+    step "ccache not installed (optional)"
+  fi
 }
 
 configure_compiler() {
@@ -123,26 +183,35 @@ configure_compiler() {
     return
   fi
   local llvm_prefix
-  if [[ -x "$PANGROVA_HOME/llvm/bin/clang++" ]]; then
+  if [[ -n "${PANGROVA_LLVM_PREFIX:-}" ]]; then
+    llvm_prefix="$PANGROVA_LLVM_PREFIX"
+  elif [[ -x "$PANGROVA_HOME/llvm/bin/clang++" ]]; then
     llvm_prefix="$PANGROVA_HOME/llvm"
   else
     llvm_prefix="$(brew --prefix llvm 2>/dev/null || true)"
   fi
   [[ -x "$llvm_prefix/bin/clang++" ]] || \
-    die "Clang 15 or newer is required by Velox; install it under $PANGROVA_HOME/llvm"
+    die "Clang 15 or newer is required by Velox; check PANGROVA_LLVM_PREFIX or install it under $PANGROVA_HOME/llvm"
+  if [[ -z "${SDKROOT:-}" ]]; then
+    SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" || die "Unable to locate the macOS SDK"
+  elif [[ "$SDKROOT" != /* ]]; then
+    SDKROOT="$(xcrun --sdk "$SDKROOT" --show-sdk-path)" || die "Unable to locate the requested macOS SDK"
+  fi
+  [[ "$SDKROOT" == /* && "$SDKROOT" != "/" && -d "$SDKROOT/usr/include" ]] \
+    || die "macOS SDK headers not found at $SDKROOT"
+  export SDKROOT
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
-  for tool in bison flex; do
-    if [[ -d "$PANGROVA_HOME/homebrew/opt/$tool/bin" ]]; then
-      export PATH="$PANGROVA_HOME/homebrew/opt/$tool/bin:$PATH"
-    fi
-  done
+  [[ -n "$BISON_PREFIX" && -d "$BISON_PREFIX/bin" ]] && export PATH="$BISON_PREFIX/bin:$PATH"
+  [[ -n "$FLEX_PREFIX" && -d "$FLEX_PREFIX/bin" ]] && export PATH="$FLEX_PREFIX/bin:$PATH"
   export CC="$llvm_prefix/bin/clang"
   export CXX="$llvm_prefix/bin/clang++"
-  step "Using $($CXX --version | head -1)"
+  step "Using $("$CXX" --version | head -1)"
+  step "Using macOS SDK $SDKROOT"
 }
 
 ensure_folly_compiler_abi() {
   [[ "$OS" == "Darwin" ]] || return 0
+  local libevent_prefix="$1"
   local folly_source="$VELOX_DIR/deps-download/folly"
   local folly_archive="$VELOX_DIR/deps-install/lib/libfolly.a"
   # Consume nm fully: grep -q closes the pipe early and pipefail turns a
@@ -161,11 +230,12 @@ ensure_folly_compiler_abi() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_CXX_STANDARD=20 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install;$PANGROVA_HOME/homebrew" \
+    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install;$libevent_prefix${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
     -DCMAKE_INSTALL_PREFIX="$VELOX_DIR/deps-install" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \
-    -DBUILD_TESTS=OFF
+    -DBUILD_TESTS=OFF \
+    -DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0"
   cmake --build "$folly_source/_build-pangrova" --target install -j "$NPROC"
   nm -gU "$folly_archive" 2>/dev/null | \
     grep 'NSt3__13pmr15memory_resource' >/dev/null || \
@@ -177,6 +247,7 @@ build_abseil() {
   log "Building abseil-cpp $ABSEIL_VERSION"
   local src="$WORK_DIR/abseil-cpp"
   checkout_dependency https://github.com/abseil/abseil-cpp.git "$ABSEIL_VERSION" "$src"
+  # macOS Bash 3.2 treats an empty array as unset under nounset; guard its expansion.
   local arch_flags=()
   if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
     arch_flags+=(-DCMAKE_OSX_ARCHITECTURES=arm64)
@@ -195,7 +266,7 @@ build_abseil() {
     -DCMAKE_CXX_STANDARD=17 \
     -DABSL_PROPAGATE_CXX_STD=ON \
     -DABSL_BUILD_TESTING=OFF \
-    "${arch_flags[@]}"
+    ${arch_flags[@]+"${arch_flags[@]}"}
   cmake --build "$src/build" -j "$NPROC"
   cmake --install "$src/build"
   step "abseil installed to $DEPS_PREFIX"
@@ -281,7 +352,7 @@ build_grpc() {
     -DgRPC_RE2_PROVIDER=package \
     -DgRPC_SSL_PROVIDER=package \
     -DgRPC_ZLIB_PROVIDER=package \
-    "${ssl_args[@]}"
+    ${ssl_args[@]+"${ssl_args[@]}"}
   cmake --build "$src/_cmake_build" -j "$NPROC"
   cmake --install "$src/_cmake_build"
   step "gRPC installed to $DEPS_PREFIX"
@@ -292,7 +363,8 @@ build_velox() {
   local GRPC_VERSION="$GRPC_VERSION"
   local PROTOBUF_VERSION="$PROTOBUF_VERSION"
   local ABSEIL_VERSION="$ABSEIL_VERSION"
-  if [[ -d "$VELOX_DIR" ]]; then
+  local libevent_prefix=""
+  if [[ -d "$VELOX_DIR/.git" ]]; then
     step "Updating existing Velox source"
     cd "$VELOX_DIR"
     if ! git checkout "$VELOX_REF"; then
@@ -303,6 +375,18 @@ build_velox() {
       done
       git checkout "$VELOX_REF"
     fi
+  elif [[ -d "$VELOX_DIR" ]]; then
+    # The dependency cache restores deps-install without the source checkout.
+    # Clone beside it and move the source in, preserving the restored prefixes.
+    step "Populating Velox source into the restored dependency prefix"
+    local checkout
+    checkout="$(mktemp -d "$WORK_DIR/velox-checkout.XXXXXX")"
+    git clone --depth 1 --branch "$VELOX_REF" \
+      https://github.com/facebookincubator/velox.git "$checkout/repository"
+    shopt -s dotglob
+    mv "$checkout/repository"/* "$VELOX_DIR"/
+    shopt -u dotglob
+    rm -rf "$checkout"
   else
     step "Cloning Velox"
     git clone --depth 1 --branch "$VELOX_REF" \
@@ -310,6 +394,18 @@ build_velox() {
   fi
   cd "$VELOX_DIR"
   bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/apply-velox-patches.sh" apply "$VELOX_DIR"
+
+  # Velox's own dependency build downloads and compiles Folly. Apply the
+  # reviewed Folly source fix and skip its examples, which fail to link on
+  # Intel macOS, before that build runs. PROMPT_ALWAYS_RESPOND keeps the
+  # pinned sources instead of re-downloading them on non-interactive CI.
+  export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
+  export PANGROVA_FOLLY_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"
+  local folly_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-common-build.patch"
+  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
+    git -C "$VELOX_DIR" apply --check "$folly_setup_patch"
+    git -C "$VELOX_DIR" apply "$folly_setup_patch"
+  fi
   # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
   # on platforms that do require the separate library.
   local atomic_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-darwin-atomic-link.patch"
@@ -321,8 +417,50 @@ build_velox() {
     export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-Y}"
     export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"
     source ./scripts/setup-macos.sh
+    source "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/resolve-darwin-libevent.sh"
+    # Pangrova suppresses Velox's blanket Homebrew install below. Restore the
+    # existing Folly prerequisite even when the compiled dependencies are cached.
+    libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
 
     # Upstream stores archives inside source directories that it deletes on retry.
+    apply_folly_source_patches() {
+      local source="$1"
+      local folly_patch
+      for folly_patch in \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-libcxx-exception-path.patch"; do
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$folly_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$folly_patch"
+          patch --batch --forward -d "$source" -p1 -i "$folly_patch"
+        fi
+      done
+    }
+
+    dependency_source_patch() {
+      case "$1" in
+        wangle)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/wangle-2026.01.05-openssl-const.patch" ;;
+        fizz)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/fizz-2026.01.05-openssl-const.patch" ;;
+      esac
+    }
+
+    apply_dependency_source_patches() {
+      local dir="$1"
+      local source="$DEPENDENCY_DIR/$dir"
+      local dependency_patch
+      while IFS= read -r dependency_patch; do
+        [[ -n "$dependency_patch" ]] || continue
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$dependency_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$dependency_patch"
+          patch --batch --forward -d "$source" -p1 -i "$dependency_patch"
+        fi
+      done < <(dependency_source_patch "$dir")
+    }
+
     wget_and_untar() {
       local url="$1"
       local dir="$2"
@@ -339,12 +477,66 @@ build_velox() {
       mkdir -p "$DEPENDENCY_DIR/$dir"
       tar -xz --strip-components=1 --no-same-owner \
         -f "$archive" -C "$DEPENDENCY_DIR/$dir"
+      apply_dependency_source_patches "$dir"
+    }
+
+    install_arrow() {
+      # Arrow only builds its bundled thrift when ARROW_WITH_THRIFT is on.
+      # Thrift's SSL transport no longer compiles against OpenSSL 3.5+ const
+      # return types and Parquet is off, so nothing in this install uses it.
+      wget_and_untar \
+        https://github.com/apache/arrow/archive/apache-arrow-"${ARROW_VERSION}".tar.gz arrow
+      (
+        if [[ -z "$VELOX_ARROW_CMAKE_PATCH" ]]; then
+          ABSOLUTE_SCRIPTDIR=$(realpath "$SCRIPT_DIR")
+          VELOX_ARROW_CMAKE_PATCH="$ABSOLUTE_SCRIPTDIR/../CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch"
+        fi
+        cd "$DEPENDENCY_DIR"/arrow || exit 1
+        git apply "$VELOX_ARROW_CMAKE_PATCH"
+        if [[ -n $EXTRA_ARROW_PATCH ]]; then
+          git apply "$EXTRA_ARROW_PATCH"
+        fi
+      ) || exit 1
+      cmake_install_dir arrow/cpp \
+        -DARROW_PARQUET=OFF \
+        -DARROW_WITH_THRIFT=OFF \
+        -DARROW_WITH_LZ4=ON \
+        -DARROW_WITH_SNAPPY=ON \
+        -DARROW_WITH_ZLIB=ON \
+        -DARROW_WITH_ZSTD=ON \
+        -DARROW_JEMALLOC=OFF \
+        -DARROW_SIMD_LEVEL=NONE \
+        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
+        -DARROW_WITH_UTF8PROC=OFF \
+        -DARROW_TESTING=ON \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DARROW_BUILD_STATIC=ON \
+        -DBOOST_ROOT="$INSTALL_PREFIX" \
+        $EXTRA_ARROW_OPTIONS
+    }
+
+    install_fizz() {
+      # The examples target (BogoShim) links libc++abi symbols that macOS 13
+      # does not provide; Velox needs the library, not the developer tools.
+      wget_and_untar \
+        "https://github.com/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+        fizz
+      cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF
     }
 
     install_fbthrift() {
       wget_and_untar \
         "https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         fbthrift
+      # fbthrift's CMake requires an Xxhash package that Velox's dependency set
+      # does not install on macOS.
+      if [[ ! -f "$INSTALL_PREFIX/include/xxhash.h" ]]; then
+        wget_and_untar \
+          "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.2.tar.gz" xxHash
+        cmake_install_dir xxHash/cmake_unofficial \
+          -DBUILD_SHARED_LIBS=OFF -DXXHASH_BUILD_XXHSUM=OFF
+      fi
       local type_system_builder="$DEPENDENCY_DIR/fbthrift/thrift/lib/cpp2/dynamic/TypeSystemBuilder.cpp"
       grep -Fq 'std::invoke([&]() -> TSDefinition' "$type_system_builder" || \
         die "Unexpected fbthrift TypeSystemBuilder.cpp at $FB_OS_VERSION"
@@ -360,6 +552,32 @@ build_velox() {
       cmake_install_dir fbthrift \
         -Denable_tests=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
       touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
+    }
+
+    install_boost() {
+      # Velox and Folly do not use Boost.Log, and its ASIO backend fails to link
+      # against the SDK libc++ with Homebrew Clang on Intel. Install all other
+      # pinned Boost libraries.
+      wget_and_untar \
+        https://github.com/boostorg/boost/releases/download/"${BOOST_VERSION}"/"${BOOST_VERSION}".tar.gz boost
+      (
+        cd "$DEPENDENCY_DIR/boost" || exit 1
+        ./bootstrap.sh --prefix="$INSTALL_PREFIX"
+        ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python \
+          --without-log
+      )
+    }
+
+    install_folly() {
+      wget_and_untar \
+        "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+        folly
+      apply_folly_source_patches "$DEPENDENCY_DIR/folly"
+      # Use the formula's opt prefix even if Homebrew leaves it unlinked.
+      cmake_install_dir folly \
+        -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
+        -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
+        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
     }
 
     install_aws_deps() {
@@ -413,7 +631,12 @@ build_velox() {
     fi
   fi
 
-  ensure_folly_compiler_abi
+  ensure_folly_compiler_abi "$libevent_prefix"
+  export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
+  if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "dependencies" ]]; then
+    step "Velox dependency sources and installation are ready"
+    return
+  fi
 
   # ===========================================================================
   # Velox CMake configuration
@@ -447,11 +670,18 @@ build_velox() {
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
-    velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
-    velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$PANGROVA_HOME/homebrew/opt/flex/include")
-    velox_prefix_path+=";$PANGROVA_HOME/homebrew"
+    if [[ -n "$OPENSSL_PREFIX" ]]; then
+      velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+      velox_prefix_path+=";$OPENSSL_PREFIX"
+      # Arrow's ExternalProject sub-builds do not inherit -D flags; the
+      # environment is what keeps their find_package(OpenSSL) on openssl@3
+      # instead of Homebrew's default openssl@4.
+      export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
+    fi
+    [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
+    [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
-  cmake -B _build/release -GNinja \
+  cmake -B _build/release -GNinja $CMAKE_LAUNCHER_FLAGS \
     -DPANGROVA_FUNCTION_SELECTION_TOOLS="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../../pangrova-protocol/tools/function-contracts" \
     -DPANGROVA_FUNCTION_SELECTION_DECLARATION="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../../pangrova-protocol/src/main/resources/function-contracts/execution-selection.json" \
     -DPANGROVA_FUNCTION_SDK_PATCH_FILE="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-function-metadata-snapshot.patch" \
@@ -460,7 +690,7 @@ build_velox() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    "${velox_ssl_args[@]}" \
+    ${velox_ssl_args[@]+"${velox_ssl_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
@@ -521,7 +751,7 @@ build_arrow_flight() {
   local arrow_build="$WORK_DIR/arrow-flight-build"
   local arrow_platform_args=()
   if [[ "$OS" == "Darwin" ]]; then
-    arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
+    [[ -n "$OPENSSL_PREFIX" ]] && arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
     arrow_platform_args+=("-DCMAKE_C_VISIBILITY_PRESET=default" "-DCMAKE_CXX_VISIBILITY_PRESET=default"
       "-DCMAKE_VISIBILITY_INLINES_HIDDEN=OFF")
     arrow_platform_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-unexported_symbols_list,\"$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../arrow_unexported_symbols_macos.list\"")
@@ -540,7 +770,7 @@ build_arrow_flight() {
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0177=NEW \
-    "${arrow_platform_args[@]}" \
+    ${arrow_platform_args[@]+"${arrow_platform_args[@]}"} \
     -DARROW_BUILD_STATIC="$arrow_static" \
     -DARROW_BUILD_SHARED="$arrow_shared" \
     -DARROW_OPTIONAL_INSTALL=ON \
@@ -627,7 +857,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
@@ -646,7 +876,8 @@ verify() {
       ok=false
     fi
   done
-  if [[ "$SKIP_VELOX" != "1" ]] && [[ ! -f "$VELOX_DIR/_build/release/lib/libvelox.a" ]] && \
+  if [[ "$SKIP_VELOX" != "1" && "$PANGROVA_NATIVE_BUILD_PHASE" != "dependencies" ]] && \
+     [[ ! -f "$VELOX_DIR/_build/release/lib/libvelox.a" ]] && \
      [[ ! -f "$VELOX_DIR/_build/release/libvelox.a" ]]; then
     step "WARNING: libvelox.a not found (may be in a different path)"
   fi
@@ -700,9 +931,9 @@ main() {
         build_velox
         build_arrow_flight
         ;;
-      velox) build_velox ;;
+      dependencies|velox) build_velox ;;
       arrow-flight) build_arrow_flight ;;
-      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, velox, or arrow-flight" ;;
+      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, dependencies, velox, or arrow-flight" ;;
     esac
   else
     step "Skipping Velox build (SKIP_VELOX=1)"
