@@ -2,7 +2,7 @@ package org.pangrova.client.jdbc;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.client.rest.PangrovaRestClient;
+import org.pangrova.client.http.PangrovaRestClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,9 +16,11 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLTimeoutException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,21 +53,23 @@ class PangrovaStatementExecuteAndTransactionTest {
     class ExecuteTests {
 
         @Test
-        @DisplayName("execute() returns true for SELECT and provides ResultSet via getResultSet()")
-        void executeSelectReturnsTrue() throws Exception {
+        @DisplayName("execute() rejects a completed SELECT without a Flight result endpoint")
+        void executeSelectRequiresFlightEndpoint() throws Exception {
             AtomicReference<String> capturedSql = new AtomicReference<>();
             registerFinishedQueryEndpoint(capturedSql, "q-exec-select");
-            registerPaginatedResultEndpoint("q-exec-select");
+            registerStatusWithoutStats("q-exec-select");
+            AtomicInteger cancellations = registerCancelEndpoint("q-exec-select", false);
             server.start();
 
             try (PangrovaConnection conn = createConnection();
                  Statement stmt = conn.createStatement()) {
-                boolean hasResultSet = stmt.execute("SELECT 1");
-                assertThat(hasResultSet).isTrue();
-                assertThat(stmt.getResultSet()).isNotNull();
-                assertThat(stmt.getUpdateCount()).isEqualTo(-1);
+                assertThatThrownBy(() -> stmt.execute("SELECT 1"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("no result endpoint available");
+                assertThat(stmt.getResultSet()).isNull();
                 assertThat(capturedSql.get()).contains("SELECT 1");
             }
+            assertThat(cancellations.get()).isEqualTo(1);
         }
 
         @Test
@@ -190,6 +194,26 @@ class PangrovaStatementExecuteAndTransactionTest {
                 int count = stmt.executeUpdate("DROP TABLE IF EXISTS t");
                 assertThat(count).isEqualTo(0);
             }
+        }
+
+        @Test
+        @DisplayName("executeUpdate() preserves the JDBC timeout exception")
+        void executeUpdatePreservesTimeout() throws Exception {
+            registerFinishedQueryEndpoint(new AtomicReference<>(), "q-upd-timeout");
+            AtomicInteger cancellations = registerCancelEndpoint("q-upd-timeout", true);
+            server.createContext("/v1/query/q-upd-timeout/state", exchange ->
+                    sendJson(exchange, 200,
+                            "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\"}"));
+            server.start();
+
+            try (PangrovaConnection conn = createConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.setQueryTimeout(1);
+                assertThatThrownBy(() -> stmt.executeUpdate("INSERT INTO t VALUES (1)"))
+                        .isInstanceOf(SQLTimeoutException.class)
+                        .hasMessageContaining("q-upd-timeout");
+            }
+            assertThat(cancellations.get()).isEqualTo(1);
         }
 
         @Test
@@ -410,6 +434,18 @@ class PangrovaStatementExecuteAndTransactionTest {
         return new PangrovaConnection(restClient, null);
     }
 
+    /** Complete protocol acknowledgement; it does not assert a remote resource-drain receipt. */
+    private AtomicInteger registerCancelEndpoint(String queryId, boolean accepted) {
+        AtomicInteger requests = new AtomicInteger();
+        server.createContext("/v1/query/" + queryId + "/cancel", exchange -> {
+            requests.incrementAndGet();
+            String response = "{\"query_id\":\"%s\",\"cancelled\":%s,\"outcome\":\"%s\"}"
+                    .formatted(queryId, accepted, accepted ? "CANCEL_ACCEPTED" : "ALREADY_TERMINAL");
+            sendJson(exchange, accepted ? 202 : 200, response);
+        });
+        return requests;
+    }
+
     /**
      * Registers a /v1/query/submit endpoint that returns FINISHED immediately.
      */
@@ -459,24 +495,6 @@ class PangrovaStatementExecuteAndTransactionTest {
                       "state": "FINISHED"
                     }
                     """.formatted(queryId);
-            sendJson(exchange, 200, response);
-        });
-    }
-
-    /**
-     * Registers a paginated result endpoint that returns an empty page (no data).
-     * Sufficient for verifying that execute() on SELECT creates a ResultSet.
-     */
-    private void registerPaginatedResultEndpoint(String queryId) {
-        server.createContext("/v1/query/" + queryId + "/result", exchange -> {
-            // Return a minimal empty page with an Arrow IPC stream (empty schema)
-            String response = """
-                    {
-                      "data": "",
-                      "row_count": 0,
-                      "has_more": false
-                    }
-                    """;
             sendJson(exchange, 200, response);
         });
     }

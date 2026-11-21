@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -41,10 +41,15 @@ class IcebergMetadataDeleteMergeTest {
     private static final String NAMESPACE = "dm_db";
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final Schema V2_SCHEMA = new Schema(
@@ -79,7 +84,13 @@ class IcebergMetadataDeleteMergeTest {
     @Test
     void mergeFragment_commitsBothDataFileAndDeleteFile() {
         Table table = createV2TableWithData("merge_table");
-        IcebergOutputTableHandle handle = beginDelete("merge_table");
+        IcebergOutputTableHandle handle = beginMerge("merge_table");
+        assertThat(handle.tableIdentity()).hasValueSatisfying(identity -> {
+            assertThat(identity.format()).isEqualTo("ICEBERG");
+            assertThat(identity.formatTableUuid()).isEqualTo(handle.tableUuid());
+            assertThat(identity.location()).isEqualTo(handle.tableLocation());
+            assertThat(identity.schemaFingerprint()).isNotBlank();
+        });
         long snapshotBefore = table.currentSnapshot().snapshotId();
 
         String mergeFragment = buildMergeFragmentJson(table);
@@ -144,6 +155,12 @@ class IcebergMetadataDeleteMergeTest {
                 .build();
         table.newAppend().appendFile(dataFile).commit();
         return table;
+    }
+
+    private IcebergOutputTableHandle beginMerge(String tableName) {
+        var tableHandle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, tableName));
+        return (IcebergOutputTableHandle) metadata.beginMerge(SESSION, tableHandle);
     }
 
     private IcebergOutputTableHandle beginDelete(String tableName) {

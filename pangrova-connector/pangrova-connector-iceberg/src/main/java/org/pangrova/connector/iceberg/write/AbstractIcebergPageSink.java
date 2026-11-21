@@ -1,12 +1,13 @@
 package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.api.data.ColumnarPageSink;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionKey;
 import org.apache.iceberg.PartitionSpec;
@@ -25,11 +26,16 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Base class for Iceberg page sinks that handles row conversion, value
@@ -44,7 +50,8 @@ import java.util.UUID;
  * <p>Not thread-safe: instances are confined to a single writer thread.
  */
 @NotThreadSafe
-abstract class AbstractIcebergPageSink implements ConnectorPageSink {
+abstract sealed class AbstractIcebergPageSink implements ColumnarPageSink
+        permits IcebergPageSink, IcebergOverwritePageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractIcebergPageSink.class);
 
@@ -71,6 +78,13 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
 
     private boolean finished;
     private boolean aborted;
+    private boolean stopped;
+    private byte[] commitMetadata;
+    private final Map<DataWriter<Record>, String> ownedWriterPaths = new IdentityHashMap<>();
+    private final Set<DataWriter<Record>> closedWriters =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Set<String> ownedFilePaths = new LinkedHashSet<>();
+    private final Set<String> deletedFilePaths = new LinkedHashSet<>();
 
     protected AbstractIcebergPageSink(IcebergWriteContext ctx) {
         this.table = ctx.table();
@@ -97,18 +111,49 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
     @Override
     public void appendPage(Page page) {
         for (TypedRow row : page.rows()) {
-            GenericRecord record = convertRow(row);
-            if (partitioned) {
-                writeToPartition(record);
-            } else {
-                writer.write(record);
+            writeRecord(convertRow(row));
+        }
+    }
+
+    /**
+     * Converts and writes each row synchronously without retaining the caller's batch.
+     *
+     * @param batch caller-owned batch, with missing target columns written as null
+     */
+    @Override
+    public void appendColumnarBatch(ReadableBatch batch) {
+        List<Types.NestedField> fields = writeSchema.columns();
+        List<String> columns = batch.columns();
+        int[] ordinals = new int[fields.size()];
+        for (int column = 0; column < fields.size(); column++) {
+            ordinals[column] = columns.indexOf(fields.get(column).name());
+        }
+        int rowCount = batch.rowCount();
+        for (int row = 0; row < rowCount; row++) {
+            GenericRecord record = GenericRecord.create(parquetSafeSchema);
+            for (int column = 0; column < fields.size(); column++) {
+                Object value = ordinals[column] < 0 ? null : batch.value(row, ordinals[column]);
+                Object coerced = IcebergValueCoercion.coerceValue(value, fields.get(column).type());
+                if (fields.get(column).type().typeId() != org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                    record.setField(fields.get(column).name(), coerced);
+                }
             }
+            writeRecord(record);
         }
     }
 
     @Override
     public void appendNativePage(NativePage page) {
-        appendPage(NativePageConverter.toPage(page));
+        appendPage(ConnectorBinaryPageCodec.toPage(page));
+    }
+
+    private void writeRecord(GenericRecord record) {
+        if (stopped) throw new IllegalStateException("Iceberg write sink has stopped accepting rows");
+        if (partitioned) {
+            writeToPartition(record);
+        } else {
+            writer.write(record);
+        }
     }
 
     private void writeToPartition(GenericRecord record) {
@@ -135,10 +180,14 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
             return;
         }
         var lruEntry = iterator.next();
-        iterator.remove();
         try {
-            lruEntry.getValue().close();
+            closeWriter(lruEntry.getValue());
             closedPartitionFiles.add(lruEntry.getValue().toDataFile());
+            iterator.remove();
+            // Preserve the exact path for abort, not the closed encoder and its
+            // buffers. The live writer set remains bounded by the LRU limit.
+            ownedWriterPaths.remove(lruEntry.getValue());
+            closedWriters.remove(lruEntry.getValue());
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to close evicted partition writer", e);
         }
@@ -150,13 +199,17 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         OutputFile outputFile = table.io().newOutputFile(filePath);
         try {
             var builder = Parquet.writeData(outputFile)
+                    .forTable(table)
                     .schema(parquetSafeSchema)
                     .createWriterFunc(GenericParquetWriter::create)
                     .overwrite()
                     .withSpec(spec)
                     .withPartition(key);
             applyEncryptionProperties(builder);
-            return builder.build();
+            DataWriter<Record> result = builder.build();
+            ownedWriterPaths.put(result, filePath);
+            ownedFilePaths.add(filePath);
+            return result;
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to initialize partition writer", e);
         }
@@ -164,11 +217,15 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
 
     @Override
     public byte[] finishWithMetadata() {
-        if (finished || aborted) {
+        if (aborted) {
             return new byte[0];
         }
+        if (finished) return commitMetadata.clone();
+        if (stopped) throw new IllegalStateException("Iceberg write sink cannot finish after failure");
+        stopped = true;
+        commitMetadata = collectCommitMetadata();
         finished = true;
-        return collectCommitMetadata();
+        return commitMetadata.clone();
     }
 
     @Override
@@ -176,8 +233,9 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         if (finished || aborted) {
             return;
         }
-        aborted = true;
+        stopped = true;
         deletePartialFiles();
+        aborted = true;
     }
 
     /**
@@ -185,34 +243,46 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
      * Called during abort to prevent orphan files from accumulating in storage.
      */
     private void deletePartialFiles() {
-        if (!partitioned && writer != null) {
-            deleteWriterFile(writer);
-        }
-        if (partitionWriters != null) {
-            for (DataWriter<Record> pw : partitionWriters.values()) {
-                deleteWriterFile(pw);
+        // Do not delete a file until all live writers have actually closed.
+        close();
+        Throwable failure = null;
+        for (String path : ownedFilePaths) {
+            try {
+                deleteWriterFile(path);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else if (failure != cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
         }
     }
 
-    private void deleteWriterFile(DataWriter<Record> dataWriter) {
-        try {
-            dataWriter.close();
-            DataFile dataFile = dataWriter.toDataFile();
-            String path = dataFile.path().toString();
-            table.io().deleteFile(path);
-            LOG.info("event=abort_partial_file_deleted table={}.{} path={}",
-                    schemaName, tableName, path);
-        } catch (Exception e) {
-            LOG.warn("event=abort_partial_file_delete_failed table={}.{} error={}",
-                    schemaName, tableName, e.getMessage());
-        }
+    private void deleteWriterFile(String path) {
+        if (deletedFilePaths.contains(path)) return;
+        table.io().deleteFile(path);
+        deletedFilePaths.add(path);
+        LOG.info("event=abort_partial_file_deleted table={}.{} path={}",
+                schemaName, tableName, path);
     }
 
     @Override
     public void close() {
-        closeUnpartitionedWriter();
-        closePartitionWriters();
+        stopped = true;
+        visitAllWriters(dataWriter -> {
+            try {
+                closeWriter(dataWriter);
+            } catch (IOException failure) {
+                throw new UncheckedIOException("Failed to close Iceberg writer", failure);
+            }
+        });
     }
 
     /**
@@ -231,30 +301,55 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         return writer;
     }
 
+    /** Shares the actual close progress with abort and final resource release. */
+    protected void closeUnpartitionedWriterForCommit() throws IOException {
+        closeWriter(writer);
+    }
+
     private DataWriter<Record> initUnpartitionedWriter() {
         String filePath = table.location() + "/data/" + UUID.randomUUID() + ".parquet";
         OutputFile outputFile = table.io().newOutputFile(filePath);
         try {
             var builder = Parquet.writeData(outputFile)
+                    .forTable(table)
                     .schema(parquetSafeSchema)
                     .createWriterFunc(GenericParquetWriter::create)
                     .overwrite()
                     .withSpec(PartitionSpec.unpartitioned());
             applyEncryptionProperties(builder);
-            return builder.build();
+            DataWriter<Record> result = builder.build();
+            ownedWriterPaths.put(result, filePath);
+            ownedFilePaths.add(filePath);
+            return result;
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to initialize Parquet writer", e);
         }
     }
 
-    private void closeUnpartitionedWriter() {
-        if (writer == null) {
-            return;
+    private void closeWriter(DataWriter<Record> dataWriter) throws IOException {
+        if (closedWriters.contains(dataWriter)) return;
+        dataWriter.close();
+        closedWriters.add(dataWriter);
+    }
+
+    private void visitAllWriters(Consumer<DataWriter<Record>> operation) {
+        Throwable failure = null;
+        for (DataWriter<Record> dataWriter : ownedWriterPaths.keySet()) {
+            try {
+                operation.accept(dataWriter);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else if (failure != cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+            }
         }
-        try {
-            writer.close();
-        } catch (IOException e) {
-            // Writer may already be closed by collectCommitMetadata — ignore
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
         }
     }
 
@@ -276,7 +371,7 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         IOException firstFailure = null;
         for (DataWriter<Record> pw : partitionWriters.values()) {
             try {
-                pw.close();
+                closeWriter(pw);
                 files.add(pw.toDataFile());
             } catch (IOException e) {
                 if (firstFailure == null) {
@@ -302,33 +397,6 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         return partitionWriters != null && !partitionWriters.isEmpty();
     }
 
-    private void closePartitionWriters() {
-        if (partitionWriters == null) {
-            return;
-        }
-        IOException firstFailure = collectWriterCloseFailures();
-        if (firstFailure != null) {
-            throw new UncheckedIOException(
-                    "Failed to close one or more partition writers", firstFailure);
-        }
-    }
-
-    private IOException collectWriterCloseFailures() {
-        IOException firstFailure = null;
-        for (DataWriter<Record> pw : partitionWriters.values()) {
-            try {
-                pw.close();
-            } catch (IOException e) {
-                if (firstFailure == null) {
-                    firstFailure = e;
-                } else {
-                    firstFailure.addSuppressed(e);
-                }
-            }
-        }
-        return firstFailure;
-    }
-
     /**
      * Converts a {@link TypedRow} to an Iceberg {@link GenericRecord}.
      * Uses parquetSafeSchema for GenericRecord creation (Parquet-compatible types)
@@ -340,7 +408,10 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
             ColumnValue cv = row.containsColumn(field.name())
                     ? row.get(field.name()) : new ColumnValue.NullValue();
             Object value = ColumnValue.toRaw(cv);
-            record.setField(field.name(), IcebergValueCoercion.coerceValue(value, field.type()));
+            Object coerced = IcebergValueCoercion.coerceValue(value, field.type());
+            if (field.type().typeId() != org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                record.setField(field.name(), coerced);
+            }
         }
         return record;
     }

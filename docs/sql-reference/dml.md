@@ -60,12 +60,16 @@ VALUES
 **With PARTITION clause:**
 
 ```sql
-INSERT OVERWRITE prod.analytics.orders (order_id, user_id, product_id, amount, order_date, status)
+INSERT OVERWRITE prod.analytics.orders (order_id, user_id, product_id, amount, order_date)
 PARTITION (status = 'archived')
 VALUES
-  (7001, 'u-4001', 'prod-50', 75.00, DATE '2024-01-10', 'archived'),
-  (7002, 'u-4002', 'prod-60', 120.00, DATE '2024-01-11', 'archived');
+  (7001, 'u-4001', 'prod-50', 75.00, DATE '2024-01-10'),
+  (7002, 'u-4002', 'prod-60', 120.00, DATE '2024-01-11');
 ```
+
+A static partition value comes from the `PARTITION` clause, so the partition
+column must be omitted from the column list. The overwrite replaces exactly the
+named partition scope; every other partition keeps its current data.
 
 ### DELETE FROM
 
@@ -86,6 +90,18 @@ WHERE status = 'pending'
 
 ### MERGE INTO
 
+The Native copy-on-write path supports one MATCHED UPDATE or DELETE action,
+including its optional action predicate. FALSE or UNKNOWN predicates preserve
+the original target row; row policies and column masks apply to predicate reads,
+not to unassigned physical survivor values.
+
+An unconditional MATCHED UPDATE can be combined with one unconditional NOT
+MATCHED INSERT. Ordered multiple actions, conditional INSERT, and a conditional
+MATCHED action combined with another action are currently rejected with
+`NATIVE_UNSUPPORTED_PLAN`. They require distinct match and action predicates;
+their conditions must not be silently discarded or moved into ON to cause an
+incorrect INSERT. Complete ordered-action lowering remains an open capability.
+
 ```sql
 MERGE INTO prod.analytics.users AS target
 USING (
@@ -95,48 +111,35 @@ USING (
 ) AS source
 ON target.user_id = source.user_id
 WHEN MATCHED AND target.region IS NULL THEN
-  UPDATE SET target.region = 'unknown'
-WHEN NOT MATCHED THEN
-  INSERT (user_id, name, email, region, created_at)
-  VALUES (source.user_id, 'New User', 'pending@example.com', 'unknown', TIMESTAMP '2024-06-15 00:00:00')
-WHEN MATCHED AND target.email LIKE '%@deleted.com' THEN
-  DELETE;
+  UPDATE SET target.region = 'unknown';
 ```
 
 ---
 
 ## COPY INTO
 
-Bulk load data from external files or URIs into a table.
+`COPY INTO table FROM (SELECT ...)` appends the query result through the same
+native write and catalog commit path as `INSERT INTO table SELECT ...`. This is
+a Pangrova extension for table-to-table copies; each execution appends rows.
+
+File/URI loading is not implemented. A URI source, or file-loading options on a
+subquery source, returns an unsupported-feature error before any write. Do not
+use `COPY INTO` for retryable file ingestion until file discovery, authorization,
+format scanning, and committed file identity tracking are available. See
+[Current Capability Status](../getting-started/capability-status.md).
 
 ### Syntax
 
 ```sql
 COPY INTO table_name
-FROM source
-[FILE_FORMAT = format_name]
-[PATTERN = 'glob_pattern']
-[WITH (option = value [, ...])];
+FROM (SELECT ...);
 ```
 
-**Source** can be a URI string or a subquery.
+**Source** must be a subquery. URI syntax is parsed but rejected.
 
-**Examples:**
+**Example:**
 
 ```sql
--- Load from S3 path
-COPY INTO prod.analytics.events
-FROM 's3://data-lake/events/2024/'
-FILE_FORMAT = parquet
-PATTERN = '*.parquet';
-
--- Load from subquery
 COPY INTO prod.analytics.events
 FROM (SELECT * FROM staging.raw_events WHERE event_date = DATE '2024-06-01');
-
--- With options
-COPY INTO prod.analytics.logs
-FROM 's3://bucket/logs/'
-FILE_FORMAT = csv
-WITH (header = true, delimiter = ',', null_value = 'NULL');
 ```

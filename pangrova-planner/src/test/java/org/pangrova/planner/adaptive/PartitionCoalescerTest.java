@@ -1,10 +1,13 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
+
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

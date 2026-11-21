@@ -1,21 +1,30 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericArray;
+import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowKind;
 import org.apache.paimon.types.RowType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Converts Map-based row representations to Paimon GenericRow.
- * Handles type coercion: String → BinaryString, numeric widening.
+ * Converts typed rows and detached columnar values to Paimon GenericRow.
+ * Handles scalar coercion and recursive ARRAY, MAP, and ROW conversion.
  * Supports RowKind assignment for DELETE/UPDATE operations on primary key tables.
  */
 final class PaimonRowConverter {
@@ -37,18 +46,35 @@ final class PaimonRowConverter {
         Object[] values = new Object[fields.size()];
         for (int i = 0; i < fields.size(); i++) {
             ColumnValue cv = row.get(fields.get(i).name());
-            values[i] = convertValue(ColumnValue.toRaw(cv), fields.get(i));
+            values[i] = convertValue(ColumnValue.toRaw(cv), fields.get(i).type());
         }
         GenericRow genericRow = GenericRow.of(values);
         genericRow.setRowKind(rowKind);
         return genericRow;
     }
 
-    private Object convertValue(Object value, DataField field) {
+    int[] columnOrdinals(List<String> columns) {
+        int[] ordinals = new int[fields.size()];
+        for (int column = 0; column < fields.size(); column++) {
+            ordinals[column] = columns.indexOf(fields.get(column).name());
+        }
+        return ordinals;
+    }
+
+    GenericRow convertColumnarRow(ReadableBatch batch, int row, int[] ordinals, RowKind rowKind) {
+        GenericRow result = new GenericRow(rowKind, fields.size());
+        for (int column = 0; column < fields.size(); column++) {
+            Object value = ordinals[column] < 0 ? null : batch.value(row, ordinals[column]);
+            result.setField(column, convertValue(value, fields.get(column).type()));
+        }
+        return result;
+    }
+
+    private Object convertValue(Object value, DataType type) {
         if (value == null) {
             return null;
         }
-        return switch (field.type().getTypeRoot()) {
+        return switch (type.getTypeRoot()) {
             case VARCHAR, CHAR -> toBinaryString(value);
             case BIGINT -> toLong(value);
             case INTEGER -> toInt(value);
@@ -58,12 +84,51 @@ final class PaimonRowConverter {
             case FLOAT -> toFloat(value);
             case DATE -> toEpochDay(value);
             case TIME_WITHOUT_TIME_ZONE -> toTimeMillis(value);
-            case DECIMAL -> toDecimal(value, field);
+            case DECIMAL -> toDecimal(value, (DecimalType) type);
             case VARBINARY, BINARY -> toBytes(value);
             case TIMESTAMP_WITHOUT_TIME_ZONE, TIMESTAMP_WITH_LOCAL_TIME_ZONE ->
                     toPaimonTimestamp(value);
+            case ARRAY -> toArray(value, (ArrayType) type);
+            case MAP -> toMap(value, (MapType) type);
+            case ROW -> toRow(value, (RowType) type);
             default -> value;
         };
+    }
+
+    private GenericArray toArray(Object value, ArrayType type) {
+        List<?> elements = (List<?>) value;
+        Object[] converted = new Object[elements.size()];
+        for (int i = 0; i < elements.size(); i++) {
+            converted[i] = convertValue(elements.get(i), type.getElementType());
+        }
+        return new GenericArray(converted);
+    }
+
+    private GenericMap toMap(Object value, MapType type) {
+        Map<?, ?> entries = (Map<?, ?>) value;
+        Map<Object, Object> converted = new LinkedHashMap<>(entries.size());
+        for (Map.Entry<?, ?> entry : entries.entrySet()) {
+            converted.put(convertValue(entry.getKey(), type.getKeyType()),
+                    convertValue(entry.getValue(), type.getValueType()));
+        }
+        return new GenericMap(converted);
+    }
+
+    private GenericRow toRow(Object value, RowType type) {
+        List<DataField> nestedFields = type.getFields();
+        GenericRow converted = new GenericRow(nestedFields.size());
+        if (value instanceof Map<?, ?> entries) {
+            for (int i = 0; i < nestedFields.size(); i++) {
+                DataField field = nestedFields.get(i);
+                converted.setField(i, convertValue(entries.get(field.name()), field.type()));
+            }
+        } else {
+            List<?> values = (List<?>) value;
+            for (int i = 0; i < Math.min(values.size(), nestedFields.size()); i++) {
+                converted.setField(i, convertValue(values.get(i), nestedFields.get(i).type()));
+            }
+        }
+        return converted;
     }
 
     private static BinaryString toBinaryString(Object value) {
@@ -103,7 +168,7 @@ final class PaimonRowConverter {
         return (int) (time.toNanoOfDay() / NANOS_PER_MILLI);
     }
 
-    private static org.apache.paimon.data.Decimal toDecimal(Object value, DataField field) {
+    private static org.apache.paimon.data.Decimal toDecimal(Object value, DecimalType type) {
         java.math.BigDecimal bd;
         if (value instanceof java.math.BigDecimal bigDec) {
             bd = bigDec;
@@ -112,8 +177,12 @@ final class PaimonRowConverter {
         } else {
             bd = new java.math.BigDecimal(value.toString());
         }
-        org.apache.paimon.types.DecimalType dt = (org.apache.paimon.types.DecimalType) field.type();
-        return org.apache.paimon.data.Decimal.fromBigDecimal(bd, dt.getPrecision(), dt.getScale());
+        org.apache.paimon.data.Decimal decimal = org.apache.paimon.data.Decimal.fromBigDecimal(
+            bd, type.getPrecision(), type.getScale());
+        if (decimal == null) {
+            throw new ArithmeticException("Decimal exceeds target precision: " + type);
+        }
+        return decimal;
     }
 
     private static byte[] toBytes(Object value) {

@@ -1,0 +1,18 @@
+{{- if .Values.disruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pangrova-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: worker
+spec:
+  # Node drains and cluster upgrades must not evict enough workers at once to
+  # lose the shuffle output of a running stage.
+  maxUnavailable: {{ .Values.disruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app: pangrova
+      component: worker
+{{- end }}

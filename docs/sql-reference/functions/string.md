@@ -42,6 +42,11 @@ SELECT UPPER(name) AS upper_name, LOWER(email) AS lower_email FROM users;
 SUBSTRING(str FROM start FOR length) → VARCHAR
 ```
 
+SQL validation explicitly casts supplied start/length operands to `BIGINT`,
+using the registered Native signature for both positions. This avoids a mixed
+`INTEGER`/`BIGINT` invocation; the canonical plan preserves those casts rather
+than guessing integer widths from literal values.
+
 Extracts a substring. `start` is 1-based.
 
 ```sql
@@ -53,13 +58,17 @@ SELECT SUBSTRING(event_type FROM 1 FOR 5) AS prefix FROM events;
 ## TRIM / LTRIM / RTRIM
 
 ```sql
-TRIM([LEADING|TRAILING|BOTH] [chars] FROM str) → VARCHAR
+TRIM(str) → VARCHAR
+LTRIM(str) → VARCHAR
+RTRIM(str) → VARCHAR
 ```
 
 ```sql
 SELECT TRIM('  hello  ') AS trimmed;
-SELECT TRIM(LEADING '0' FROM '000123') AS no_leading_zeros;
+SELECT LTRIM('  000123') AS no_leading_spaces;
 ```
+
+Standard `TRIM(LEADING ... FROM ...)` syntax is not parsed by the current grammar.
 
 ---
 

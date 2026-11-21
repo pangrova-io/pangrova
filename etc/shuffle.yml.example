@@ -1,0 +1,49 @@
+# Example configuration for bin/pangrova-shuffle.sh.
+# Copy to etc/shuffle.yml (or pass --config) and replace every path and endpoint.
+# Every key is strict: unknown keys fail startup.
+server:
+  port: 9090
+  advertised-host: "shuffle-0.shuffle.internal"
+  tls-identity: "shuffle-0.shuffle.internal"
+  endpoints:
+    - host: "shuffle-0.shuffle.internal"
+      port: 9090
+      tls-identity: "shuffle-0.shuffle.internal"
+      partition-start: 0
+      partition-end: 8
+    - host: "shuffle-1.shuffle.internal"
+      port: 9090
+      tls-identity: "shuffle-1.shuffle.internal"
+      partition-start: 8
+      partition-end: 16
+
+database:
+  jdbc-url: "jdbc:postgresql://localhost:5432/pangrova_meta"
+  username: pangrova
+  password-file: /etc/pangrova-shuffle/secrets/db/password
+  maximum-pool-size: 16
+
+object-storage:
+  bucket: pangrova-shuffle
+  prefix: shuffle
+  region: us-east-1
+  # endpoint: "http://localhost:9000"
+  path-style-access: false
+  replication-enabled: false
+
+security:
+  certificate-chain-path: /etc/pangrova-shuffle/tls/tls.crt
+  private-key-path: /etc/pangrova-shuffle/tls/tls.key
+  root-ca-path: /etc/pangrova-shuffle/tls/ca.crt
+  capability-secret-path: /etc/pangrova-shuffle/secrets/capability/secret
+  capability-ttl-seconds: 3600
+  coordinator-tls-identities:
+    - "coordinator.internal"
+
+limits:
+  max-chunk-bytes: 1048576
+  max-batch-bytes: 268435456
+  max-inflight-bytes: 805306368
+  max-write-streams: 64
+  io-threads: 32
+  max-queued-operations: 1024

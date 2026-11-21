@@ -3,8 +3,7 @@ package org.pangrova.planner.optimization;
 import java.util.List;
 
 import org.apache.calcite.rel.RelNode;
-import org.pangrova.planner.mv.MaterializedViewException;
-import org.pangrova.planner.mv.MaterializedViewQueryRewriter;
+import org.pangrova.planner.mv.CalciteMaterializedViewRewriter;
 import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
 import org.pangrova.planner.runtimefilter.JoinRuntimeFilterPlanner;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
@@ -24,10 +23,12 @@ public final class MaterializedViewRewritePass {
 
     private static final Logger LOG = LoggerFactory.getLogger(MaterializedViewRewritePass.class);
 
-    private final MaterializedViewQueryRewriter materializedViewRewriter;
+    private final CalciteMaterializedViewRewriter materializedViewRewriter;
     private final DynamicPartitionPruningConfig dynamicPartitionPruningConfig;
     private final JoinRuntimeFilterPlanner joinRuntimeFilterPlanner;
     private final RuntimeFilterRegistry runtimeFilterRegistry;
+    private volatile org.pangrova.planner.mv.MaterializedViewRewriteDecision lastDecision =
+            org.pangrova.planner.mv.MaterializedViewRewriteDecision.disabled();
 
     /**
      * Creates a rewrite pass combining materialized view substitution and runtime filter planning.
@@ -37,7 +38,7 @@ public final class MaterializedViewRewritePass {
      * @param runtimeFilterRegistry registry collecting planned runtime filters
      */
     public MaterializedViewRewritePass(
-            MaterializedViewQueryRewriter materializedViewRewriter,
+            CalciteMaterializedViewRewriter materializedViewRewriter,
             DynamicPartitionPruningConfig dynamicPartitionPruningConfig,
             RuntimeFilterRegistry runtimeFilterRegistry) {
         this.materializedViewRewriter = materializedViewRewriter;
@@ -49,18 +50,10 @@ public final class MaterializedViewRewritePass {
     }
 
     /**
-     * Analyzes the optimized plan for eligible joins and registers runtime filter
-     * descriptors in the registry. No-op when DPP is disabled via feature flag.
+     * Analyzes the optimized plan for eligible joins when DPP analysis is enabled.
      *
-     * <p><b>Design note on placeholder filters:</b> The registry stores placeholder
-     * MIN_MAX filters with {@code Integer.MIN_VALUE}/{@code Integer.MAX_VALUE} bounds.
-     * Actual filter values are generated at the worker level — the coordinator passes
-     * filter metadata (column names, filter IDs) to probe-side workers via
-     * {@code DynamicFilterPayload}, and workers apply filters using the native engine's
-     * dynamic filter injection ({@code Task::addDynamicFilter}). A future enhancement
-     * could add a build-side completion callback in {@code DAGDispatchEngine} that
-     * uses {@link org.pangrova.planner.runtimefilter.RuntimeFilterGenerator} to replace
-     * placeholders with actual filters before dispatching probe-side tasks.</p>
+     * Descriptors identify logical candidates only. This pass has no build-attempt values
+     * or physical scan binding and never publishes a predicate to the execution registry.
      */
     public List<RuntimeFilterDescriptor> analyzeForRuntimeFilters(RelNode optimized) {
         if (!dynamicPartitionPruningConfig.enabled()) {
@@ -87,19 +80,35 @@ public final class MaterializedViewRewritePass {
 
     /**
      * Applies materialized view rewrite as a post-optimization pass.
-     * Returns the original plan unchanged when no MaterializedViewQueryRewriter is wired.
-     * Only catches MaterializedViewException; unexpected errors propagate to the caller.
+     * Returns the original plan unchanged when no rewriter is wired. Any rewrite
+     * failure is fail-closed: the original plan is executed rather than an
+     * unproven substitution.
      */
     public RelNode tryMaterializedViewRewrite(RelNode relNode) {
         if (materializedViewRewriter == null) {
+            lastDecision = org.pangrova.planner.mv.MaterializedViewRewriteDecision.disabled();
             return relNode;
         }
         try {
-            return materializedViewRewriter.rewrite(relNode);
-        } catch (MaterializedViewException e) {
-            LOG.debug("MV rewrite skipped: reason={}", e.getMessage());
+            CalciteMaterializedViewRewriter.RewriteResult result =
+                    materializedViewRewriter.rewriteWithDecision(relNode);
+            lastDecision = result.decision();
+            return result.plan();
+        } catch (RuntimeException e) {
+            LOG.warn("event=materialized_view_rewrite_skipped reason=exception", e);
+            lastDecision = org.pangrova.planner.mv.MaterializedViewRewriteDecision.skipped(
+                    "exception");
             return relNode;
         }
+    }
+
+    /**
+     * Returns the diagnostic decision of the most recent rewrite attempt.
+     *
+     * @return rewrite decision; disabled before any attempt or without a rewriter
+     */
+    public org.pangrova.planner.mv.MaterializedViewRewriteDecision lastDecision() {
+        return lastDecision;
     }
 
     /** Returns the runtime filter registry for DPP. */

@@ -1,0 +1,25 @@
+name: Build Pangrova Iceberg SDK
+description: Rebuild and publish the pinned patched Iceberg artifacts to Maven Local
+runs:
+  using: composite
+  steps:
+    - name: Preserve the Maven JDK
+      shell: bash
+      run: echo "PANGROVA_MAVEN_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+    - name: Set up JDK 17 for Iceberg
+      uses: actions/setup-java@v6
+      with:
+        java-version: '17'
+        distribution: temurin
+    - name: Set up Gradle 8.14.4
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        gradle-version: '8.14.4'
+    - name: Build pinned Pangrova Iceberg SDK candidate
+      shell: bash
+      run: .pangrova/scripts/build-iceberg-sdk-candidate.sh
+    - name: Restore the Maven JDK
+      shell: bash
+      run: |
+        echo "JAVA_HOME=$PANGROVA_MAVEN_JAVA_HOME" >> "$GITHUB_ENV"
+        echo "$PANGROVA_MAVEN_JAVA_HOME/bin" >> "$GITHUB_PATH"

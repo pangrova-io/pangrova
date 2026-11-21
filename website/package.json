@@ -5,7 +5,8 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
-    "build": "docusaurus build",
+    "build": "npm run check:images && docusaurus build",
+    "check:images": "node --test scripts/check-doc-images.test.mjs && node scripts/check-doc-images.mjs",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
@@ -31,7 +32,7 @@
     "@docusaurus/tsconfig": "3.10.1",
     "@docusaurus/types": "3.10.1",
     "@types/react": "^19.0.0",
-    "typescript": "~6.0.2"
+    "typescript": "~7.0.2"
   },
   "browserslist": {
     "production": [

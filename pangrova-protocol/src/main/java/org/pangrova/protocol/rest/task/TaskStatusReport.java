@@ -1,7 +1,7 @@
 package org.pangrova.protocol.rest.task;
 
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -11,9 +11,9 @@ import java.util.Map;
 /**
  * Worker-to-Coordinator task status report sent via POST /v1/task/status-report.
  *
- * <p>Identity fields (taskId, queryId, stageId, partitionId, taskType) mirror
- * {@link SubmitTaskRequest} so the Coordinator can correlate reports back to
- * the original submission without extra lookups.</p>
+ * <p>Identity fields are report projections of the canonical v2 task attempt.
+ * {@link SubmitTaskRequest} deliberately does not mirror them in REST; the
+ * Coordinator validates every projection against its retained canonical task.</p>
  *
  * <h3>Field validation strategy</h3>
  * <ul>
@@ -48,8 +48,25 @@ public record TaskStatusReport(
     @JsonProperty("report_sequence") long reportSequence,
     @JsonProperty("timestamp_ms") long timestampMs,
     @JsonProperty("error_code") String errorCode,
-    @JsonProperty("error_metadata") Map<String, String> errorMetadata
+    @JsonProperty("error_metadata") Map<String, String> errorMetadata,
+    @JsonProperty("attempt") TaskAttemptDescriptor attempt,
+    @JsonProperty("canonical_task_report") byte[] canonicalTaskReport
 ) {
+
+    /** Bounded JSON envelope for a 4 MiB canonical report after Base64 encoding. */
+    public static final int MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024;
+
+    /** Source-compatible constructor for callers without a Native status. */
+    public TaskStatusReport(
+            String taskId, String queryId, int stageId, int partitionId,
+            String taskType, String workerId, String state, TaskStats stats,
+            ErrorDetail error, WriteResultDescriptor writeResult,
+            long reportSequence, long timestampMs, String errorCode,
+            Map<String, String> errorMetadata, TaskAttemptDescriptor attempt) {
+        this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
+                stats, error, writeResult, reportSequence, timestampMs,
+                errorCode, errorMetadata, attempt, null);
+    }
 
     /**
      * Compact constructor enforcing mandatory field contracts.
@@ -74,18 +91,16 @@ public record TaskStatusReport(
         if (state == null || state.isBlank()) {
             throw new IllegalArgumentException("state must not be null or blank");
         }
+        if (attempt == null) {
+            throw new IllegalArgumentException("attempt must not be null");
+        }
         errorMetadata = errorMetadata == null ? null : Map.copyOf(errorMetadata);
+        canonicalTaskReport = canonicalTaskReport == null
+                ? null : canonicalTaskReport.clone();
     }
 
-    /**
-     * Backward-compatible constructor without errorCode and errorMetadata.
-     */
-    public TaskStatusReport(
-            String taskId, String queryId, int stageId, int partitionId,
-            String taskType, String workerId, String state,
-            TaskStats stats, ErrorDetail error, WriteResultDescriptor writeResult,
-            long reportSequence, long timestampMs) {
-        this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
-             stats, error, writeResult, reportSequence, timestampMs, null, null);
+    @Override
+    public byte[] canonicalTaskReport() {
+        return canonicalTaskReport == null ? null : canonicalTaskReport.clone();
     }
 }

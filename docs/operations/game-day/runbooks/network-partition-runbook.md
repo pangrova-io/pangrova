@@ -24,21 +24,7 @@ description: "Diagnose and recover from cluster network partitions"
 
 ## Decision Tree
 
-```
-Network partition suspected?
-  │
-  ├─► Is /v1/health reachable on any coordinator?
-  │     │
-  │     ├─► YES ──► Step 1: Verify partition scope
-  │     │
-  │     └─► NO  ──► Total outage (not just partition). Use coordinator-failover-runbook instead.
-  │
-  └─► Do two coordinators both report role=LEADER in their logs?
-        │
-        ├─► YES ──► CRITICAL: Split-brain active → skip to §Emergency: Split-Brain
-        │
-        └─► NO  ──► Partition with correct leader isolation → Step 2: Wait 30s, then verify
-```
+![Network partition suspected?](../../../../website/static/img/diagrams/generated/network-partition-runbook-01-d32804a3fd.svg)
 
 ---
 
@@ -50,7 +36,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} ==="
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 \
     "http://${coord}:8080/v1/health" 2>/dev/null || echo "000")
-  ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log 2>/dev/null | tail -1" \
+  ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log 2>/dev/null | tail -1" \
     | grep -o 'role=[A-Z]*' | cut -d= -f2 || true)
   echo "  health=HTTP ${HTTP} lastRole=${ROLE:-UNKNOWN}"
 done
@@ -82,7 +68,7 @@ END_TIME=$(( $(date +%s) + 60 ))
 while [[ $(date +%s) -lt $END_TIME ]]; do
   echo "=== $(date -u +%H:%M:%S) ==="
   for coord in coordinator-1 coordinator-2 coordinator-3; do
-    ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log 2>/dev/null | tail -1" \
+    ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log 2>/dev/null | tail -1" \
       | grep -o 'role=[A-Z]*' | cut -d= -f2 || echo "ERR")
     echo "  ${coord}: ${ROLE:-ERR}"
   done
@@ -98,7 +84,7 @@ done
 
 ```bash
 # Count leaders by inspecting the authoritative JDBC lease table
-LEADERS=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADERS=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" | wc -l)
 
 echo "Active lease holders: ${LEADERS}"
@@ -118,7 +104,7 @@ fi
 
 ```bash
 # Find the active leader from the lease table and verify queries succeed
-LEADER_HOST=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_HOST=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP LIMIT 1;")
 
 echo "Active leader: ${LEADER_HOST}"
@@ -147,7 +133,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "Attempting election via restart on ${coord}..."
   ssh "${coord}" "sudo systemctl restart pangrova-coordinator"
   sleep 20
-  LEADER=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -1")
+  LEADER=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -1")
   echo "  Latest HA event: ${LEADER}"
   if echo "${LEADER}" | grep -q "role=LEADER"; then
     echo "  ${coord} acquired leadership"
@@ -157,7 +143,7 @@ done
 
 # Wait and verify a lease holder exists
 sleep 15
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at FROM distributed_lease;"
 ```
 
@@ -165,18 +151,18 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
 
 ## Step 6: Verify Workers Re-Registered
 
-After a partition, workers on the minority side may have lost their coordinator connection. Verify all workers are HEALTHY:
+After a partition, workers on the minority side may have lost their coordinator connection. Verify all workers are ACTIVE:
 
 ```bash
 curl -s http://coordinator-1:8080/api/workers | \
   python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-healthy   = [w for w in workers if w['healthState'] == 'HEALTHY']
-unhealthy = [w for w in workers if w['healthState'] != 'HEALTHY']
-print(f'HEALTHY: {len(healthy)}/{len(workers)}')
+healthy   = [w for w in workers if w['healthState'] == 'ACTIVE']
+unhealthy = [w for w in workers if w['healthState'] != 'ACTIVE']
+print(f'ACTIVE: {len(healthy)}/{len(workers)}')
 for w in unhealthy:
-    print(f'  NOT HEALTHY: {w[\"host\"]} healthState={w[\"healthState\"]}')
+    print(f'  NOT ACTIVE: {w[\"host\"]} healthState={w[\"healthState\"]}')
 "
 
 # If workers are missing or unhealthy, they re-register automatically; wait up to 60s
@@ -210,7 +196,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} partition-related log entries ==="
   ssh "${coord}" "
     grep -E 'lease.*(expired|lost)|demoted|STANDBY|partition|heartbeat.*failed' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -20
+      /var/log/pangrova/coordinator.log | tail -20
   "
 done
 ```
@@ -219,7 +205,7 @@ done
 
 ## Step 8: Restore Redundancy
 
-After confirming the isolated coordinator has rejoined as STANDBY and all workers are HEALTHY, verify the cluster is back to full redundancy:
+After confirming the isolated coordinator has rejoined as STANDBY and all workers are ACTIVE, verify the cluster is back to full redundancy:
 
 ```bash
 # Confirm all 3 coordinators are healthy and exactly one holds the lease
@@ -228,7 +214,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "${coord}: HTTP ${HTTP}"
 done
 
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" \
   | xargs -I{} echo "Active lease holders: {} (expect 1 → full redundancy restored)"
 ```
@@ -250,11 +236,11 @@ echo "SPLIT-BRAIN DETECTED: Escalating to on-call lead"
 # 2. Capture the HA role state of every coordinator at this instant
 for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} HA events at $(date -u) ==="
-  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -5"
+  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -5"
 done > /tmp/split-brain-state-$(date +%Y%m%d-%H%M%S).txt
 
 # 3. Capture the JDBC lease table directly
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at, version
       FROM distributed_lease ORDER BY acquired_at;" | \
   tee /tmp/split-brain-lease-state.txt

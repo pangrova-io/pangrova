@@ -19,6 +19,9 @@ coordinator:
   id: "coordinator-1"
   host: "0.0.0.0"
   port: 8080
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET:-}"
+  speculation:
+    enabled: false
 
   # ---- High Availability ----
   ha:
@@ -31,25 +34,45 @@ coordinator:
 
   # ---- Query ----
   query:
+    placement-provider: load-balanced
     timeout: "5m"
     max-concurrent: 100
+
+  # Per-task byte grant. Zero disables task spilling; positive values also
+  # require worker.spill.directory on each executing Worker.
+  task:
+    spill:
+      max-bytes: 0
 
   # ---- Worker Management ----
   worker:
     heartbeat-timeout: "30s"
     max-retry: 3
 
+  # ---- Internal Transport ----
+  # Development defaults to plaintext. Distributed production deployments
+  # must enable mutual TLS and mount all three PEM files on every coordinator.
+  transport:
+    tls:
+      enabled: false
+      certificate-chain-path: ""
+      private-key-path: ""
+      root-ca-path: ""
+
+  # ---- Remote Shuffle ----
+  shuffle:
+    tls:
+      server-identity: ""  # DNS identity present in the shuffle server certificate
+
 # ---- Feature Flags ----
 # All modules default to enabled except security.
 
-# ---- State Store ----
-# Global backend for all SPI state stores: IN_MEMORY (dev/test) or JDBC (production).
-state-store:
-  type: IN_MEMORY
 
 metadata:
   enabled: true
   # jdbc-url: "jdbc:postgresql://localhost:5432/pangrova_metadata"
+  jdbc-username: "${PANGROVA_DB_USERNAME:-}"
+  jdbc-password: "${PANGROVA_DB_PASSWORD:-}"
   cache:
     l1-max-size: 10000
     l1-ttl: "60s"
@@ -64,7 +87,7 @@ streaming:
   enabled: true
 
 tenant:
-  enabled: true
+  enabled: false
 
 indexing:
   enabled: true
@@ -74,6 +97,8 @@ operations:
 
 observability:
   enabled: true
+  # service-name: "pangrova-coordinator"
+  # otlp-endpoint: "http://otel-collector:4317"
 
 security:
   enabled: false

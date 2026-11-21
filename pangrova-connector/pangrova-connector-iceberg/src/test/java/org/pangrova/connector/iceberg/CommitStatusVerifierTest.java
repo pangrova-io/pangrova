@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.enums.IcebergCommitOutcome;
+
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DeleteFiles;
 import org.apache.iceberg.ExpireSnapshots;
@@ -27,6 +29,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 
 import java.util.List;
 import java.util.Map;
@@ -43,8 +46,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CommitStatusVerifierTest {
 
     @Test
-    void verifySucceeds_whenSnapshotAppearedOnEmptyTable() {
-        // Simulate: table had no snapshot before commit, now has one
+    void verifyUnknown_whenSnapshotAppearedOnPreviouslyEmptyTableWithoutContext() {
+        // Simulate: table had no snapshot before commit, now has one. Without a durable
+        // marker the new snapshot could belong to any writer, so it is not proof.
         StubSnapshot newSnapshot = new StubSnapshot(100L, null);
         StubTable table = new StubTable(newSnapshot);
 
@@ -52,14 +56,16 @@ class CommitStatusVerifierTest {
                 CommitStatusVerifier.verify(table, -1L, "db.table_empty");
 
         assertThat(result.outcome())
-                .as("Should detect success when snapshot appeared on previously-empty table")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.SUCCEEDED);
-        assertThat(result.detail()).contains("New snapshot").contains("100");
+                .as("An unattributable new snapshot must fail closed as UNKNOWN")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
+        assertThat(result.detail()).contains("advanced");
     }
 
     @Test
-    void verifySucceeds_whenSnapshotAdvancedFromKnownBase() {
-        // Simulate: table had snapshot 50, now has snapshot 100 (child of 50)
+    void verifyUnknown_whenSnapshotAdvancedWithoutContext() {
+        // Simulate: table had snapshot 50, now has snapshot 100 (child of 50).
+        // A concurrent writer's commit descends from the same base, so lineage alone
+        // cannot attribute the snapshot to our commit.
         StubSnapshot parentSnapshot = new StubSnapshot(50L, null);
         StubSnapshot currentSnapshot = new StubSnapshot(100L, 50L);
         StubTable table = new StubTable(currentSnapshot, parentSnapshot);
@@ -68,27 +74,27 @@ class CommitStatusVerifierTest {
                 CommitStatusVerifier.verify(table, 50L, "db.table_advanced");
 
         assertThat(result.outcome())
-                .as("Should detect success when snapshot advanced from known base")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.SUCCEEDED);
-        assertThat(result.detail()).contains("Snapshot advanced").contains("50").contains("100");
+                .as("Lineage without a commit marker must fail closed as UNKNOWN")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
+        assertThat(result.detail()).contains("advanced");
     }
 
     @Test
-    void verifyFails_whenNoSnapshotOnEmptyTable() {
-        // Simulate: table had no snapshot and still has none (commit genuinely failed)
+    void verifyUnknown_whenNoSnapshotOnEmptyTable() {
+        // Simulate: table had no snapshot and still has none (remote commit may still be in flight)
         StubTable table = new StubTable(null);
 
         CommitStatusVerifier.VerificationResult result =
                 CommitStatusVerifier.verify(table, -1L, "db.table_still_empty");
 
         assertThat(result.outcome())
-                .as("Should detect failure when no snapshot appeared")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.FAILED);
+                .as("No snapshot cannot prove the remote commit has stopped")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 
     @Test
-    void verifyFails_whenSnapshotUnchangedFromBase() {
+    void verifyUnknown_whenSnapshotUnchangedFromBase() {
         // Simulate: table had snapshot 50 and still has snapshot 50
         StubSnapshot sameSnapshot = new StubSnapshot(50L, null);
         StubTable table = new StubTable(sameSnapshot);
@@ -97,8 +103,8 @@ class CommitStatusVerifierTest {
                 CommitStatusVerifier.verify(table, 50L, "db.table_unchanged");
 
         assertThat(result.outcome())
-                .as("Should detect failure when snapshot remains at pre-commit state")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.FAILED);
+                .as("An unchanged snapshot cannot prove the remote commit has stopped")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 
@@ -117,25 +123,69 @@ class CommitStatusVerifierTest {
 
         assertThat(result.outcome())
                 .as("Should return UNKNOWN when verification itself fails")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("Verification failed");
     }
 
     @Test
-    void verifySucceeds_whenSnapshotAdvancedByConcurrentCommit() {
-        // Simulate: a different commit advanced the snapshot (still indicates our
-        // commit may have been part of it or was overtaken). The verifier considers
-        // any advancement from the base as success.
+    void verifyUnknown_whenSnapshotAdvancedWithoutProvableLineage() {
+        // A concurrent writer advanced the snapshot but we cannot prove our commit is
+        // in its ancestry. An advanced snapshot ID alone is not proof of success.
         StubSnapshot otherSnapshot = new StubSnapshot(200L, 150L);
         StubTable table = new StubTable(otherSnapshot);
 
         CommitStatusVerifier.VerificationResult result =
                 CommitStatusVerifier.verify(table, 50L, "db.table_concurrent");
 
-        // Even though 200's parent is 150 (not 50), the snapshot ID differs from 50
-        // so isDescendantOf still returns true (snapshot != ancestor check)
         assertThat(result.outcome())
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.SUCCEEDED);
+                .as("Unprovable advancement must fail closed as UNKNOWN")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
+        assertThat(result.detail()).contains("advanced");
+    }
+
+    @Test
+    void verifySucceeds_whenCommitMarkerIsInCurrentAncestry() {
+        String fingerprint = "a".repeat(64);
+        StubSnapshot markerSnapshot = new StubSnapshot(100L, null,
+                markerSummary(fingerprint, -1L));
+        StubTable table = new StubTable(markerSnapshot);
+
+        CommitStatusVerifier.VerificationResult result = CommitStatusVerifier.verify(
+                table, -1L, context(fingerprint, -1L), "db.table_marker");
+
+        assertThat(result.outcome())
+                .as("The durable commit marker is positive proof of success")
+                .isEqualTo(IcebergCommitOutcome.SUCCEEDED);
+        assertThat(result.detail()).contains("marker");
+    }
+
+    @Test
+    void verifyUnknown_whenAdvancedSnapshotLacksCommitMarker() {
+        String fingerprint = "b".repeat(64);
+        StubSnapshot advanced = new StubSnapshot(200L, 150L);
+        StubTable table = new StubTable(advanced);
+
+        CommitStatusVerifier.VerificationResult result = CommitStatusVerifier.verify(
+                table, 50L, context(fingerprint, 50L), "db.table_no_marker");
+
+        assertThat(result.outcome())
+                .as("A snapshot that advanced without our marker cannot prove our commit")
+                .isEqualTo(IcebergCommitOutcome.UNKNOWN);
+    }
+
+    private static Map<String, String> markerSummary(String fingerprint, long baseSnapshotId) {
+        return Map.of(
+                IcebergDistributedCommitMarker.FINGERPRINT, fingerprint,
+                IcebergDistributedCommitMarker.EXECUTION_ID, "exec-1",
+                IcebergDistributedCommitMarker.TENANT_ID, "tenant-1",
+                IcebergDistributedCommitMarker.BASE_SNAPSHOT_ID,
+                String.valueOf(baseSnapshotId));
+    }
+
+    private static DistributedWriteCommitContext context(String fingerprint, long baseSnapshotId) {
+        return new DistributedWriteCommitContext("exec-1", "tenant-1", baseSnapshotId,
+                new byte[] {1}, fingerprint, "alice",
+                IcebergWriteReceiptFixtures.receipt(), null);
     }
 
     @Test
@@ -153,10 +203,14 @@ class CommitStatusVerifierTest {
     /**
      * Minimal Snapshot stub sufficient for verifier testing.
      */
-    private record StubSnapshot(long snapshotId, Long parentId) implements Snapshot {
+    private record StubSnapshot(long snapshotId, Long parentId, Map<String, String> summary)
+            implements Snapshot {
+        StubSnapshot(long snapshotId, Long parentId) {
+            this(snapshotId, parentId, Map.of());
+        }
+
         @Override public long sequenceNumber() { return 0; }
         @Override public long timestampMillis() { return System.currentTimeMillis(); }
-        @Override public Map<String, String> summary() { return Map.of(); }
         @Override public Integer schemaId() { return 0; }
         @Override public String operation() { return "append"; }
         @Override public String manifestListLocation() { return ""; }
@@ -209,7 +263,15 @@ class CommitStatusVerifierTest {
         @Override public Map<Integer, SortOrder> sortOrders() { return Map.of(); }
         @Override public Map<String, String> properties() { return Map.of(); }
         @Override public String location() { return "/tmp/stub"; }
-        @Override public Iterable<Snapshot> snapshots() { return List.of(); }
+        @Override public Iterable<Snapshot> snapshots() {
+            if (currentSnapshot == null) {
+                return List.of();
+            }
+            if (parentSnapshot == null) {
+                return List.of(currentSnapshot);
+            }
+            return List.of(currentSnapshot, parentSnapshot);
+        }
         @Override public List<org.apache.iceberg.HistoryEntry> history() { return List.of(); }
         @Override public Map<String, org.apache.iceberg.SnapshotRef> refs() { return Map.of(); }
         @Override public UpdateSchema updateSchema() { throw new UnsupportedOperationException(); }

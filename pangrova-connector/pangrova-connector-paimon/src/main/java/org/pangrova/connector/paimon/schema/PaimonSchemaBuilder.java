@@ -4,8 +4,10 @@ import java.util.Map;
 
 import org.apache.paimon.schema.Schema;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.paimon.type.PaimonDeclaredTypes;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /**
  * Extracts Paimon schema construction from PaimonMetadata.
@@ -22,7 +24,8 @@ public final class PaimonSchemaBuilder {
     public static Schema buildPaimonSchema(ConnectorTableMetadata metadata) {
         Schema.Builder builder = Schema.newBuilder();
         for (ConnectorTableMetadata.Column col : metadata.typedColumns()) {
-            builder.column(col.name(), toPaimonTypeWithParameterized(col));
+            builder.column(col.name(), toPaimonTypeWithParameterized(col, metadata.properties()));
+            applyVectorDimension(builder, col, metadata.properties());
             if (col.type() == PangrovaType.VARIANT) {
                 builder.option(PaimonTypeMapper.VARIANT_COLUMN_KEY_PREFIX + col.name(), "true");
             }
@@ -36,11 +39,32 @@ public final class PaimonSchemaBuilder {
      * (e.g. DECIMAL precision/scale) and falling back to the enum-based mapper.
      */
     private static org.apache.paimon.types.DataType toPaimonTypeWithParameterized(
-            ConnectorTableMetadata.Column col) {
-        if (col.parameterizedType() instanceof org.pangrova.spi.connector.data.type.primitive.DecimalType dt) {
-            return new org.apache.paimon.types.DecimalType(dt.precision(), dt.scale());
+            ConnectorTableMetadata.Column col, Map<String, String> properties) {
+        if (col.parameterizedType() != null && usesDeclaredParameters(col.type())) {
+            return PaimonDeclaredTypes.toPaimonType(col.parameterizedType(),
+                    "lance".equalsIgnoreCase(properties.get("file.format")));
         }
         return PaimonTypeMapper.toPaimonType(col.type());
+    }
+
+    private static boolean usesDeclaredParameters(PangrovaType type) {
+        return switch (type) {
+            case DECIMAL, VARCHAR, ARRAY, MAP, STRUCT, VECTOR -> true;
+            default -> false;
+        };
+    }
+
+    private static void applyVectorDimension(Schema.Builder builder, ConnectorTableMetadata.Column col,
+                                            Map<String, String> properties) {
+        if (!(col.parameterizedType() instanceof VectorType vector)) {
+            return;
+        }
+        String key = PaimonTypeMapper.vectorDimensionKey(col.name());
+        String dimension = Integer.toString(vector.dimension());
+        if (properties.containsKey(key) && !dimension.equals(properties.get(key))) {
+            throw new IllegalArgumentException("Vector dimension property disagrees with column " + col.name());
+        }
+        builder.option(key, dimension);
     }
 
     private static void applyTableProperties(Schema.Builder builder, Map<String, String> properties) {

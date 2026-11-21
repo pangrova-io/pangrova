@@ -71,13 +71,17 @@ self_test
 RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/pangrova-environment-paths.XXXXXX")"
 trap 'rm -f "$RESULTS_FILE"' EXIT
 
+# A linked worktree stores its Git pointer as a regular .git file; JVM crash
+# logs are generated diagnostics rather than repository content.
 find "$REPO_ROOT" -type f \
     -not -path '*/.git/*' \
+    -not -name '.git' \
+    -not -name 'hs_err_pid*.log' \
     -not -path '*/.pangrova/scripts/check-environment-specific-info.sh' \
-    -not -path '*/.qoder/repowiki/*' \
     -not -path '*/target/*' \
     -not -path '*/build/*' \
     -not -path '*/build-*/*' \
+    -not -name 'javac.*.args' \
     -not -path '*/website/node_modules/*' \
     -not -path '*/website/.docusaurus/*' \
     -not -path '*/.idea/*' \

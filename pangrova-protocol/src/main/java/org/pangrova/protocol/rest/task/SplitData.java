@@ -2,8 +2,8 @@ package org.pangrova.protocol.rest.task;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
+import org.pangrova.common.util.OrderedMaps;
 
 /**
  * Strong-typed DTO representing split metadata for native engine serialization.
@@ -52,6 +52,6 @@ public record SplitData(
     private static Map<String, String> copyOrdered(Map<String, String> source) {
         return source == null
                 ? Map.of()
-                : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(source));
+                : OrderedMaps.immutableCopy(source);
     }
 }

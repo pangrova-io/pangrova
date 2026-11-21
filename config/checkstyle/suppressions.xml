@@ -60,28 +60,28 @@
     <suppress files="[\\/]src[\\/]test[\\/]java[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass"/>
 
-    <!-- E2E tests (pangrova-testing/pangrova-test-e2e) -->
-    <suppress files="[\\/]pangrova-test-e2e[\\/]src[\\/]test[\\/]"
+    <!-- Integration E2E tests (pangrova-testing/pangrova-testing-integration-tests) -->
+    <suppress files="[\\/]pangrova-testing-integration-tests[\\/]src[\\/]test[\\/]java[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass|MethodLength|CyclomaticComplexity"/>
 
-    <!-- Smoke tests (pangrova-testing/pangrova-test-smoke) -->
-    <suppress files="[\\/]pangrova-test-smoke[\\/]src[\\/]test[\\/]"
+    <!-- Activation smoke suite (pangrova-testing/pangrova-testing-integration-tests) -->
+    <suppress files="[\\/]pangrova-testing-integration-tests[\\/]src[\\/]test[\\/]java[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]smoke[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass"/>
 
-    <!-- Benchmark tests (pangrova-testing/pangrova-test-benchmark) -->
-    <suppress files="[\\/]pangrova-test-benchmark[\\/]"
+    <!-- Benchmark tests (pangrova-testing/pangrova-testing-benchmark) -->
+    <suppress files="[\\/]pangrova-testing-benchmark[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass|MethodLength"/>
 
-    <!-- Chaos tests (pangrova-testing/pangrova-test-chaos) -->
-    <suppress files="[\\/]pangrova-test-chaos[\\/]"
+    <!-- Chaos suite (pangrova-testing/pangrova-testing-integration-tests) -->
+    <suppress files="[\\/]pangrova-testing-integration-tests[\\/]src[\\/](main|test)[\\/]java[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]chaos[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass|MethodLength|CyclomaticComplexity"/>
 
-    <!-- Fuzzer tests (pangrova-testing/pangrova-test-fuzzer) -->
-    <suppress files="[\\/]pangrova-test-fuzzer[\\/]"
+    <!-- Fuzzer tests (pangrova-testing/pangrova-testing-fuzzer) -->
+    <suppress files="[\\/]pangrova-testing-fuzzer[\\/]"
               checks="BanThreadSleep|BanSystemOut|MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|LineLength|AnonInnerLength|HideUtilityClassConstructor|FinalClass|MethodLength|CyclomaticComplexity"/>
 
-    <!-- Test common infrastructure (pangrova-testing/pangrova-test-common) -->
-    <suppress files="[\\/]pangrova-test-common[\\/]src[\\/]main[\\/]"
+    <!-- Shared test fixtures (pangrova-testing/pangrova-testing-kit) -->
+    <suppress files="[\\/]pangrova-testing-kit[\\/]src[\\/]main[\\/]"
               checks="MagicNumber|MissingJavadocMethod|JavadocType|JavadocVariable|HideUtilityClassConstructor|FinalClass"/>
 
     <!--
@@ -90,7 +90,7 @@
         only so connector modules can inherit them, so the §2 test-tree suppressions
         do not reach them; MethodName is relaxed for these files alone.
     -->
-    <suppress files="[\\/]pangrova-test-common[\\/]src[\\/]main[\\/].*Tck(Test)?\.java$"
+    <suppress files="[\\/]pangrova-testing-kit[\\/]src[\\/]main[\\/].*Tck(Test)?\.java$"
               checks="MethodName"/>
 
     <!-- jqwik property tests may have complex generators -->
@@ -101,22 +101,12 @@
          §3 MODULE-SPECIFIC SUPPRESSIONS — known legitimate deviations
          ================================================================ -->
 
-    <!-- Immutable aggregate compatibility constructors are used across downstream modules. -->
-    <suppress files="[\\/]pangrova-spi[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]spi[\\/]coordination[\\/]WorkerSnapshot\.java$"
-              checks="ParameterNumber"/>
-    <suppress files="[\\/]pangrova-spi[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]spi[\\/]execution[\\/]TaskDescriptor\.java$"
-              checks="ParameterNumber"/>
-
-    <!-- Nominal transaction type with a shared empty singleton, not a constant-holder interface. -->
-    <suppress files="[\\/]pangrova-spi[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]spi[\\/]connector[\\/]ConnectorTransactionHandle\.java$"
-              checks="InterfaceIsType"/>
-
     <!--
         pangrova-parser: ANTLR visitor/listener implementations have one method per
         grammar rule. These can be long and have high cyclomatic complexity by
         design; the grammar is the source of truth, not the visitor size.
     -->
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]"
               checks="MethodLength|CyclomaticComplexity|NestedIfDepth"/>
 
     <!--
@@ -124,19 +114,19 @@
         Keep generated-shaped dispatch layout and dense AST imports readable while
         continuing to enforce correctness, braces, Javadoc, and unused imports.
     -->
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]AstBuilder\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]AstBuilder\.java$"
               checks="AnnotationLocation|LeftCurly|EmptyLineSeparator|LineLength|FileLength|AvoidStarImport"/>
 
     <!-- Grammar/AST dispatch and printer classes intentionally enumerate many node types. -->
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/](AstPrinter|StatementPrinter)\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]format[\\/](AstPrinter|StatementPrinter)\.java$"
               checks="FileLength|AvoidStarImport|LineLength|EmptyLineSeparator"/>
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]Ast(DdlDml|Expression|ExtendedDdl|Dml)Builder\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]Ast(DdlDml|Expression|ExtendedDdl|Dml)Builder\.java$"
               checks="FileLength|AvoidStarImport|EmptyLineSeparator"/>
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]SqlParser\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]parse[\\/]AntlrSqlParser\.java$"
               checks="FileLength"/>
 
     <!-- Immutable AST aggregate constructors preserve the public parser model contract. -->
-    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]ast[\\/](Query|TableRef)\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]api[\\/]ast[\\/](Query|TableRef)\.java$"
               checks="ParameterNumber"/>
 
     <!--
@@ -276,52 +266,16 @@
          each removal deletes its entry here.
          ==================================================================== -->
 
-    <!-- ====================================================================
-         FileLength (max 500) — 25 files
-
-         Pre-existing large classes. Splitting them is a behavioural refactor with real
-         regression risk, not a formatting change, so each needs its own extraction
-         spec and test pass. The same files are already tracked by
-         CleanCodeMetricsPropertyTest#GOD_CLASS_TRACKED, which is the authoritative
-         ratchet: that set may only shrink, so this list cannot grow silently.
-
-         Convergence: drive down through the GOD_CLASS_TRACKED shrink list; the largest offenders
-         (IcebergMetadata, PaimonMetadata, PangrovaDatabaseMetaData) split along their
-         DDL / DML / read-path seams.
-         ==================================================================== -->
-
-    <!-- ====================================================================
-         MethodLength (max 60 non-empty lines) — 36 methods
-
-         Overlong methods in the same pre-existing hot spots as FileLength. Extracting
-         helpers changes control flow and needs per-method coverage first; doing 36 of
-         them blind would be a larger risk than the debt itself.
-
-         Convergence: converge together with the owning file's FileLength split — the long methods
-         are the natural extraction boundaries.
-         ==================================================================== -->
-
-    <!-- ====================================================================
-         CyclomaticComplexity (max 8) — 152 methods
-
-         Branch-heavy methods concentrated in the type/expression mapping layers
-         (connector type coercion, Substrait conversion, JDBC metadata) and the
-         coordinator state machines. Most are wide flat switch/if-chains over a closed
-         set of types or states, where the branch count is inherent to the domain and
-         splitting yields indirection without reducing real complexity. pangrova-parser
-         and pangrova-planner already carry a module-wide suppression for exactly this
-         reason (§3); this block extends the same treatment file-scoped to the
-         remaining modules rather than widening it to whole modules.
-
-         Convergence: replace the flat type-dispatch chains with table-driven lookup
-         (Map&lt;Type, Handler&gt;), which removes the branches rather than hiding them.
-         ==================================================================== -->
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]streaming[\\/]StreamConfig\.java$" checks="CyclomaticComplexity"/>
+    <!-- Existing file-scoped complexity exceptions for domain dispatch remain.
+         The canonical structural limits are in checkstyle.xml. Remove each
+         exception when its owning behavior is simplified; do not widen them
+         solely to obtain a passing build. -->
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]coordinator[\\/]StreamConfig\.java$" checks="CyclomaticComplexity"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]task[\\/]TaskStatusReport\.java$" checks="CyclomaticComplexity"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="CyclomaticComplexity"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="CyclomaticComplexity"/>
 
     <!-- ====================================================================
-         ParameterNumber (max 7) — 61 methods
+         ParameterNumber (max 10) — documented API-shape exceptions
 
          Wide parameter lists, almost all constructors of immutable value/handle types and
          bootstrap wiring where every dependency is injected explicitly (the repo bans
@@ -332,7 +286,7 @@
          Convergence: introduce parameter-object records for the bootstrap wiring paths; immutable
          handle constructors stay as they are, since the record is already the payload.
          ==================================================================== -->
-    <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]audit[\\/]QueryAuditRecord\.java$" checks="ParameterNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]query[\\/]api[\\/]audit[\\/]QueryAuditRecord\.java$" checks="ParameterNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]task[\\/]TaskStats\.java$" checks="ParameterNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]task[\\/]TaskStatusReport\.java$" checks="ParameterNumber"/>
 
@@ -372,28 +326,25 @@
          ==================================================================== -->
     <suppress files="[\\/]org[\\/]pangrova[\\/]client[\\/]jdbc[\\/]JdbcConnectionParams\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]client[\\/]jdbc[\\/]JdbcUrlParser\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]DynamicTableConfig\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]CoordinatorHealthResource\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]StreamingResource\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]index[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]worker[\\/]WorkerPerformanceScorer\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]quality[\\/]rule[\\/]GovernanceStatementHandler\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]core[\\/]quality[\\/]GovernanceStatementHandler\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]build[\\/]IndexBuildCoordinator\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]profiling[\\/]QueryFlameGraphGenerator\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]profiling[\\/]QueryFlameGraphGenerator\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScaling\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]config[\\/]ShuffleConfig\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]resilience[\\/]degradation[\\/]DegradationThresholds\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]resource[\\/]MemoryPressure\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]resilience[\\/]degradation[\\/]DegradationThresholds\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]policy[\\/]CompactionPolicy\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]policy[\\/]SnapshotExpirationPolicy\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]writer[\\/]StreamingWriterConfig\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]generator[\\/]ConnectorGenerators\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]generator[\\/]DataGenerators\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]pipeline[\\/]StreamingWriterConfig\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]generator[\\/]ConnectorGenerators\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]generator[\\/]DataGenerators\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]http[\\/]endpoint[\\/]WorkerExceptionMapper\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]http[\\/]endpoint[\\/]WorkerHealthResource\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]shuffle[\\/]ShufflePageValidator\.java$" checks="MagicNumber"/>
 
     <!-- ====================================================================
          MissingJavadocMethod (public, minLineCount 3) — 426 methods
@@ -405,50 +356,39 @@
          package boundary inside their own module. Generating 426 restatements of the
          method name would add noise and depress the signal of the Javadoc that is real.
 
-         Convergence: converge by direction rather than by count. The SPI contract surface
-         (pangrova-spi) and the client-facing JDBC/REST APIs are documented on touch and
+         Convergence: converge by direction rather than by count. The contract surface
+         (-api/-spi artifacts) and the client-facing JDBC/REST APIs are documented on touch and
          are where this rule earns its keep; internal classes are documented when the
          behaviour is non-obvious, which is already the practice.
          ==================================================================== -->
     <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]iceberg[\\/]fs[\\/]IcebergFileSystemAccessor\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]paimon[\\/]fs[\\/]PaimonFileSystemAccessor\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]detect[\\/]CdcChangeDetector\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]detect[\\/]SchemaEvolutionException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]quota[\\/]BoundedRefreshMemoryQuota\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]quota[\\/]RefreshMemoryQuotaExceededException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]refresh[\\/]EpochExpiredException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]refresh[\\/]LockRenewalFailedException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]schedule[\\/]TenantScheduleQueue\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]CoordinatorTaskResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]SplitResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]StreamingResource\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]index[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]plugin[\\/]PluginManager\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]query[\\/]audit[\\/]QueryAuditEmitter\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]scheduler[\\/]strategy[\\/]FairScheduler\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]admission[\\/]FairScheduler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]task[\\/]TaskStateMachine\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]worker[\\/]WorkerHealthScheduler\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]worker[\\/]WorkerPerformanceScorer\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]quality[\\/]rule[\\/]GovernanceStatementHandler\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]core[\\/]quality[\\/]GovernanceStatementHandler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]serde[\\/]TypeSerializerRegistry\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]catalog[\\/]CatalogHealthMonitor\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]catalog[\\/]registry[\\/]CatalogHealthMonitor\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]event[\\/]MetadataEventDispatcher\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]exception[\\/]MetadataResolutionException\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]exception[\\/]MetadataSyncException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]serde[\\/]TableMetadataSerializer\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]object[\\/]TableMetadataSerializer\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]service[\\/]QueryLifecycleReport\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]metrics[\\/]CacheStatsSnapshot\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]metrics[\\/]CacheStatsSnapshot\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]EmergencyThreshold\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScaling\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]ScalingPolicy\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]planner[\\/]cache[\\/]SecurityPolicyChangeListener\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]resource[\\/]MemoryPressure\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]resource[\\/]ResourceMonitor\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]resource[\\/]ResourceMonitor\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]policy[\\/]CompactionPolicy\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]policy[\\/]SnapshotExpirationPolicy\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]watermark[\\/]WatermarkTracker\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]buffer[\\/]ResultExpirationScheduler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]exchange[\\/]transport[\\/]TransportClientPool\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]result[\\/]BatchRejectedException\.java$" checks="MissingJavadocMethod"/>
 

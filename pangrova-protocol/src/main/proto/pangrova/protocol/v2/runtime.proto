@@ -1,0 +1,486 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "google/protobuf/any.proto";
+import "pangrova/protocol/v2/protocol_manifest.proto";
+import "pangrova/protocol/v2/result.proto";
+import "pangrova/protocol/v2/task.proto";
+import "pangrova/protocol/v2/connector.proto";
+import "substrait/type.proto";
+
+// Process-local transport credentials used to configure the Native data plane.
+// Paths are resolved on the Worker that initializes the Native runtime. Enabling
+// TLS requires mutual authentication and an explicit peer identity; partial
+// configuration is rejected by both JVM and Native validators.
+message TransportSecurityConfig {
+  bool tls_enabled = 1;
+  string certificate_chain_path = 2;
+  string private_key_path = 3;
+  string root_ca_path = 4;
+  string tls_identity = 5;
+}
+
+// Canonical Java -> Native process initialization contract. This message owns
+// runtime, filesystem, memory, spill, cache and data-plane security settings;
+// no version-specific or feature-specific initialization schema may mirror it.
+message RuntimeInitConfig {
+  int64 max_memory_bytes = 1;
+  int32 io_thread_count = 2;
+  bool cache_enabled = 3;
+  int64 ram_cache_bytes = 4;
+  int64 ssd_cache_bytes = 5;
+  string ssd_cache_path = 6;
+
+  string s3_endpoint = 7;
+  string s3_access_key = 8;
+  string s3_secret_key = 9;
+  string s3_region = 10;
+  string hdfs_host = 11;
+  int32 hdfs_port = 12;
+  string kerberos_principal = 13;
+  string kerberos_keytab = 14;
+  string gcs_credentials_path = 15;
+  bool s3_path_style_access = 16;
+  bool s3_ssl_enabled = 17;
+  string s3_security_token = 18;
+
+  int32 ssd_shards = 19;
+  int64 checkpoint_interval_bytes = 20;
+  double memory_pressure_threshold_low = 21;
+  double memory_pressure_threshold_medium = 22;
+  double memory_pressure_threshold_high = 23;
+  double memory_pressure_threshold_critical = 24;
+  bool spill_enabled = 25;
+  string spill_directory = 26;
+  TransportSecurityConfig transport_security = 27;
+  // Dedicated content-addressed cache for immutable capability artifacts.
+  // It is quota-isolated from Velox's data-page SSD cache so index/model
+  // residency cannot evict scan pages or exceed the configured node budget.
+  string artifact_cache_path = 28;
+  int64 artifact_cache_bytes = 29;
+  // Hard RAM quota for parsed/indexed artifact structures (graphs, postings,
+  // codebooks). This is separate from both scan-page RAM and artifact SSD.
+  int64 artifact_index_memory_bytes = 30;
+  // Process-wide Native Flight shuffle service reservation. The JVM must
+  // prebook retention + transit in its NodePool and MemoryArbitrator before
+  // admitting tasks. Native refuses to start shuffle without this exact
+  // canonical configuration; it never selects an implicit temp directory.
+  uint64 shuffle_retention_bytes = 31;
+  uint64 shuffle_transit_bytes = 32;
+  uint64 shuffle_spill_bytes = 33;
+  uint32 shuffle_spill_files = 34;
+  string shuffle_spill_directory = 35;
+}
+
+enum RuntimeCommandType {
+  RUNTIME_COMMAND_TYPE_UNSPECIFIED = 0;
+  RUNTIME_COMMAND_TYPE_GET_CAPABILITIES = 1;
+  RUNTIME_COMMAND_TYPE_UPDATE_RESOURCE_GRANT = 2;
+  RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER = 3;
+  RUNTIME_COMMAND_TYPE_PREFETCH_ARTIFACTS = 4;
+  RUNTIME_COMMAND_TYPE_EVICT_CACHE = 5;
+  RUNTIME_COMMAND_TYPE_GET_METRICS = 6;
+  RUNTIME_COMMAND_TYPE_MEMORY_PRESSURE = 7;
+  RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE = 8;
+  RUNTIME_COMMAND_TYPE_NO_MORE_EXCHANGE_SOURCES = 9;
+  RUNTIME_COMMAND_TYPE_START_RESULT_SERVER = 10;
+  RUNTIME_COMMAND_TYPE_STOP_RESULT_SERVER = 11;
+  RUNTIME_COMMAND_TYPE_CANCEL_ATTEMPT = 12;
+  RUNTIME_COMMAND_TYPE_START_SHUFFLE_SERVER = 13;
+  RUNTIME_COMMAND_TYPE_STOP_SHUFFLE_SERVER = 14;
+  RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH = 15;
+  RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE = 16;
+  RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT = 17;
+  RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE = 18;
+  RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS = 19;
+  RUNTIME_COMMAND_TYPE_GET_RESOURCE_DRAIN_EVIDENCE = 20;
+  RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION = 21;
+  RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG = 22;
+  RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS = 23;
+}
+
+// One explicit startup transition, before the Worker accepts any task. This
+// freezes actual registered factories; GET_CAPABILITIES never performs it.
+message FunctionCatalogFinalizeRequest {
+  ProtocolVersion protocol = 1;
+  bytes binding_declaration_sha256 = 2;
+  bytes execution_selection_sha256 = 3;
+}
+
+message FunctionCatalogFinalizeResult {
+  bytes manifest_sha256 = 1;
+  uint64 inventory_bytes = 2;
+  uint64 encoded_inventory_bytes = 3;
+}
+
+// Process-local recovery uses the same exact identity as network admission.
+// It seals creation when no executor exists; it never re-admits an old attempt.
+message ExecutorCreationRecoveryRequest {
+  TaskAdmissionSealRequest admission_seal = 1;
+  SecurityContext security = 2;
+}
+
+enum ExecutorCreationState {
+  EXECUTOR_CREATION_STATE_UNSPECIFIED = 0;
+  EXECUTOR_CREATION_STATE_CONSTRUCTING = 1;
+  EXECUTOR_CREATION_STATE_OWNER_PRESENT = 2;
+  EXECUTOR_CREATION_STATE_CLOSED_WITHOUT_OWNER = 3;
+}
+
+// Native-only ownership evidence. CLOSED_WITHOUT_OWNER does not prove that
+// Worker callbacks, admission grants, result readers or connectors were drained.
+message ExecutorCreationRecoveryResult {
+  ExecutorCreationRecoveryRequest identity = 1;
+  ExecutorCreationState state = 2;
+  uint64 executor_handle = 3;
+}
+
+enum ResourceDrainScope {
+  RESOURCE_DRAIN_SCOPE_UNSPECIFIED = 0;
+  RESOURCE_DRAIN_SCOPE_RESULT_STREAM = 1;
+}
+
+message ResourceDrainEvidenceRequest {
+  SecurityContext security = 1;
+  ResourceDrainScope resource = 2;
+}
+
+// Actual ownership evidence, not a task-terminal or future-completion proxy.
+message ResourceDrainEvidence {
+  TaskAttemptId attempt = 1;
+  SecurityContext security = 2;
+  ResourceDrainScope resource = 3;
+  bool producer_stopped = 4;
+  bool authority_revoked = 5;
+  bool queue_cleared = 6;
+  uint64 active_readers = 7;
+  uint64 retained_batch_owners = 8;
+  bool drained = 9;
+}
+
+// Bounded immutable manifest enumeration. Each page contains at most 256
+// partitions. The cursor is the last physical numeric ID, not an offset.
+message DatasetScanPartitionsRequest {
+  CatalogExecutionBinding catalog = 1;
+  SecurityContext security = 2;
+  string dataset_uri = 3;
+  uint64 version = 4;
+  Checksum physical_schema_sha256 = 5;
+  uint64 deadline_epoch_ms = 6;
+  uint32 page_size = 7;
+  bool has_cursor = 8;
+  uint64 after_partition_id = 9;
+  AcceptedSourceSnapshotRef accepted_snapshot = 10;
+}
+
+message DatasetScanPartitionsResult {
+  uint64 version = 1;
+  Checksum manifest_sha256 = 2;
+  Checksum physical_schema_sha256 = 3;
+  uint64 total_partitions = 4;
+  repeated ScanPartitionDetail partitions = 5;
+  bool has_more = 6;
+  uint64 next_partition_id = 7;
+  AcceptedSourceSnapshotRef accepted_snapshot = 8;
+}
+
+// Metadata only. The standard NamedStruct is the same physical schema consumed
+// by plan conversion; logical types preserve constraints such as VECTOR width.
+message DatasetSchemaFingerprintRequest {
+  CatalogExecutionBinding catalog = 1;
+  SecurityContext security = 2;
+  substrait.NamedStruct schema = 3;
+  repeated LogicalType column_types = 4;
+  uint64 deadline_epoch_ms = 5;
+}
+
+message DatasetSchemaFingerprintResult { Checksum physical_schema_sha256 = 1; }
+
+// Each winner is exact task-attempt evidence, not a row payload. sha256 covers
+// commit_metadata; the Native sink validates its own typed metadata contract.
+message DistributedWriteFragment {
+  TaskAttemptId task_attempt = 1;
+  bytes commit_metadata = 2;
+  Checksum sha256 = 3;
+}
+
+// Native only prepares an SDK manifest at the durably reserved private address.
+// Acceptance is the same-connection PG head/membership/journal transaction.
+message PrepareDistributedWriteRequest {
+  SecurityContext security = 1;
+  WriteOutputBinding output_binding = 2;
+  string execution_id = 3;
+  string commit_fingerprint = 4;
+  ExecutionOwnerIdentity execution_owner = 5;
+  uint64 control_epoch = 6;
+  uint64 deadline_epoch_ms = 7;
+  repeated DistributedWriteFragment fragments = 8;
+  reserved 9, 10, 11;
+  ExecutionOwnerIdentity intent_execution_owner = 12;
+  SourcePublicationReservation reservation = 13;
+  uint32 object_page_index = 14;
+  string after_object_path = 15;
+  uint32 object_page_size = 16;
+  string invocation_id = 17;
+}
+
+message SourcePublicationReservation {
+  string table_id = 1;
+  uint64 table_generation = 2;
+  string tenant_id = 3;
+  string manifest_relative_path = 4;
+  AcceptedSourceSnapshotRef base_snapshot = 5;
+}
+
+enum SourceObjectPurpose {
+  SOURCE_OBJECT_PURPOSE_UNSPECIFIED = 0;
+  SOURCE_OBJECT_PURPOSE_SOURCE = 1;
+  SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR = 2;
+}
+
+message PreparedSourceObject {
+  string relative_path = 1;
+  uint64 size_bytes = 2;
+  SourceObjectPurpose purpose = 3;
+}
+
+message PreparedSourcePublication {
+  AcceptedSourceSnapshotRef candidate = 1;
+  uint64 row_count = 2;
+  uint64 objects_count = 3;
+  Checksum objects_sha256 = 4;
+  // APPEND retains accepted base membership; CREATE/OVERWRITE use no parent.
+  string inherited_membership = 5;
+}
+
+enum WritePreparationOutcome {
+  WRITE_PREPARATION_OUTCOME_UNSPECIFIED = 0;
+  WRITE_PREPARATION_OUTCOME_PREPARED = 1;
+  WRITE_PREPARATION_OUTCOME_UNKNOWN = 2;
+}
+
+message PreparedSourceObjectPage {
+  uint32 page_index = 1;
+  string after_path = 2;
+  repeated PreparedSourceObject objects = 3;
+  Checksum sha256 = 4;
+  bool is_last = 5;
+}
+
+message PrepareDistributedWriteResult {
+  WritePreparationOutcome outcome = 1;
+  string commit_fingerprint = 2;
+  PreparedSourcePublication publication = 3;
+  PreparedSourceObjectPage object_page = 4;
+  string invocation_id = 5;
+  // True only after the actual SDK future has returned, including its object-store calls.
+  bool sdk_joined = 6;
+}
+
+// Exact deletion set already durably marked by the source authority. No discovery or recursive directory deletion.
+message CleanupSourceObjectsRequest {
+  CatalogExecutionBinding catalog = 1;
+  SecurityContext security = 2;
+  string execution_id = 3;
+  string commit_fingerprint = 4;
+  ExecutionOwnerIdentity execution_owner = 5;
+  uint64 control_epoch = 6;
+  uint64 deadline_epoch_ms = 7;
+  string cleanup_id = 8;
+  string dataset_uri = 9;
+  repeated PreparedSourceObject objects = 10;
+  Checksum objects_sha256 = 11;
+}
+
+message CleanupSourceObjectsResult {
+  string cleanup_id = 1;
+  Checksum objects_sha256 = 2;
+  uint32 deleted_count = 3;
+  bool sdk_joined = 4;
+}
+
+// Worker-owned source preparation is control-plane I/O before a relational
+// task exists. It has no Substrait plan or write output and is never submitted
+// to the Native task executor. The private bearer travels only in its HTTP envelope.
+message SourcePreparationRequest {
+  ProtocolVersion protocol = 1;
+  TaskAttemptId attempt = 2;
+  SecurityContext security = 3;
+  StageResourceGrant resource_grant = 4;
+  uint64 deadline_epoch_ms = 5;
+  TraceContext trace_context = 6;
+  Checksum source_command_sha256 = 7;
+}
+
+message PreparedFileSource {
+  string source_version_id = 1;
+  string managed_object_uri = 2;
+  string content_sha256 = 3;
+  uint64 content_size = 4;
+  string tenant_scope = 5;
+}
+
+// Both success and failure retain the usage of the exact issued preparation.
+// A transport timeout is not this receipt and never proves that I/O has joined.
+message SourcePreparationResult {
+  TaskAttemptId attempt = 1;
+  Checksum request_sha256 = 2;
+  ResourceUsage usage = 3;
+  bool io_joined = 4;
+  PreparedFileSource source = 5;
+  ExecutionError error = 6;
+}
+
+message RuntimeCommand {
+  ProtocolVersion protocol = 1;
+  TaskAttemptId attempt = 2;
+  RuntimeCommandType command_type = 3;
+  google.protobuf.Any payload = 4;
+  // Worker -> JNI only. HTTP control admission rejects client-supplied values.
+  repeated ObjectStoreExecutionBinding worker_local_storage_bindings = 5;
+}
+
+message RuntimeCommandResponse {
+  bool success = 1;
+  google.protobuf.Any payload = 2;
+  ExecutionError error = 3;
+}
+
+// Process-local resource updates are expressed with the same grant contract
+// used at task admission; there is no separate "memory limit" wire shape.
+message UpdateResourceGrantRequest {
+  StageResourceGrant resource_grant = 1;
+}
+
+// Cache prefetch consumes canonical v2 DataSplit locations. Connector-specific
+// details remain opaque Any values owned by the connector contract.
+message PrefetchArtifactsRequest {
+  repeated DataSplit splits = 1;
+}
+
+message EvictCacheRequest { string pattern = 1; }
+
+enum MemoryPressureLevel {
+  MEMORY_PRESSURE_LEVEL_UNSPECIFIED = 0;
+  MEMORY_PRESSURE_LEVEL_LOW = 1;
+  MEMORY_PRESSURE_LEVEL_MEDIUM = 2;
+  MEMORY_PRESSURE_LEVEL_HIGH = 3;
+  MEMORY_PRESSURE_LEVEL_CRITICAL = 4;
+}
+
+message MemoryPressureRequest { MemoryPressureLevel level = 1; }
+
+message StartResultServerRequest {
+  uint32 preferred_port = 1;
+  // Actual listener address. Advertised client address is a separate Worker contract.
+  string bind_host = 2;
+}
+message StartResultServerResponse { uint32 bound_port = 1; }
+
+message CacheMetrics {
+  uint64 ram_hits = 1;
+  uint64 ram_misses = 2;
+  uint64 ssd_hits = 3;
+  uint64 ssd_misses = 4;
+  uint64 promotions = 5;
+  uint64 demotions = 6;
+  uint64 evictions = 7;
+  uint64 ram_used_bytes = 8;
+  uint64 ssd_used_bytes = 9;
+  double prefetch_hit_rate = 10;
+}
+
+enum NativeFunctionKind {
+  NATIVE_FUNCTION_KIND_UNSPECIFIED = 0;
+  NATIVE_FUNCTION_KIND_SCALAR = 1;
+  NATIVE_FUNCTION_KIND_AGGREGATE = 2;
+}
+
+// Worker-local governed callback registration. Query-time AI/model calls use
+// CapabilityInvocation and never this process-bootstrap descriptor.
+message NativeFunctionDescriptor {
+  string name = 1;
+  LogicalType return_type = 2;
+  repeated LogicalType argument_types = 3;
+  NativeFunctionKind function_kind = 4;
+  bool deterministic = 5;
+  // NULL-input invocation policy is explicit, including false; startup rejects absence.
+  optional bool default_null_behavior = 6;
+}
+
+message MemorySnapshot {
+  uint64 current_used_bytes = 1;
+  uint64 peak_used_bytes = 2;
+  uint64 spill_bytes = 3;
+  uint64 cache_used_bytes = 4;
+  uint64 arbitrator_free_bytes = 5;
+  uint64 arbitrator_capacity_bytes = 6;
+  uint32 active_pool_count = 7;
+}
+
+// Versioned metrics payload returned by GET_METRICS. Consumers decode this
+// generated message rather than depending on a native struct byte layout.
+message NativeMetricsSnapshot {
+  uint32 schema_version = 1;
+  ResourceUsage resource_usage = 2;
+  uint64 rows_processed = 3;
+  uint64 bytes_read = 4;
+  CacheMetrics cache = 5;
+}
+
+message InjectRuntimeFilterRequest {
+  string plan_node_id = 1;
+  repeated RuntimeFilter filters = 2;
+}
+
+message ConnectExchangeSourceRequest {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  oneof transport {
+    ExchangePartitionSource direct = 3;
+    ExternalShuffleInput external = 4;
+  }
+}
+
+message PushExchangeBatchRequest {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  BatchChunk chunk = 3;
+}
+
+message FinishExchangeSourceRequest {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  int64 last_sequence = 3;
+  ExecutionError failure = 4;
+}
+
+message NoMoreExchangeSourcesRequest {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  uint32 expected_source_partitions = 3;
+}
+
+// Starts (or attaches to) the worker-wide multiplexed shuffle server and
+// registers one producing task. Tickets are minted by the producer so
+// consumers never receive or reconstruct process-local executor handles.
+message StartShuffleServerRequest {
+  uint32 partition_count = 1;
+  uint64 ticket_ttl_millis = 2;
+}
+
+message ShufflePartitionTicket {
+  int32 partition_id = 1;
+  bytes signed_ticket = 2;
+  uint64 expires_at_epoch_ms = 3;
+}
+
+message StartShuffleServerResponse {
+  uint32 bound_port = 1;
+  repeated ShufflePartitionTicket partition_tickets = 2;
+}
+
+message CapabilityResponse { CapabilityInventory inventory = 1; }

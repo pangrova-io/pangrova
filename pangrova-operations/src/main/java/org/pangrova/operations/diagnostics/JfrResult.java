@@ -1,5 +1,7 @@
 package org.pangrova.operations.diagnostics;
 
+import org.pangrova.operations.enums.JfrState;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;

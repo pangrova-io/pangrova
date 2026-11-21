@@ -6,6 +6,10 @@ on:
       - 'v*'
 
 jobs:
+  validation:
+    name: Validate release revision
+    uses: ./.github/workflows/ci.yml
+
   native-build:
     name: Native Build (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
@@ -30,14 +34,14 @@ jobs:
             docker-build: true
             docker-platform: linux/arm64
           - name: osx-x86_64
-            runner: macos-13
+            runner: macos-15-intel
             os: osx
             arch: x86_64
             lib-ext: dylib
             classifier: osx-x86_64
             docker-build: false
           - name: osx-aarch_64
-            runner: macos-14
+            runner: macos-15
             os: osx
             arch: aarch64
             lib-ext: dylib
@@ -59,7 +63,7 @@ jobs:
         if: matrix.platform.docker-build
         run: |
           docker buildx build \
-            -f docker/Dockerfile.native-build \
+            -f deploy/docker/Dockerfile.native-build \
             --platform ${{ matrix.platform.docker-platform }} \
             --target output \
             --output type=local,dest=native-output \
@@ -68,22 +72,52 @@ jobs:
           cp native-output/libpangrova_native.${{ matrix.platform.lib-ext }} native-lib/
 
       # --- Direct build (macOS — no Docker) ---
-      - name: Cache native deps + Velox
+      - name: Cache dependency archives
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+
+      - name: Cache native dependency prefixes
         if: "!matrix.platform.docker-build"
         uses: actions/cache@v4
         with:
           path: |
             ~/.pangrova/native-deps
-            ~/.pangrova/velox
-          key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+            ~/.pangrova/velox/deps-install
+          key: pangrova-v1-deps-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
 
-      - name: Install build tools (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake ninja
+      - name: Cache Velox build layer
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/velox/_build/release/_deps
+            ~/.pangrova/velox/_build/release/lib
+            ~/.pangrova/velox/_build/release/CMakeCache.txt
+          key: pangrova-v1-velox-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
 
-      - name: Setup native build environment (macOS)
+      - name: Cache compiler results (macOS)
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up native build tools (macOS)
+        if: "!matrix.platform.docker-build"
+        uses: ./.github/actions/setup-native-build
+
+      - name: Build native dependencies (macOS)
         if: "!matrix.platform.docker-build"
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+
+      - name: Build required Lance C FFI (macOS)
+        if: "!matrix.platform.docker-build"
+        run: ./pangrova-worker-native/bin/build-lance-ffi.sh
 
       - name: CMake configure (macOS)
         if: "!matrix.platform.docker-build"
@@ -103,11 +137,11 @@ jobs:
       # --- Stage native lib into classifier JAR resource path ---
       - name: Stage native library for Maven packaging
         run: |
-          RESOURCE_DIR=pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
+          RESOURCE_DIR=pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
           mkdir -p "${RESOURCE_DIR}"
           cp native-lib/libpangrova_native.${{ matrix.platform.lib-ext }} "${RESOURCE_DIR}/"
           echo "Staged native library:"
-          find pangrova-native-bundle/src/main/resources -type f
+          find pangrova-worker/src/main/resources -type f
 
       # --- Build classifier JAR ---
       - name: Set up JDK 17
@@ -121,26 +155,30 @@ jobs:
         run: |
           mvn -B package -pl pangrova-native-bundle \
             -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
+            -Dnative.resource.os=${{ matrix.platform.os }} \
+            -Dnative.resource.arch=${{ matrix.platform.arch }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
             -DskipTests
 
       - name: Upload classifier JAR
         uses: actions/upload-artifact@v4
         with:
-          name: native-bundle-${{ matrix.platform.classifier }}
+          name: release-native-bundle-${{ matrix.platform.classifier }}
           path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ matrix.platform.classifier }}.jar
           retention-days: 1
 
       - name: Upload raw native library
         uses: actions/upload-artifact@v4
         with:
-          name: native-lib-${{ matrix.platform.name }}
+          name: release-native-lib-${{ matrix.platform.name }}
           path: native-lib/libpangrova_native.*
           retention-days: 1
 
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: native-build
+    needs: [native-build, validation]
     permissions:
       contents: write
     steps:
@@ -150,6 +188,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: release-native-*
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -158,13 +197,16 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Build Java modules
-        run: mvn -B clean package -DskipTests -Prelease -pl '!pangrova-native-bundle'
+        run: mvn -B clean package -DskipTests -pl '!pangrova-native-bundle'
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            artifacts/native-bundle-*/pangrova-native-bundle-*.jar
-            artifacts/native-lib-*/libpangrova_native.*
+            artifacts/release-native-bundle-*/pangrova-native-bundle-*.jar
+            artifacts/release-native-lib-*/libpangrova_native.*

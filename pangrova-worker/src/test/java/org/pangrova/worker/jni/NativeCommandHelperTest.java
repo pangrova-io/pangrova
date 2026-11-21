@@ -1,91 +1,138 @@
 package org.pangrova.worker.jni;
 
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.v2.ErrorClass;
+import org.pangrova.protocol.v2.ExecutionError;
+import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
+import org.pangrova.protocol.v2.RangeFilter;
+import org.pangrova.protocol.v2.RuntimeCommand;
+import org.pangrova.protocol.v2.RuntimeCommandResponse;
+import org.pangrova.protocol.v2.RuntimeCommandType;
+import org.pangrova.protocol.v2.RuntimeFilter;
+import org.pangrova.protocol.v2.RuntimeFilterScope;
+import org.pangrova.protocol.v2.TypedValue;
+import org.pangrova.protocol.v2.UpdateResourceGrantRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Unit tests for {@link NativeCommandBuilder} manual protobuf wire encoding.
- * Verifies round-trip correctness for each command type.
- */
+/** Contract tests for the canonical v2 JVM-to-Native command envelope. */
 class NativeCommandBuilderTest {
 
     @Test
-    void updateMemoryLimitRoundTrip() {
-        byte[] cmd = NativeCommandBuilder.updateMemoryLimit(42L, 1024 * 1024L);
-        assertThat(cmd).isNotNull();
-        assertThat(cmd.length).isGreaterThan(0);
-        // Verify field 2 (command_type) = CMD_UPDATE_MEMORY_LIMIT (2)
-        // and field 1 (executor_handle) = 42
-        // by extracting via the same wire format parser
-        byte[] payload = NativeCommandBuilder.extractResultPayload(cmd);
-        // extractResultPayload extracts field 3 (payload) — should be present
-        assertThat(payload).isNotNull();
+    void updateResourceGrantIsTypedAndDoesNotDuplicateProcessHandle() throws Exception {
+        RuntimeCommand command = parseCommand(NativeCommandBuilder.updateMemoryLimit(1024 * 1024L));
+        assertThat(command.getProtocol().getMajor()).isEqualTo(2);
+        assertThat(command.getCommandType())
+                .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_UPDATE_RESOURCE_GRANT);
+        UpdateResourceGrantRequest request = command.getPayload()
+                .unpack(UpdateResourceGrantRequest.class);
+        assertThat(request.getResourceGrant().getNativeMemoryBytes()).isEqualTo(1024 * 1024L);
+        assertThat(command.getAttempt().getTaskId()).isEmpty();
     }
 
     @Test
-    void getMetricsProducesValidProto() {
-        byte[] cmd = NativeCommandBuilder.getMetrics();
-        assertThat(cmd).isNotNull();
-        assertThat(cmd.length).isGreaterThan(0);
+    void commandTypesProduceCanonicalEnvelopes() {
+        assertThat(parseCommand(NativeCommandBuilder.getMetrics()).getCommandType())
+                .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_METRICS);
+        assertThat(parseCommand(NativeCommandBuilder.buildGetCapabilities()).getCommandType())
+                .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_CAPABILITIES);
+        assertThat(parseCommand(NativeCommandBuilder.evictCache("s3://bucket/path/*")).getPayload())
+                .isNotEqualTo(Any.getDefaultInstance());
+        assertThat(parseCommand(NativeCommandBuilder.prefetchArtifacts(
+                PrefetchArtifactsRequest.getDefaultInstance())).getCommandType())
+                .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREFETCH_ARTIFACTS);
     }
 
     @Test
-    void getCacheStatsProducesValidProto() {
-        byte[] cmd = NativeCommandBuilder.getCacheStats();
-        assertThat(cmd).isNotNull();
+    void runtimeFilterUsesTypedV2Payload() throws Exception {
+        InjectRuntimeFilterRequest filterRequest = InjectRuntimeFilterRequest.newBuilder()
+                .setPlanNodeId("node_0")
+                .addFilters(RuntimeFilter.newBuilder()
+                        .setColumnName("order_id")
+                        .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER)
+                        .setRange(RangeFilter.newBuilder()
+                                .setLower(TypedValue.newBuilder().setInt64Value(1))
+                                .setUpper(TypedValue.newBuilder().setInt64Value(100))
+                                .setLowerInclusive(true)
+                                .setUpperInclusive(true)))
+                .build();
+        RuntimeCommand command = parseCommand(NativeCommandBuilder.injectRuntimeFilter(
+                "node_0", filterRequest.toByteArray()));
+        assertThat(command.getCommandType())
+                .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER);
+        assertThat(command.getPayload().unpack(InjectRuntimeFilterRequest.class))
+                .isEqualTo(filterRequest);
     }
 
     @Test
-    void buildGetCapabilitiesProducesValidProto() {
-        byte[] cmd = NativeCommandBuilder.buildGetCapabilities();
-        assertThat(cmd).isNotNull();
+    void runtimeFilterFailsClosedOnMalformedOrMismatchedPayload() {
+        assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter("node_0", new byte[]{1}))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        InjectRuntimeFilterRequest request = InjectRuntimeFilterRequest.newBuilder()
+                .setPlanNodeId("node_1")
+                .addFilters(RuntimeFilter.newBuilder()
+                        .setColumnName("id")
+                        .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER)
+                        .setRange(RangeFilter.newBuilder()
+                                .setLower(TypedValue.newBuilder().setInt64Value(1))
+                                .setUpper(TypedValue.newBuilder().setInt64Value(2))))
+                .build();
+        assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter(
+                "node_0", request.toByteArray()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("mismatch");
     }
 
     @Test
-    void evictCacheWithPatternProducesValidProto() {
-        byte[] cmd = NativeCommandBuilder.evictCache("s3://bucket/path/*");
-        assertThat(cmd).isNotNull();
-        byte[] payload = NativeCommandBuilder.extractResultPayload(cmd);
-        assertThat(payload).isNotNull();
+    void responseHandlingFailsClosedAndExtractsAnyValue() {
+        assertThatThrownBy(() -> NativeCommandBuilder.extractResultPayload(null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> NativeCommandBuilder.extractResultPayload(new byte[0]))
+                .isInstanceOf(IllegalStateException.class);
+
+        byte[] failure = RuntimeCommandResponse.newBuilder()
+                .setSuccess(false)
+                .setError(ExecutionError.newBuilder()
+                        .setErrorClass(ErrorClass.ERROR_CLASS_INVALID_REQUEST)
+                        .setMessage("rejected"))
+                .build()
+                .toByteArray();
+        assertThatThrownBy(() -> NativeCommandBuilder.extractResultPayload(failure))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("rejected");
+
+        byte[] response = RuntimeCommandResponse.newBuilder()
+                .setSuccess(true)
+                .setPayload(Any.newBuilder()
+                        .setTypeUrl("type.googleapis.com/test.Raw")
+                        .setValue(ByteString.copyFromUtf8("ok")))
+                .build()
+                .toByteArray();
+        assertThat(NativeCommandBuilder.extractResultPayload(response))
+                .isEqualTo("ok".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test
-    void injectDynamicFilterProducesValidProto() {
-        byte[] filterProto = new byte[]{0x0A, 0x02, 0x08, 0x01};
-        byte[] cmd = NativeCommandBuilder.injectDynamicFilter(99L, "node_0", filterProto);
-        assertThat(cmd).isNotNull();
-        byte[] payload = NativeCommandBuilder.extractResultPayload(cmd);
-        assertThat(payload).isNotNull();
+    void invalidArgumentsAreRejected() {
+        assertThatThrownBy(() -> NativeCommandBuilder.updateMemoryLimit(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> NativeCommandBuilder.evictCache(" "))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> NativeCommandBuilder.buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_UNSPECIFIED, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @Test
-    void extractResultPayloadFromEmptyReturnsNull() {
-        assertThat(NativeCommandBuilder.extractResultPayload(null)).isNull();
-        assertThat(NativeCommandBuilder.extractResultPayload(new byte[0])).isNull();
-    }
-
-    @Test
-    void prefetchSplitsProducesValidProto() {
-        byte[] splitInfos = new byte[]{0x0A, 0x04, 0x08, 0x01, 0x10, 0x02};
-        byte[] cmd = NativeCommandBuilder.prefetchSplits(splitInfos);
-        assertThat(cmd).isNotNull();
-        byte[] payload = NativeCommandBuilder.extractResultPayload(cmd);
-        assertThat(payload).isNotNull();
-    }
-
-    @Test
-    void zeroHandleOmitsField1() {
-        byte[] cmd = NativeCommandBuilder.getMetrics();
-        // Field 1 (executor_handle) should be omitted when handle=0.
-        // First byte should be field 2 tag (0x10 = field 2, wire type 0).
-        assertThat(cmd[0]).isEqualTo((byte) 0x10);
-    }
-
-    @Test
-    void nonZeroHandleIncludesField1() {
-        byte[] cmd = NativeCommandBuilder.updateMemoryLimit(1L, 100L);
-        // First byte should be field 1 tag (0x08 = field 1, wire type 0).
-        assertThat(cmd[0]).isEqualTo((byte) 0x08);
+    private static RuntimeCommand parseCommand(byte[] bytes) {
+        try {
+            return RuntimeCommand.parseFrom(bytes);
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new AssertionError(failure);
+        }
     }
 }

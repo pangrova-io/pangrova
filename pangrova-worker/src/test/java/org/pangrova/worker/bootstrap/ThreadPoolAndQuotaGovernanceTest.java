@@ -1,15 +1,21 @@
 package org.pangrova.worker.bootstrap;
 
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.spill.SpillManager;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
+import org.pangrova.worker.resource.ResourceManager;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.spill.SpillManager;
+import org.pangrova.worker.resource.spill.DiskSpillableBuffer;
+import org.pangrova.worker.resource.spill.SpillManager.SpillCandidate;
+import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -19,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p>Validates Requirements 62.3 and 62.4:</p>
  * <ul>
- *   <li>62.3: Thread pools managed via pangrova-resource (named threads, bounded queues, shutdown paths)</li>
+ *   <li>62.3: Thread pools managed via worker.resource (named threads, bounded queues, shutdown paths)</li>
  *   <li>62.4: Resource quota exceeded behavior (reject new Task, trigger spill, or kill low-priority query)</li>
  * </ul>
  *
@@ -27,6 +33,26 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  */
 @Tag("native-required")
 class ThreadPoolAndQuotaGovernanceTest {
+
+    @TempDir
+    Path spillDirectory;
+
+    private final java.util.List<DiskSpillableBuffer> actualBuffers = new java.util.ArrayList<>();
+
+    private SpillCandidate actualCandidate(String id, int priority, int bytes) {
+        DiskSpillableBuffer buffer = new DiskSpillableBuffer(id, priority, spillDirectory);
+        buffer.addBatch(new byte[bytes]);
+        actualBuffers.add(buffer);
+        return buffer.toSpillCandidate();
+    }
+
+    @AfterEach
+    void closeActualBuffers() {
+        for (DiskSpillableBuffer buffer : actualBuffers) {
+            buffer.close();
+        }
+    }
+
 
     private static StubCoordinatorServer stubCoordinator;
     private WorkerBootstrap workerBootstrap;
@@ -119,8 +145,8 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.isStarted()).isTrue();
@@ -138,8 +164,8 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
         assertThat(workerBootstrap.isStarted()).isTrue();
 
@@ -208,34 +234,34 @@ class ThreadPoolAndQuotaGovernanceTest {
     void spillManagerSelectsCandidatesUnderPressure() {
         SpillManager spillManager = new SpillManager();
 
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("scan-1", 1, 1024));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("shuffle-1", 2, 2048));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("join-1", 5, 4096));
+        spillManager.registerCandidate(actualCandidate("scan-1", 1, 1024));
+        spillManager.registerCandidate(actualCandidate("shuffle-1", 2, 2048));
+        spillManager.registerCandidate(actualCandidate("join-1", 5, 4096));
 
         // MEDIUM pressure: only priority ≤ 1 candidates
         var mediumCandidates = spillManager.selectCandidates(
-                Long.MAX_VALUE, org.pangrova.resource.MemoryPressure.MEDIUM);
+                Long.MAX_VALUE, org.pangrova.common.enums.MemoryPressure.MEDIUM);
         assertThat(mediumCandidates).hasSize(1);
         assertThat(mediumCandidates.get(0).id()).isEqualTo("scan-1");
 
         // HIGH pressure: priority ≤ 3 candidates
         var highCandidates = spillManager.selectCandidates(
-                Long.MAX_VALUE, org.pangrova.resource.MemoryPressure.HIGH);
+                Long.MAX_VALUE, org.pangrova.common.enums.MemoryPressure.HIGH);
         assertThat(highCandidates).hasSize(2);
 
         // CRITICAL pressure: all candidates
         var criticalCandidates = spillManager.selectCandidates(
-                Long.MAX_VALUE, org.pangrova.resource.MemoryPressure.CRITICAL);
+                Long.MAX_VALUE, org.pangrova.common.enums.MemoryPressure.CRITICAL);
         assertThat(criticalCandidates).hasSize(3);
     }
 
     @Test
     void spillManagerHandlesMemoryPressureByReclaimingResources() {
         SpillManager spillManager = new SpillManager();
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("buf-1", 1, 512));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("buf-2", 2, 1024));
+        spillManager.registerCandidate(actualCandidate("buf-1", 1, 512));
+        spillManager.registerCandidate(actualCandidate("buf-2", 2, 1024));
 
-        long reclaimed = spillManager.handleMemoryPressure(org.pangrova.resource.MemoryPressure.HIGH);
+        long reclaimed = spillManager.handleMemoryPressure(org.pangrova.common.enums.MemoryPressure.HIGH);
         assertThat(reclaimed).isEqualTo(512 + 1024);
     }
 

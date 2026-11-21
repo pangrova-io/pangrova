@@ -6,7 +6,7 @@ import io.opentelemetry.context.Scope;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import org.pangrova.observability.tracing.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,8 +50,8 @@ class NativeTaskExecutorTraceContextTest {
     void activeSpanPropagatesBothTraceIdAndSpanId() {
         Span span = tracer.spanBuilder("native-task-create").startSpan();
         try (Scope ignored = span.makeCurrent()) {
-            String traceId = NativeTraceExporter.currentTraceId();
-            String spanId = NativeTraceExporter.currentSpanId();
+            String traceId = CurrentSpanIds.currentTraceId();
+            String spanId = CurrentSpanIds.currentSpanId();
 
             assertThat(traceId)
                     .as("traceId must be valid (non-zero) when span is active")
@@ -93,7 +93,7 @@ class NativeTaskExecutorTraceContextTest {
         // Verify it matches the current span's ID (not some other value).
         Span parentSpan = tracer.spanBuilder("task-dispatch").startSpan();
         try (Scope ignored = parentSpan.makeCurrent()) {
-            String exportedSpanId = NativeTraceExporter.currentSpanId();
+            String exportedSpanId = CurrentSpanIds.currentSpanId();
             String actualSpanId = parentSpan.getSpanContext().getSpanId();
 
             assertThat(exportedSpanId)
@@ -109,8 +109,8 @@ class NativeTaskExecutorTraceContextTest {
     void noActiveSpanReturnsSentinelValues() {
         // When no span is active, both must return well-formed sentinels (all zeros).
         // Native side should treat these as "no parent context" rather than crash.
-        String traceId = NativeTraceExporter.currentTraceId();
-        String spanId = NativeTraceExporter.currentSpanId();
+        String traceId = CurrentSpanIds.currentTraceId();
+        String spanId = CurrentSpanIds.currentSpanId();
 
         assertThat(traceId).isEqualTo(INVALID_TRACE_ID);
         assertThat(spanId).isEqualTo(INVALID_SPAN_ID);

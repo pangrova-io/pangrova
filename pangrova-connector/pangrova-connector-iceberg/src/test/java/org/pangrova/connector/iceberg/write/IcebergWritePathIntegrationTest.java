@@ -7,22 +7,22 @@ import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
@@ -58,15 +58,20 @@ class IcebergWritePathIntegrationTest {
     private static final String CATALOG_NAME = "write_path_catalog";
     private static final String NAMESPACE = "write_db";
 
-    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
+    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.empty();
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final Constraint NO_CONSTRAINT = Constraint.EMPTY;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "write-path-test"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> TEST_COLUMNS = List.of(
@@ -159,12 +164,12 @@ class IcebergWritePathIntegrationTest {
     }
 
     private void writeRows(ConnectorOutputTableHandle outputHandle, List<TypedRow> rows) {
-        ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle);
-        Page page = new Page(List.of("id", "name", "amount"), rows);
-        sink.appendPage(page);
-        byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
-        sink.close();
+        try (ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle)) {
+            Page page = new Page(List.of("id", "name", "amount"), rows);
+            sink.appendPage(page);
+            byte[] commitMetadata = sink.finishWithMetadata();
+            metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        }
     }
 
     private List<TypedRow> buildRows(int startInclusive, int endExclusive) {

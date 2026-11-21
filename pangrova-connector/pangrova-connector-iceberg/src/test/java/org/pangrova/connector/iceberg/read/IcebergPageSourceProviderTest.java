@@ -1,23 +1,28 @@
 package org.pangrova.connector.iceberg.read;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.HadoopTestGuard;
 import org.pangrova.connector.iceberg.IcebergPageSourceProvider;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
+import org.pangrova.connector.iceberg.handle.IcebergDeleteFile;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.batch.api.enums.BatchFormat;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -44,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration test for IcebergPageSourceProvider using real Parquet files.
@@ -60,6 +66,11 @@ class IcebergPageSourceProviderTest {
     private static final ConnectorTransactionHandle TX = new ConnectorTransactionHandle() {};
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
@@ -175,12 +186,12 @@ class IcebergPageSourceProviderTest {
         assertThat(firstPage.serializedBatch()).isNotEmpty();
         assertThat(firstPage.serializedBatch().length).isGreaterThan(0);
 
-        Page deserialized = NativePageConverter.toPage(firstPage);
+        Page deserialized = ConnectorBinaryPageCodec.toPage(firstPage);
         assertThat(deserialized.getPositionCount()).isGreaterThan(0);
         assertThat(deserialized.columns()).containsExactly("id", "name", "amount");
 
         List<TypedRow> allRows = nativePages.stream()
-                .map(NativePageConverter::toPage)
+                .map(ConnectorBinaryPageCodec::toPage)
                 .flatMap(p -> p.rows().stream())
                 .toList();
         assertThat(allRows).hasSize(3);
@@ -189,6 +200,54 @@ class IcebergPageSourceProviderTest {
         assertThat(allRows.get(0).getRaw("amount")).isEqualTo(0.0);
         assertThat(allRows.get(1).getRaw("id")).isEqualTo(1L);
         assertThat(allRows.get(2).getRaw("id")).isEqualTo(2L);
+    }
+
+    @Test
+    void equalityDeleteFailsClosedInsteadOfReturningDeletedRows() throws IOException {
+        Table table = createTableWithData("db", "equality_delete", 3);
+        FileScanTask dataTask = table.newScan().planFiles().iterator().next();
+
+        Schema deleteSchema = new Schema(table.schema().findField("id"));
+        GenericRecord deletedRow = GenericRecord.create(deleteSchema);
+        deletedRow.setField("id", 1L);
+        DeleteFile equalityDelete = IcebergDeleteWriter.buildEqualityDeleteFile(
+                table,
+                new int[] {table.schema().findField("id").fieldId()},
+                deleteSchema,
+                List.of(deletedRow));
+        table.newRowDelta().addDeletes(equalityDelete).commit();
+        table.refresh();
+
+        DeleteFile committedDelete = table.newScan().planFiles().iterator().next()
+                .deletes().get(0);
+        IcebergDeleteFile descriptor = new IcebergDeleteFile(
+                committedDelete.path().toString(),
+                "EQUALITY",
+                List.of("id"),
+                committedDelete.recordCount(),
+                committedDelete.dataSequenceNumber());
+        IcebergSplit split = IcebergSplit.builder(
+                        dataTask.file().path().toString(),
+                        dataTask.start(),
+                        dataTask.length(),
+                        "PARQUET")
+                .tableName("db.equality_delete")
+                .snapshotId(table.currentSnapshot().snapshotId())
+                .deleteFiles(List.of(descriptor))
+                .build();
+        IcebergTableHandle handle =
+                IcebergTableHandleFactory.fromTable("db", "equality_delete", table);
+
+        assertThatThrownBy(() -> provider.createPageSource(
+                TX, SESSION, split, handle, allColumnHandles(), NO_FILTER))
+                .isInstanceOfSatisfying(ConnectorException.class, error -> {
+                    assertThat(error.getErrorCode())
+                            .isEqualTo(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION);
+                    assertThat(error.getMessage())
+                            .contains("equality deletes")
+                            .contains("db.equality_delete")
+                            .contains(descriptor.filePath());
+                });
     }
 
     // -- helpers --

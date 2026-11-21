@@ -1,26 +1,23 @@
 package org.pangrova.connector.iceberg;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.types.Types;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,30 +25,17 @@ import java.util.Optional;
 
 /**
  * Catalog-side table resolution and listing for the Iceberg connector:
- * caches recently loaded tables, resolves live (refreshed) tables from
+ * resolves tables from the catalog, resolves live (refreshed) tables from
  * handles, and lists schemas/tables via the Iceberg catalog API.
  */
 final class IcebergCatalogTables {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergCatalogTables.class);
 
-    private static final Duration TABLE_CACHE_TTL = Duration.ofSeconds(5);
-    private static final int TABLE_CACHE_MAX_SIZE = 100;
-
     private final Catalog catalog;
-
-    /**
-     * Short-lived table metadata cache to avoid redundant catalog round-trips
-     * during a single query planning cycle (F-CONNECTOR-09).
-     */
-    private final Cache<TableIdentifier, Table> tableCache;
 
     IcebergCatalogTables(Catalog catalog) {
         this.catalog = catalog;
-        this.tableCache = Caffeine.newBuilder()
-                .expireAfterWrite(TABLE_CACHE_TTL)
-                .maximumSize(TABLE_CACHE_MAX_SIZE)
-                .build();
     }
 
     /**
@@ -64,12 +48,7 @@ final class IcebergCatalogTables {
     Table resolveTable(IcebergTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
         Table table = catalog.loadTable(id);
-        try {
-            table.refresh();
-        } catch (RuntimeException e) {
-            LOG.warn("event=table_refresh_failed table={}.{} error={}",
-                    handle.schemaName(), handle.tableName(), e.getMessage());
-        }
+        table.refresh();
         return table;
     }
 
@@ -77,7 +56,9 @@ final class IcebergCatalogTables {
     ConnectorTableHandle getTableHandle(SchemaTableName tableName) {
         TableIdentifier id = TableIdentifier.of(tableName.schema(), tableName.table());
         try {
-            Table table = tableCache.get(id, k -> catalog.loadTable(k));
+            // A process-wide TTL cannot fence DROP/CREATE by another catalog owner.
+            // Resolve existence and immutable handle metadata from the current catalog state.
+            Table table = catalog.loadTable(id);
             return IcebergTableHandleFactory.fromTable(tableName.schema(), tableName.table(), table);
         } catch (org.apache.iceberg.exceptions.NoSuchTableException e) {
             LOG.debug("Table not found: {}", tableName);
@@ -87,23 +68,38 @@ final class IcebergCatalogTables {
 
     /** Builds the connector table metadata for the given handle. */
     ConnectorTableMetadata getTableMetadata(IcebergTableHandle handle) {
-        Table icebergTable = resolveTable(handle);
+        return getTableReadMetadata(handle).requireExactDeclaration();
+    }
+
+    ConnectorTableReadMetadata getTableReadMetadata(IcebergTableHandle handle) {
+        return getTableReadMetadata(handle, resolveTable(handle));
+    }
+
+    ConnectorTableReadMetadata getTableReadMetadata(IcebergTableHandle handle, Table icebergTable) {
+        var evidence = IcebergReadSchema.resolve(handle, icebergTable);
+        return readDeclaration(handle, evidence);
+    }
+
+    static ConnectorTableReadMetadata readDeclaration(IcebergTableHandle handle, IcebergReadSchema evidence) {
+        var properties = evidence.declarationProperties().orElse(Map.of());
         var typedColumns = IcebergTypeMapper.toPangrovaColumns(
-                icebergTable.schema(), icebergTable.properties());
+                evidence.schema(), properties);
         List<String> columnNames = typedColumns.stream()
                 .map(ConnectorTableMetadata.Column::name)
                 .toList();
         SchemaTableName name = new SchemaTableName(handle.schemaName(), handle.tableName());
-        return new ConnectorTableMetadata(name, columnNames, typedColumns, Map.of());
+        return new ConnectorTableReadMetadata(new ConnectorTableMetadata(name, columnNames, typedColumns, properties),
+                evidence.declarationProperties().isPresent() ? TableDeclarationEvidence.EXACT
+                        : TableDeclarationEvidence.UNAVAILABLE);
     }
 
     /** Builds column handles from the table schema for the given handle. */
     Map<String, ColumnHandle> getColumnHandles(IcebergTableHandle handle) {
-        Table icebergTable = resolveTable(handle);
+        var metadata = getTableMetadata(handle);
         Map<String, ColumnHandle> handles = new LinkedHashMap<>();
-        for (Types.NestedField field : icebergTable.schema().columns()) {
-            PangrovaType pangrovaType = IcebergTypeMapper.toPangrovaType(field.type());
-            handles.put(field.name(), new IcebergColumnHandle(field.fieldId(), field.name(), pangrovaType));
+        for (var field : metadata.typedColumns()) {
+            handles.put(field.name(), new IcebergColumnHandle(
+                    field.fieldId().orElseThrow(), field.name(), field.type()));
         }
         return handles;
     }

@@ -5,15 +5,16 @@ description: "INVERTED index for token-based full-text search with BM25 scoring"
 
 # Full-Text (INVERTED) Index
 
-An inverted index maps tokens to the rows containing them. The `MATCH()` function
-evaluates full-text predicates against the index and returns a BM25 relevance score.
+An inverted index maps tokens to the rows containing them. `MATCH(column, 'query')`
+is a boolean predicate; `BM25_SCORE(column, 'query')` returns the DOUBLE relevance
+score.
 
 ## When to Use
 
 - Keyword search over text columns (descriptions, messages, documents)
 - Relevance-ranked retrieval, including hybrid retrieval with
   [Vector Search](../sql-reference/functions/vector-search.md)
-- CJK text with the `cjk` analyzer
+- Text compatible with the bundled `standard-v1` analyzer; a dedicated CJK analyzer is not available
 
 ## Syntax
 
@@ -21,23 +22,22 @@ evaluates full-text predicates against the index and returns a BM25 relevance sc
 CREATE INDEX idx_products_desc
 ON prod.analytics.products (description)
 USING INVERTED
-WITH (
-  'inverted.analyzer' = 'standard',
-  'inverted.store_positions' = 'false'
-);
+WITH ('analyzer' = 'standard-v1');
 ```
 
 ## Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `inverted.analyzer` | `standard` | Tokenizer: `standard` or `cjk` |
-| `inverted.store_positions` | `false` | Store token positions in posting lists |
+| `analyzer` | `standard-v1` | Only `standard-v1` is accepted by the current build |
+
+`inverted.analyzer` and `inverted.store_positions` are not wired; use the bare
+`analyzer` property. Position storage is not implemented.
 
 ## Query Behavior — MATCH()
 
-`MATCH(column, 'query')` returns a `DOUBLE` BM25 score (not a boolean). In `WHERE`
-it acts as a filter — a positive score means the document matches; in `SELECT` it
+`MATCH(column, 'query')` returns BOOLEAN and acts as a filter. Use
+`BM25_SCORE(column, 'query')` when a DOUBLE score is needed; in `SELECT` it
 exposes the relevance score for ordering.
 
 ```sql
@@ -47,7 +47,7 @@ FROM prod.analytics.products
 WHERE MATCH(description, 'wireless noise cancelling');
 
 -- Relevance ranking
-SELECT product_id, name, MATCH(description, 'wireless headphones') AS score
+SELECT product_id, name, BM25_SCORE(description, 'wireless headphones') AS score
 FROM prod.analytics.products
 WHERE MATCH(description, 'wireless headphones')
 ORDER BY score DESC

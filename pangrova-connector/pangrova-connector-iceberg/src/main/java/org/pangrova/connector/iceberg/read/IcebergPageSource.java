@@ -14,15 +14,15 @@
 package org.pangrova.connector.iceberg.read;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.PageOutputFormat;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.connector.api.enums.PageOutputFormat;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
@@ -34,7 +34,7 @@ import java.util.List;
  * Wraps Iceberg's CloseableIterable&lt;Record&gt; from the generic reader API.
  *
  * <p>Preferred output is columnar {@link NativePage} via {@link #getNextNativePage()}.
- * Arrow-free serialization uses {@link NativePageConverter} (CUSTOM_BINARY format)
+ * Arrow-free serialization uses {@link ConnectorBinaryPageCodec} (CUSTOM_BINARY format)
  * so this connector has no Arrow dependency.</p>
  *
  * <p>The row-based {@link #getNextPage()} is retained for coordinator-local
@@ -91,7 +91,7 @@ public class IcebergPageSource implements ConnectorPageSource {
         List<String> columnNames = projectedColumns.stream()
                 .map(IcebergColumnHandle::name)
                 .toList();
-        return NativePageConverter.fromPage(new Page(columnNames, rows));
+        return ConnectorBinaryPageCodec.fromPage(new Page(columnNames, rows));
     }
 
     @Override

@@ -3,9 +3,8 @@ package org.pangrova.planner.rule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -24,7 +23,7 @@ import java.util.Set;
  *     ↓
  * Filter evaluation (WHERE predicates on non-FILE columns)
  *     ↓ (only qualifying rows reach here)
- * FILE function evaluation (JNI callback → BlobContentReader → AI API)
+ * FILE function evaluation (JNI callback → governed blob store → AI API)
  *     ↓
  * Result (VARCHAR/VECTOR) returned
  * </pre>
@@ -40,18 +39,9 @@ public final class LateMaterializationRule {
     private static final Logger LOG = LoggerFactory.getLogger(LateMaterializationRule.class);
 
     /** Known FILE-consuming function names that trigger blob content reads. */
-    private static final Set<String> FILE_CONSUMING_FUNCTIONS;
-
-    static {
-        Set<String> fns = new HashSet<>();
-        fns.add("ai_describe_image");
-        fns.add("ai_parse_document");
-        fns.add("ai_transcribe");
-        fns.add("ai_ocr");
-        fns.add("ai_complete");  // multimodal overload
-        fns.add("ai_embed");     // blob embedding overload
-        FILE_CONSUMING_FUNCTIONS = Collections.unmodifiableSet(fns);
-    }
+    private static final Set<String> FILE_CONSUMING_FUNCTIONS = Set.of(
+            "ai_describe_image", "ai_parse_document", "ai_transcribe",
+            "ai_ocr", "ai_complete", "ai_embed");
 
     /**
      * Determines whether a function invocation is a FILE-consuming function
@@ -64,7 +54,7 @@ public final class LateMaterializationRule {
         if (functionName == null) {
             return false;
         }
-        return FILE_CONSUMING_FUNCTIONS.contains(functionName.toLowerCase());
+        return FILE_CONSUMING_FUNCTIONS.contains(functionName.toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -73,7 +63,7 @@ public final class LateMaterializationRule {
      * @return unmodifiable set of function names
      */
     public static Set<String> fileConsumingFunctions() {
-        return FILE_CONSUMING_FUNCTIONS;
+        return Set.copyOf(FILE_CONSUMING_FUNCTIONS);
     }
 
     /**
@@ -106,7 +96,7 @@ public final class LateMaterializationRule {
                 LOG.debug("event=late_materialization_candidate index={} function={}", i, fnName);
             }
         }
-        return Collections.unmodifiableList(deferred);
+        return List.copyOf(deferred);
     }
 
     /**

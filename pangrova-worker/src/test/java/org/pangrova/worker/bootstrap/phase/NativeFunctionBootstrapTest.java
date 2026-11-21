@@ -1,15 +1,16 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.function.AggregateFunction;
-import org.pangrova.spi.function.FunctionFactory;
-import org.pangrova.spi.function.FunctionMetadata;
-import org.pangrova.spi.function.ScalarFunction;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.jni.NativeFunctionBridge;
-import org.pangrova.worker.jni.NativeFunctionConfig;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.function.api.aggregate.AggregateFunction;
+import org.pangrova.function.api.registry.FunctionFactory;
+import org.pangrova.function.api.metadata.FunctionMetadata;
+import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.function.NativeFunctionCallbacks;
+import org.pangrova.worker.function.NativeFunctionConfig;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,9 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Unit tests for {@link NativeFunctionBootstrap}.
  *
- * <p>Since ServiceLoader discovery depends on classpath META-INF/services,
- * these tests verify the bootstrap logic by checking configuration-driven
- * behavior (disabled config skips registration) and the component ref wiring.</p>
+ * <p>Function providers are installed by separate artifacts through
+ * {@code META-INF/services}, so the Worker-owned tests exercise the
+ * configuration and lifecycle contract with explicit factories. The AI
+ * provider's own catalog is covered in its owning module.</p>
  */
 class NativeFunctionBootstrapTest {
 
@@ -30,27 +32,40 @@ class NativeFunctionBootstrapTest {
         NativeFunctionBootstrap.initialize(refs, NativeFunctionConfig.DISABLED);
 
         // When auto-register is disabled, no bridge should be created
-        assertThat(refs.nativeFunctionBridge()).isNull();
+        assertThat(refs.nativeFunctionCallbacks()).isNull();
     }
 
     @Test
-    void enabledConfigCreatesBridge() {
+    void defaultConfigStartsWithoutAnyInstalledFunctionProvider() {
         WorkerComponentRefs refs = new WorkerComponentRefs();
+
         NativeFunctionBootstrap.initialize(refs, NativeFunctionConfig.DEFAULT);
 
-        NativeFunctionBridge bridge = refs.nativeFunctionBridge();
+        assertThat(refs.nativeFunctionCallbacks()).isNotNull();
+        assertThat(refs.nativeFunctionCallbacks().scalarCount()).isZero();
+        NativeFunctionBootstrap.close(refs);
+    }
+
+    @Test
+    void configuredFactoryRegistersFunctionsAndReleasesOwnership() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        FunctionFactory factory = new SingleFunctionFactory(closed);
+
+        NativeFunctionBootstrap.initialize(
+                refs, NativeFunctionConfig.DEFAULT, List.of(factory));
+
+        NativeFunctionCallbacks bridge = refs.nativeFunctionCallbacks();
         assertThat(bridge).isNotNull();
-        // AiFunctionFactory is on the classpath via ServiceLoader => 15 AI scalar functions
-        assertThat(bridge.scalarCount()).isEqualTo(15);
+        assertThat(bridge.scalarCount()).isEqualTo(1);
         assertThat(bridge.aggregateCount()).isZero();
-    }
+        assertThat(bridge.buildDescriptors()).hasSize(1);
+        assertThat(refs.nativeFunctionResources()).isNotEmpty();
 
-    @Test
-    void bridgeDescriptorsMatchRegisteredFunctions() {
-        WorkerComponentRefs refs = new WorkerComponentRefs();
-        NativeFunctionBootstrap.initialize(refs, NativeFunctionConfig.DEFAULT);
-
-        assertThat(refs.nativeFunctionBridge().buildDescriptors()).hasSize(15);
+        NativeFunctionBootstrap.close(refs);
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionCallbacks()).isNull();
+        assertThat(closed).containsExactly("single");
     }
 
     @Test
@@ -63,6 +78,72 @@ class NativeFunctionBootstrapTest {
         assertThat(config.configForPlugin("test_plugin"))
                 .containsEntry("key1", "value1");
         assertThat(config.configForPlugin("unknown_plugin")).isEmpty();
+    }
+
+    @Test
+    void factoryFailureClosesEveryCreatedFactoryInReverseOrder() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        FunctionFactory first = new CloseTrackingFactory("first", closed, false);
+        FunctionFactory failing = new CloseTrackingFactory("failing", closed, true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                NativeFunctionBootstrap.initialize(
+                        refs, NativeFunctionConfig.DEFAULT, List.of(first, failing)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("factory failed: failing");
+
+        assertThat(closed).containsExactly("failing", "first");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+    }
+
+    @Test
+    void registrationFailureClosesFactory() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        FunctionFactory duplicateFunctions = new DuplicateFunctionFactory(closed);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                NativeFunctionBootstrap.initialize(
+                        refs, NativeFunctionConfig.DEFAULT, List.of(duplicateFunctions)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to register scalar function");
+
+        assertThat(closed).containsExactly("duplicate");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+    }
+
+    @Test
+    void duplicateFactoryIdsFailEvenWhenTheyProvideNoFunctions() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        var first = new CloseTrackingFactory("same-id", closed, false);
+        var second = new CloseTrackingFactory("same-id", closed, false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> NativeFunctionBootstrap.initialize(
+                refs, NativeFunctionConfig.DEFAULT, List.of(first, second)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Duplicate function factory ID: same-id");
+
+        assertThat(closed).containsExactly("same-id", "same-id");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionCallbacks()).isNull();
+    }
+
+    @Test
+    void blankFactoryIdFailsAndReleasesItsResources() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        var factory = new CloseTrackingFactory(" ", closed, false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> NativeFunctionBootstrap.initialize(
+                refs, NativeFunctionConfig.DEFAULT, List.of(factory)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Function factory ID must not be blank");
+
+        assertThat(closed).containsExactly(" ");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionCallbacks()).isNull();
     }
 
     /**
@@ -119,7 +200,7 @@ class NativeFunctionBootstrapTest {
         };
 
         // Register manually into a bridge to verify factory output works
-        NativeFunctionBridge bridge = new NativeFunctionBridge();
+        NativeFunctionCallbacks bridge = new NativeFunctionCallbacks();
         for (ScalarFunction fn : factory.getScalarFunctions(Map.of())) {
             bridge.registerScalar(fn);
         }
@@ -141,5 +222,136 @@ class NativeFunctionBootstrapTest {
         bridge.addInput("test_agg", acc, new Object[]{2});
         Object aggResult = bridge.getAggregateResult("test_agg", acc);
         assertThat(aggResult).isEqualTo(2L);
+    }
+
+    @Test
+    void ambiguousInstalledCallbackProjectorsRejectStartupBeforeConstruction(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var projectorType = org.pangrova.function.api.runtime.FunctionFailureProjector.class;
+        var descriptor = directory.resolve("META-INF/services/" + projectorType.getName());
+        java.nio.file.Files.createDirectories(descriptor.getParent());
+        java.nio.file.Files.writeString(descriptor, FirstProjector.class.getName() + "\n" + SecondProjector.class.getName());
+        try (var loader = new java.net.URLClassLoader(new java.net.URL[]{directory.toUri().toURL()},
+                getClass().getClassLoader())) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                    NativeFunctionBootstrap.bindCallbacks(new NativeFunctionCallbacks(), loader))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining(FirstProjector.class.getName()).hasMessageContaining(SecondProjector.class.getName());
+        }
+    }
+
+    public static class FirstProjector implements org.pangrova.function.api.runtime.FunctionFailureProjector {
+        public FirstProjector() { throw new AssertionError("Ambiguous provider was constructed"); }
+        public byte[] describeFailure(Throwable failure) { return null; }
+    }
+
+    public static final class SecondProjector extends FirstProjector {}
+
+    private static final class SingleFunctionFactory
+            implements FunctionFactory, AutoCloseable {
+        private final List<String> closed;
+
+        private SingleFunctionFactory(List<String> closed) {
+            this.closed = closed;
+        }
+
+        @Override
+        public String getName() {
+            return "single";
+        }
+
+        @Override
+        public List<ScalarFunction> getScalarFunctions(Map<String, String> config) {
+            return List.of(scalarFunction("single_name"));
+        }
+
+        @Override
+        public List<AggregateFunction> getAggregateFunctions(Map<String, String> config) {
+            return List.of();
+        }
+
+        @Override
+        public void close() {
+            closed.add("single");
+        }
+    }
+
+    private static final class CloseTrackingFactory
+            implements FunctionFactory, AutoCloseable {
+        private final String name;
+        private final List<String> closed;
+        private final boolean fail;
+
+        private CloseTrackingFactory(String name, List<String> closed, boolean fail) {
+            this.name = name;
+            this.closed = closed;
+            this.fail = fail;
+        }
+
+        @Override
+        public String getName() {
+            if (fail) {
+                throw new IllegalStateException("factory failed: " + name);
+            }
+            return name;
+        }
+
+        @Override
+        public List<ScalarFunction> getScalarFunctions(Map<String, String> config) {
+            return List.of();
+        }
+
+        @Override
+        public List<AggregateFunction> getAggregateFunctions(Map<String, String> config) {
+            return List.of();
+        }
+
+        @Override
+        public void close() {
+            closed.add(name);
+        }
+    }
+
+    private static final class DuplicateFunctionFactory
+            implements FunctionFactory, AutoCloseable {
+        private final List<String> closed;
+
+        private DuplicateFunctionFactory(List<String> closed) {
+            this.closed = closed;
+        }
+
+        @Override
+        public String getName() {
+            return "duplicate";
+        }
+
+        @Override
+        public List<ScalarFunction> getScalarFunctions(Map<String, String> config) {
+            ScalarFunction function = scalarFunction("duplicate_name");
+            return List.of(function, function);
+        }
+
+        @Override
+        public List<AggregateFunction> getAggregateFunctions(Map<String, String> config) {
+            return List.of();
+        }
+
+        @Override
+        public void close() {
+            closed.add("duplicate");
+        }
+    }
+
+    private static ScalarFunction scalarFunction(String name) {
+        return new ScalarFunction() {
+            @Override
+            public FunctionMetadata getMetadata() {
+                return new FunctionMetadata(name, "VARCHAR", List.of());
+            }
+
+            @Override
+            public ColumnValue invoke(List<ColumnValue> arguments) {
+                return new ColumnValue.StringValue("value");
+            }
+        };
     }
 }

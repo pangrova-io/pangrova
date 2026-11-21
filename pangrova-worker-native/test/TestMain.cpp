@@ -9,9 +9,17 @@
 
 #include <gtest/gtest.h>
 #include <folly/init/Init.h>
+#include <google/protobuf/stubs/common.h>
+
+#include "jni/RuntimeInitializer.h"
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   folly::Init init{&argc, &argv, false};
-  return RUN_ALL_TESTS();
+  const int result = RUN_ALL_TESTS();
+  // Release Velox tasks and executors before process-global registries are
+  // destroyed. CTest starts one process per case, so teardown order matters.
+  pangrova::jni::shutdownVeloxRuntime();
+  google::protobuf::ShutdownProtobufLibrary();
+  return result;
 }

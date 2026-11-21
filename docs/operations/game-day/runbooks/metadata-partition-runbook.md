@@ -5,7 +5,9 @@ description: "Diagnose and recover from metadata-store network partitions"
 
 # Runbook: Metadata Store Partition
 
-**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata store (pangrova_meta / pangrova_ha), causing DDL failures, metadata cache fallback, or circuit breaker trips.
+**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata
+authority (`pangrova_meta`), causing authorization, admission, metadata, or DDL
+failures. Cached metadata does not replace live authorization or durable state.
 
 | Field | Value |
 |-------|-------|
@@ -18,27 +20,7 @@ description: "Diagnose and recover from metadata-store network partitions"
 
 ## Decision Tree
 
-```
-Metadata store unreachable?
-  │
-  ├─► Can coordinator reach PostgreSQL port at all?
-  │     │
-  │     ├─► NO (timeout) ──► Network partition or firewall → Step 3A
-  │     │
-  │     └─► YES (port open) but queries fail ──► Database-level issue → Step 3B
-  │
-  ├─► Is the metadata store process running?
-  │     │
-  │     ├─► YES ──► Network/firewall issue between coordinator and DB → Step 3A
-  │     │
-  │     └─► NO  ──► Database process crashed → Step 3B
-  │
-  └─► Is the partition limited to one coordinator or all?
-        │
-        ├─► ONE coordinator ──► Likely local network/firewall issue on that coordinator
-        │
-        └─► ALL coordinators ──► Database-side issue or upstream network event
-```
+![Metadata store unreachable?](../../../../website/static/img/diagrams/generated/metadata-partition-runbook-01-fabc3f4253.svg)
 
 ---
 
@@ -59,7 +41,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} recent metadata errors ==="
   ssh "${coord}" "
     grep -E 'metadata.*timeout|connection.*refused|HikariPool|JDBC.*error|circuit.*open' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -10
+      /var/log/pangrova/coordinator.log | tail -10
   "
 done
 
@@ -145,10 +127,9 @@ ssh "${PANGROVA_DB_HOST:-metadata-store}" "
   pg_isready -h localhost -p 5432 -U pangrova && echo 'PostgreSQL: UP'
 "
 
-# Verify pangrova_meta and pangrova_ha databases are accessible
+# Verify the pangrova_meta database is accessible
 ssh "${PANGROVA_DB_HOST:-metadata-store}" "
   psql -U pangrova -d pangrova_meta -c 'SELECT 1;' && echo 'pangrova_meta: OK'
-  psql -U pangrova -d pangrova_ha   -c 'SELECT 1;' && echo 'pangrova_ha: OK'
 "
 ```
 
@@ -214,7 +195,7 @@ curl -s \
 # Check if any DDL operations that were queued during the partition need to be re-run
 ssh coordinator-1 "
   grep -E 'DDL.*failed|CREATE.*failed|DROP.*failed|ALTER.*failed' \
-    /var/log/pangrova/pangrova-coordinator.log | tail -20
+    /var/log/pangrova/coordinator.log | tail -20
 "
 
 # There is no metadata consistency-check endpoint. Compare a spot-checked table

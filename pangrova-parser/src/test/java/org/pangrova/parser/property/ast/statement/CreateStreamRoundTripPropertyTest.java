@@ -6,11 +6,11 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
+import org.pangrova.parser.format.AstPrinter;
+import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CreateStreamRoundTripPropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private final AstPrinter printer = new AstPrinter();
 
     /**
@@ -47,6 +47,7 @@ class CreateStreamRoundTripPropertyTest {
         CreateStreamStatement result = (CreateStreamStatement) parsed;
         assertThat(result.name()).as("stream name").isEqualTo(original.name());
         assertThat(result.ifNotExists()).as("ifNotExists").isEqualTo(original.ifNotExists());
+        assertThat(result.sourceProvider()).isEqualTo(original.sourceProvider());
         assertThat(result.sourceProperties()).as("sourceProperties").isEqualTo(original.sourceProperties());
         assertThat(result.sourceFormat()).as("sourceFormat").isEqualTo(original.sourceFormat());
         assertThat(result.targetTable()).as("targetTable").isEqualTo(original.targetTable());
@@ -58,6 +59,7 @@ class CreateStreamRoundTripPropertyTest {
         return Combinators.combine(
                 identifiers(),
                 Arbitraries.of(true, false),
+                Arbitraries.of("kafka", "audit_feed"),
                 sourcePropertyMaps(),
                 sourceFormats(),
                 qualifiedIdentifiers(),

@@ -18,10 +18,8 @@ endif()
 # Auto-detect from Arrow's install prefix if ARROW_FLIGHT_HOME not explicitly set.
 # Arrow and Arrow Flight are typically co-installed in the same prefix.
 if(NOT ARROW_FLIGHT_HOME)
-  # Auto-detect from Arrow's install prefix — check for headers OR library.
-  # Headers are sufficient for compilation; the strip script removes Flight .o
-  # files so the library is not needed at link time.
-  get_target_property(_arrow_loc Arrow::arrow_shared IMPORTED_LOCATION)
+  # Locate the co-installed package; headers alone are not an execution runtime.
+  get_target_property(_arrow_loc ${PANGROVA_ARROW_TARGET} IMPORTED_LOCATION)
   if(_arrow_loc)
     get_filename_component(_arrow_lib_dir "${_arrow_loc}" DIRECTORY)
     get_filename_component(_arrow_prefix "${_arrow_lib_dir}" DIRECTORY)
@@ -39,9 +37,7 @@ if(NOT ARROW_FLIGHT_HOME)
 endif()
 
 if(NOT ARROW_FLIGHT_HOME)
-  set(ARROW_FLIGHT_FOUND FALSE)
-  message(STATUS "Arrow Flight: ARROW_FLIGHT_HOME not set — FlightShuffleServer disabled")
-  return()
+  message(FATAL_ERROR "Canonical Native execution requires the Arrow Flight package")
 endif()
 
 find_library(ARROW_FLIGHT_LIB
@@ -51,8 +47,23 @@ find_library(ARROW_FLIGHT_LIB
 )
 
 if(ARROW_FLIGHT_LIB)
+  # find_library retains an earlier cached library when the package prefix
+  # changes. Never admit a Release library under a new sanitizer package.
+  if(NOT EXISTS "${ARROW_FLIGHT_LIB}")
+    message(FATAL_ERROR "Selected Arrow Flight library does not exist: ${ARROW_FLIGHT_LIB}")
+  endif()
+  file(REAL_PATH "${ARROW_FLIGHT_HOME}/lib" _FLIGHT_PACKAGE_LIB_DIR)
+  file(REAL_PATH "${ARROW_FLIGHT_LIB}" _FLIGHT_LIBRARY_REAL)
+  get_filename_component(_FLIGHT_LIBRARY_DIR "${_FLIGHT_LIBRARY_REAL}" DIRECTORY)
+  if(NOT _FLIGHT_LIBRARY_DIR STREQUAL _FLIGHT_PACKAGE_LIB_DIR)
+    message(FATAL_ERROR
+      "Flight library differs from the selected package; clear ARROW_FLIGHT_LIB and reconfigure: ${ARROW_FLIGHT_LIB}")
+  endif()
   # Detect static vs shared library
   string(REGEX MATCH "\\.(a|lib)$" _IS_STATIC "${ARROW_FLIGHT_LIB}")
+  if(PANGROVA_PRODUCTION_BUILD AND NOT _IS_STATIC)
+    message(FATAL_ERROR "Linux production cannot link shared Arrow Flight: ${ARROW_FLIGHT_LIB}")
+  endif()
   if(_IS_STATIC)
     add_library(arrow_flight_imported STATIC IMPORTED)
   else()
@@ -66,41 +77,16 @@ if(ARROW_FLIGHT_LIB)
       INTERFACE_INCLUDE_DIRECTORIES "${ARROW_FLIGHT_HOME}/include"
     )
   endif()
-  # Static Arrow Flight requires its gRPC dependency to be linked explicitly.
-  # When OTEL is ON, gRPC comes via OpenTelemetry's gRPC::grpc++ target.
-  # When OTEL is OFF (sanitizer builds), we must find gRPC ourselves.
-  if(_IS_STATIC)
-    find_package(gRPC QUIET CONFIG)
-    if(gRPC_FOUND)
-      set_target_properties(arrow_flight_imported PROPERTIES
-        INTERFACE_LINK_LIBRARIES "gRPC::grpc++;gRPC::grpc"
-      )
-      message(STATUS "Arrow Flight: linked gRPC via find_package (static dep)")
-    else()
-      # Fallback: link gRPC static libs directly from hermetic deps
-      get_filename_component(_flight_lib_dir "${ARROW_FLIGHT_LIB}" DIRECTORY)
-      foreach(_grpc_lib libgrpc++.a libgrpc.a)
-        if(EXISTS "${_flight_lib_dir}/${_grpc_lib}")
-          set_property(TARGET arrow_flight_imported APPEND PROPERTY
-            INTERFACE_LINK_LIBRARIES "${_flight_lib_dir}/${_grpc_lib}")
-        endif()
-      endforeach()
-      message(STATUS "Arrow Flight: linked gRPC static libs directly (static dep)")
-    endif()
-  endif()
+  # The server builder hook calls gRPC directly even with shared Flight.
+  # Its link closure must not depend on enabling the telemetry exporter.
+  find_package(gRPC REQUIRED CONFIG
+    PATHS "${PANGROVA_DEPS_PREFIX}/lib/cmake/grpc" NO_DEFAULT_PATH)
+  set_target_properties(arrow_flight_imported PROPERTIES
+    INTERFACE_LINK_LIBRARIES "gRPC::grpc++;gRPC::grpc"
+  )
+  message(STATUS "Arrow Flight: linked canonical gRPC server API dependency")
   set(ARROW_FLIGHT_FOUND TRUE)
   message(STATUS "Arrow Flight found (full): ${ARROW_FLIGHT_LIB}")
-elseif(EXISTS "${ARROW_FLIGHT_HOME}/include/arrow/flight/types.h")
-  # Headers-only mode: Flight headers available for compilation but no library
-  # to link. The strip script (bin/strip-velox-optional-deps.sh) removes .o
-  # files that reference Flight symbols, so no link-time dependency is needed.
-  # This allows the codebase to compile cleanly without #ifdef guards everywhere.
-  add_library(arrow_flight_imported INTERFACE)
-  target_include_directories(arrow_flight_imported INTERFACE "${ARROW_FLIGHT_HOME}/include")
-  set(ARROW_FLIGHT_FOUND TRUE)
-  set(ARROW_FLIGHT_HEADERS_ONLY TRUE)
-  message(STATUS "Arrow Flight found (headers-only): ${ARROW_FLIGHT_HOME}/include")
 else()
-  set(ARROW_FLIGHT_FOUND FALSE)
-  message(WARNING "Arrow Flight NOT found at ${ARROW_FLIGHT_HOME} — FlightShuffleServer disabled")
+  message(FATAL_ERROR "Canonical Native execution requires the Arrow Flight library under ${ARROW_FLIGHT_HOME}")
 endif()

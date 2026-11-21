@@ -14,21 +14,64 @@
     <name>Pangrova Protocol</name>
     <description>Protobuf message definitions and REST API JSON schemas for Pangrova inter-process communication</description>
 
+    <properties>
+        <module.name>org.pangrova.protocol</module.name>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-function-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+
         <!-- Internal module dependencies (versions inherited from parent) -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
+
+        <!-- Synchronous columnar write batches shared by workers and connectors. -->
         <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-unsafe</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- Protobuf runtime -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
+        </dependency>
+
+        <!--
+          The v2 boundary schema references the pinned official Substrait
+          protobuf types directly. Keep this dependency aligned with the
+          vendored import-only IDL; do not generate a second copy of the
+          io.substrait.proto Java classes in this module.
+        -->
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
         </dependency>
 
         <!-- gRPC runtime (optional: modules needing gRPC declare their own dependency) -->
@@ -48,6 +91,9 @@
             <version>${tomcat-annotations-api.version}</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- Public client-owned wire values (error envelope, result endpoint, query DTOs).
+             client-core is framework-free: common + Jackson annotations only. -->
 
         <!-- Jackson for REST DTOs (optional: modules needing JSON declare their own dependency) -->
         <dependency>
@@ -81,9 +127,56 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-canonical-type-layout-naming</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>${pangrova.function-contract.python}</executable>
+                            <sourceRoot>${project.build.directory}/generated-sources/function-contracts</sourceRoot>
+                            <arguments>
+                                <argument>-B</argument>
+                                <argument>${project.basedir}/tools/function-contracts/generate_structural_contracts.py</argument>
+                                <argument>--declaration</argument>
+                                <argument>${project.basedir}/src/main/resources/function-contracts/sql-bindings.json</argument>
+                                <argument>--java-root</argument>
+                                <argument>${project.build.directory}/generated-sources/function-contracts</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>generate-function-execution-selection</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>${pangrova.function-contract.python}</executable>
+                            <sourceRoot>${project.build.directory}/generated-sources/function-contracts</sourceRoot>
+                            <arguments>
+                                <argument>-B</argument>
+                                <argument>${project.basedir}/tools/function-contracts/generate_execution_selection.py</argument>
+                                <argument>--declaration</argument>
+                                <argument>${project.basedir}/src/main/resources/function-contracts/execution-selection.json</argument>
+                                <argument>--java-root</argument>
+                                <argument>${project.build.directory}/generated-sources/function-contracts</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>io.github.ascopes</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
                 <configuration>
+                    <!-- Vendored Substrait IDL is canonical import-only input.
+                         Java classes come from io.substrait:core; compiling it
+                         here would create duplicate io.substrait.proto classes. -->
+                    <importPaths>
+                        <importPath>${project.basedir}/src/main/proto-imports</importPath>
+                    </importPaths>
                     <binaryMavenPlugins>
                         <binaryMavenPlugin>
                             <groupId>io.grpc</groupId>

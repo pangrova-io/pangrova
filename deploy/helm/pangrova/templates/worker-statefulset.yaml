@@ -19,6 +19,11 @@ spec:
         app: pangrova
         component: worker
     spec:
+      # Must exceed the task drain timeout plus deregistration and resource
+      # cleanup, or SIGKILL truncates a drain that is still finishing queries.
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      securityContext:
+        fsGroup: {{ .Values.worker.fsGroup }}
       containers:
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -38,8 +43,17 @@ spec:
               value: /opt/pangrova/logs
             - name: PANGROVA_JAVA_OPTS
               value: {{ .Values.worker.javaOpts | quote }}
-            - name: WORKER_COORDINATOR_URL
-              value: "http://pangrova-coordinator:8080"
+            - name: PANGROVA_COORDINATOR_URL
+              value: "http://pangrova-coordinator-bootstrap:8080"
+            - name: PANGROVA_ADVERTISED_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PANGROVA_INTERNAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalAuth.existingSecret | quote }}
+                  key: internal-auth-secret
           readinessProbe:
             httpGet:
               path: /v1/health
@@ -48,7 +62,7 @@ spec:
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -60,16 +74,20 @@ spec:
               subPath: worker.yml
             - name: logs
               mountPath: /opt/pangrova/logs
-            {{- if .Values.persistence.enabled }}
+            # Same mount either way; persistence.enabled only selects the volume
+            # source below (emptyDir vs volumeClaimTemplate).
             - name: data
               mountPath: /opt/pangrova/data
-            {{- end }}
       volumes:
         - name: config
           configMap:
             name: pangrova-config
         - name: logs
           emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

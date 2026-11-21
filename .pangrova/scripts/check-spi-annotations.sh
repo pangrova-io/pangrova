@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Enforces that all public top-level interfaces and abstract classes under
-# pangrova-spi/src/main/java/org/pangrova/spi are annotated with one of:
+# the manifest-declared API contract trees are annotated with one of:
 #   @Stable, @Experimental, or @Internal.
 #
 # This guards the SPI contract: any new interface added without an explicit
 # stability annotation will fail CI, forcing the author to declare intent.
 #
-# Annotation files themselves (org.pangrova.spi.annotation.*) are exempt.
+# Annotation declaration packages (annotation/, api/annotation/) are exempt.
 #
 # Pre-existing unannotated types are listed in
 # .pangrova/scripts/.spi-annotation-baseline.txt. CI fails when:
@@ -22,11 +22,29 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SPI_DIR="${ROOT_DIR}/pangrova-spi/src/main/java/org/pangrova/spi"
 BASELINE_FILE="${ROOT_DIR}/.pangrova/scripts/.spi-annotation-baseline.txt"
 
-if [[ ! -d "${SPI_DIR}" ]]; then
-    echo "ERROR: SPI directory not found: ${SPI_DIR}" >&2
+# Contract roots are every artifact declared in .pangrova/modules.yaml whose
+# artifactId ends in -api. Adding a contract artifact to the manifest
+# enrolls it in this gate automatically.
+CONTRACT_ROOTS=()
+while IFS= read -r artifact; do
+    dir=$(awk -v a="${artifact}" '
+        $0 == "  " a ":" { found = 1; next }
+        found && /^  [A-Za-z0-9_.-]+:/ { exit }
+        found && /^    path:/ { print $2; exit }
+    ' "${ROOT_DIR}/.pangrova/modules.yaml")
+    [[ -n "${dir}" && -d "${ROOT_DIR}/${dir}/src/main/java" ]] \
+        && CONTRACT_ROOTS+=("${ROOT_DIR}/${dir}/src/main/java")
+done < <(sed -n 's/^  \(pangrova-.*-api\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
+# Single-JAR domains publish contracts alongside implementation packages.
+for domain in batch file parser planner query semantic table; do
+    dir="${ROOT_DIR}/pangrova-${domain}/src/main/java/org/pangrova/${domain}/api"
+    [[ ! -d "${dir}" ]] || CONTRACT_ROOTS+=("${dir}")
+done
+
+if [[ ${#CONTRACT_ROOTS[@]} -eq 0 ]]; then
+    echo "ERROR: no API contract roots found in .pangrova/modules.yaml" >&2
     exit 2
 fi
 
@@ -54,7 +72,7 @@ while IFS= read -r -d '' file; do
     if ! grep -qE '@(Stable|Experimental|Internal)\b' <<< "${header}"; then
         echo "${file#${ROOT_DIR}/}" >> "${CURRENT_FILE}"
     fi
-done < <(find "${SPI_DIR}" -type f -name '*.java' -print0)
+done < <(find "${CONTRACT_ROOTS[@]}" -type f -name '*.java' -print0)
 
 sort -u "${CURRENT_FILE}" -o "${CURRENT_FILE}"
 
@@ -100,7 +118,7 @@ if [[ ${status} -eq 0 ]]; then
            && grep -qE '^public (interface|abstract class) ' "${file}"; then
             annotated_count=$((annotated_count + 1))
         fi
-    done < <(find "${SPI_DIR}" -type f -name '*.java' -print0)
+    done < <(find "${CONTRACT_ROOTS[@]}" -type f -name '*.java' -print0)
 
     baseline_count=$(wc -l < "${BASELINE_SORTED}" | tr -d ' ')
     echo "OK: SPI annotation gate passed."

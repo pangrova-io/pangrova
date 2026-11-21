@@ -3,47 +3,47 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
-import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.index.ConnectorIndexSupport;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.metadata.DeletionMode;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.index.ColumnValueReader;
+import org.pangrova.connector.api.index.CommitListener;
+import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.connector.api.enums.DeletionMode;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.CopyFilePublicationMetadata;
+import org.pangrova.connector.api.enums.ConditionalBranchDropResult;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
+import org.pangrova.common.file.CopyFilePublication;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.TypeUtil;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 
 /**
  * Iceberg metadata implementation delegating to real Iceberg Catalog API.
  * Acts as anti-corruption layer: Iceberg SDK types stay within this module.
  */
-public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry {
+public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata,
+        org.pangrova.connector.api.metadata.DistributedWritePublicationMetadata {
 
     static final long DEFAULT_PIN_TTL_MS = 1_800_000L; // 30 minutes
     static final long DEFAULT_COMMIT_TIMEOUT_MS = 30_000L; // 30 seconds
@@ -51,14 +51,9 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     private final Catalog catalog;
     private final String catalogName;
     private final IcebergMaintenanceProcedures maintenanceProcedures;
-    private final CatalogExceptionClassifier exceptionClassifier = new CatalogExceptionClassifier();
-    private final IcebergNativeIndexEvaluator nativeIndexEvaluator = new IcebergNativeIndexEvaluator();
     private final IcebergCommitNotifier notifier;
     private final IcebergWriteCommitter writeCommitter;
-    private final IcebergSnapshotPinManager pinManager;
     private final IcebergIndexAccessors indexAccessors;
-    private final IcebergColumnAccessGuard encryptionGuard;
-    private final IcebergCatalogTables catalogTables;
     private final IcebergViewStore viewStore;
 
     public IcebergMetadata(Catalog catalog, String catalogName) {
@@ -85,104 +80,28 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     public IcebergMetadata(Catalog catalog, String catalogName, long pinTtlMs,
                            long commitTimeoutMs, Set<String> accessibleEncryptionKeys,
                            org.apache.iceberg.io.FileIO fileIO) {
+        super(catalog, catalogName, pinTtlMs, accessibleEncryptionKeys);
         this.catalog = catalog;
         this.catalogName = catalogName;
         this.maintenanceProcedures = new IcebergMaintenanceProcedures(catalog);
-        Set<String> keys = accessibleEncryptionKeys != null
-                ? Set.copyOf(accessibleEncryptionKeys) : Set.of();
-        this.encryptionGuard = new IcebergColumnAccessGuard(keys);
         this.notifier = new IcebergCommitNotifier(catalogName);
-        this.writeCommitter = new IcebergWriteCommitter(catalogName, commitTimeoutMs, notifier);
-        this.pinManager = new IcebergSnapshotPinManager(
-                catalogName, pinTtlMs, nativeIndexEvaluator::clearCache);
+        this.writeCommitter = new IcebergWriteCommitter(catalog, catalogName, commitTimeoutMs, notifier);
         this.indexAccessors = new IcebergIndexAccessors(
                 catalog, fileIO, nativeIndexEvaluator, notifier);
-        this.catalogTables = new IcebergCatalogTables(catalog);
         this.viewStore = new IcebergViewStore(catalogName);
-    }
-
-    /**
-     * Starts periodic eviction of expired pinned snapshots.
-     * Must be called once during connector initialization with a shared scheduler.
-     */
-    public void startPinEviction(ScheduledExecutorService scheduler) {
-        pinManager.startPinEviction(scheduler);
-    }
-
-    /** Registers a query so that subsequent snapshot pinning applies to it. */
-    @Override
-    public void beginQuery(String queryId) {
-        pinManager.beginQuery(queryId);
-    }
-
-    @Override
-    public void pinSnapshotForQuery(String queryId, long snapshotId) {
-        pinManager.pinSnapshotForQuery(queryId, snapshotId);
-    }
-
-    /** Pins a snapshot for a specific table within a query (F-CONNECTOR-08). */
-    @Override
-    public void pinSnapshotForQuery(String queryId, String schema, String table, long snapshotId) {
-        pinManager.pinSnapshotForQuery(queryId, schema, table, snapshotId);
-    }
-
-    /** Unpins the snapshot for the query and releases index evaluator caches. */
-    @Override
-    public void cleanupQuery(String queryId) {
-        pinManager.cleanupQuery(queryId);
-    }
-
-    /** Returns the pinned snapshot ID for the given query, or empty if none pinned. */
-    @Override
-    public Optional<Long> getPinnedSnapshot(String queryId) {
-        return pinManager.getPinnedSnapshot(queryId);
-    }
-
-    /** Returns the pinned snapshot ID for a specific table within a query (F-CONNECTOR-08). */
-    @Override
-    public Optional<Long> getPinnedSnapshot(String queryId, String schema, String table) {
-        return pinManager.getPinnedSnapshot(queryId, schema, table);
-    }
-
-    @Override
-    public List<String> listSchemaNames(ConnectorSession session) {
-        return catalogTables.listSchemaNames();
-    }
-
-    @Override
-    public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName) {
-        return catalogTables.listTables(schemaName);
-    }
-
-    @Override
-    public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
-        return catalogTables.getTableHandle(tableName);
-    }
-
-    @Override
-    public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
-        return catalogTables.getTableMetadata((IcebergTableHandle) table);
-    }
-
-    @Override
-    public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
-        return catalogTables.getColumnHandles((IcebergTableHandle) table);
-    }
-
-    @Override
-    public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
-        return IcebergTableStatisticsReader.read(
-                catalogTables, (IcebergTableHandle) table, session, pinManager, exceptionClassifier);
     }
 
     @Override
     public ConnectorOutputTableHandle createTable(ConnectorSession session, ConnectorTableMetadata metadata) {
-        Schema schema = IcebergSchemaBuilder.buildIcebergSchema(metadata.typedColumns(), metadata.properties());
+        Map<String, String> declaredProperties = IcebergSchemaBuilder.declaredTableProperties(
+                metadata.typedColumns(), metadata.properties());
+        Schema schema = TypeUtil.assignIncreasingFreshIds(
+                IcebergSchemaBuilder.buildIcebergSchema(metadata.typedColumns(), declaredProperties));
         TableIdentifier id = TableIdentifier.of(metadata.table().schema(), metadata.table().table());
-        PartitionSpec spec = IcebergSchemaBuilder.buildPartitionSpec(schema, metadata.properties());
-        org.apache.iceberg.SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(schema, metadata.properties());
+        PartitionSpec spec = IcebergSchemaBuilder.buildPartitionSpec(schema, declaredProperties);
+        org.apache.iceberg.SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(schema, declaredProperties);
         Map<String, String> icebergProps =
-                IcebergSchemaBuilder.extractIcebergTableProperties(metadata.properties());
+                IcebergFormatVersions.creationProperties(schema, declaredProperties);
         Table table = icebergProps.isEmpty()
                 ? catalog.createTable(id, schema, spec)
                 : catalog.createTable(id, schema, spec, icebergProps);
@@ -194,15 +113,10 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     @Override
     public ConnectorOutputTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        return IcebergOutputHandles.forInsert(handle, catalogTables.resolveTable(handle));
+        return IcebergOutputHandles.forInsert(handle, writeTable(handle));
     }
 
-    /**
-     * A-COMMIT-01: rebuilds an output handle for crash recovery from the live table metadata,
-     * mirroring {@code beginInsert/beginOverwrite/beginDelete} for the current table and the
-     * recorded {@code writeMode}. Throws {@code NoSuchTableException} if the table is gone (the
-     * recovering reconciler then aborts the intent).
-     */
+    /** Rebuilds a non-recovery handle from current table metadata. */
     @Override
     public ConnectorOutputTableHandle reconstructOutputHandle(ConnectorSession session,
             SchemaTableName tableName, String writeMode) {
@@ -210,15 +124,44 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     }
 
     @Override
+    public ConnectorOutputTableHandle reconstructOutputHandle(
+            ConnectorSession session,
+            SchemaTableName tableName,
+            String writeMode,
+            long baseSnapshotId) {
+        return IcebergOutputHandles.reconstruct(
+                catalog, tableName, writeMode, baseSnapshotId);
+    }
+
+    @Override
+    public ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        return IcebergOutputHandles.forMerge(handle, writeTable(handle));
+    }
+
+    @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        return IcebergOutputHandles.forOverwrite(handle, catalogTables.resolveTable(handle));
+        return IcebergOutputHandles.forOverwrite(handle, writeTable(handle));
+    }
+
+    @Override
+    public ConnectorOutputTableHandle beginOverwrite(
+            ConnectorSession session, ConnectorTableHandle table, Map<String, String> staticPartitions) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        return IcebergOutputHandles.forOverwrite(handle, writeTable(handle), staticPartitions);
     }
 
     @Override
     public ConnectorOutputTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        return IcebergOutputHandles.forDelete(handle, catalogTables.resolveTable(handle));
+        return IcebergOutputHandles.forDelete(handle, writeTable(handle));
+    }
+
+    private Table writeTable(IcebergTableHandle handle) {
+        Table table = catalogTables.resolveTable(handle);
+        IcebergDeclarationCommit.requireSupported(catalog, table);
+        return table;
     }
 
     @Override
@@ -230,11 +173,130 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     public void finishDistributedWrite(ConnectorSession session,
                                        ConnectorOutputTableHandle outputHandle,
                                        List<byte[]> fragments) {
+        finishIcebergDistributedWrite(session, outputHandle, fragments, null);
+    }
+
+    @Override
+    public void finishDistributedWrite(
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle,
+            List<byte[]> fragments,
+            DistributedWriteCommitContext context) {
+        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+    }
+
+    private void finishIcebergDistributedWrite(
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle,
+            List<byte[]> fragments,
+            DistributedWriteCommitContext context) {
         IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
+        String tenantId = tenantId(session);
+        if (context != null) {
+            IcebergWriteBinding.requireMatches(handle, context);
+            if (!tenantId.equals(context.tenantId())) {
+                throw new IllegalArgumentException(
+                        "Distributed write tenant does not match durable commit context");
+            }
+            if (handle.baseSnapshotId() != context.baseSnapshotId()) {
+                throw new IllegalArgumentException(
+                        "Distributed write handle does not match durable base snapshot");
+            }
+            String expectedFingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
+                        context.executionId(),
+                        tenantId,
+                        catalogName,
+                        new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
+                        handle.writeMode(),
+                        handle.baseSnapshotId(),
+                        context.writeOutputBinding(),
+                        context.principal(),
+                        context.authorizationReceipt(), context.copyFile(),
+                        context.cdcSource() == null ? null
+                                : new org.pangrova.persistence.query.api.commit.CdcSourceIdentity(
+                                        context.cdcSource().streamId(),
+                                        context.cdcSource().sourceEpoch(),
+                                        context.cdcSource().ranges().stream()
+                                                .map(range ->
+                                                        new org.pangrova.persistence.query.api.commit
+                                                                .CdcSourceIdentity.OffsetRange(
+                                                                range.topic(), range.partition(),
+                                                                range.startOffset(), range.endOffset()))
+                                                .toList())),
+                fragments);
+            if (!expectedFingerprint.equals(context.commitFingerprint())) {
+                throw new IllegalArgumentException(
+                        "Distributed write payload does not match durable commit fingerprint");
+            }
+        }
         TableIdentifier tableId = TableIdentifier.of(handle.schemaName(), handle.tableName());
         Table icebergTable = catalog.loadTable(tableId);
         icebergTable.refresh();
-        writeCommitter.finishDistributedWrite(icebergTable, handle, fragments);
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(icebergTable))) {
+            throw new IllegalStateException(
+                    "Iceberg table UUID changed since the distributed write was planned");
+        }
+        if (context != null && context.copyFile() != null
+                && (!IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
+                || !handle.tableUuid().equals(context.copyFile().tableUuid()))) {
+            throw new IllegalArgumentException("COPY claim does not match the Iceberg INSERT target");
+        }
+        writeCommitter.finishDistributedWrite(
+                icebergTable, handle, fragments, tenantId, context);
+    }
+
+    @Override
+    public org.pangrova.connector.api.commit.NativeWriteFinalization finishDistributedWriteWithPublication(
+            ConnectorSession session, ConnectorOutputTableHandle outputHandle,
+            List<byte[]> fragments, DistributedWriteCommitContext context) {
+        java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
+        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
+        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        table.refresh();
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
+            throw new IllegalStateException("Iceberg table UUID changed before required publication proof");
+        }
+        writeCommitter.ensureEmptyInsertPublication(table, handle, fragments, tenantId(session), context);
+        table.refresh();
+        var snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (snapshot == null || snapshot.manifestListLocation() == null) {
+            throw new IllegalStateException("Required Iceberg publication marker or manifest is absent");
+        }
+        var manifest = table.io().newInputFile(snapshot.manifestListLocation());
+        byte[] checksum = java.util.HexFormat.of().parseHex(
+                IcebergManifestReadBindings.digest(manifest, manifest.getLength()));
+        return new org.pangrova.connector.api.commit.NativeWriteFinalization(
+                org.pangrova.connector.api.enums.NativeWriteCommitOutcome.COMMITTED,
+                snapshot.snapshotId(), checksum);
+    }
+
+    @Override
+    public CopyFilePublication confirmCopyFilePublication(
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle,
+            DistributedWriteCommitContext context) {
+        if (context == null || context.copyFile() == null) {
+            throw new IllegalArgumentException("COPY publication requires an exact claim binding");
+        }
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
+        if (!handle.tableUuid().equals(context.copyFile().tableUuid())
+                || !tenantId(session).equals(context.tenantId())
+                || !IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())) {
+            throw new IllegalArgumentException("COPY publication target differs from its write intent");
+        }
+        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        table.refresh();
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
+            throw new IllegalStateException("Iceberg table UUID changed before COPY publication proof");
+        }
+        org.apache.iceberg.Snapshot snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (snapshot == null) {
+            throw new IllegalStateException("COPY Iceberg snapshot marker is absent or outcome is unknown");
+        }
+        return new CopyFilePublication(context.copyFile(), context.executionId(),
+                context.commitFingerprint(), snapshot.snapshotId());
     }
 
     /**
@@ -248,6 +310,11 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
         IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
         TableIdentifier tableId = TableIdentifier.of(handle.schemaName(), handle.tableName());
         Table icebergTable = catalog.loadTable(tableId);
+        icebergTable.refresh();
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(icebergTable))) {
+            throw new IllegalStateException(
+                    "Iceberg table UUID changed since the distributed write was planned");
+        }
         writeCommitter.abortDistributedWrite(icebergTable, handle, fragments);
     }
 
@@ -319,42 +386,26 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     }
 
     @Override
-    public Optional<ConnectorSystemTable> getSystemTable(
-            ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
-        IcebergTableHandle handle = (IcebergTableHandle) table;
-        return IcebergSystemTables.resolve(catalogTables.resolveTable(handle), systemTableName);
-    }
-
-    @Override
-    public void validateColumnAccess(ConnectorSession session, ConnectorTableHandle table,
-                                     List<String> projectedColumns) {
-        encryptionGuard.validate(table, projectedColumns);
-    }
-
-    @Override
     public void deleteByFilter(ConnectorSession session,
                                 ConnectorTableHandle table,
                                 DeleteFilter filter) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        writeCommitter.deleteByFilter(catalogTables.resolveTable(handle), handle, filter);
+        writeCommitter.deleteByFilter(
+                catalogTables.resolveTable(handle), handle, filter, tenantId(session));
+    }
+
+    private static String tenantId(ConnectorSession session) {
+        java.util.Objects.requireNonNull(session, "session must not be null");
+        String tenantId = session.getProperties().get("tenant_id");
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenant_id connector session property is required");
+        }
+        return tenantId;
     }
 
     /** Returns the underlying Iceberg catalog for direct metadata access. */
     public Catalog catalog() {
         return catalog;
-    }
-
-    @Override
-    public Optional<java.time.Instant> resolveSnapshotTimestamp(
-            ConnectorSession session, String schemaName, String tableName, long snapshotId) {
-        return IcebergSnapshotResolver.resolveTimestamp(catalog, schemaName, tableName, snapshotId);
-    }
-
-    @Override
-    public OptionalLong resolveRefSnapshotId(
-            ConnectorSession session, SchemaTableName tableName,
-            String refType, String refName) {
-        return IcebergSnapshotResolver.resolveRefSnapshotId(catalog, tableName, refType, refName);
     }
 
     // --- Index SPI overrides ---
@@ -384,7 +435,7 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
         return indexAccessors.listDataFiles(targetCatalogName, schemaName, tableName);
     }
 
-    @Override
+    /** Registers the connector's internal lifecycle callback without a data session. */
     public void registerCommitListener(CommitListener listener) {
         notifier.registerCommitListener(listener);
     }
@@ -413,15 +464,25 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     }
 
     @Override
-    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
+    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
+            org.pangrova.connector.api.metadata.BranchCreationOptions options) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        IcebergRefOperations.createBranch(catalogTables.resolveTable(handle), handle, branchName);
+        IcebergRefOperations.createBranch(catalogTables.resolveTable(handle), handle, branchName, options);
     }
 
     @Override
     public void dropBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
         IcebergRefOperations.dropBranch(catalogTables.resolveTable(handle), handle, branchName);
+    }
+
+    @Override
+    public ConditionalBranchDropResult dropBranchIfSnapshotMatches(
+            ConnectorSession session, ConnectorTableHandle table,
+            String branchName, long expectedSnapshotId) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        return IcebergRefOperations.dropBranchIfSnapshotMatches(
+                catalog, catalogTables.resolveTable(handle), handle, branchName, expectedSnapshotId);
     }
 
     @Override
@@ -439,7 +500,7 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     @Override
     public Optional<ConnectorTableHandle> applyFilter(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.Constraint constraint) {
+            org.pangrova.connector.api.metadata.Constraint constraint) {
         if (constraint.getDomains().isEmpty()) {
             return Optional.empty();
         }
@@ -461,7 +522,7 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     @Override
     public Optional<ConnectorTableHandle> applyTopN(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.TopNInfo topN) {
+            org.pangrova.connector.api.metadata.TopNInfo topN) {
         // Iceberg does not support sorted scans at the storage layer, so the engine
         // must still perform the sort. However, the limit portion of the top-N can be
         // absorbed to reduce the number of rows read from the source.
@@ -469,13 +530,14 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     }
 
     @Override
-    public void createView(ConnectorSession session, SchemaTableName viewName, String sql) {
-        viewStore.create(viewName, sql);
+    public void createView(ConnectorSession session, SchemaTableName viewName, String sql,
+            org.pangrova.connector.api.enums.ViewCreateMode mode) {
+        viewStore.create(viewName, sql, mode);
     }
 
     @Override
-    public void dropView(ConnectorSession session, SchemaTableName viewName) {
-        viewStore.drop(viewName);
+    public void dropView(ConnectorSession session, SchemaTableName viewName, boolean ifExists) {
+        viewStore.drop(viewName, ifExists);
     }
 
     @Override
@@ -489,7 +551,7 @@ public class IcebergMetadata implements ConnectorMetadata, QuerySnapshotRegistry
     }
 
     @Override
-    public List<org.pangrova.spi.connector.data.TypedRow> executeProcedure(
+    public List<org.pangrova.types.value.TypedRow> executeProcedure(
             ConnectorSession session, String procedureName,
             Map<String, String> arguments) {
         return maintenanceProcedures.execute(procedureName, arguments);

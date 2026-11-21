@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Thrown when a per-tenant stream limit is exceeded during CREATE STREAM.
  */

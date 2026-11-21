@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Base exception for all Pangrova errors. Carries an {@link PangrovaErrorCode}
  * for structured error classification across modules.

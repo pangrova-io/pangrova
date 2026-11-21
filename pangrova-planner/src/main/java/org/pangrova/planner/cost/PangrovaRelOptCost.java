@@ -125,6 +125,10 @@ public final class PangrovaRelOptCost implements RelOptCost {
     private static double effectiveCost(PangrovaRelOptCost c) {
         double spillMultiplier = (c.memory > c.config.availableMemoryPerTask())
                 ? c.config.memorySpillPenalty() : 1.0;
-        return (c.cpu + c.io + c.network) * spillMultiplier;
+        // Calcite's logical Join can report zero CPU/IO. Ignoring its rows
+        // makes it free and prevents every physical join/exchange alternative
+        // from ever winning the Volcano search.
+        return (c.rows * c.config.cpuTupleCost()
+                + c.cpu + c.io + c.network) * spillMultiplier;
     }
 }

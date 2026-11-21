@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
 
 /**
  * Handle referencing a Paimon column by field ID, name, and Pangrova type.

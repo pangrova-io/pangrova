@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * real Paimon FileSystemCatalog backed by a temporary directory.
  *
  * <p>Paimon snapshot IDs are sequential (1, 2, 3, ...), so snapshot
- * ordering is deterministic — no retry loops needed unlike Iceberg.</p>
+ * ordering is deterministic. Tests still verify actual snapshot existence.</p>
  */
 class PaimonIncrementalScanCapabilityTest {
 
@@ -108,8 +108,55 @@ class PaimonIncrementalScanCapabilityTest {
     }
 
     @Test
-    void isAppendOnly_sameSnapshot_returnsTrue() {
-        assertThat(capability.isAppendOnly("db.any_table", 42L, 42L)).isTrue();
+    void isAppendOnly_sameExistingSnapshot_returnsTrue() throws Exception {
+        String tableName = "same_existing_snapshot";
+        createAppendOnlyTable(tableName);
+        writeAppendOnlyRows(tableName, 1, "Alice");
+        assertThat(capability.isAppendOnly(DATABASE + "." + tableName, 1L, 1L)).isTrue();
+    }
+
+    @Test
+    void isAppendOnly_sameMissingSnapshotOrTable_isRejected() throws Exception {
+        String tableName = "same_missing_snapshot";
+        createAppendOnlyTable(tableName);
+        writeAppendOnlyRows(tableName, 1, "Alice");
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + "." + tableName, 42L, 42L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Snapshot not found: 42");
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + ".missing_table", 42L, 42L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Table not found");
+    }
+
+    @Test
+    void isAppendOnly_expiredBaseSnapshot_isRejected() throws Exception {
+        String tableName = "expired_base_snapshot";
+        createAppendOnlyTable(tableName);
+        writeAppendOnlyRows(tableName, 1, "Alice");
+        writeAppendOnlyRows(tableName, 2, "Bob");
+        var table = (org.apache.paimon.table.FileStoreTable) catalog.getTable(Identifier.create(DATABASE, tableName));
+        table.fileIO().delete(table.snapshotManager().snapshotPath(1), false);
+        assertThat(table.snapshotManager().snapshotExists(1)).isFalse();
+        assertThat(table.snapshotManager().snapshotExists(2)).isTrue();
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + "." + tableName, 1L, 2L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Snapshot not found: 1");
+    }
+
+    @Test
+    void isAppendOnly_missingTargetSnapshot_isRejectedForPrimaryKeyTable() throws Exception {
+        String tableName = "pk_missing_target_snapshot";
+        createPrimaryKeyTable(tableName);
+        writePrimaryKeyRows(tableName, 1, "Alice");
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + "." + tableName, 1L, 42L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Snapshot not found: 42");
+    }
+
+    @Test
+    void isAppendOnly_nonPositiveEndpoints_areRejected() {
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + ".any_table", 0L, 0L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must be positive");
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + ".any_table", -1L, 1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must be positive");
+        assertThatThrownBy(() -> capability.isAppendOnly(DATABASE + ".any_table", 1L, -1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must be positive");
     }
 
     // -- table creation helpers --

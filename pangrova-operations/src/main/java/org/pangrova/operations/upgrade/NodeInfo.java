@@ -1,11 +1,13 @@
 package org.pangrova.operations.upgrade;
 
+import org.pangrova.common.enums.ClusterNodeType;
+
 import java.util.Objects;
 
 /**
  * Immutable descriptor of a cluster node participating in an upgrade.
  */
-public record NodeInfo(String nodeId, NodeType type, String currentVersion) {
+public record NodeInfo(String nodeId, ClusterNodeType type, String currentVersion) {
 
     public NodeInfo {
         Objects.requireNonNull(nodeId, "nodeId");
@@ -13,8 +15,4 @@ public record NodeInfo(String nodeId, NodeType type, String currentVersion) {
         Objects.requireNonNull(currentVersion, "currentVersion");
     }
 
-    public enum NodeType {
-        WORKER,
-        COORDINATOR
-    }
 }

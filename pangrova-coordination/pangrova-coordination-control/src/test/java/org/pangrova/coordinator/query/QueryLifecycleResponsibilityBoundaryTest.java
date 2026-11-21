@@ -1,0 +1,249 @@
+package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
+
+import org.pangrova.query.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
+
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.pangrova.coordinator.query.execution.QueryDispatcher;
+import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
+import org.pangrova.coordinator.query.task.TaskStatusReceiver;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Verifies responsibility boundaries between Coordinator query lifecycle components.
+ * Ensures each component maintains a single, clear responsibility without overlap.
+ *
+ * <ul>
+ *   <li>{@link QueryManager}: query lifecycle state machines, audit, lineage, tenant</li>
+ *   <li>{@link QueryDispatcher}: compile → schedule → dispatch orchestration</li>
+ *   <li>{@link TaskStatusReceiver}: task status callback processing</li>
+ *   <li>{@link QueryTimeoutScheduler}: periodic timeout enforcement</li>
+ * </ul>
+ *
+ * <p>Plan fragmentation has been moved to {@code pangrova-planner.PlanFragmenter};
+ * the historical {@code StageFragmenter} class no longer exists in this module,
+ * so the related boundary checks are unconditionally satisfied and have been
+ * removed from this suite.</p>
+ *
+ * Validates: Requirements 3.2
+ */
+class QueryLifecycleResponsibilityBoundaryTest {
+
+    // ── QueryManager boundary: lifecycle orchestration only ──
+
+    @Test
+    void queryManager_doesNotDirectlyReferenceStatementDispatcher() {
+        assertClassDoesNotReference(QueryManager.class, StatementDispatcher.class,
+                "QueryManager must not directly depend on StatementDispatcher — "
+                        + "DDL/DML routing is QueryDispatcher's responsibility");
+    }
+
+    @Test
+    void queryManager_publicApiIsLifecycleOnly() {
+        Set<String> publicMethods = publicMethodNames(QueryManager.class);
+        // QueryManager public API should be lifecycle-oriented
+        assertThat(publicMethods).as("QueryManager public API")
+                .contains("submitQuery", "cancelQuery", "getQueryState",
+                        "getResultEndpoint", "getActiveQueryCount",
+                        "onAllTasksFinished", "onTaskFailed");
+        // Must NOT contain dispatch/compile/fragment methods
+        assertThat(publicMethods).as("QueryManager must not expose dispatch methods")
+                .doesNotContain("dispatch", "compile", "fragment",
+                        "dispatchToWorker", "tryExecuteDdlDml");
+    }
+
+    // ── QueryDispatcher boundary: compile → schedule → dispatch ──
+
+    @Test
+    void queryDispatcher_doesNotDirectlyManageStateMachineMap() {
+        // QueryDispatcher receives QueryStateMachine as parameter, does not own the map
+        Set<String> fieldTypes = declaredFieldTypeNames(QueryDispatcher.class);
+        assertThat(fieldTypes).as("QueryDispatcher must not own query state machine map")
+                .doesNotContain("ConcurrentHashMap");
+    }
+
+    @Test
+    void queryDispatcher_ddlDmlRoutingDelegatesToDispatcher() {
+        // DDL/DML routing now flows QueryDispatcher → QueryPipelineExecutor → StatementDispatcher.
+        // The dispatcher holds QueryPipelineExecutor as the pipeline owner; the StatementDispatcher
+        // is encapsulated by the pipeline executor instead of being a direct field.
+        Set<String> fieldTypes = declaredFieldTypeNames(QueryDispatcher.class);
+        assertThat(fieldTypes)
+                .as("QueryDispatcher should delegate DDL/DML routing through QueryPipelineExecutor")
+                .contains("QueryPipelineExecutor");
+    }
+
+    @Test
+    void queryDispatcher_doesNotContainDdlClassificationMethods() {
+        Set<String> methods = allDeclaredMethodNames(QueryDispatcher.class);
+        assertThat(methods).as("QueryDispatcher must not contain DDL classification methods")
+                .doesNotContain("isDdlStatement", "isDmlStatement",
+                        "isShowStatement", "isMaintenanceStatement");
+    }
+
+    // ── TaskStatusReceiver boundary: status callback only ──
+
+    @Test
+    void taskStatusReceiver_doesNotReferenceQueryDispatcher() {
+        assertClassDoesNotReference(TaskStatusReceiver.class, QueryDispatcher.class,
+                "TaskStatusReceiver must not depend on QueryDispatcher — "
+                        + "it only drives state transitions via QueryManager");
+    }
+
+    @Test
+    void taskStatusReceiver_publicApiIsCallbackOnly() {
+        Set<String> publicMethods = publicMethodNames(TaskStatusReceiver.class);
+        assertThat(publicMethods).as("TaskStatusReceiver public API")
+                // setWriteCommitFencer is the A-FENCE-01 late-wiring seam: the leadership
+                // fence is built after HA bootstrap, mirroring the QueryManager
+                // setClusterAdmissionController pattern. setWriteQualityGate is the same
+                // kind of seam for the governance quality gate, which depends on module
+                // wiring. Both configure, never drive, the callback flow — so the
+                // callback-only boundary still holds. setOperatorStatsRegistry is the
+                // same late-wiring seam for the profile telemetry sink: accepted
+                // reports are forwarded to it, but it never drives callback flow.
+                // setCdcCompletions is the same late-wiring seam for the dedicated
+                // CDC report sink; it only receives validated CDC reports.
+                .containsExactlyInAnyOrder("onTaskStatus", "clearTaskSequence",
+                        "supersedesResultNotice", "setWriteCommitFencer",
+                        "setWriteQualityGate", "setOperatorStatsRegistry",
+                        "setCdcCompletions");
+    }
+
+    // ── QueryTimeoutScheduler boundary: timeout enforcement only ──
+
+    @Test
+    void queryTimeoutEnforcer_doesNotReferenceQueryDispatcher() {
+        assertClassDoesNotReference(QueryTimeoutScheduler.class, QueryDispatcher.class,
+                "QueryTimeoutScheduler must not depend on QueryDispatcher — "
+                        + "it only schedules timeout checks against the query owner");
+    }
+
+    @Test
+    void queryTimeoutEnforcer_publicApiIsStartStopOnly() {
+        Set<String> publicMethods = publicMethodNames(QueryTimeoutScheduler.class);
+        assertThat(publicMethods).as("QueryTimeoutScheduler public API")
+                .containsExactlyInAnyOrder("start", "stop");
+    }
+
+    // ── StatementDispatcher boundary: statement dispatch only ──
+
+    @Test
+    void statementDispatcher_ownsClassificationLogic() {
+        Set<String> methods = allDeclaredMethodNames(
+                org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher.class);
+        assertThat(methods).as("StatementDispatcher must own statement classification")
+                .contains("isRoutable");
+    }
+
+    // ── Cross-cutting: constructor dependency governance ──
+
+    @Test
+    void queryManager_requiresExplicitDependenciesAndTypedReaderPinPort() {
+        // Reader pins are an explicit domain port, not another field hidden in the
+        // already large Context. Check the actual permitted types, not a parameter cap.
+        var signatures = Arrays.stream(QueryManager.class.getConstructors())
+                .map(constructor -> Arrays.stream(constructor.getGenericParameterTypes())
+                        .map(java.lang.reflect.Type::getTypeName).toList())
+                .toList();
+        assertThat(signatures).containsExactlyInAnyOrder(
+                java.util.List.of(QueryManagerContext.class.getName()),
+                java.util.List.of(QueryManagerContext.class.getName(),
+                        "java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle>"),
+                java.util.List.of(QueryManagerContext.class.getName(), "java.util.function.LongSupplier"),
+                java.util.List.of(QueryManagerContext.class.getName(),
+                        "java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle>",
+                        "java.util.function.LongSupplier"));
+    }
+
+    @Test
+    void queryDispatcher_constructorWithinLimit() {
+        // QueryDispatcher has a 3-param public constructor and a 4-param public constructor
+        // (deps, fragmenter, preBuiltDispatcher, tracingProvider).
+        // The deps parameter object keeps the effective dependency count low.
+        assertConstructorParamCount(QueryDispatcher.class, 5,
+                "QueryDispatcher constructor must not exceed 5 parameters");
+    }
+
+    @Test
+    void taskStatusReceiver_constructorWithinLimit() {
+        assertConstructorParamCount(TaskStatusReceiver.class, 3,
+                "TaskStatusReceiver constructor must not exceed 4 parameters");
+    }
+
+    @Test
+    void queryLifecycleSignaturesExcludeClientWireDtos() {
+        for (Class<?> type : java.util.List.of(QueryManager.class, QueryStateMachine.class,
+                org.pangrova.coordinator.query.stage.Stage.class,
+                org.pangrova.query.api.stage.StageCompletionCallback.class)) {
+            for (var method : type.getDeclaredMethods()) {
+                assertThat(method.getGenericReturnType().getTypeName()).as("%s return", method)
+                        .doesNotContain("org.pangrova.common.client.error.", "org.pangrova.common.client.query.",
+                                "org.pangrova.protocol.rest.task.TaskStatusReport");
+                for (var parameter : method.getGenericParameterTypes()) {
+                    assertThat(parameter.getTypeName()).as("%s parameter", method)
+                            .doesNotContain("org.pangrova.common.client.error.", "org.pangrova.common.client.query.",
+                                "org.pangrova.protocol.rest.task.TaskStatusReport");
+                }
+            }
+            for (var field : type.getDeclaredFields()) {
+                assertThat(field.getGenericType().getTypeName()).as("%s field", field)
+                        .doesNotContain("org.pangrova.common.client.error.", "org.pangrova.common.client.query.",
+                                "org.pangrova.protocol.rest.task.TaskStatusReport");
+            }
+        }
+    }
+
+    // ── Helpers ──
+
+    private static Set<String> publicMethodNames(Class<?> clazz) {
+        return Arrays.stream(clazz.getDeclaredMethods())
+                .filter(m -> Modifier.isPublic(m.getModifiers()))
+                .filter(m -> !m.isSynthetic())
+                .map(Method::getName)
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<String> allDeclaredMethodNames(Class<?> clazz) {
+        return Arrays.stream(clazz.getDeclaredMethods())
+                .filter(m -> !m.isSynthetic())
+                .map(Method::getName)
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<String> declaredFieldTypeNames(Class<?> clazz) {
+        return Arrays.stream(clazz.getDeclaredFields())
+                .map(f -> f.getType().getSimpleName())
+                .collect(Collectors.toSet());
+    }
+
+    private static void assertClassDoesNotReference(
+            Class<?> source, Class<?> forbidden, String message) {
+        Set<String> fieldTypes = Arrays.stream(source.getDeclaredFields())
+                .map(f -> f.getType().getName())
+                .collect(Collectors.toSet());
+        assertThat(fieldTypes).as(message)
+                .doesNotContain(forbidden.getName());
+    }
+
+    private static void assertConstructorParamCount(
+            Class<?> clazz, int expectedMax, String message) {
+        int maxParams = Arrays.stream(clazz.getDeclaredConstructors())
+                .filter(c -> Modifier.isPublic(c.getModifiers()))
+                .mapToInt(c -> c.getParameterCount())
+                .max()
+                .orElse(0);
+        assertThat(maxParams).as(message)
+                .isLessThanOrEqualTo(expectedMax);
+    }
+}

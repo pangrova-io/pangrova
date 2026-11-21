@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Base exception for domain-level (business logic) errors that are potentially
  * recoverable. Module-specific domain exceptions should extend this class to

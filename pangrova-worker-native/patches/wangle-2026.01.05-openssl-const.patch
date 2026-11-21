@@ -1,0 +1,12 @@
+--- a/wangle/ssl/SSLUtil.cpp
++++ b/wangle/ssl/SSLUtil.cpp
+@@ -51,7 +51,8 @@
+ }
+ 
+ std::unique_ptr<std::string> SSLUtil::getCommonName(const X509* cert) {
+-  X509_NAME* subject = X509_get_subject_name((X509*)cert);
++  X509_NAME* subject =
++      const_cast<X509_NAME*>(X509_get_subject_name((X509*)cert));
+   if (!subject) {
+     return nullptr;
+   }

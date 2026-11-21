@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -77,11 +79,11 @@ class WorkerCdcBootstrapTest {
     }
 
     private static WorkerBootstrap createCdcEnabledBootstrap() {
-        return new WorkerBootstrap(buildConfig(true));
+        return TestWorkerBootstrap.create(buildConfig(true));
     }
 
     private static WorkerBootstrap createCdcDisabledBootstrap() {
-        return new WorkerBootstrap(buildConfig(false));
+        return TestWorkerBootstrap.create(buildConfig(false));
     }
 
     private static WorkerBootstrapConfig buildConfig(boolean cdcEnabled) {
@@ -91,6 +93,6 @@ class WorkerCdcBootstrapTest {
                 false, null, null, 0, cdcEnabled,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 }

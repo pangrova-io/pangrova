@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.Connector;
-import org.pangrova.spi.connector.ConnectorContext;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.api.plugin.Connector;
+import org.pangrova.connector.api.plugin.ConnectorContext;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,6 +28,11 @@ class IcebergMinioIntegrationTest {
     static Path warehouseDir;
 
     private static final ConnectorSession TEST_SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override
         public String getUser() { return "test-user"; }
 
@@ -56,7 +61,7 @@ class IcebergMinioIntegrationTest {
         IcebergConnectorFactory factory = new IcebergConnectorFactory();
         assertThat(factory.getName()).isEqualTo("iceberg");
 
-        ConnectorContext context = new ConnectorContext() {};
+        ConnectorContext context = java.util.Optional::empty;
         Connector connector = factory.create("iceberg", config, context);
         assertThat(connector).isNotNull();
     }
@@ -81,7 +86,7 @@ class IcebergMinioIntegrationTest {
     }
 
     private Connector createConnectorViaFactory() {
-        ConnectorContext context = new ConnectorContext() {};
+        ConnectorContext context = java.util.Optional::empty;
         return new IcebergConnectorFactory().create("iceberg", config, context);
     }
 }

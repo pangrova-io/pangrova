@@ -76,29 +76,10 @@ if [[ "$JAVA_VERSION" -lt 17 ]]; then
     exit 1
 fi
 
-# --- Build classpath ---
-CLASSPATH=""
-if [[ -d "$PANGROVA_HOME/lib" ]]; then
-    for jar in "$PANGROVA_HOME"/lib/*.jar; do
-        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "WARN: No lib/ directory, using Maven target/ (dev mode)" >&2
-    for module_dir in "$PANGROVA_HOME"/pangrova-*/target; do
-        if [[ -d "$module_dir" ]]; then
-            for jar in "$module_dir"/*.jar; do
-                [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-            done
-        fi
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "ERROR: No JARs found. Run 'mvn clean package -DskipTests' first." >&2
-    exit 1
-fi
+# --- Resolve the packaged runtime for this role ---
+# shellcheck source=pangrova-classpath.sh
+source "$SCRIPT_DIR/pangrova-classpath.sh"
+CLASSPATH="$(pangrova_runtime_classpath "$ROLE")"
 
 # --- Load JVM options (three-level priority) ---
 DEFAULT_JAVA_OPTS="-Xms2g -Xmx8g -XX:+UseG1GC -XX:G1HeapRegionSize=32m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=4g -Djava.net.preferIPv4Stack=true"
@@ -131,8 +112,8 @@ fi
 
 # --- Parse arguments ---
 CONFIG_FILE="${PANGROVA_CONF_DIR}/standalone.yml"
-CONFIG_ARGS=""
-[[ -f "$CONFIG_FILE" ]] && CONFIG_ARGS="--config $CONFIG_FILE"
+CONFIG_ARGS=()
+[[ -f "$CONFIG_FILE" ]] && CONFIG_ARGS=(--config "$CONFIG_FILE")
 
 DAEMON=false
 EXTRA_ARGS=()
@@ -140,7 +121,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --help)   usage ;;
         --daemon) DAEMON=true; shift ;;
-        --config) CONFIG_ARGS="--config $2"; shift 2 ;;
+        --config)
+            [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --config requires a YAML path" >&2; exit 1; }
+            CONFIG_ARGS=(--config "$2"); shift 2 ;;
         *)        EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
@@ -167,11 +150,11 @@ echo "  JAVA:            $JAVA (version $JAVA_VERSION)"
 echo "  JVM_CONFIG:      ${JVM_CONFIG_FILE}$([ -f "$JVM_CONFIG_FILE" ] && echo ' (loaded)' || echo ' (not found, using defaults)')"
 
 if [[ "$DAEMON" == "true" ]]; then
-    nohup "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" $CONFIG_ARGS "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" \
+    nohup "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" \
         > "$PANGROVA_LOG_DIR/standalone.out" 2>&1 &
     echo $! > "$PID_FILE"
     echo "  PID:             $(cat "$PID_FILE") (daemon)"
     echo "  Log:             $PANGROVA_LOG_DIR/standalone.out"
 else
-    exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" $CONFIG_ARGS "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+    exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 fi

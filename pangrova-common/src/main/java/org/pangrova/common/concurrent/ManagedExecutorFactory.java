@@ -1,9 +1,12 @@
 package org.pangrova.common.concurrent;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -21,6 +24,18 @@ public final class ManagedExecutorFactory {
 
     public static ExecutorService newFixedThreadPool(String name, int threads) {
         return Executors.newFixedThreadPool(threads, daemonThreadFactory(name));
+    }
+
+    /** Bounded work queue; overload is rejected instead of retaining unbounded queries. */
+    public static ExecutorService newBoundedThreadPool(
+            String name, int threads, int queueCapacity) {
+        if (threads <= 0 || queueCapacity <= 0) {
+            throw new IllegalArgumentException("threads and queueCapacity must be positive");
+        }
+        return new ThreadPoolExecutor(
+                threads, threads, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(queueCapacity), daemonThreadFactory(name),
+                new ThreadPoolExecutor.AbortPolicy());
     }
 
     public static ScheduledExecutorService newSingleThreadScheduledExecutor(String name) {

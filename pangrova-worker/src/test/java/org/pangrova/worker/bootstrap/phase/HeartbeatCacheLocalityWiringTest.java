@@ -1,7 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.cache.RecentFileAccessTracker;
 import org.pangrova.worker.heartbeat.HeartbeatPayload;
 import org.junit.jupiter.api.Test;
@@ -18,6 +18,38 @@ import static org.assertj.core.api.Assertions.assertThat;
  * splits to workers that have warm cache state.</p>
  */
 class HeartbeatCacheLocalityWiringTest {
+    private final java.util.List<org.pangrova.worker.task.TaskManager> managers = new java.util.ArrayList<>();
+
+    private WorkerComponentRefs newRefs() {
+        var refs = new WorkerComponentRefs();
+        var manager = org.pangrova.worker.task.TaskManager.forHttpWiringOnly();
+        managers.add(manager);
+        refs.setTaskManager(manager);
+        return refs;
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void closeManagers() { managers.forEach(org.pangrova.worker.task.TaskManager::close); }
+
+
+    @Test
+    void heartbeatAdvertisesTheTighterNativeNodeBudget() {
+        var arbitrator = new org.pangrova.worker.resource.memory.MemoryArbitrator(1024, 0);
+        var node = new org.pangrova.worker.resource.memory.RootMemoryPool("heartbeat-root", 768)
+                .createNodePool("heartbeat-node", 768);
+        var refs = newRefs();
+        refs.setNodeMemoryPool(node);
+        refs.setResourceManager(new org.pangrova.worker.resource.ResourceManager(
+                arbitrator, new org.pangrova.worker.resource.thread.ThreadBudgetTracker(2, 1, 1),
+                new org.pangrova.worker.resource.spill.SpillManager()));
+        assertThat(node.tryReserve(256)).isEqualTo(256);
+
+        HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(
+                WorkerBootstrapConfig.withDefaults("heartbeat-budget"), refs);
+
+        assertThat(payload.availableMemoryBytes()).isEqualTo(512);
+        node.free(256);
+    }
 
     @Test
     void heartbeatPayloadCarriesCachedFilePathsFromTracker() {
@@ -26,7 +58,7 @@ class HeartbeatCacheLocalityWiringTest {
         tracker.recordAccess("/data/iceberg/t1/data/00002.parquet");
         tracker.recordAccess("/data/iceberg/t2/data/00003.parquet");
 
-        WorkerComponentRefs refs = new WorkerComponentRefs();
+        WorkerComponentRefs refs = newRefs();
         refs.setRecentFileAccessTracker(tracker);
 
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
@@ -36,7 +68,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -48,7 +80,7 @@ class HeartbeatCacheLocalityWiringTest {
 
     @Test
     void heartbeatPayloadReturnsEmptyListWhenTrackerIsNull() {
-        WorkerComponentRefs refs = new WorkerComponentRefs();
+        WorkerComponentRefs refs = newRefs();
         // recentFileAccessTracker left null — simulates pre-F-CHAIN-CACHE-02 worker
 
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
@@ -58,7 +90,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -70,7 +102,7 @@ class HeartbeatCacheLocalityWiringTest {
         RecentFileAccessTracker tracker = new RecentFileAccessTracker();
         tracker.recordAccess("/data/file.parquet");
 
-        WorkerComponentRefs refs = new WorkerComponentRefs();
+        WorkerComponentRefs refs = newRefs();
         refs.setRecentFileAccessTracker(tracker);
 
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
@@ -80,7 +112,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 

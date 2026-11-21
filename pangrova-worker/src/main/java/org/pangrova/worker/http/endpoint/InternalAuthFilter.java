@@ -5,9 +5,11 @@ import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
-import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Shared-secret authentication filter for Worker HTTP endpoints.
@@ -17,8 +19,10 @@ import org.slf4j.LoggerFactory;
  * unauthorized task submission, cancellation, and exchange source injection
  * from untrusted clients that can reach the Worker HTTP port.</p>
  *
- * <p>Health check endpoint ({@code /v1/health}) is exempt from authentication
- * to allow load balancer probes.</p>
+ * <p>The exact readiness and liveness endpoints ({@code /v1/health} and
+ * {@code /v1/health/live}) are exempt from authentication to allow probes. The
+ * file-space endpoint is also exempt because it authenticates every request with
+ * its own signed, short-lived descriptor; unsigned calls are rejected there.</p>
  *
  * <p>The shared secret should be configured via environment variable
  * {@code PANGROVA_INTERNAL_AUTH_SECRET} or YAML config
@@ -31,8 +35,10 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
 
     static final String AUTH_HEADER = "X-Internal-Auth";
     private static final String HEALTH_PATH = "v1/health";
+    private static final String LIVE_PATH = "v1/health/live";
+    private static final String FILE_SPACE_PATH = "v1/file-space";
 
-    private final String expectedSecret;
+    private final byte[] expectedSecret;
 
     /**
      * @param expectedSecret the shared secret that Coordinator must present
@@ -41,17 +47,20 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
         if (expectedSecret == null || expectedSecret.isBlank()) {
             throw new IllegalArgumentException("expectedSecret must not be blank");
         }
-        this.expectedSecret = expectedSecret;
+        this.expectedSecret = expectedSecret.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        if (isHealthCheck(requestContext)) {
+        if (isExempt(requestContext)) {
             return;
         }
 
         String provided = requestContext.getHeaderString(AUTH_HEADER);
-        if (provided == null || !expectedSecret.equals(provided)) {
+        byte[] providedBytes = provided == null
+                ? new byte[0]
+                : provided.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expectedSecret, providedBytes)) {
             LOG.warn("event=internal_auth_rejected path={} remoteAddr={}",
                     requestContext.getUriInfo().getPath(),
                     requestContext.getHeaderString("X-Forwarded-For"));
@@ -63,8 +72,11 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
         }
     }
 
-    private static boolean isHealthCheck(ContainerRequestContext ctx) {
+    private static boolean isExempt(ContainerRequestContext ctx) {
         String path = ctx.getUriInfo().getPath();
-        return HEALTH_PATH.equals(path) || ("/" + HEALTH_PATH).equals(path);
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+        return HEALTH_PATH.equals(normalized) || LIVE_PATH.equals(normalized)
+                || FILE_SPACE_PATH.equals(normalized)
+                || normalized.startsWith(FILE_SPACE_PATH + "/");
     }
 }

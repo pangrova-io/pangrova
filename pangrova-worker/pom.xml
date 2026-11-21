@@ -12,47 +12,107 @@
 
     <artifactId>pangrova-worker</artifactId>
     <name>Pangrova Worker</name>
-    <description>Java-side JNI bridge, result puller, shuffle drain, and cache metrics for Pangrova native engine</description>
+    <description>Worker task admission, execution, cancellation, results and the JNI bridge to the native engine</description>
+
+    <properties>
+        <module.name>org.pangrova.worker</module.name>
+    </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secrets</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-qwen</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-openai</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-instrumentation</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-noop</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-flight</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
-        </dependency>        <dependency>
+            <artifactId>pangrova-ai-control</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-function-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-batch</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-runtime</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-lance</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-exchange</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-filesystem-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-filesystem-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-filesystem-local</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-config</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-resilience</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-resource</artifactId>
-        </dependency>
+
+
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-operations</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-observability</artifactId>
+            <artifactId>pangrova-observability-sdk</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
         </dependency>
         <!-- Jetty HTTP -->
         <dependency>
@@ -100,6 +160,10 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
 
         <!-- Arrow Flight (transport layer for result/exchange streaming) -->
         <dependency>
@@ -143,13 +207,13 @@
 
         <!-- Native JNI library: in production, loaded from classifier JAR on classpath.
              The dependency is declared in the 'native-runtime' profile below,
-             activated by CI via -Pnative-runtime. Development builds use
-             maven-resources-plugin to copy the dylib to the classpath
-             (see copy-native-lib execution above). -->
+             activated by CI via -Pnative-runtime. Local validation packages
+             the qualified Native library into the canonical Worker resource
+             path before Maven compilation. Tests use that same classpath resource. -->
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -163,6 +227,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>net.jqwik</groupId>
             <artifactId>jqwik</artifactId>
             <scope>test</scope>
@@ -170,7 +239,6 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.opentelemetry</groupId>
@@ -193,36 +261,42 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>toxiproxy</artifactId>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+            <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport-http</artifactId>
+        </dependency>
+</dependencies>
 
     <build>
         <plugins>
-            <!-- Copy native library from CMake build dir to classpath for tests.
-                 Same path as production (classpath extraction via NativeLibraryLoader).
-                 Skipped if the dylib doesn't exist (no native build). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
+                <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>copy-native-lib</id>
-                        <phase>process-test-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
+                        <id>native-runtime-fixtures</id>
+                        <phase>test-compile</phase>
+                        <goals><goal>test-jar</goal></goals>
                         <configuration>
-                            <outputDirectory>${project.build.testOutputDirectory}/META-INF/native/${os.detected.name}/${os.detected.arch}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build</directory>
-                                    <includes>
-                                        <include>libpangrova_native.dylib</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                            <overwrite>true</overwrite>
+                            <classifier>native-fixtures</classifier>
+                            <includes>
+                                <include>org/pangrova/testing/nativefixture/**</include>
+                                <include>org/pangrova/worker/task/WorkerIncarnationControlFixture.class</include>
+                            </includes>
+                            <archive>
+                                <manifestEntries>
+                                    <Automatic-Module-Name>org.pangrova.testing.nativefixture</Automatic-Module-Name>
+                                </manifestEntries>
+                            </archive>
                         </configuration>
                     </execution>
                 </executions>
@@ -231,10 +305,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Xmx1g --add-opens=java.base/java.nio=ALL-UNNAMED -XX:MaxDirectMemorySize=2g -Dio.netty.allocator.type=unpooled</argLine>
+                    <argLine>@{jacoco.agent.argLine} -Xmx1g --add-opens=java.base/java.nio=ALL-UNNAMED -XX:MaxDirectMemorySize=2g -Dio.netty.allocator.type=unpooled</argLine>
                     <forkedProcessExitTimeoutInSeconds>60</forkedProcessExitTimeoutInSeconds>
-                    <rerunFailingTestsCount>1</rerunFailingTestsCount>
-                    <excludedGroups>native-required</excludedGroups>
+                    <rerunFailingTestsCount>0</rerunFailingTestsCount>
+                    <excludedGroups>${pangrova.worker.excludedTestGroups}</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*PropertyTest.java</include>
@@ -247,27 +321,36 @@
                     </excludes>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>io.github.ascopes</groupId>
-                <artifactId>protobuf-maven-plugin</artifactId>
-            </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>full-regression</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override">
+                                <exclude>none</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!--
           native-runtime: activated by CI/release builds (-Pnative-runtime) to include
           the per-platform classifier JAR on the runtime classpath. This JAR contains
           libpangrova_native under META-INF/native/{os}/{arch}/ for classpath extraction.
-          Development builds skip this profile and use java.library.path instead.
+          Local validation loads the qualified packaged Worker resource through the same loader.
         -->
         <profile>
             <id>native-runtime</id>
             <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
-        </dependency>                <dependency>
+                <dependency>
                     <groupId>org.pangrova</groupId>
                     <artifactId>pangrova-native-bundle</artifactId>
                     <classifier>${os.detected.classifier}</classifier>

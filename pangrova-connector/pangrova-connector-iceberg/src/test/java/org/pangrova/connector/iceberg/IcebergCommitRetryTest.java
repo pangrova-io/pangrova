@@ -2,9 +2,9 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.common.concurrent.RetryingCommitWrapper;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -163,10 +163,17 @@ class IcebergCommitRetryTest {
     private static final String NAMESPACE = "retry_db";
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "iceberg-retry-test");
+        }
     };
 
     private static final Schema TEST_SCHEMA = new Schema(
@@ -200,7 +207,7 @@ class IcebergCommitRetryTest {
         long snapshotBefore = table.currentSnapshot().snapshotId();
 
         AtomicReference<String> notifiedTable = new AtomicReference<>();
-        AtomicReference<org.pangrova.spi.connector.index.CommitEventType> notifiedType =
+        AtomicReference<org.pangrova.connector.api.enums.CommitEventType> notifiedType =
                 new AtomicReference<>();
         metadata.registerCommitListener(event -> {
             notifiedTable.set(event.tableName());
@@ -220,7 +227,7 @@ class IcebergCommitRetryTest {
                 .isEqualTo("delete_filter_notify");
         assertThat(notifiedType.get())
                 .as("Commit listener should receive DELETE event type")
-                .isEqualTo(org.pangrova.spi.connector.index.CommitEventType.DELETE);
+                .isEqualTo(org.pangrova.connector.api.enums.CommitEventType.DELETE);
     }
 
     /**
@@ -256,7 +263,7 @@ class IcebergCommitRetryTest {
         Table table = createTable("append_notify");
 
         List<String> notifiedPaths = new ArrayList<>();
-        AtomicReference<org.pangrova.spi.connector.index.CommitEventType> notifiedType =
+        AtomicReference<org.pangrova.connector.api.enums.CommitEventType> notifiedType =
                 new AtomicReference<>();
         metadata.registerCommitListener(event -> {
             notifiedPaths.addAll(event.addedFiles());
@@ -268,7 +275,7 @@ class IcebergCommitRetryTest {
         metadata.finishDistributedWrite(SESSION, handle, List.of(fragment));
 
         assertThat(notifiedType.get())
-                .isEqualTo(org.pangrova.spi.connector.index.CommitEventType.APPEND);
+                .isEqualTo(org.pangrova.connector.api.enums.CommitEventType.APPEND);
         assertThat(notifiedPaths).hasSize(1);
         assertThat(notifiedPaths.get(0)).contains("data-notify.parquet");
     }

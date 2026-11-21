@@ -1,5 +1,6 @@
 ---
 title: "Query Execution"
+description: "End-to-end query flow, Calcite integration, exchange protocol, and write path"
 sidebar_label: "Query Execution"
 ---
 
@@ -12,205 +13,138 @@ sidebar_label: "Query Execution"
 
 > **Summary.** The end-to-end query lifecycle — parse, optimize, Substrait conversion, native execution — plus the REST API, the exchange protocol, and the write path.
 
+The diagrams and interface sketches below are explanatory, not generated wire/API
+contracts or evidence that all statement forms are supported. Native Flight serves
+shuffle and results; the Worker JVM is not a result/shuffle batch relay. The canonical
+v2 definitions and current JNI exports take precedence over historical snippets.
+Read [Current Capability Status](../getting-started/capability-status.md) for default
+no-op providers, absent task registration, and qualification limits.
+
+## Query session ownership
+
+`pangrova-query` owns `api.session.QuerySession`. The immutable session borrows
+its exact issued `ConnectorQueryAuthority`; copying a session never creates,
+replaces or closes that lifetime. Tenant/property enrichment retains source
+snapshots, incremental ranges and the trusted internal-materialization marker.
+Client properties cannot set those trusted fields. SPI session conversion does
+not authenticate a caller or derive a trusted tenant from a name.
+
+Execution correlation is an Observability API snapshot. Entry services receive an
+explicit `ExecutionTraceContextFactory`; Server selects the OpenTelemetry factory.
+Capture preserves a valid current parent or creates a distinct unsampled root even
+when telemetry export is disabled. Asynchronous execution activates/closes its
+scope on the execution thread; no originating thread scope is retained. Query API
+loads without the SDK, Coordinator, Worker, Client DTOs or provider implementations.
+QueryManager and its lifecycle orchestration now live in `pangrova-query`'s
+runtime package behind explicit execution, admission, audit, journal and tenant
+ports; the Coordinator supplies the adapters. Query API still loads without the
+SDK, Coordinator, Worker, Client DTOs or provider implementations.
+
 ## 1. End-to-End Query Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           End-to-End Query Flow                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Client                                                                          │
-│    │ SQL: SELECT * FROM iceberg.db.orders WHERE date > '2024-01-01'             │
-│    ▼                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                         Coordinator                                      │    │
-│  │                                                                          │    │
-│  │  2. SQL Parser (ANTLR4) → AST                                           │    │
-│  │  3. Semantic Analyzer → bind Catalog/Schema/Table, type checking        │    │
-│  │  4. Calcite Optimizer → logical optimization + physical optimization    │    │
-│  │  5. Plan Fragmenter → generate distributed exec plan, split into Stages │    │
-│  │  6. Substrait Converter → Calcite RelNode → Substrait Plan              │    │
-│  │  7. Split Manager → call Connector SPI, generate Splits                 │    │
-│  │  8. Task Scheduler → assign Splits to Workers                           │    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ HTTP: TaskDescriptor (Substrait + Splits)     │
-│                                 ▼                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                        Output Worker (Result)                            │    │
-│  │                                                                          │    │
-│  │  10. Task Manager → receive task, validate, enqueue                     │    │
-│  │      │ JNI Call                                                         │    │
-│  │      ▼                                                                  │    │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │    │
-│  │  │  Native Layer (C++)                                              │   │    │
-│  │  │  11. Substrait Parser → Protobuf → Velox PlanNode               │   │    │
-│  │  │  12. Velox Task → create Task, build Pipeline, register Splits │   │    │
-│  │  │  13. Pipeline Execution → vectorized execution (Batch 8192 rows)│   │    │
-│  │  │  14. Native I/O → Parquet/ORC Reader, S3/HDFS FileSystem        │   │    │
-│  │  └─────────────────────────────────────────────────────────────────┘   │    │
-│  │      │ Arrow RecordBatch (via Arrow C Data Interface)                   │    │
-│  │      ▼                                                                  │    │
-│  │  15. Result Buffer → cache results, await pull or send via Arrow Flight│    │
-│  │                                                                          │    │
-│  └──────────────────────────────┬──────────────────────────────────────────┘    │
-│                                 │ Arrow Flight: DoGet                            │
-│                                 ▼                                                │
-│  Client receives results from Output Worker                                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 
+### Live split enumeration and published reads
+
+`QuerySplit` in `pangrova-query` owns the immutable encoded split plus cache-affinity
+locations. Enumeration and dispatch consume this value without depending on a nested
+class of the catalog fetch implementation. It owns no connector session or buffer lease and does not grant publication or data-access
+authority. Execution still validates the encoded connector payload.
+
+The stage binding layer calls the typed `StageSplitSource` seam. Catalog enumeration
+and index-aware enumeration are implementations; the latter owns pruning, not
+Generation service discovery. A provider failure, cancellation or authorization
+rejection propagates to the query. A real table scan without its configured catalog
+registry fails; a source-free plan can legitimately have no connector splits.
+Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
+
+Server constructs published-artifact and generated-value readers from the configured
+Generation store and passes both explicitly into Query/DAG construction. The readers
+are borrowed by dispatch and independent of whether index pruning is enabled. They
+are never installed later through `IndexAwareSplitFetcher`. Storage connections,
+current authorization, transaction fencing and publication facts retain their
+existing owners.
+
+`StageSplitSource` and the stage binder still reside in the existing Coordinator
+artifact during this migration: their signatures include live Planner and session
+types. Only the closed `QuerySplit` value lives in Query API; the remaining
+Query/Planner contracts must be separated before moving the whole execution family.
+Index descriptor caching, mapping persistence orchestration and evaluation metrics
+now belong to Indexing Core; the catalog-scoped connector access adapter is separate
+from DDL command handling.
+
 ## 2. Calcite Integration
+
+### AST package ownership
+
+`org.pangrova.parser.api.ast` owns the shared expression/statement contracts, type
+discriminators and query clauses. Built-in nodes declare their own `type()`;
+the base interfaces do not import or register concrete statement/expression
+classes. `ast.expression` and the `ast.statement` capability packages therefore
+depend on shared AST contracts in one direction. `RerankClause` is a query clause
+in `ast`, alongside `Query` and `WindowSpec`, rather than a concrete expression.
+
+The `AlterTableStatement`, `ShowMetadataStatement`, grouping and select-item
+sealed families retain their closed subtype sets. Parser extension statements
+can still implement `Statement`; an extension without a built-in discriminator
+continues to fail explicitly when `type()` is requested. Built-in kinds also cover
+storage-profile DDL, table-control inspection and
+subscript expressions. This discriminator does not grant execution support or
+replace Planner validation.
 
 ### 2.1 The Role of Calcite in Pangrova
 
-```
-SQL Query
-    ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Pangrova SQL Parser (ANTLR4) - custom SQL extensions                     │
-│  • OPTIMIZE, VACUUM, TIME TRAVEL, etc.                                  │
-│  • Generate Calcite SqlNode                                             │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite Validator - semantic analysis, type checking, name resolution (via PangrovaSchema) │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite SqlToRelConverter - SqlNode → RelNode (logical plan)           │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Calcite Planner                                                        │
-│  Phase 1: HepPlanner (logical optimization) - predicate pushdown, projection pushdown, constant folding │
-│  Phase 2: VolcanoPlanner (physical optimization) - Join ordering, algorithm selection, partition pruning │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Pangrova Physical Plan - distributed plan (Stage division), Exchange insertion │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Substrait Converter - RelNode → Substrait Plan, serialized to Protobuf │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
 **Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.
 
-```
-Serialization timing and location:
-  Coordinator:
-    Calcite RelNode → SubstraitConverter.toSubstrait(relNode) → Substrait Plan (Java object)
-    → SubstraitPlan.toByteArray() → byte[] (Protobuf serialization)
-    → Base64.encode(bytes) → TaskDescriptor.substraitPlan (JSON string)
+The converter materializes Calcite's validated numeric result type in the function
+arguments. When an arithmetic expression has a floating result and a DECIMAL
+operand, it emits an explicit DECIMAL-to-floating cast before serializing the
+function call. Native binding then checks the exact argument and result signature;
+it does not guess an implicit conversion. Exact DECIMAL arithmetic retains its
+DECIMAL arguments and precision/scale contract.
 
-  Worker (Java):
-    TaskDescriptor.substraitPlan → Base64.decode → byte[]
-    → TaskRequest.substrait_plan = bytes (passed directly, not deserialized)
-    → nativeCreateTaskExecutor(taskRequestBytes) → Native layer
-
-  Worker (Native C++):
-    TaskRequest.substrait_plan → SubstraitParser::parse(bytes) → Velox PlanNode
-```
+![Serialization timing and location:](../../website/static/img/diagrams/generated/query-execution-02-27cbbf704f.svg)
 
 ### 2.2 Schema Hierarchy
 
-`MetadataSchemaBuilder` is the implemented coordinator entry point: it builds a
-Calcite `CalciteSchema` from `CatalogRegistry`. The class sketch below is conceptual
-and should not be copied as the current source API.
+Planner's `MetadataSchemaBuilder` constructs a Calcite root for the authenticated
+compilation. `MetadataService` enumerates visible catalogs. `CatalogReadAccess`
+supplies each borrowed catalog handle and the table ownership checks. Server wires
+the live registry. The planner package has no compile dependency on Coordinator
+or the Metadata implementation.
 
-
-```java
-/**
- * Conceptual schema hierarchy for all catalogs in the Calcite schema tree.
- *
- * Uses MetadataService (metadata.md §3.1) as the unified entry point
- * for all metadata operations. Does NOT access CatalogRegistry or CatalogHandle
- * directly — MetadataService encapsulates access control, caching, and routing.
- */
-public class MetadataSchemaBuilder {
-    private final MetadataService metadataService;
-    private final SessionContext sessionContext;
-
-    @Override
-    protected Map<String, Schema> getSubSchemaMap() {
-        // Lazy-load Catalog Schemas via MetadataService.listCatalogs()
-        // MetadataService handles tenant filtering and access control internally
-        for (String catalogName : metadataService.listCatalogs(sessionContext)) {
-            subSchemas.computeIfAbsent(catalogName,
-                name -> new PangrovaCatalogSchema(metadataService, sessionContext, name));
-        }
-        return subSchemas;
-    }
-}
-
-/**
- * PangrovaCatalogSchema — Represents a single Catalog in the Calcite schema tree.
- *
- * Delegates schema/table listing to MetadataService rather than holding a
- * CatalogHandle reference directly. This ensures all metadata access goes
- * through the unified entry point with access control and caching.
- * See metadata.md §3.1 for MetadataService API.
- */
-public class PangrovaCatalogSchema extends AbstractSchema {
-    private final MetadataService metadataService;
-    private final SessionContext sessionContext;
-    private final String catalogName;
-
-    @Override
-    protected Map<String, Schema> getSubSchemaMap() {
-        Map<String, Schema> schemas = new LinkedHashMap<>();
-        for (String schemaName : metadataService.listSchemas(sessionContext, catalogName)) {
-            schemas.put(schemaName,
-                new PangrovaSchemaSchema(metadataService, sessionContext, catalogName, schemaName));
-        }
-        return schemas;
-    }
-}
-
-/**
- * Pangrova Table - Calcite Table implementation, bridges to Connector SPI.
- */
-public class PangrovaTable extends AbstractTable implements ScannableTable {
-    @Override
-    public RelDataType getRowType(RelDataTypeFactory typeFactory) {
-        ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(session, tableHandle);
-        // Convert to Calcite RelDataType
-    }
-
-    @Override
-    public Statistic getStatistic() {
-        TableStatistics stats = metadata.getTableStatistics(session, tableHandle);
-        return new PangrovaStatistic(stats);
-    }
-}
-```
+`LazyMetadataSchema` uses a direct connector lookup for a named table and lists
+tables for explicit enumeration. Catalog failures propagate as metadata errors.
+Each compilation owns one `PlanningReadBindings` instance shared by Calcite table
+declarations and cost statistics. It verifies table identity, the selected snapshot
+or incremental range, and retained query authority. A reused binding is checked
+against the current table owner. `CatalogStatisticsProvider` can use statistics
+from ANALYZE while the stored version matches. Worker receives the bound execution
+plan; Calcite schemas remain in the coordinator process.
 
 ### 2.3 Custom Optimization Rules
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Pangrova Optimization Rules                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Logical Rules (HepPlanner):                                                    │
-│  • FilterPushdownRule, ProjectPushdownRule, ConstantFoldingRule                 │
-│  • SubqueryRemoveRule, JoinConditionPushdownRule, AggregateRemoveRule           │
-│                                                                                  │
-│  Physical Rules (VolcanoPlanner):                                               │
-│  • HashJoinRule, MergeJoinRule, BroadcastJoinRule                               │
-│  • HashAggRule, SortAggRule, StreamingAggRule                                   │
-│                                                                                  │
-│  Connector-Specific Rules:                                                      │
-│  • IcebergPartitionPruningRule, IcebergTimeTravelRule                           │
-│  • PaimonBucketPruningRule, IcebergDeleteFileRule                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Equality-based join algorithms require at least one paired equality key.
+`HashJoinRule`, `BroadcastJoinRule` and `SortMergeJoinRule` check this before
+considering cost or input size. Cross joins and pure theta joins retain the
+general join representation for Native execution. CBO join reassociation matches
+logical joins only: changing the inputs or predicate of an already selected
+physical join would invalidate its algorithm and required exchanges. Stage
+serialization continues to reject equality joins with empty keys and broadcast
+joins without a broadcast exchange.
+
+Production fragment validation captures the union of current active Workers'
+validated relation, expression and function inventories. The standalone compiler's
+conservative name defaults do not represent cluster support. This coarse check
+admits a name available on an eligible Worker; exact kind/URN/signature, build
+identity and placement admission still run for the selected execution target.
+An empty or invalid Worker inventory fails instead of substituting defaults.
+
+![Pangrova Optimization Rules](../../website/static/img/diagrams/generated/query-execution-03-d9e61ca9e9.svg)
 
 ### 2.4 Cost Model
 
@@ -230,32 +164,42 @@ public class PangrovaCostModel implements RelOptCostFactory {
 
 ### 3.1 Stage Division Example
 
-```
-SQL: SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.customer_id = c.id
-     WHERE o.date > '2024-01-01'
-     GROUP BY c.name
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-05-e9d1263e7c.svg)
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Stage 0 (Source): Scan Orders                                                  │
-│  Worker-1/2/3: TableScan → Filter → Project → PartialAgg → LocalExchange       │
-│                                    ↓ Shuffle (Hash by customer_id)              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 1 (Source): Scan Customers                                               │
-│  Worker-1/2/3: TableScan                                                        │
-│                                    ↓ Shuffle (Hash by id)                       │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 2 (Join + Final Agg)                                                     │
-│  Worker-1/2/3: Exchange(orders) → Exchange(customers) → HashJoin → FinalAgg    │
-│                                    ↓ Gather (Single Partition)                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 3 (Output) — Data Plane, executed on Output Worker                        │
-│  Output Worker: Exchange (Gather) → Merge → Limit → Output to Client            │
-│  NOTE: The Coordinator does not participate in data processing; the Output Stage runs on a dedicated Output Worker │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Correlated subqueries that remain as Calcite's
+`org.apache.calcite.rel.logical.LogicalCorrelate` after
+optimization execute in one task until their outer-row binding is converted.
+Splitting their right-side input into an upstream stage would separate the
+correlated filter from that binding. Native UNNEST retains its separate
+single-input conversion and can still use the ordinary stage layout.
+The Substrait conversion rewrites supported equality-correlated scalar
+aggregates into a grouped aggregate and left join, preserving computed
+projections such as `AVG`'s sum/count division. This correctness path does not
+provide distributed parallelism for those queries; distributed decorrelation
+before fragmentation remains necessary for scalable execution.
+For supported equality-correlated existence shapes, the filter becomes an
+explicit semi/anti join condition. A constant-grouped existence marker is
+reconstructed after the semi join when the parent plan references it. Other
+correlated forms fail explicitly instead of emitting an unbound cross join.
+For scalar `COUNT`, the left join restores zero when the grouped side has no
+matching row, before evaluating computed projections such as `COUNT(*) + 1`.
+LATERAL `COUNT` is decorrelated by Calcite with an explicit `CASE ... ELSE 0`; its
+declared non-null result type is preserved across stage exchange schemas.
 
 ### 3.2 Exchange Types
+
+Live query fragmentation caps exchange partition cohorts by the schedulable
+worker count and the per-worker task limit before assigning partition IDs.
+This keeps the plan's exchange identity aligned with dispatch capacity; a
+later dispatcher cannot safely shrink an already allocated cohort.
+For a bound table scan, source-stage parallelism uses the larger of Calcite's
+estimated scan bytes and the selected connector snapshot's independently
+scannable source work units, subject to the cluster parallelism cap. Iceberg
+publishes its selected snapshot's data-file count as this work-unit estimate;
+connectors without trustworthy source-unit metadata report it as unknown and
+retain byte-based planning. This keeps small, highly compressed files from
+collapsing a multi-file scan into one source task while the downstream exchange
+cohort remains fixed before dispatch.
 
 | Exchange Type | Description | Use Case |
 |--------------|------|----------|
@@ -266,38 +210,60 @@ SQL: SELECT c.name, SUM(o.amount)
 
 #### 3.2.1 Data Serialization Format Selection
 
-Different data-transfer scenarios use different serialization formats to balance performance and compatibility:
+The implemented shuffle and result paths use Flight as a transport but do not
+share an identical payload format. The following table separates these paths
+from other storage and JNI interfaces:
 
 | Transfer Scenario | Serialization Format | Zero-copy | Note |
 |----------|-----------|--------|------|
-| Native→Java within Worker | Arrow C Data Interface | ✓ | JNI passes pointers, no serialization overhead |
-| Worker-to-Worker Shuffle (Arrow Flight) | Arrow IPC (Streaming) | ✗ | gRPC transport, must serialize to IPC bytes |
-| Output Worker→Client (Arrow Flight) | Arrow IPC (Streaming) | ✗ | Same as above |
-| RAM Cache storage | Arrow IPC (File) | ✗ | Persisted to memory/SSD, requires serialization |
-| Spill to disk | Arrow IPC (File) + LZ4 | ✗ | Compressed and written to NVMe SSD |
-| Shuffle S3 persistence | Arrow IPC (File) | ✗ | S3 persistence uses File format (with footer), consistent with Cache |
+| Worker-to-Worker Shuffle (Native Flight) | Velox PrestoVectorSerde page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
+| Output Worker→Client (Flight) | Arrow IPC RecordBatch where supported | ✗ | Result path is separate from the shuffle page format |
+| Native→Java columnar bridge | Arrow C Data Interface | Potentially | Interface exists, but is not the current Worker-to-Worker shuffle path |
+| RAM Cache storage | Component-specific | — | Not the shuffle wire contract |
+| Velox operator spill | Velox-managed | — | Not an Arrow IPC shuffle persistence guarantee |
+| Shuffle remote persistence | Not a current recovery guarantee | — | Do not assume producer-loss recovery from an S3 Arrow IPC file |
 
 
 
-> **IPC Format Selection**: Network shuffle uses Arrow IPC Streaming format (no footer, sequential read). Persistence to S3 and local disk uses Arrow IPC File format (with footer for random access and schema self-description). This is consistent with the RAM Cache storage format.
+The Native Flight server wraps each serialized shuffle page as the value of a
+single Arrow binary cell; the consumer extracts and deserializes that page into
+Velox. Flight's Arrow IPC framing must not be confused with the shuffle
+payload's PrestoVectorSerde format.
+
+The current Arrow Flight reader exposes synchronous `Next()` calls. Native
+exchange reads therefore run on a dedicated blocking-I/O CPU pool; Flight
+long-poll timers and completion continuations run on separate event-base
+threads. A blocked upstream stream must not occupy the event base that wakes
+other exchange sources. The blocking pool is drained before the timer pool
+during runtime shutdown, after task cancellation closes the streams.
+
+At the Velox-to-Arrow IPC boundary, the exported C Data array's `null_count`
+is recomputed from its validity bitmap, including nested children. Velox
+expression results can retain a cached count from an earlier nullable input;
+the wire metadata must describe the exported bitmap before Arrow imports the
+record batch.
+
+Planner serialization keeps Substrait join keys in the current `keys` field.
+The Java SDK may also emit deprecated `left_keys` and `right_keys` for an
+equijoin; the serializer removes those duplicate fields only when each entry
+matches its current key. Native rejects plans that still contain deprecated
+join key lists.
+
+For a join with an ON predicate that contains both equijoin keys and residual
+conditions, the planner serializes the complete predicate inside `JoinRel`.
+The native join evaluates the residual while matching rows. A filter placed
+above a LEFT or RIGHT join would instead remove the null-padded row and change
+the outer join into an inner join for that row. Physical hash, broadcast, and
+merge join rules require at least one equijoin key; a non-equijoin predicate
+continues through the supported logical join conversion path.
 
 Format conversion paths:
-```
-Native Velox Pipeline (RowVector)
-  │
-  ├─ Result output → nativeGetNextBatch() → Arrow C Data Interface (zero-copy) → Java
-  │                                      → Arrow Flight putNext() → Arrow IPC bytes → network
-  │
-  ├─ Shuffle output → nativeGetShuffleBatch() → Arrow C Data Interface (zero-copy) → Java
-  │                                            → Arrow Flight putNext() → Arrow IPC bytes → network
-  │
-  └─ Spill → Velox SpillManager → Arrow IPC File + LZ4 → NVMe SSD
-```
+![Native Velox Pipeline (RowVector)](../../website/static/img/diagrams/generated/query-execution-06-8a6912bd82.svg)
 
 Key performance points:
-- Native↔Java transfer within a Worker uses the Arrow C Data Interface, with zero serialization overhead
-- Worker-to-Worker network transfer uses the Arrow IPC Streaming format; Arrow Flight (gRPC) handles serialization automatically
-- No explicit conversion is needed between the two formats: once the Java layer obtains Arrow C Data from Native, the Arrow Flight SDK internally serializes it into IPC bytes for sending
+- The Arrow C Data bridge does not make the current result or shuffle network path zero-copy
+- Worker-to-Worker shuffle uses Native Arrow Flight and serialized pages; it does not cross JNI per batch
+- The downstream Native ExchangeSource reads the Flight stream directly into Velox
 
 ### 3.3 Output Task Interaction Protocol (the Coordinator never participates in data processing)
 
@@ -328,36 +294,11 @@ The Coordinator executes no data-processing operators. All Output Stages (includ
 
 Using `SELECT * FROM orders ORDER BY amount LIMIT 10` as an example:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Planner-generated Stage DAG                                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Stage 1 (N Compute Tasks, distributed across Worker-1..N)                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  TableScan(orders) → Filter → Partial Sort(amount) → Partial TopN(10) │   │
-│  └──────────────────────────────────┬──────────────────────────────────────┘   │
-│                                     │ Exchange (GATHER, single partition)       │
-│                                     ▼                                          │
-│  Stage 0 (1 Output Task, assigned to the Output Worker)                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Exchange Source → Final Merge Sort(amount) → Final TopN(10) → Output  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                     │                                          │
-│                                     ▼                                          │
-│                              Arrow Flight Stream → Client                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Planner-generated Stage DAG](../../website/static/img/diagrams/generated/query-execution-07-1fd429c5ec.svg)
 
 A more complex example — `SELECT c.name, SUM(o.amount) FROM orders o JOIN customers c ON o.cid = c.id GROUP BY c.name LIMIT 100`:
 
-```
-Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)
-Stage 3: TableScan(customers) → Exchange(REPARTITION by id)
-Stage 1: Exchange(orders) + Exchange(customers) → HashJoin → Final Agg → Exchange(GATHER)
-Stage 0: Exchange Source → TopN(100) → Output  ← Output Task
-```
+![Stage 2: TableScan(orders) → Partial Agg(SUM) → Exchange(REPARTITION by cid)](../../website/static/img/diagrams/generated/query-execution-08-18fdcb8a9e.svg)
 
 #### 3.3.3 REST API Definitions
 
@@ -373,13 +314,66 @@ Coordinator exposes (HTTP/REST):
 Worker exposes (HTTP/REST):
 - `POST /v1/task` SubmitTask
 - `DELETE /v1/task/{taskId}` CancelTask
-- `POST /v1/task/{taskId}/exchange-sources` UpdateExchangeSources
 - `POST /v1/task/{taskId}/dynamic-filter` InjectDynamicFilter
 - `POST /v1/task/upstream-commit` NotifyUpstreamCommit
 - `GET /v1/health` HealthCheck
 
 Worker -> Coordinator (HTTP/REST):
 - `POST /v1/task/status-report` ReportTaskStatus
+
+The Coordinator accepts a status report only while it retains the matching
+issued TaskRequest and attempt identity. A report for a merely registered task
+without an issued request is rejected before sequence reservation. An exact
+report whose publication already completed may be reacknowledged after a lost
+HTTP response without repeating publication. Speculative loser cleanup reads
+and retires the retained execution-drain receipt under one lock, so concurrent
+compaction cannot turn the same receipt into a false mismatch; caller-supplied
+receipts still require exact equality.
+For durable artifact producers, a `FINISHED` report may commit its page only
+after the corresponding Coordinator task has entered `SCHEDULED` or `RUNNING`.
+Preparing an issued identity alone cannot commit the page. Exact retransmission
+is acknowledged after publication; a new terminal sequence after completion
+cannot commit the page again.
+
+Durable artifact graph and exchange evidence values are independent of JSON and
+JDBC. `GenerationStageGraphCodec` and `GenerationExchangeEvidenceCodec` own their
+canonical persistence bytes and SHA-256 identities. Both writing and replay
+limit the complete encoded envelope to 16 MiB, including JSON escaping and
+Base64 expansion. Encoding stops before buffering excess bytes; oversized
+evidence cannot be persisted and later become unreadable. The submission
+factory validates graph size before returning a dispatch specification, and
+all build insertion paths validate again before SQL mutations, including
+caller-owned transactions. Domain record construction alone is not persistence
+admission. Stored graph format 2, immutable bindings, owner/fence validation
+and canonical replay comparison remain unchanged.
+
+Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
+exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
+publication routing and generic immutable read binding live in `pangrova-generation-workflow` under
+`org.pangrova.generation`. The generic reader has no Query retrieval intent or ANN eligibility
+branch; query-side retrieval planning selects the capability and handles permitted exact-plan
+fallback. Task-local materialization still verifies the exact source object coverage and checksum.
+
+AI Control owns the catalog export request and transaction adapter, exposed by
+`ai.control.assembly.AiInfrastructureStores` as a catalog-export port. Process assembly supplies
+the real job-submission transaction provider explicitly; the AI factory has no default Metadata
+lookup. It inserts the generic build and Feature View/Training Dataset association on one
+connection, and rolls back both on failure. Generic job/stage/exchange ports currently belong to
+Persistence API; actual PostgreSQL implementations belong to Persistence JDBC, with injected
+authority, execution fence, current roles and publication candidate ports. Their target per-domain
+API/provider split remains in progress. Core depends on neither the JDBC provider nor Coordinator.
+Current-authority and domain-publication adapters still remain
+in Metadata pending their owner migration. This does not yet remove the startup
+dependency on Indexing.
+
+Materialization lifecycle writes and reader-pin acquisition share the
+materialization JDBC transaction helper. Pin acquisition still locks the generation
+for share and checks its readable state on the same connection as the upsert.
+Materialization and Shuffle transaction owners roll back SQL, runtime, and Error
+failures, retain rollback exceptions as suppressed causes, and close their owned
+connections without restoring auto-commit after a failure. This prevents failure
+cleanup from committing a partial object, pin, or shuffle mutation; it does not
+change publication authority, lock order, or caller-owned transaction boundaries.
 
 Arrow Flight (data plane):
 - Shuffle data pull + Client result pull (gRPC streaming)
@@ -417,7 +411,11 @@ Response:
 }
 ```
 
-All query types return a `resultEndpoint`. For constant expressions and DDL/DML, the endpoint points to the Coordinator's own Flight server. For distributed queries, it points to the Output Worker.
+Every relational query returns the direct Output Worker `resultEndpoint`. This
+includes tableless constants, folded expressions, `LIMIT 0`, and connector
+system-table `SELECT` statements: none may be evaluated, buffered, cached, or
+proxied by the Coordinator. Bounded DDL/SHOW/DML acknowledgement rows are the
+only exception and use an isolated control-plane result transport.
 
 
 
@@ -467,38 +465,49 @@ Response:
 Submit Task `POST /v1/task`
 
 
-Request: The request body is a `TaskDescriptor` JSON object (see TaskDescriptor JSON schema below).
+Request: the body is a `SubmitTaskRequest` transport envelope with exactly one
+field, `canonical_task_request`. Its value is the Base64 encoding of one complete
+canonical v2 `TaskRequest`. The Worker validates and parses those bytes but does
+not reconstruct protocol state from REST fields.
 
 Response:
 ```json
 {
     "accepted": true,
-    "rejectReason": "",
-    "resultEndpoint": {
+    "reject_reason": null,
+    "task_id": "task-1",
+    "result_endpoint": {
         "host": "worker-3",
         "port": 8082,
-        "ticket": "query-20260206-001",
+        "ticket": "task-1",
         "protocol": "arrow-flight"
-    }
+    },
+    "shuffle_endpoint": null
 }
 ```
 
 
 
-| Scenario | HTTP Status | `accepted` | `rejectReason` | Description |
-|----------|-------------|------------|----------------|-------------|
-| Task accepted | 200 OK | `true` | `""` | Normal acceptance |
-| Business rejection (slot full, duplicate taskId) | 200 OK | `false` | `"no available slot"` / `"duplicate task"` | Worker rejects at application layer; Coordinator reschedules to another Worker |
-| Resource exhaustion (memory pressure CRITICAL) | 503 Service Unavailable | — | — | Worker cannot accept any tasks; Coordinator removes Worker from scheduling pool temporarily |
-| Invalid request (malformed JSON, unknown fields) | 400 Bad Request | — | — | Client error; Coordinator logs and fails the task |
-
-> **Design rationale**: Business-level rejections use HTTP 200 + `accepted: false` so the Coordinator can distinguish "Worker is healthy but busy" from "Worker is unhealthy" (503). This avoids false-positive Worker health demotion in the Coordinator's Worker scoring model ([01 §10](./distributed.md)).
+| Scenario | HTTP Status | `accepted` | Description |
+|----------|-------------|------------|-------------|
+| Task accepted | 200 OK | `true` | Canonical admission and task creation succeeded |
+| Missing, malformed, or non-canonical request | 400 Bad Request | — | REST decoding or request validation rejects the body |
+| Stale control/owner fence | 409 Conflict | `false` | Attempt cannot execute under the active ownership epoch |
+| Control plane not ready | 503 Service Unavailable | `false` | Worker has not received a usable control epoch |
+| Other admission/start failure | 500 Internal Server Error | `false` | Task is not accepted; the Coordinator handles the classified dispatch failure |
 
 Cancel Task `DELETE /v1/task/{taskId}`
 
-Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
+Exchange sources are complete, fenced task-admission bindings carried by
+`POST /v1/task`. There is deliberately no REST API that replaces sources for a
+running task: a producer retry creates a new downstream attempt, and the old
+attempt is fenced. This prevents mixing rows from different attempts.
 
-**TaskDescriptor JSON (SubmitTask request body)**
+**Historical expanded TaskDescriptor design (not a production API)**
+
+The following expanded shape is retained only to explain older diagrams in this
+document. It is not accepted by `POST /v1/task`; all fields shown below now live
+inside the canonical v2 protobuf named above.
 
 
 
@@ -519,12 +528,24 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
     ],
     "exchangeSources": [
         {
-            "sourceTaskId": "task-2",
+            "plan_node_id": "exchange-input-ex-1",
+            "exchange_id": "ex-1",
+            "expected_source_partitions": 1,
+            "source_task_id": "task-2",
+            "source_stage_id": 1,
+            "source_partition_id": 0,
+            "output_partition_id": 0,
+            "plan_epoch": 41,
+            "attempt_id": 0,
+            "fencing_token": 176093659137,
             "host": "worker-1",
-            "transportPort": 8082,
-            "partitionId": 0,
-            "exchangeType": "GATHER",
-            "sequenceId": 12
+            "transport_port": 8082,
+            "tls_identity": "worker-1.internal",
+            "signed_ticket": "<opaque-producer-issued-ticket>",
+            "ticket_expires_at_epoch_ms": 1788300000000,
+            "expected_rows": 0,
+            "expected_bytes": 0,
+            "read_mode": "BLOCKING"
         }
     ],
     "resourceLimit": {
@@ -546,13 +567,19 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
 
 > **Field Notes**:
 > - `taskType`: One of `COMPUTE`, `OUTPUT`, `WRITE`. Coordinator sets this explicitly. If absent (legacy), Worker infers: `writeConfig != null` → WRITE; `outputConfig != null` → OUTPUT; otherwise → COMPUTE.
-> - `splits`: Array of base64-encoded `SplitInfo` Protobuf bytes. Each element is serialized using the same `SplitInfo` message defined in [03 §5.3](./native-execution.md). Worker base64-decodes each element and passes the raw bytes into `TaskRequest.splits` (repeated `SplitInfo`). This is consistent with `substraitPlan` serialization (base64-encoded Protobuf).
+> - This expanded JSON is historical design context, not the production request
+> schema. The actual `SubmitTaskRequest` contains one Base64-encoded canonical v2
+> `TaskRequest`; its `splits` field is repeated `DataSplit`. REST does not mirror
+> task identity, plan, splits, exchange, resource, security, or write fields.
 > - `stageId` / `partitionId`: Passed through to `TaskRequest` Protobuf for Native-layer logging and metrics correlation. See the field mapping table in [03 §5.3](./native-execution.md).
-> - `exchangeSources` / `outputConfig`: **Java-layer only** — these fields are not
-> passed to the native `TaskRequest`. Java exchange handling uses
-> `ExchangeSourceRegistry`, remote shuffle sources/sinks, and
-> `NativeExchangeTransport`; the native layer receives the plan, splits, resource
-> limits, session properties, and task metadata.
+> - `exchangeSources`: converted into typed Native `ExchangeInput` bindings before
+> task start. JVM performs validation and lifecycle wiring only; Arrow batches,
+> partition routing, retry isolation and merge execution remain in Native.
+> - Every source has a stable logical producer identity
+> `(source_stage_id, source_partition_id)` plus `(plan_epoch, attempt_id,
+> fencing_token)`. Duplicate logical producers and missing fences fail closed.
+> - Producer-issued tickets are opaque, partition-scoped credentials. They are
+> never synthesized by the Coordinator.
 
 
 
@@ -583,10 +610,12 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
 
 
 
-**Composite Task Model**: An INSERT INTO ... SELECT statement is executed as a single Composite Task per Worker. The Worker internally runs two phases within the same Task lifecycle:
+**Composite Task Model**: A read-dependent write runs as a Worker task. The
+Native execution/drain path and Java connector sink share the task lifecycle:
 
-1. **Phase 1 (Native SELECT)**: Velox executes the SELECT portion via `nativeCreateTaskExecutor()` / `nativeStartTask()` / `nativeGetNextBatch()`, producing Arrow RecordBatch output.
-2. **Phase 2 (Java Write)**: Java `TableWriter.writeBatch()` ([10 §2.6](./streaming.md)) receives each RecordBatch and writes to the target table via Iceberg/Paimon SDK.
+1. **Native producer**: Velox executes the SELECT plan and places RowVectors on the task's output queue.
+2. **Write drain**: Native serializes each output batch to Arrow IPC and synchronously invokes the Java `NativeWriteExecutor`/`ConnectorPageSink` through JNI. `finishWithMetadata()` returns a staged connector fragment; it does not publish the catalog snapshot.
+3. **Catalog publication**: The Coordinator collects fenced task fragments and calls the connector's `finishDistributedWrite()` after all required tasks succeed. See [distributed-writes.md](./distributed-writes.md) for recovery limits.
 
 The Coordinator identifies Write Tasks by the presence of `writeConfig` in the TaskDescriptor. The `taskType` field in the Native TaskRequest Protobuf is set to `TASK_TYPE_WRITE` for these tasks.
 
@@ -627,58 +656,82 @@ The Coordinator collects `writeResult` from all Write Tasks, then performs an at
 
 
 
-**Write Path Backpressure**: The Write Path reuses the Read Path's natural Pull-mode backpressure. Java `TableWriter.writeBatch()` is a blocking call — if the Iceberg/Paimon SDK write is slow (e.g., S3 upload), the Java thread blocks, which in turn delays the next `nativeGetNextBatch()` JNI call, causing the Velox pipeline to stall naturally. No additional backpressure mechanism is needed beyond the synchronous pull loop.
-
-**UpdateExchangeSources request body**
-
-```json
-{
-    "taskId": "task-1",
-    "queryId": "query-20260206-001",
-    "exchangeSources": [
-        {
-            "sourceTaskId": "task-3",
-            "host": "worker-2",
-            "transportPort": 8082,
-            "partitionId": 0,
-            "exchangeType": "GATHER",
-            "sequenceId": 13
-        }
-    ],
-    "reason": "TASK_RESCHEDULED"
-}
-```
-
-Key semantics:
-- `exchangeSources` is a full list; upon receipt the Worker directly replaces its local cache
-- `sequenceId` is monotonically increasing; the Worker uses it to detect stale messages (discarding updates where sequenceId <= the current value)
-- After receiving an update, the Worker disconnects old connections and establishes new ones; already-pulled data must be discarded (an upstream Task reschedule means the data must be recomputed)
+**Write Path Backpressure**: The Native write drain synchronously invokes the
+Java page sink for each IPC batch. A slow connector delays draining the bounded
+output queue and backpressures the Native producer. Queue closure alone does
+not authorize publication: the drain checks the producer's terminal outcome
+before finalizing the staged fragment.
 
 **TaskStatusReport (Worker -> Coordinator)**
 
 `POST /v1/task/status-report`
 
+The REST body projects the fenced attempt identity from the canonical v2
+`TaskRequest`. Terminal reports also carry `canonical_task_report` (base64-encoded
+protobuf bytes in JSON). REST state, task ID, attempt, control epoch, execution
+owner, coverage, and resource usage must agree with the Coordinator's retained
+request; REST fields alone are not completion evidence.
+This POST has an 8 MiB HTTP body limit to carry the bounded 4 MiB canonical
+report after JSON/Base64 encoding. Other task and public routes retain the
+generic 1 MiB request limit.
+
 Request:
 ```json
 {
-    "taskId": "task-1",
-    "queryId": "query-20260206-001",
-    "workerId": "worker-1",
+    "task_id": "task-1",
+    "query_id": "query-20260206-001",
+    "stage_id": 1,
+    "partition_id": 0,
+    "task_type": "COMPUTE",
+    "worker_id": "worker-1",
     "state": "RUNNING",
-    "stats": {"outputRows": 1024, "outputBytes": 1048576},
+    "attempt": {"plan_epoch": 1, "attempt_id": 0, "fencing_token": 4294967297},
     "error": null,
-    "reportSequence": 7,
-    "timestampMs": 1707300000000
+    "report_sequence": 7,
+    "timestamp_ms": 1707300000000
 }
 ```
 
 Response:
 ```json
 {
-    "taskId": "task-1",
-    "command": "NONE"
+    "task_id": "task-1",
+    "command": "CONTINUE"
 }
 ```
+
+For `FINISHED`, Native completion and a validated Native-origin `TaskReport`
+are required; result-buffer readiness alone does not finish the task. For
+`FAILED` or `CANCELLED`, the Worker may produce a fenced
+`TASK_REPORT_ORIGIN_WORKER_RECONCILED` report when Native did not produce a
+usable terminal report. That report preserves a structured Native error only
+from the same attempt and Native origin; Native usage must also fit the task's
+resource grant. Its zero completed work units mean no trustworthy successful
+work-unit evidence was available; they do not claim that every split physically
+ran and failed. A reconciled report cannot claim success. Terminal reports with
+an unspecified origin, missing canonical bytes, or mismatched identity/coverage
+are rejected rather than downgraded to REST-only completion.
+
+A cancellation request first enters the Worker-only, nonterminal `CANCELLING`
+state and signals Native. This local state or Native's `CANCELLED` status alone
+is not a driver-join proof. The Worker releases the Native executor (whose
+release call joins the driver) before returning task memory budget, entering
+`CANCELLED`, and publishing its canonical terminal report. If release fails,
+the task stays `CANCELLING`, the budget remains reserved, and no cancellation
+completion is reported. `FINISHING` is a non-cancellable commit point reached
+only after Native completion metadata has been captured; a later cancel request
+receives a conflict rather than racing result publication.
+
+For at most 4,096 splits, a Worker-reconciled report identifies each missing split.
+For a larger task with zero trustworthy completed units, the v2
+`CoverageReport.all_work_units_failed` flag provides bounded aggregate coverage
+instead of truncating split IDs. The name denotes the absence of trusted success
+evidence, not a physical failure assertion for every split. Source/snapshot and
+artifact identities remain explicit: Worker admission rejects a task with more
+than 4,096 distinct source/snapshot identities or more than 4,096 bound artifact
+identities, because such a report cannot pass the Coordinator's coverage limit.
+The planner/scheduler must partition such work across tasks; a Worker must not
+silently truncate these identities.
 
 #### 3.3.4 Arrow Flight Data-Plane Protocol
 
@@ -722,28 +775,7 @@ Exchange pull flow after the Output Worker starts:
 5. Once all upstream Sources complete, the Exchange Operator marks the input as finished
 ```
 
-```
-┌──────────────┐                    ┌──────────────┐
-│ Output Worker│                    │Compute Worker│
-│              │                    │  (Worker-1)  │
-│  Exchange    │  DoGet(ticket)     │  Flight      │
-│  Client  ────┼───────────────────►│  Server      │
-│              │                    │              │
-│              │  RecordBatch #1    │  Shuffle     │
-│          ◄───┼────────────────────┤  Buffer      │
-│              │  RecordBatch #2    │              │
-│          ◄───┼────────────────────┤              │
-│              │  ...               │              │
-│          ◄───┼────────────────────┤              │
-│              │  COMPLETED         │              │
-│          ◄───┼────────────────────┤              │
-│              │                    │              │
-│  Velox Task  │                    │  Velox Task  │
-│  (Gather +   │                    │  (Scan +     │
-│   MergeSort +│                    │   Filter +   │
-│   TopN)      │                    │   PartialAgg)│
-└──────────────┘                    └──────────────┘
-```
+![Output Worker                      Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
 
 **Result pull (Client → Output Worker)**
 
@@ -810,82 +842,7 @@ public class PangrovaFlightProducer extends NoOpFlightProducer {
 
 **Happy Path**
 
-```
-Timeline →
-
-Client          Coordinator         Output Worker       Worker-1          Worker-2
-  │                 │                    │                  │                 │
-  │ SubmitQuery     │                    │                  │                 │
-  ├────────────────►│                    │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ Parse + Optimize + Fragment           │                 │
-  │                 │ Generate Stage DAG:                   │                 │
-  │                 │   Stage 1: Scan+Filter (N tasks)     │                 │
-  │                 │   Stage 0: Gather+Sort+TopN (1 task) │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 1: Schedule Compute Tasks ── │                 │
-  │                 │                    │                  │                 │
-  │                 │ SubmitTask(Stage1) │                  │                 │
-  │                 ├──────────────────────────────────────►│                 │
-  │                 │ SubmitTask(Stage1) │                  │                 │
-  │                 ├─────────────────────────────────────────────────────────►
-  │                 │                    │                  │                 │
-  │                 │◄─────────────────────────── Accepted  │                 │
-  │                 │◄──────────────────────────────────────────── Accepted  │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 2: Schedule Output Task ──   │                 │
-  │                 │                    │                  │                 │
-  │                 │ SubmitTask(Stage0) │                  │                 │
-  │                 │ (exchange_sources: │                  │                 │
-  │                 │  W1:8082, W2:8082) │                  │                 │
-  │                 ├───────────────────►│                  │                 │
-  │                 │                    │                  │                 │
-  │                 │◄── Accepted +      │                  │                 │
-  │                 │    ResultEndpoint  │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 3: Return to Client ──       │                 │
-  │                 │                    │                  │                 │
-  │◄────────────────┤                    │                  │                 │
-  │ SubmitQueryResp │                    │                  │                 │
-  │ {queryId,       │                    │                  │                 │
-  │  RUNNING,       │                    │                  │                 │
-  │  endpoint:      │                    │                  │                 │
-  │  OW:8082}       │                    │                  │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 4: Data Flow ──              │                 │
-  │                 │                    │                  │                 │
-  │                 │                    │ DoGet(shuffle)   │                 │
-  │                 │                    ├─────────────────►│                 │
-  │                 │                    │ DoGet(shuffle)   │                 │
-  │                 │                    ├──────────────────────────────────►│
-  │                 │                    │                  │                 │
-  │                 │                    │◄── RecordBatch   │                 │
-  │                 │                    │◄───────────────────── RecordBatch │
-  │                 │                    │                  │                 │
-  │                 │                    │ Velox: Gather +  │                 │
-  │                 │                    │ MergeSort + TopN │                 │
-  │                 │                    │                  │                 │
-  │ ── Phase 5: Client Fetches Results ──                  │                 │
-  │                 │                    │                  │                 │
-  │ DoGet(result)   │                    │                  │                 │
-  ├────────────────────────────────────►│                  │                 │
-  │                 │                    │                  │                 │
-  │◄─────────────────────────────────────┤ RecordBatch #1  │                 │
-  │◄─────────────────────────────────────┤ RecordBatch #2  │                 │
-  │◄─────────────────────────────────────┤ COMPLETED       │                 │
-  │                 │                    │                  │                 │
-  │                 │ ── Phase 6: Cleanup ──               │                 │
-  │                 │                    │                  │                 │
-  │                 │◄── TaskStatus:     │                  │                 │
-  │                 │    FINISHED        │                  │                 │
-  │                 │◄──────────────────────── FINISHED     │                 │
-  │                 │◄─────────────────────────────────────────── FINISHED   │
-  │                 │                    │                  │                 │
-  │ GetQueryStatus  │                    │                  │                 │
-  ├────────────────►│                    │                  │                 │
-  │◄────────────────┤ FINISHED + stats   │                  │                 │
-  │                 │                    │                  │                 │
-```
+![Timeline →](../../website/static/img/diagrams/generated/query-execution-25-0346494d36.svg)
 
 **Scheduling timing constraints**
 
@@ -898,30 +855,7 @@ Client          Coordinator         Output Worker       Worker-1          Worker
 
 **State machines**
 
-```
-State maintained by the Coordinator:
-
-Query State Machine:
-  QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHING → FINISHED
-                                      │                      ↑
-                                      └──── FAILED ──────────┘ (retryable in some cases)
-                                      └──── CANCELLED
-
-Task State Machine (Coordinator's view):
-  PENDING → SCHEDULED → RUNNING → FINISHED
-                │          │
-                └──────────┴──→ FAILED → RESCHEDULING → SCHEDULED (retry)
-                                                          │
-                                                          └──→ ABANDONED (retry limit exceeded)
-
-State maintained by the Worker:
-
-Task State Machine (Worker's view):
-  RECEIVED → INITIALIZING → RUNNING → FINISHING → FINISHED
-                 │              │
-                 └──────────────┴──→ FAILED
-                                     CANCELLED
-```
+![State maintained by the Coordinator:](../../website/static/img/diagrams/generated/query-execution-26-94b1707bb4.svg)
 
 State transition rules:
 
@@ -946,37 +880,7 @@ State transition rules:
 
 **Compute Task failure → reschedule**
 
-```
-A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):
-
-Worker-1        Coordinator         Output Worker       Worker-3 (new)
-  │                 │                    │                  │
-  │ TaskStatus:     │                    │                  │
-  │ FAILED          │                    │                  │
-  │ (EXTERNAL err)  │                    │                  │
-  ├────────────────►│                    │                  │
-  │                 │                    │                  │
-  │                 │ Decision: EXTERNAL error, retryable    │
-  │                 │ Select Worker-3 for reschedule        │
-  │                 │                    │                  │
-  │                 │ SubmitTask(Stage1, same splits)       │
-  │                 ├─────────────────────────────────────►│
-  │                 │                    │                  │
-  │                 │◄──────────────────────────── Accepted │
-  │                 │                    │                  │
-  │                 │ UpdateExchangeSources                 │
-  │                 │ (replace W1 → W3) │                  │
-  │                 ├───────────────────►│                  │
-  │                 │                    │                  │
-  │                 │                    │ Disconnect from W1│
-  │                 │                    │ Discard pulled data│
-  │                 │                    │ Connect to W3     │
-  │                 │                    │                  │
-  │                 │                    │ DoGet(shuffle)   │
-  │                 │                    ├─────────────────►│
-  │                 │                    │◄── RecordBatch   │
-  │                 │                    │                  │
-```
+![A Stage 1 Task on Worker-1 fails during execution (e.g., S3 read timeout):](../../website/static/img/diagrams/generated/query-execution-27-08fb7f4de5.svg)
 
 Key decisions:
 - After the Output Worker receives UpdateExchangeSources, it must discard all already-pulled data and restart
@@ -985,39 +889,7 @@ Key decisions:
 
 **Output Worker crash → reschedule**
 
-```
-Output Worker crash:
-
-Client          Coordinator         Output Worker(old)   Output Worker(new)   Worker-1
-  │                 │                    │                  │                 │
-  │                 │ Heartbeat timeout detected │                  │                 │
-  │                 │ OW failed          ╳                  │                 │
-  │                 │                                       │                 │
-    │                 │ Select a new ACTIVE Worker                 │                 │
-  │                 │                                       │                 │
-  │                 │ SubmitTask(Stage0, same plan,         │                 │
-  │                 │  same exchange_sources)               │                 │
-  │                 ├─────────────────────────────────────►│                 │
-  │                 │                                       │                 │
-  │                 │◄──────────────────────────── Accepted │                 │
-  │                 │                    + new endpoint     │                 │
-  │                 │                                       │                 │
-  │                 │ Update the Query's resultEndpoint          │                 │
-  │                 │                                       │                 │
-  │ DoGet connection dropped│                             │                 │
-  │ (EOF detected)  │                                     │                 │
-  │                 │                                       │                 │
-  │ GetQueryStatus  │                                       │                 │
-  ├────────────────►│                                       │                 │
-  │◄────────────────┤ RUNNING +                             │                 │
-  │                 │ new endpoint                          │                 │
-  │                 │                                       │                 │
-  │ DoGet(result) to new OW                                │                 │
-  ├───────────────────────────────────────────────────────►│                 │
-  │                 │                                       │                 │
-  │◄──────────────────────────────────────────── RecordBatch│                 │
-  │                 │                                       │                 │
-```
+![Output Worker crash:](../../website/static/img/diagrams/generated/query-execution-28-c4e4293647.svg)
 
 Key decisions:
 - Upstream Compute Tasks are unaffected and keep running (the Shuffle Buffer retains data)
@@ -1038,83 +910,15 @@ If the new Output Worker connects before the retention timeout, it resumes pulli
 
 **Client disconnect → timeout cleanup**
 
-```
-Client abnormal disconnect:
-
-Client          Coordinator         Output Worker
-  │                 │                    │
-  │ DoGet(result)   │                    │
-  ├────────────────────────────────────►│
-  │◄─────────────────────────────────────┤ RecordBatch #1
-  │                 │                    │
-  ╳ Client crash     │                    │
-  │                 │                    │
-  │                 │                    │ gRPC connection drop detected
-  │                 │                    │ Start client_idle_timeout timer
-  │                 │                    │ (default 5min)
-  │                 │                    │
-  │                 │                    │ Velox Pipeline paused
-  │                 │                    │ (backpressure: Output Buffer full)
-  │                 │                    │
-  │                 │                    │ ... after 5min ...
-  │                 │                    │
-  │                 │                    │ Timeout, mark Task FAILED
-  │                 │ TaskStatus: FAILED │
-  │                 │◄───────────────────┤
-  │                 │ (RESOURCE: client  │
-  │                 │  idle timeout)     │
-  │                 │                    │
-  │                 │ Mark Query FAILED  │
-  │                 │ Cancel all Tasks   │
-  │                 │                    │
-```
+![Client abnormal disconnect:](../../website/static/img/diagrams/generated/query-execution-29-84898f7df7.svg)
 
 If the Client reconnects before the timeout:
 
-```
-Client          Output Worker
-  │                 │
-  │ DoGet(result)   │ (new connection, same ticket)
-  ├────────────────►│
-  │                 │ Cancel idle timeout timer
-  │                 │ Reset Output Buffer
-  │                 │ Re-read from the Velox Pipeline
-  │                 │ (note: data starts from the beginning, not resumable)
-  │◄────────────────┤ RecordBatch #1
-  │◄────────────────┤ RecordBatch #2
-  │                 │
-```
+![Client          Output Worker](../../website/static/img/diagrams/generated/query-execution-30-2caf1a63e3.svg)
 
 **Memory pressure → Spill + backpressure**
 
-```
-Output Worker memory pressure:
-
-Coordinator         Output Worker                    Worker-1
-  │                    │                                │
-  │                    │ Velox MergeSort memory exceeded│
-  │                    │ MemoryArbitrator triggers Spill│
-  │                    │ MergeSort data written to NVMe SSD│
-  │                    │                                │
-  │                    │ If still insufficient after Spill:│
-  │                    │ Pause Exchange pull            │
-  │                    │ (Arrow Flight flow control)    │
-  │                    │                                │
-  │                    │                                │ Compute Worker detects
-  │                    │                                │ gRPC window full
-  │                    │                                │ Velox Pipeline yield
-  │                    │                                │
-  │ TaskStatus:        │                                │
-  │ RUNNING +          │                                │
-  │ high memory usage  │                                │
-  │◄───────────────────┤                                │
-  │                    │                                │
-  │ (Coordinator logs  │                                │
-  │  but does not      │                                │
-  │  intervene; Velox  │                                │
-  │  self-manages)     │                                │
-  │                    │                                │
-```
+![Output Worker memory pressure:](../../website/static/img/diagrams/generated/query-execution-31-d5bcc40086.svg)
 
 **Error classification and retry policy**
 
@@ -1131,324 +935,22 @@ Coordinator         Output Worker                    Worker-1
 
 Retry decision flow:
 
-```
-Task FAILED
-  │
-  ├─ ErrorCategory = USER_ERROR/INTERNAL_ERROR → Query FAILED (no retry)
-  │
-  ├─ ErrorCategory = RESOURCE_ERROR
-  │   ├─ Already retried >= 1 time → Query FAILED
-  │   └─ Not yet retried → wait 30s → reschedule to a Worker with lower memory pressure
-  │
-  ├─ ErrorCategory = EXTERNAL_ERROR
-  │   ├─ Already retried >= 3 times → Query FAILED
-  │   └─ Not yet retried → exponential backoff (1s, 2s, 4s) → reschedule to a different Worker
-  │
-  └─ ErrorCategory = EXCHANGE_ERROR
-      ├─ Upstream task also FAILED → wait for upstream reschedule to complete → auto-retry
-      └─ Upstream task healthy → reschedule the current task
-```
+![Task FAILED](../../website/static/img/diagrams/generated/query-execution-32-917c09cb72.svg)
 
-#### 3.3.7 Detailed Design of Exchange Data Pull
+#### 3.3.7 Exchange Data Pull
 
-**Historical ExchangeClient model**
+The Coordinator dispatches canonical v2 stage edges with exact producer task
+identity, partition count, endpoint, and signed ticket. Java handles placement
+and lifecycle, not per-batch shuffle forwarding. The producer's Native callback
+serializes and commits partitioned pages to its Native Flight server. The
+downstream `PangrovaExchangeSource` obtains the bound endpoint and pulls its
+partition through Flight DoGet into the Velox Exchange operator.
 
-This subsection preserves an earlier conceptual client/state-machine design. The
-current worker uses `ExchangeSourceRegistry`, `RemoteShuffleExchangeSource`,
-`RemoteShuffleExchangeSink`, and `NativeExchangeTransport`; names and APIs in the
-following diagrams are pseudocode.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Output Worker internal structure                                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Layer                                                          │   │
-│  │                                                                      │   │
-│  │  ┌──────────────────┐    ┌──────────────────┐                       │   │
-│  │  │  ExchangeClient  │    │  OutputBuffer    │                       │   │
-│  │  │                  │    │                  │                       │   │
-│  │  │  Per-Source:      │    │  Ring Buffer of  │                       │   │
-│  │  │  ┌────────────┐  │    │  RecordBatch     │                       │   │
-│  │  │  │ Flight     │  │    │                  │                       │   │
-│  │  │  │ DoGet to   │  │    │  → Flight Server │                       │   │
-│  │  │  │ Worker-1   │  │    │    (to Client)   │                       │   │
-│  │  │  ├────────────┤  │    │                  │                       │   │
-│  │  │  │ Flight     │  │    │                  │                       │   │
-│  │  │  │ DoGet to   │  │    │                  │                       │   │
-│  │  │  │ Worker-2   │  │    │                  │                       │   │
-│  │  │  └────────────┘  │    │                  │                       │   │
-│  │  └────────┬─────────┘    └────────▲─────────┘                       │   │
-│  │           │                       │                                  │   │
-│  └───────────┼───────────────────────┼──────────────────────────────────┘   │
-│              │ JNI: addBatch()       │ JNI: Java Pull nativeGetNextBatch()  │
-│  ┌───────────┼───────────────────────┼──────────────────────────────────┐   │
-│  │  C++ Layer│                       │                                  │   │
-│  │           ▼                       │                                  │   │
-│  │  ┌──────────────────┐    ┌──────────────────┐                       │   │
-│  │  │ Exchange Operator│    │ Output Operator  │                       │   │
-│  │  │ (Source)         │    │ (Sink)           │                       │   │
-│  │  │                  │    │                  │                       │   │
-│  │  │ Input Queue      │───►│ MergeSort        │                       │   │
-│  │  │ (per source)     │    │ TopN             │                       │   │
-│  │  │                  │    │ Final Agg        │                       │   │
-│  │  └──────────────────┘    └──────────────────┘                       │   │
-│  │                                                                      │   │
-│  │  Velox Task Pipeline:                                                │   │
-│  │  ExchangeSource → MergeSort → TopN → OutputSink                     │   │
-│  │                                                                      │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**ExchangeClient state machine**
-
-```
-                    ┌──────────┐
-                    │  CREATED │
-                    └────┬─────┘
-                         │ start()
-                         ▼
-                    ┌──────────┐
-              ┌─────│ RUNNING  │─────┐
-              │     └────┬─────┘     │
-              │          │           │
-         all sources     │      error/cancel
-         completed       │           │
-              │          │           │
-              ▼          │           ▼
-         ┌──────────┐   │     ┌──────────┐
-         │ DRAINING │   │     │  FAILED  │
-         └────┬─────┘   │     └──────────┘
-              │          │
-         buffer empty    │
-              │          │
-              ▼          │
-         ┌──────────┐   │
-         │ FINISHED │   │
-         └──────────┘   │
-                         │
-                    updateSources()
-                         │
-                         ▼
-                    ┌──────────┐
-                    │RESETTING │ → destroy current connections → rebuild connections → RUNNING
-                    └──────────┘
-```
-
-**ExchangeClient state transition rules and timeout handling**
-
-| Current state | Event | Target state | Action |
-|----------|------|----------|------|
-| CREATED | `start()` | RUNNING | Create a Flight DoGet connection for each ExchangeSource |
-| RUNNING | RecordBatch received | RUNNING | Inject into Native via JNI `nativeAddExchangeBatch()` |
-| RUNNING | All sources return COMPLETED | DRAINING | Call `nativeNoMoreExchangeSources()`, wait for the buffer to drain |
-| RUNNING | A single source connection times out (`exchange.source.timeout`, default 120s) | RUNNING | Trigger the reconnection logic for that source (see below) |
-| RUNNING | A single source fails to reconnect ≥ `exchange.source.max-retries` times in a row (default 3) | FAILED | Mark the task FAILED, report to the Coordinator |
-| RUNNING | `cancel()` or CancelTask issued by the Coordinator | FAILED | Close all Flight connections, release resources |
-| RUNNING | `updateSources()` (Coordinator reschedules an upstream task) | RESETTING | See the RESETTING state description |
-| DRAINING | Native OutputQueue drained (nativeGetNextBatch returns EOF) | FINISHED | Close all connections, release resources |
-| DRAINING | Timeout (`exchange.drain.timeout`, default 60s) | FAILED | Force-close, mark the task FAILED |
-| RESETTING | All old connections closed + all new connections established | RUNNING | Discard buffered data that was pulled but not yet injected |
-| FAILED | — | (terminal) | Unrecoverable, task reports FAILED |
-| FINISHED | — | (terminal) | Completed normally |
-
-**Timeout and reconnection logic for a single source**
-
-```java
-/**
- * Per-source connection manager within ExchangeClient.
- * Handles timeout detection and reconnection for a single upstream source.
- */
-class ExchangeSourceConnection {
-
-    private final ExchangeSource source;
-    private final Duration sourceTimeout;     // exchange.source.timeout (default 120s)
-    private final int maxRetries;             // exchange.source.max-retries (default 3)
-    private volatile Instant lastDataReceived = Instant.now();
-    private final AtomicInteger retryCount = new AtomicInteger(0);
-
-    /**
-     * Pull loop for a single source (runs in dedicated thread).
-     */
-    void pullLoop() {
-        FlightStream stream = null;
-        try {
-            stream = connectToSource(source);
-
-            while (stream.next()) {
-                VectorSchemaRoot root = stream.getRoot();
-                lastDataReceived = Instant.now();
-                retryCount.set(0);  // Reset on successful data
-
-                // Inject into Native Exchange Operator
-                NativeRuntime.nativeAddExchangeBatch(
-                    taskHandle, source.sourceId(),
-                    root.getArrowArrayAddress(), root.getArrowSchemaAddress());
-            }
-
-            // Source completed normally
-            NativeRuntime.nativeNoMoreExchangeData(taskHandle, source.sourceId());
-
-        } catch (FlightRuntimeException e) {
-            handleSourceError(e);
-        }
-    }
-
-    /**
-     * Timeout detection (called by watchdog timer every 10s).
-     */
-    void checkTimeout() {
-        Duration sinceLastData = Duration.between(lastDataReceived, Instant.now());
-        if (sinceLastData.compareTo(sourceTimeout) > 0) {
-            // Timeout — attempt reconnection
-            reconnect();
-        }
-    }
-
-    /**
-     * Reconnection logic with exponential backoff.
-     */
-    private void reconnect() {
-        int attempt = retryCount.incrementAndGet();
-        if (attempt > maxRetries) {
-            // Exhausted retries — propagate failure to ExchangeClient
-            exchangeClient.onSourceFailed(source.sourceId(),
-                new PangrovaException(EXCHANGE_CONNECTION_LOST,
-                    "Source " + source.sourceTaskId() + " unreachable after " + maxRetries + " retries"));
-            return;
-        }
-
-        Duration backoff = Duration.ofMillis(
-            (long) (1000 * Math.pow(2, attempt - 1)));  // 1s, 2s, 4s
-
-        log.warn("Reconnecting to source {} (attempt {}/{}), backoff={}",
-                 source.sourceTaskId(), attempt, maxRetries, backoff);
-
-        scheduler.schedule(() -> {
-            closeCurrentStream();
-            pullLoop();  // Restart pull loop with new connection
-        }, backoff.toMillis(), TimeUnit.MILLISECONDS);
-    }
-}
-```
-
-**RESETTING state detailed flow** (triggered when the Coordinator reschedules an upstream task):
-
-```
-Coordinator sends UpdateExchangeSources(sequenceId=N+1):
-  1. ExchangeClient checks sequenceId > current value → accept the update
-  2. State RUNNING → RESETTING
-  3. Close all old Flight connections (graceful close, wait for in-flight RPCs to finish, timeout 5s)
-  4. Discard buffer data on the Java side that was pulled but not injected into Native
-     (upstream task reschedule means the data must be recomputed, old data is invalid)
-  5. Call nativeResetExchangeOperator(taskHandle) to clear the Native Exchange Operator's Input Queue
-  6. Create new Flight connections based on the new exchangeSources list
-  7. All new connections established successfully → state RESETTING → RUNNING
-  8. Any new connection fails to establish → retry (up to 3 times) → still fails → FAILED
-```
-
-**Interaction between ExchangeClient and Velox**
-
-```
-Interaction between the Java ExchangeClient and the C++ Velox Exchange Operator:
-
-1. The Java layer pulls RecordBatch from upstream Workers via Arrow Flight DoGet
-2. Calls nativeAddExchangeBatch(taskHandle, sourceId, arrowArray, arrowSchema) via JNI
-3. The C++ Exchange Operator reads batches from the Input Queue and feeds the Pipeline
-4. The Pipeline executes operators such as MergeSort/TopN/FinalAgg
-5. The Output Operator produces result batches and puts them into the Native OutputQueue
-6. The Java layer calls nativeGetNextBatch(handle, arrowArrayPtr, arrowSchemaPtr) to pull batches
-7. The Java layer streams the batches to the Client via Arrow Flight
-```
-
-JNI interface definitions:
-
-```cpp
-// Java Pull (result output) — already defined in NativeRuntime in native-execution.md §5.4
-// The Java thread calls nativeGetNextBatch() to pull data from the OutputQueue
-// Return value: > 0 row count, = 0 EOF, < 0 error
-
-// Java → Native (Exchange data injection)
-extern "C" {
-    // Add a batch to the Exchange Operator's Input Queue
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_addExchangeBatch(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle,           // Velox Task handle
-        jint sourceId,              // Exchange Source number
-        jlong arrowArrayPtr,        // ArrowArray* (zero-copy)
-        jlong arrowSchemaPtr        // ArrowSchema* (zero-copy)
-    );
-
-    // Mark a given Exchange Source as completed (no more new data)
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_noMoreExchangeData(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle,
-        jint sourceId
-    );
-
-    // Mark all Exchange Sources as completed
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_noMoreExchangeSources(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle
-    );
-}
-```
-
-**Backpressure propagation chain**
-
-```
-Full backpressure propagation chain (from Client to Compute Worker):
-
-Layer 1: Client → Output Worker (Arrow Flight)
-  Client consumes slowly → gRPC flow control window fills up
-  → the Output Worker Flight Server's putNext() blocks
-  → OutputBuffer stops being consumed
-
-Layer 2: OutputQueue → Java Pull Loop
-  The Java layer's nativeGetNextBatch() blocks (OutputQueue empty)
-  → when the OutputQueue is full, the Velox Output Operator pauses
-  → the Velox Pipeline's Driver thread yields
-
-Layer 3: Velox Pipeline → ExchangeClient
-  The Velox Exchange Operator's Input Queue is full
-  → addExchangeBatch() blocks (or returns false)
-  → the Java ExchangeClient pauses calling Flight DoGet.next()
-
-Layer 4: ExchangeClient → Compute Worker (Arrow Flight)
-  ExchangeClient stops consuming
-  → gRPC flow control window fills up
-  → the Compute Worker Flight Server's putNext() blocks
-  → the Compute Worker's Shuffle Buffer stops being consumed
-  → the Compute Worker's Velox Pipeline pauses
-
-Result: backpressure across the entire chain propagates from the Client to all Compute Workers
-```
-
-Backpressure recovery chain (reverse direction):
-
-```
-Client resumes consuming
-  → gRPC window opens
-  → OutputBuffer is consumed
-  → Java continues calling nativeGetNextBatch()
-  → the Native OutputQueue has space
-  → the Velox Pipeline resumes
-  → the Exchange Operator Input Queue has space
-  → ExchangeClient resumes Flight DoGet.next()
-  → gRPC window opens
-  → the Compute Worker Pipeline resumes
-```
-
-| Backpressure layer | Trigger condition | Behavior |
-|----------|----------|------|
-| Native OutputQueue | OutputQueue full (bounded queue) | Velox Pipeline Driver yields |
-| Java Pull Loop | nativeGetNextBatch() blocks (Flight putNext has not returned) | Stop pulling, Native OutputQueue backs up |
-| Arrow Flight (Output → Client) | gRPC window full | Pause putNext(), Java Pull Loop blocks |
-| Arrow Flight (Compute → Output) | gRPC window full | Pause upstream Pipeline output |
-| Velox Pipeline | Operator output queue full | Driver thread yields |
+The producer reports `FINISHED` only after every buffered partition has
+flushed and the queue has committed. Cancel, deadline, or failure aborts the
+queue; a downstream reader must fail on aborted or incomplete input rather
+than treating it as clean EOF. Flight demultiplexing and the bounded queue
+provide backpressure without a Java `addBatch` bridge.
 
 #### 3.3.8 Coordinator Scheduler Design
 
@@ -1456,25 +958,7 @@ Client resumes consuming
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
-```
-Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):
-
-  Stage 3 (Scan orders)  Stage 2 (Scan customers)
-       │                       │
-       └───────┬───────────────┘
-               │
-          Stage 1 (Join + Agg)
-               │
-          Stage 0 (Output: Gather + Sort + Limit)
-
-Scheduling order: Stage 3 → Stage 2 → Stage 1 → Stage 0
-
-Rules:
-1. Leaf Stages (no upstream dependency) can be scheduled in parallel
-2. Intermediate Stages are scheduled after all tasks of their upstream Stages are scheduled
-3. The Output Stage (Stage 0) is scheduled last
-4. Scheduling = dispatching TaskDescriptor to Workers, without waiting for task execution to finish
-```
+![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
 **Output Worker selection algorithm**
 
@@ -1508,19 +992,7 @@ Output Tasks appear not only at the final output; intermediate Stages also have 
 
 **Three-tier Stage example**
 
-```
-SQL: SELECT c.name, SUM(o.amount)
-     FROM orders o JOIN customers c ON o.cid = c.id
-     GROUP BY c.name
-     ORDER BY SUM(o.amount) DESC
-     LIMIT 100
-
-Stage DAG:
-  Stage 3: Scan(orders) → PartialAgg → Exchange(REPARTITION by cid)
-  Stage 2: Scan(customers) → Exchange(REPARTITION by id)
-  Stage 1: Exchange(orders) + Exchange(customers) → HashJoin → FinalAgg → Exchange(GATHER)
-  Stage 0: Exchange(GATHER) → MergeSort(desc) → TopN(100) → Output
-```
+![SQL: SELECT c.name, SUM(o.amount)](../../website/static/img/diagrams/generated/query-execution-35-e4e3e43479.svg)
 
 The TaskDescriptor content of each Stage:
 
@@ -1545,81 +1017,39 @@ The TaskDescriptor content of each Stage:
 
 The Shuffle Buffer on the Compute Worker is responsible for buffering data produced by the Velox Pipeline, waiting for downstream tasks to pull it.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Compute Worker Shuffle Buffer                                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Velox Pipeline → PartitionedOutput Operator                                │
-│       │                                                                      │
-│       │ Velox produces a Shuffle batch → Native ShuffleQueue[partitionId]           │
-│       ▼                                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  ShuffleQueue (Native, per partition)                                │   │
-│  │  The Java ShuffleDrainThread calls nativeGetShuffleBatch(partitionId)  │   │
-│  │  After pulling data, sends it to the target Worker via Arrow Flight  │   │
-│  │                                                                      │   │
-│  │  Partition 0: [Batch, Batch, Batch, ...]                            │   │
-│  │  Partition 1: [Batch, Batch, ...]                                   │   │
-│  │  Partition 2: [Batch, Batch, Batch, Batch, ...]                     │   │
-│  │  ...                                                                 │   │
-│  │  Partition M-1: [Batch, ...]                                        │   │
-│  │                                                                      │   │
-│  │  Each Partition is a bounded blocking queue                          │   │
-│  │  Capacity: max_shuffle_buffer_bytes / partition_count                │   │
-│  │                                                                      │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│       │                                                                      │
-│       │ Arrow Flight DoGet (by partition)                                    │
-│       ▼                                                                      │
-│  Downstream Worker (intermediate Stage or Output Worker)                     │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Compute Worker Shuffle Buffer](../../website/static/img/diagrams/generated/query-execution-36-75a6259321.svg)
 
-#### 3.3.10 Constant Folding & Coordinator Local Result Buffer
+#### 3.3.10 Worker-Only Relational Result Path
 
-The following query types are handled locally by the Coordinator without dispatching to a Worker. Results are buffered in the Coordinator's local Arrow IPC buffer and served via the Coordinator's own Flight server, using the same `resultEndpoint` mechanism as distributed queries.
+Planner folding may produce `LogicalValues`, but that plan is still serialized
+into the ordinary task contract, executed by Native, and served from the selected
+Output Worker. Empty results (`LIMIT 0`) take the same route. There is no
+Coordinator result-cache hit or writeback path; result caching can only be
+reintroduced behind a Worker-owned protocol.
 
-| Query Type | Example | Handling |
-|------------|---------|----------|
-| Constant expressions | `SELECT 1`, `SELECT 1+2, 'hello'` | Planner folds to `LogicalValues`, serialized to Arrow IPC, buffered in `CoordinatorResultBuffer` |
-| Metadata queries | `SHOW TABLES`, `SHOW SCHEMAS`, `DESCRIBE table` | Coordinator builds `TypedRow` list, converts to Arrow IPC via `CoordinatorResultWriter` |
-| System table queries | `SELECT * FROM system.runtime.nodes` | Same as metadata queries |
-| DDL operations | `CREATE TABLE`, `ALTER TABLE` | Result (status row) buffered in `CoordinatorResultBuffer` |
-| DML operations | `INSERT`, `UPDATE`, `DELETE` | Affected-row count buffered as Arrow IPC |
+`SHOW`, `DESCRIBE`, session control, DDL status, and DML acknowledgement rows are
+bounded control-plane responses. `StatementDispatcher` alone may publish these
+through the isolated control-plane transport. Relational `SELECT` code cannot
+access that service or its buffer. Connector system-table `SELECT` statements
+therefore compile and dispatch like any other query, and fail closed if the
+connector/Native scan contract is unavailable.
 
-**Constant Folding in Planner**: During the `plan()` phase, `PangrovaPlanner.tryFoldConstant()` checks whether the optimized `RelNode` tree contains no `TableScan`, `TableModify`, or `Exchange` nodes. If so, the expression is evaluated via Calcite Interpreter and the result is materialized as a `LogicalValues` node. This folded result is then serialized to Arrow IPC by `CoordinatorResultWriter.toArrowIpc()` and stored in `CoordinatorResultBuffer`.
-
-**Unified Result Retrieval**: All query types — constant, DDL, DML, and distributed — return a `resultEndpoint` in the response. The client retrieves results via Arrow Flight `doGet()` against that endpoint. Coordinator-local results are served by `CoordinatorDataProducer` through `CoordinatorResultService`.
-
-```json
-// Constant query response (unified format)
-{
-  "queryId": "query-20260206-002",
-  "state": "FINISHED",
-  "resultEndpoint": {
-    "host": "coordinator-1",
-    "port": 8083,
-    "ticket": "query-20260206-002",
-    "protocol": "arrow-flight"
-  }
-}
-```
-
-```json
-// DML response (unified format)
-{
-  "queryId": "query-20260206-003",
-  "state": "FINISHED",
-  "resultEndpoint": {
-    "host": "coordinator-1",
-    "port": 8083,
-    "ticket": "query-20260206-003",
-    "protocol": "arrow-flight"
-  }
-}
-```
+All DML row production follows the same boundary. `INSERT VALUES` and static
+`INSERT OVERWRITE ... VALUES` compile to typed Substrait values relations and run
+as canonical v2 write tasks on ordinary Workers. The Worker alone opens the
+connector page sink; the Coordinator only registers the write intent, validates
+the canonical task report, fences the attempt, and commits returned fragments.
+There is no Coordinator JVM `Page`/`ConnectorPageSink` fallback.
+The Coordinator records the terminal task state before notifying the Stage DAG.
+When the task set appears finished but an asynchronous downstream stage remains,
+the query finalizer holds its metadata-operation permit and subscribes to the
+DAG's terminal event. Only successful DAG completion with all tasks finished
+can publish the logical query result; failure or cancellation releases the
+permit without committing the query. No per-query polling thread is used.
+For INSERT, Calcite's `UNION ALL` of single-row literal projects is packed into
+one values relation when every field is already a literal or has only a
+nullability cast. Value-changing casts and dynamic expressions keep their
+ordinary plan so the planner does not evaluate them outside the query session.
 
 #### 3.3.11 Client SDK Wrapper
 
@@ -1638,10 +1068,25 @@ try (Connection conn = DriverManager.getConnection("jdbc:pangrova://coordinator:
 ```
 SDK internal flow:
 1. POST /v1/query/submit→ Coordinator
-2. Parse response.resultEndpoint
-3. Arrow Flight DoGet(resultEndpoint) → stream-construct ResultSet
-4. Connection dropped → GET /v1/query/{queryId}/state → obtain new endpoint → auto-reconnect
+2. Poll the canonical query status until a readable result endpoint is published
+3. Arrow Flight DoGet(resultEndpoint), then verify terminal query success; a JDBC
+   query timeout also bounds the Flight call and every batch read
+4. Decode the received Arrow IPC bytes into a ResultSet; the current JDBC driver
+   buffers the full result and does not yet provide bounded-memory streaming or
+   automatic reconnection after a broken Flight stream
 ```
+
+For resultless DML, the submit response may return `RUNNING` after the actual
+WRITE task is dispatched, with no Flight endpoint. The client polls canonical
+query status through the final catalog commit. The 30-second submit timeout
+bounds compilation and initial dispatch, not data-file writing or commit.
+
+`Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
+An absent endpoint is waited for while the query runs and is an error if the
+query finishes without one. The historical REST `/v1/query/{id}/result` page
+client had no production server route and has been removed; it is not a
+fallback for an unavailable Flight stream. Bounded-memory JDBC cursoring is a
+separate required improvement before large-result support is claimed.
 
 #### 3.3.12 Configuration Reference
 
@@ -1701,22 +1146,32 @@ Design rationale: the Coordinator belongs to the control plane; its sole respons
 
 ## 4. Velox Pipeline Execution Model
 
+The Worker passes every session performance option to Velox explicitly, including
+`false` and zero values. Scaled table-scan processing is eligible only when the
+native plan contains no join: on an empty join build side, Velox can park scan
+drivers waiting for scale-up while the join build waits for those same drivers
+to finish. The Worker records `scaled_scan_ineligible` for this plan shape and
+runs the join with ordinary scan scheduling. Other requested Velox options remain
+in effect. This guard is specific to the pinned Velox execution behavior and
+must be reconsidered with a tested upstream fix.
+
+A join stage with any directly scanned table input executes in one task until
+every join input has an explicit compatible exchange distribution. This also
+applies when another branch of the same join stage already has an exchange:
+independent scan split allocation does not co-partition rows by join key and
+could silently return incomplete results. A join remains parallel only when
+both direct inputs are hash exchanges on the corresponding equijoin keys, or
+the build input is broadcast for an inner, left, semi, or anti join. Other
+exchange combinations gather to one task, including broadcast right/full
+outer joins that would duplicate unmatched build-side rows.
+This follows the [Trino partitioned-join contract](https://trino.io/docs/current/optimizer/cost-based-optimizations.html#join-distribution-selection),
+which redistributes both inputs by join key, and Calcite's distinct
+[hash distribution trait](https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/RelDistributions.html).
+Greedy file-split balancing does not establish either distribution property.
+
 ### 4.1 Pipeline Structure
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Task                                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  Pipeline 0 (Source Pipeline)                                           │    │
-│  │  Driver 0-3: Scan → Filter → Project → PartialAgg → LocalExchange      │    │
-│  └─────────────────────────────────────────────────────────────────────────┘    │
-│                                    ↓ Local Exchange (Merge Buffers)             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │  Pipeline 1 (Aggregation Pipeline)                                      │    │
-│  │  Driver 0: LocalExchangeSource → FinalAggregation → PartitionedOutput  │    │
-│  └─────────────────────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Task](../../website/static/img/diagrams/generated/query-execution-40-d1899ae8f8.svg)
 
 ### 4.2 Pipeline Parallelism Calculation
 
@@ -1767,144 +1222,63 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 | JoinOperator | Join | HashJoin, MergeJoin |
 | SortOperator | Sort | OrderBy |
 | LimitOperator | Limit row count | Limit, TopN |
-| SinkOperator | Data output | PartitionedOutput |
+| SinkOperator | Data output | Native shuffle callback or result output |
 
 ## 5. Dynamic Filtering
 
-```
-Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id
-      WHERE c.country = 'US'
-
-Problem: the orders table is very large, but only a few customer_id values match country='US'
-Optimization: scan customers first, collect the matching ids, then use those ids to filter orders
-
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Stage 1: Build Side (customers)                                                │
-│  TableScan → Filter(country='US') → Collect Dynamic Filter                      │
-│  → build a BloomFilter or IN-list: customer_id IN (101, 102, 105, ...)          │
-│                                    ↓ Broadcast Dynamic Filter                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Stage 0: Probe Side (orders)                                                   │
-│  TableScan → Apply Dynamic Filter (customer_id IN ...)                          │
-│  → large amounts of data are filtered out early, reducing I/O and computation   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
 ## 6. Write Path Design
 
 ### 6.1 Read/Write Separation Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Read/Write Separation                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design principles:                                                             │
-│  • Read path (C++): use Velox native execution, pursue extreme performance      │
-│  • Write path (Java): implemented in Java, deeply integrated with lakehouse format SDKs │
-│                                                                                  │
-│  Reasons:                                                                        │
-│  • Writes to lakehouse formats (Iceberg/Paimon) involve complex transactions and metadata management │
-│  • The official SDKs for these formats are all implemented in Java              │
-│  • The write performance bottleneck is usually I/O, not CPU                     │
-│  • A Java implementation is easier to maintain and keep in sync with upstream   │
-│                                                                                  │
-│  Read Path (C++ Velox):                                                         │
-│  Substrait Plan → Velox Plan Parser → TableScan → Filter/Project → Native I/O  │
-│  Characteristics: vectorized, SIMD, zero-copy, extreme performance             │
-│                                                                                  │
-│  Write Path (Java):                                                             │
-│  INSERT/UPDATE/DELETE → Transaction Manager → Data Writer → Metadata Committer │
-│  Characteristics: full transaction support, ACID, upstream-compatible          │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Read/Write Separation](../../website/static/img/diagrams/generated/query-execution-43-63870d9f9f.svg)
 
 ### 6.2 INSERT Flow
 
 ```
-Phase 1: Query Execution (Read Path - C++)
+Phase 1: Worker Native query execution
   1. Parse the INSERT statement
   2. Optimize the SELECT subquery
   3. Generate the Substrait Plan
   4. Dispatch to Workers for execution
-  5. Velox executes the SELECT, producing Arrow RecordBatch
+  5. Velox executes the SELECT and places RowVectors in the task output queue
 
-Phase 2: Data Writing (Write Path - Java)
-  Step 1: Begin Transaction
-    IcebergTransaction tx = table.newTransaction();
+Phase 2: Worker staging
+  1. Native drain serializes bounded batches to Arrow IPC and calls the Java sink via JNI
+  2. Each Worker stages data files and returns a connector commit fragment
+  3. A failed or cancelled producer aborts the sink; no fragment is published
 
-  Step 2: Write Data Files (parallel)
-    Worker-1: Write partition=2024-01-01 → data-00001.parquet, data-00002.parquet
-    Worker-2: Write partition=2024-01-02 → data-00003.parquet
-    Worker-3: Write partition=2024-01-03 → data-00004.parquet
-
-  Step 3: Collect Write Results
-    Coordinator collects: file paths, sizes, row counts, partition info, column statistics
-
-  Step 4: Commit Transaction (atomic operation)
-    for (DataFile file : writtenFiles) {
-        tx.newAppend().appendFile(file).commit();
-    }
-    tx.commitTransaction();  // Create a new Snapshot
+Phase 3: Coordinator publication
+  1. Collect fragments from the required fenced Worker attempts
+  2. Persist the commit intent and invoke finishDistributedWrite() on the connector
+  3. Prove/recover an ambiguous catalog outcome before acknowledging success
 ```
 
 ### 6.3 Write Components
 
-> **DEPRECATED**: The `DataWriter` interface below is superseded by the unified `TableWriter` SPI
-> defined in [streaming.md §2.6](./streaming.md). New implementations MUST use `TableWriter.writeBatch(VectorSchemaRoot)`
-> for the SQL write path, which provides zero-conversion Arrow-native writes with `WriteContext`
-> for transaction mode control. The code below is retained for historical reference only.
->
->
-
-```java
-/**
- * @deprecated Use {@link TableWriter#writeBatch(String, VectorSchemaRoot, WriteMode, WriteContext)}
- *             from streaming.md §2.6 instead. DataWriter is superseded by the unified TableWriter SPI.
- */
-@Deprecated
-public interface DataWriter extends Closeable {
-    void write(VectorSchemaRoot batch);
-    WriteResult finish();
-    void abort();
-}
-
-/**
- * @deprecated Use TableWriter with writeBatch() instead.
- */
-@Deprecated
-public class PartitionedDataWriter implements DataWriter {
-    private final Map<StructLike, DataWriter> partitionWriters;
-
-    @Override
-    public void write(VectorSchemaRoot batch) {
-        Map<StructLike, List<Integer>> partitionedRows = partitionRows(batch);
-        for (Map.Entry<StructLike, List<Integer>> entry : partitionedRows.entrySet()) {
-            DataWriter writer = partitionWriters.computeIfAbsent(
-                entry.getKey(), p -> createPartitionWriter(p));
-            writer.write(extractRows(batch, entry.getValue()));
-        }
-    }
-}
-```
-
-**Migration to unified TableWriter**: The SQL write path now uses `TableWriter.writeBatch(tableName, batch, writeMode, context)` where `context.transactionMode = COORDINATOR_MANAGED`. The native Velox engine produces `VectorSchemaRoot` via `nativeGetNextBatch()`, which is passed directly to `writeBatch()` with zero columnar-to-row conversion overhead. See [streaming.md §2.6](./streaming.md) for the authoritative interface definition.
+The current SQL write contract uses the Worker-side `NativeWriteExecutor` JNI
+adapter to create a connector `ConnectorPageSink`, append serialized columnar
+batches, and obtain a staged metadata fragment with `finishWithMetadata()`.
+The Worker reports that fragment under the canonical task identity. The
+Coordinator invokes `ConnectorMetadata.finishDistributedWrite()` to publish
+the connector snapshot. This is not a `nativeGetNextBatch()` pull loop and does
+not use the legacy `DataWriter` example or a single-shot batch-writer shortcut.
 
 ### 6.4 Write Path Responsibility Matrix
 
 | Operation | Execution layer | Language | Note |
 |------|--------|------|------|
 | Data file write (Parquet/ORC) | Worker | Java | Write to S3/HDFS via the Iceberg/Paimon SDK |
-| Metadata write (Manifest/Snapshot) | Worker | Java | Write via the Iceberg/Paimon SDK |
-| Transaction commit (Commit) | Coordinator | Java | Two-phase commit; the Coordinator coordinates each Worker's write results |
-| Shuffle serialization | Worker (Native) | C++ | Serialize to Arrow format in memory; Java pulls via nativeGetShuffleBatch() |
-| Shuffle network transfer | Worker (Java) | Java | Send to the target Worker via Arrow Flight |
+| Snapshot/manifest publication | Coordinator | Java | Connector finalizes fenced Worker fragments; see [distributed-writes.md](./distributed-writes.md) for ambiguous-outcome limits |
+| Catalog commit | Coordinator | Java | Persist intent, prove outcome, then acknowledge; not generic exactly-once under concurrent recovery |
+| Shuffle serialization | Worker (Native) | C++ | Partition and serialize bounded pages into the Native shuffle queue |
+| Shuffle network transfer | Worker (Native) | C++ | Serve ticket-scoped partitions via Native Arrow Flight DoGet |
 | Read path data processing | Worker (Native) | C++ | Velox execution engine, vectorized processing |
 
 **Key boundaries**:
 - The C++ Native layer does not perform any persistence write operations (both data files and metadata files are written by the Java layer)
-- Shuffle at the Native layer only does in-memory partitioning and buffering (Shuffle Partitioner); the network transfer is done by the Java layer's Arrow Flight
+- Shuffle partitioning, buffering, and Flight transfer remain in the Native data plane; Java controls task placement and lifecycle
 - Transaction commit is coordinated by the Coordinator: Workers are responsible for writing data files, and the Coordinator is responsible for the final atomic commit
 
 ### 6.5 DataFile Cleanup Mechanism After Commit Failure
@@ -1950,19 +1324,7 @@ try {
 
 ### 7.1 Core Principles
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Single Source of Truth                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Principle: the Java Connector is the single source of truth for metadata      │
-│  The Native layer does not cache metadata; every execution fetches the latest version from the Java layer │
-│                                                                                  │
-│  Metadata Flow (one-way):                                                        │
-│  Iceberg Catalog → Java Connector → Substrait Plan → Native Layer              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Single Source of Truth](../../website/static/img/diagrams/generated/query-execution-46-d1859933b0.svg)
 
 | Principle | Description | Implementation |
 |------|------|----------|
@@ -2004,43 +1366,11 @@ Step 3: The Native layer reads based on the snapshot
 
 ### 7.3 Snapshot Isolation Guarantee
 
-```
-Timeline:
-T0        T1        T2        T3        T4        T5
-│         │         │         │         │         │
-│  Query  │         │  Write  │         │  Query  │
-│  Start  │         │  Commit │         │  End    │
-│  Snap   │         │  Snap   │         │         │
-│  =100   │         │  =101   │         │         │
-
-The query obtains Snapshot=100 at T0
-Even if a new write is committed at T2 (Snapshot=101)
-the query still reads only the data of Snapshot=100
-```
+![Timeline:](../../website/static/img/diagrams/generated/query-execution-48-8c994b4e0c.svg)
 
 ### 7.4 Cache Invalidation Strategy
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Coordinator Cluster                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                          │
-│  │Coordinator-1│    │Coordinator-2│    │Coordinator-3│                          │
-│  │ L1 Cache    │    │ L1 Cache    │    │ L1 Cache    │  (1min TTL)              │
-│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘                          │
-│         └──────────────────┼──────────────────┘                                  │
-│                     ┌──────▼──────┐                                              │
-│                     │  L2 Cache   │  (Redis Cluster, 5min TTL)                  │
-│                     └──────┬──────┘                                              │
-│                     ┌──────▼──────┐                                              │
-│                     │   Catalog   │  (Iceberg/HMS Source)                       │
-│                     └─────────────┘                                              │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Active invalidation after a write:
-  1. Invalidate the local cache
-  2. Invalidate the Redis cache
-  3. Broadcast an invalidation message to other Coordinators (Redis Pub/Sub)
-```
+![Coordinator Cluster](../../website/static/img/diagrams/generated/query-execution-49-3f67d13e65.svg)
 
 ## 8. Custom SQL Extensions
 
@@ -2146,63 +1476,11 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 10.2 Snapshot Reference Counting
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Snapshot Reference Counting                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: expiring/cleaning up snapshots may affect running queries             │
-│  Solution: queries hold a snapshot reference; no cleanup while referenced        │
-│                                                                                  │
-│  Reference counting flow:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Query Start:                                                            │   │
-│  │    snapshotRef = snapshotRefManager.acquire(tableId, snapshotId);       │   │
-│  │    → snapshot_refs table: {table_id, snapshot_id, ref_count++, holders}  │   │
-│  │                                                                          │   │
-│  │  Query End:                                                              │   │
-│  │    snapshotRef.release();                                               │   │
-│  │    → snapshot_refs table: ref_count--                                    │   │
-│  │    → cleanup allowed when ref_count == 0                                 │   │
-│  │                                                                          │   │
-│  │  Expire Snapshots:                                                       │   │
-│  │    → check ref_count, skip referenced snapshots                          │   │
-│  │    → log the reason for skipping                                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Timeout protection:                                                             │
-│  • Maximum reference hold time: 24 hours                                         │
-│  • Force-released after timeout; the query may fail (acceptable)                 │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Snapshot Reference Counting](../../website/static/img/diagrams/generated/query-execution-54-d7cd58cfd3.svg)
 
 ### 10.3 Cross-Table Transaction Note
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Cross-Table Transaction                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design decision: cross-table transactions are not supported                    │
-│                                                                                  │
-│  Reasons:                                                                        │
-│  1. Iceberg/Paimon do not natively support cross-table transactions             │
-│  2. Distributed two-phase commit is highly complex with large performance overhead │
-│  3. Most OLAP scenarios do not need cross-table transactions                    │
-│                                                                                  │
-│  Alternatives:                                                                   │
-│  • Single-table transactions: fully supported, using Iceberg/Paimon native transactions │
-│  • Application-level coordination: implement eventual consistency at the business layer │
-│  • Idempotent writes: support retries, guarantee at-least-once                   │
-│                                                                                  │
-│  If cross-table transactions are needed in the future:                          │
-│  • Introduce a Transaction Coordinator component                                 │
-│  • Implement 2PC (Prepare → Commit/Rollback)                                    │
-│  • Requires additional Transaction Log storage                                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cross-Table Transaction](../../website/static/img/diagrams/generated/query-execution-55-b6cc1a7324.svg)
 
 ---
 
@@ -2210,34 +1488,7 @@ public class OrphanFileCleanup implements Runnable {
 
 ### 11.1 Native Version Management
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Native Version Management                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Java/Native version mismatch causes crashes or abnormal behavior      │
-│  Solution: version validation + compatibility matrix                            │
-│                                                                                  │
-│  Version info:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  NativeVersion {                                                         │   │
-│  │    major: 1,           // incompatible changes                          │   │
-│  │    minor: 2,           // backward-compatible new features              │   │
-│  │    patch: 3,           // bug fixes                                     │   │
-│  │    protocolVersion: 1, // JNI protocol version                          │   │
-│  │    buildTime: "...",                                                    │   │
-│  │    gitCommit: "..."                                                     │   │
-│  │  }                                                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Validation flow:                                                                │
-│  1. When the Java layer loads the Native library, it calls nativeGetVersion()   │
-│  2. Compare protocolVersion; refuse to start if mismatched                      │
-│  3. Compare the major version; refuse to start if mismatched                    │
-│  4. minor/patch mismatch only warns                                             │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Version Management](../../website/static/img/diagrams/generated/query-execution-56-a737c0fc81.svg)
 
 ```java
 /**
@@ -2245,22 +1496,21 @@ public class OrphanFileCleanup implements Runnable {
  */
 public class NativeVersionChecker {
 
-    private static final int REQUIRED_PROTOCOL_VERSION = 1;
-    private static final int REQUIRED_MAJOR_VERSION = 1;
+    private static final String REQUIRED_DESCRIPTOR_SHA256 = generatedDescriptorSha256();
+    private static final String REQUIRED_CAPABILITY_EPOCH = configuredCapabilityEpoch();
 
     public static void checkVersion() {
         NativeVersion nativeVersion = NativeRuntime.getVersion();
 
-        if (nativeVersion.getProtocolVersion() != REQUIRED_PROTOCOL_VERSION) {
+        if (!nativeVersion.getProtocolDescriptorSha256()
+                .equals(REQUIRED_DESCRIPTOR_SHA256)) {
             throw new IncompatibleNativeVersionException(
-                "Protocol version mismatch: expected %d, got %d",
-                REQUIRED_PROTOCOL_VERSION, nativeVersion.getProtocolVersion());
+                "Canonical protocol descriptor mismatch");
         }
-
-        if (nativeVersion.getMajor() != REQUIRED_MAJOR_VERSION) {
+        if (!nativeVersion.getCapabilityEpoch().equals(REQUIRED_CAPABILITY_EPOCH)
+                || !verifyPackagedNativeLibrarySha256(nativeVersion)) {
             throw new IncompatibleNativeVersionException(
-                "Major version mismatch: expected %d, got %d",
-                REQUIRED_MAJOR_VERSION, nativeVersion.getMajor());
+                "Native library or capability epoch mismatch");
         }
 
         log.info("Native library loaded: version={}.{}.{}, commit={}",
@@ -2270,72 +1520,13 @@ public class NativeVersionChecker {
 }
 ```
 
-### 11.2 Rolling Upgrade
+### 11.2 Protocol-Epoch Upgrade
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Rolling Upgrade Procedure                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Upgrade order: Coordinator → Worker (one by one)                               │
-│                                                                                  │
-│  Coordinator upgrade:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Remove Coordinator-1 from the Load Balancer                          │   │
-│  │  2. Wait for queries on Coordinator-1 to finish (or transfer on timeout) │   │
-│  │  3. Stop Coordinator-1, upgrade, start                                   │   │
-│  │  4. After the health check passes, add it back to the Load Balancer      │   │
-│  │  5. Repeat 2-4 to upgrade the other Coordinators                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Worker upgrade:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Mark Worker-1 as DRAINING (does not accept new tasks)                │   │
-│  │  2. Wait for tasks on Worker-1 to finish                                 │   │
-│  │  3. Stop Worker-1, upgrade, start                                        │   │
-│  │  4. Worker-1 re-registers with the Service Registry                      │   │
-│  │  5. Repeat 1-4 to upgrade the other Workers                              │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Version compatibility:                                                          │
-│  • During the upgrade, old and new versions of Coordinator/Worker coexist        │
-│  • A new Coordinator can schedule tasks to old Workers (protocol backward-compatible) │
-│  • An old Coordinator does not schedule to new Workers (via version filtering)   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Protocol-Epoch Upgrade Procedure](../../website/static/img/diagrams/generated/query-execution-58-1a108db81b.svg)
 
 ### 11.3 Dynamic Configuration
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Dynamic Configuration                                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Hot-reloadable configuration:                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  • Resource queue config (capacity, concurrency, timeout)                │   │
-│  │  • Query limits (max memory, max execution time)                         │   │
-│  │  • Log level                                                             │   │
-│  │  • Sampling rate (Tracing)                                               │   │
-│  │  • Feature Flags                                                         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Non-hot-reloadable configuration (requires restart):                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  • Port number                                                           │   │
-│  │  • Native library path                                                   │   │
-│  │  • Memory pool size                                                       │   │
-│  │  • Storage path                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Config distribution:                                                            │
-│  • Storage: ZooKeeper /pangrova/config/                                            │
-│  • Listen: Curator PathChildrenCache                                             │
-│  • Effective: takes effect < 5s after a config change                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Dynamic Configuration](../../website/static/img/diagrams/generated/query-execution-59-71e6a48e9d.svg)
 
 ```java
 /**
@@ -2378,123 +1569,25 @@ public class DynamicConfigManager {
 
 ### 12.1 Syntax Category Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Lake SQL Syntax Coverage                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Full coverage of Iceberg/Paimon DDL/DML/system-operation syntax               │
-│  • Unified syntax abstraction, hiding underlying data lake differences           │
-│  • Support Pangrova-specific extended syntax                                        │
-│                                                                                  │
-│  Syntax categories:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category        │ Syntax                            │ Support status   │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  DDL             │ CREATE/ALTER/DROP TABLE/VIEW      │ ✓ Full support   │   │
-│  │  DML             │ INSERT/UPDATE/DELETE/MERGE        │ ✓ Full support   │   │
-│  │  Query           │ SELECT/JOIN/UNION/SUBQUERY        │ ✓ Full support   │   │
-│  │  Time Travel     │ FOR SYSTEM_TIME AS OF             │ ✓ Full support   │   │
-│  │  Table Maint.    │ OPTIMIZE/VACUUM/COMPACT           │ ✓ Full support   │   │
-│  │  Snapshot Mgmt   │ CREATE/ROLLBACK/EXPIRE SNAPSHOT   │ ✓ Full support   │   │
-│  │  Branch/Tag      │ CREATE/DROP BRANCH/TAG            │ ✓ Iceberg        │   │
-│  │  System          │ SHOW/DESCRIBE/EXPLAIN/ANALYZE     │ ✓ Full support   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Lake SQL Syntax Coverage](../../website/static/img/diagrams/generated/query-execution-61-1f67d114d1.svg)
+
+The table is a syntax overview, not a distributed conformance certificate.
+As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
+`INSERT OVERWRITE`, and single-action/UPDATE+INSERT `MERGE` in one Native write
+and catalog commit. A `MERGE` combining `DELETE` with another action is rejected
+rather than decomposed into non-atomic commits. Arbitrary distributed DML shapes,
+multiple matching source rows, and cross-worker failure recovery are not yet
+certified; see the [Roadmap](../getting-started/roadmap.md).
 
 
 ### 12.2 DDL Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- CREATE TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Basic table creation
-CREATE TABLE catalog.db.orders (
-    id BIGINT,
-    customer_id BIGINT,
-    amount DECIMAL(18,2),
-    order_date DATE,
-    status VARCHAR
-)
-USING ICEBERG                                    -- or PAIMON
-PARTITIONED BY (order_date, bucket(16, customer_id))
-TBLPROPERTIES (
-    'write.format.default' = 'parquet',
-    'write.parquet.compression-codec' = 'zstd'
-);
-
--- CTAS (Create Table As Select)
-CREATE TABLE catalog.db.orders_2024 AS
-SELECT * FROM catalog.db.orders WHERE order_date >= '2024-01-01';
-
--- Copy structure from another table
-CREATE TABLE catalog.db.orders_backup LIKE catalog.db.orders;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- ALTER TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Column operations
-ALTER TABLE catalog.db.orders ADD COLUMN region VARCHAR;
-ALTER TABLE catalog.db.orders DROP COLUMN region;
-ALTER TABLE catalog.db.orders RENAME COLUMN status TO order_status;
-ALTER TABLE catalog.db.orders ALTER COLUMN amount TYPE DECIMAL(20,2);
-
--- Partition operations
-ALTER TABLE catalog.db.orders ADD PARTITION FIELD bucket(8, region);
-ALTER TABLE catalog.db.orders DROP PARTITION FIELD bucket(16, customer_id);
-
--- Property operations
-ALTER TABLE catalog.db.orders SET TBLPROPERTIES ('write.format.default' = 'orc');
-ALTER TABLE catalog.db.orders UNSET TBLPROPERTIES ('write.format.default');
-
--- Rename
-ALTER TABLE catalog.db.orders RENAME TO catalog.db.orders_archive;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- DROP TABLE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-DROP TABLE catalog.db.orders;
-DROP TABLE IF EXISTS catalog.db.orders PURGE;    -- Also delete data files
-```
+![--](../../website/static/img/diagrams/generated/query-execution-62-22db13a87e.svg)
 
 
 ### 12.3 DML Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- INSERT
--- ═══════════════════════════════════════════════════════════════════════════════
-
-INSERT INTO catalog.db.orders VALUES (1, 100, 99.99, DATE '2024-01-01', 'pending');
-INSERT INTO catalog.db.orders SELECT * FROM staging.orders WHERE date = '2024-01-01';
-INSERT OVERWRITE catalog.db.orders PARTITION (order_date = '2024-01-01')
-    SELECT * FROM staging.orders WHERE date = '2024-01-01';
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- UPDATE / DELETE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-UPDATE catalog.db.orders SET status = 'shipped' WHERE id = 12345;
-DELETE FROM catalog.db.orders WHERE order_date < '2023-01-01';
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- MERGE (Upsert)
--- ═══════════════════════════════════════════════════════════════════════════════
-
-MERGE INTO catalog.db.orders t
-USING staging.orders_update s ON t.id = s.id
-WHEN MATCHED AND s.op = 'D' THEN DELETE
-WHEN MATCHED THEN UPDATE SET t.status = s.status, t.amount = s.amount
-WHEN NOT MATCHED THEN INSERT (id, customer_id, amount, order_date, status)
-    VALUES (s.id, s.customer_id, s.amount, s.order_date, s.status);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-63-845b6dcf70.svg)
 
 ### 12.4 Time Travel Queries
 
@@ -2516,125 +1609,16 @@ SELECT * FROM catalog.db.orders
 
 ### 12.5 Table Maintenance Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- OPTIMIZE (small file compaction)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Full-table optimization
-OPTIMIZE TABLE catalog.db.orders;
-
--- Optimize a specific partition
-OPTIMIZE TABLE catalog.db.orders WHERE order_date >= '2024-01-01';
-
--- Specify target file size
-OPTIMIZE TABLE catalog.db.orders
-    SET ('target-file-size-bytes' = '134217728');  -- 128MB
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- VACUUM (orphan file cleanup)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Clean up orphan files (retain the last 7 days)
-VACUUM TABLE catalog.db.orders RETAIN 168 HOURS;
-
--- Clean up and show the files that would be deleted (Dry Run)
-VACUUM TABLE catalog.db.orders RETAIN 168 HOURS DRY RUN;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- EXPIRE SNAPSHOTS (expired snapshot cleanup)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Expire old snapshots
-ALTER TABLE catalog.db.orders EXPIRE SNAPSHOTS OLDER_THAN TIMESTAMP '2024-01-01';
-
--- Retain the last N snapshots
-ALTER TABLE catalog.db.orders EXPIRE SNAPSHOTS RETAIN LAST 10;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- REWRITE DATA FILES (data rewrite/sort)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Rewrite data by sort key (optimize query performance)
-ALTER TABLE catalog.db.orders REWRITE DATA
-    USING SORT ORDER (order_date, customer_id);
-
--- Z-Order sort (multi-dimensional query optimization)
-ALTER TABLE catalog.db.orders REWRITE DATA
-    USING ZORDER (customer_id, order_date);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-65-4523f0e214.svg)
 
 
 ### 12.6 Snapshot and Branch Management
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- SNAPSHOT management
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Create a snapshot (manually triggered)
-ALTER TABLE catalog.db.orders CREATE SNAPSHOT;
-
--- Roll back to a specific snapshot
-ALTER TABLE catalog.db.orders ROLLBACK TO SNAPSHOT 1234567890;
-
--- Roll back to a specific point in time
-ALTER TABLE catalog.db.orders ROLLBACK TO TIMESTAMP '2024-01-01 10:00:00';
-
--- Cherry-pick a snapshot (Iceberg)
-ALTER TABLE catalog.db.orders CHERRY_PICK SNAPSHOT 1234567890;
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- BRANCH / TAG management (Iceberg)
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- Create a branch
-ALTER TABLE catalog.db.orders CREATE BRANCH dev;
-ALTER TABLE catalog.db.orders CREATE BRANCH dev AS OF VERSION 1234567890;
-
--- Create a tag
-ALTER TABLE catalog.db.orders CREATE TAG 'release-v1.0';
-ALTER TABLE catalog.db.orders CREATE TAG 'release-v1.0' AS OF VERSION 1234567890;
-
--- Delete a branch/tag
-ALTER TABLE catalog.db.orders DROP BRANCH dev;
-ALTER TABLE catalog.db.orders DROP TAG 'release-v1.0';
-
--- Switch branch (on write)
-INSERT INTO catalog.db.orders VERSION AS OF 'dev' VALUES (...);
-```
+![--](../../website/static/img/diagrams/generated/query-execution-66-4b14100a59.svg)
 
 ### 12.7 System Operation Syntax
 
-```sql
--- ═══════════════════════════════════════════════════════════════════════════════
--- SHOW / DESCRIBE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-SHOW CATALOGS;
-SHOW DATABASES IN iceberg;
-SHOW TABLES IN iceberg.db;
-SHOW CREATE TABLE catalog.db.orders;
-SHOW PARTITIONS catalog.db.orders;
-SHOW SNAPSHOTS catalog.db.orders;                -- Snapshot history
-SHOW FILES catalog.db.orders;                    -- Data file list
-SHOW MANIFESTS catalog.db.orders;                -- Manifest file list
-
-DESCRIBE catalog.db.orders;
-DESCRIBE EXTENDED catalog.db.orders;             -- Includes statistics
-
--- ═══════════════════════════════════════════════════════════════════════════════
--- EXPLAIN / ANALYZE
--- ═══════════════════════════════════════════════════════════════════════════════
-
-EXPLAIN SELECT * FROM catalog.db.orders WHERE order_date = '2024-01-01';
-EXPLAIN ANALYZE SELECT * FROM catalog.db.orders WHERE order_date = '2024-01-01';
-EXPLAIN (FORMAT JSON) SELECT * FROM catalog.db.orders;
-
--- Collect statistics
-ANALYZE TABLE catalog.db.orders;
-ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amount;
-```
+![--](../../website/static/img/diagrams/generated/query-execution-67-bd8223a28b.svg)
 
 
 ---
@@ -2643,42 +1627,14 @@ ANALYZE TABLE catalog.db.orders COMPUTE STATISTICS FOR COLUMNS customer_id, amou
 
 ### 13.1 Design Goals
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Table Maintenance SPI Design                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Core problems:                                                                  │
-│  • Iceberg/Paimon both currently need orphan file cleanup and small file        │
-│    compaction; Hudi is a planned extension                                      │
-│  • But their respective APIs and implementation details differ                  │
-│  • A unified abstraction is needed, supporting global config and auto scheduling│
-│                                                                                  │
-│  Design principles:                                                              │
-│  1. Unified interface: define a generic TableMaintenanceSpi, hiding low-level diffs│
-│  2. Configurable: support global default config + table-level overrides          │
-│  3. Schedulable: support manual trigger + automatic scheduled dispatch           │
-│  4. Observable: metrics like execution status, duration, cleanup volume of tasks │
-│                                                                                  │
-│  Maintenance operation categories:                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operation          │ Responsibility          │ Trigger condition       │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Compaction         │ Small file compaction   │ File count/size threshold│  │
-│  │  OrphanCleanup      │ Orphan file cleanup     │ Scheduled + manual      │   │
-│  │  SnapshotExpire     │ Expired snapshot cleanup│ Snapshot count/time thresh│ │
-│  │  DataRewrite        │ Data re-sorting         │ Manual trigger          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Table Maintenance SPI Design](../../website/static/img/diagrams/generated/query-execution-68-cfe92a0068.svg)
 
 
-### 13.2 TableMaintenanceSpi Interface
+### 13.2 TableMaintenance Interface
 
 
 
-The authoritative `TableMaintenanceSpi` interface is defined in [streaming.md §2.9](./streaming.md). All maintenance operations are **async and non-blocking**, returning `CompletableFuture<*Result>`. The interface provides:
+The authoritative `TableMaintenance` interface is defined in [streaming.md §2.9](./streaming.md). All maintenance operations are **async and non-blocking**, returning `CompletableFuture<*Result>`. The interface provides:
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
@@ -2687,7 +1643,7 @@ The authoritative `TableMaintenanceSpi` interface is defined in [streaming.md §
 | `expireSnapshotsAsync(tableName, olderThan)` | `CompletableFuture<SnapshotExpirationResult>` | Expire old snapshots |
 | `getMaintenanceStatus(tableName)` | `MaintenanceStatus` | Get current maintenance status (synchronous) |
 
-The coordinator receives a `TableMaintenanceSpi` from the streaming-module wiring;
+The coordinator receives a `TableMaintenance` from the streaming-module wiring;
 `MaintenanceExecutor` invokes it without depending on a connector-specific provider
 type. Connector maintenance procedures remain format-specific.
 
@@ -2734,35 +1690,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 14.1 Java/Native Version Compatibility
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Java/Native Version Compatibility Matrix                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Compatibility rules:                                                            │
-│  • Major version: incompatible changes, must upgrade in sync                    │
-│  • Minor version: backward compatible, new Java works with old Native           │
-│  • Patch version: bug fixes, fully compatible                                   │
-│                                                                                  │
-│  Version matrix:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Version  │ Native Version │ Protocol │ Compatibility │ Note      │   │
-│  │  ────────────────────────────────────────────────────────────────────  │   │
-│  │  1.0.x         │ 1.0.x          │ v1       │ ✓ Full       │ Initial version│ │
-│  │  1.1.x         │ 1.0.x          │ v1       │ ✓ Backward   │ New Java feature││
-│  │  1.1.x         │ 1.1.x          │ v1       │ ✓ Full       │ Recommended combo││
-│  │  1.2.x         │ 1.1.x          │ v1       │ ✓ Backward   │ New Java feature││
-│  │  1.2.x         │ 1.2.x          │ v2       │ ✓ Full       │ Protocol upgrade││
-│  │  2.0.x         │ 1.x.x          │ v2       │ ✗ Incompatible│ Must upgrade in sync││
-│  │  2.0.x         │ 2.0.x          │ v3       │ ✓ Full       │ Major version upgrade││
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Upgrade paths:                                                                  │
-│  • 1.0.x → 1.1.x: upgrade Java first, then Native (optional)                    │
-│  • 1.x.x → 2.0.x: must upgrade Java and Native simultaneously                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Java/Native Version Compatibility Matrix](../../website/static/img/diagrams/generated/query-execution-69-7b3be80655.svg)
 
 ### 14.2 Protocol Version Change Log
 
@@ -2778,28 +1706,7 @@ Maintenance metrics are exposed via Prometheus: `compaction_tasks_total`, `compa
 
 ### 15.1 Degradation Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Dynamic Filter Degradation Strategy                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem scenarios:                                                              │
-│  • Build side has too much data, building the Dynamic Filter times out          │
-│  • Network latency causes Dynamic Filter propagation timeout                    │
-│  • Probe side has started scanning, Dynamic Filter not ready                    │
-│                                                                                  │
-│  Degradation strategy:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Scenario              │ Threshold         │ Degradation behavior       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Build timeout         │ 30s (configurable)│ Skip DF, continue execution│  │
-│  │  Propagation timeout   │ 10s (configurable)│ Probe side doesn't wait, scans directly││
-│  │  DF too large          │ 10MB (configurable)│ Degrade to Min/Max Range  │   │
-│  │  Too many Build rows   │ 1M rows (configurable)│ Use BloomFilter instead of IN││
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Dynamic Filter Degradation Strategy](../../website/static/img/diagrams/generated/query-execution-70-99c955ebdb.svg)
 
 ### 15.2 Degradation Implementation
 
@@ -2897,26 +1804,7 @@ For the statistics foundation that AQE depends on, see [query-optimization.md §
 
 ### 16.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Coordinator                                  │
-│                                                                      │
-│  ┌──────────────┐    ┌────────────────┐    ┌───────────────────┐    │
-│  │  Stage DAG    │───▶│ AQE evaluator   │───▶│  Re-planned       │    │
-│  │  (initial)    │    │                │    │  Stage DAG        │    │
-│  └──────────────┘    └───────┬────────┘    └───────────────────┘    │
-│                              │                                       │
-│                   ┌──────────▼────────────┐                          │
-│                   │ ShuffleStageStatsReport │                          │
-│                   │ (post-shuffle stats)    │                          │
-│                   └────────────────────────┘                          │
-│                              ▲                                       │
-│              ┌───────────────┼───────────────┐                       │
-│              │               │               │                       │
-│         Worker-1        Worker-2        Worker-N                     │
-│     shuffle_partition_stats (via heartbeat / dedicated RPC)          │
-└─────────────────────────────────────────────────────────────────────┘
-```
+![Coordinator](../../website/static/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
 
 ### 16.2 Capability 1 — Dynamic Coalescing of Shuffle Partitions
 
@@ -3005,7 +1893,7 @@ function handleSkewedJoin(joinStage: JoinStage, shuffleStats: ShuffleStats):
 
 | Aspect | Without AQE | With AQE |
 |--------|-------------|----------|
-| Performance | Fixed plan; fragile with imperfect stats | Self-corrects; 2-5× improvement for skewed/misestimated queries |
+| Performance | Fixed plan; may be fragile with imperfect statistics | Can correct skew or misestimation between stages; gains require workload measurement |
 | Complexity | Simple — plan once, execute | Medium — Coordinator tracks shuffle stats and re-plans between stages |
 | Risk | High — wrong plan decisions unrecoverable | Low — AQE only improves; worst case is no change |
 | Latency overhead | None | ~50-100 ms per shuffle stage boundary |
@@ -3050,18 +1938,7 @@ The following metrics from [14 §3](./observability.md) are emitted by query exe
 
 Query execution emits the following spans (see [14 §4](./observability.md) for span schema):
 
-```
-query.execute                              (Coordinator, SERVER)
-├── query.parse                            (Coordinator, INTERNAL)
-├── query.optimize                         (Coordinator, INTERNAL)
-├── query.schedule                         (Coordinator, INTERNAL)
-│   └── aqe.reoptimize                     (Coordinator, INTERNAL)
-├── task.submit                            (Coordinator → Worker, CLIENT)
-│   └── task.execute                       (Worker, SERVER)
-│       └── native.execute                 (Worker → Native, INTERNAL)
-├── shuffle.write / shuffle.read           (Worker, INTERNAL)
-└── query.output                           (Output Worker, INTERNAL)
-```
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/query-execution-77-55ebfa4691.svg)
 
 ### 17.3 Log Events
 
@@ -3086,28 +1963,7 @@ For the embedded shuffle architecture (current default), see §3.3.9 (Shuffle Bu
 
 ### 18.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                           Node                                   │
-│                                                                  │
-│  ┌──────────────────────┐     ┌────────────────────────────────┐│
-│  │ Worker Process        │     │ Shuffle Service Process        ││
-│  │                       │     │ (long-lived, independent)      ││
-│  │ Velox Pipeline ───────┼────▶│                                ││
-│  │   (shuffle write)     │ IPC │ ShuffleStore                   ││
-│  │                       │     │  ├─ MemoryTier (off-heap)      ││
-│  │ Velox Pipeline ◄──────┼─────│  ├─ SSDTier (Direct I/O)      ││
-│  │   (shuffle read)      │ IPC │  └─ S3Tier (async backup)      ││
-│  │                       │     │                                ││
-│  └──────────────────────┘     │ gRPC API:                       ││
-│                                │  - writePartition()             ││
-│                                │  - readPartition() → stream     ││
-│                                │  - removeStage()                ││
-│                                └────────────────────────────────┘│
-│                                                                  │
-│  Worker can crash/restart without losing shuffle data             │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Node](../../website/static/img/diagrams/generated/query-execution-78-0f286c8a72.svg)
 
 ### 18.2 Shuffle Service API
 
@@ -3162,7 +2018,14 @@ class ShuffleStore:
         ssdTier.removePrefix((queryId, stageId))
 ```
 
-### 18.4 Pluggable Shuffle Backend
+### 18.4 Pluggable Shuffle Backend (design sketch)
+
+The pseudocode below is a proposed backend abstraction, not the production
+shuffle writer. The current Worker executes the canonical producer Exchange
+through the Native callback, serializes to `SerializedShuffleQueue`, and serves
+partitions over Native Flight. The queue currently makes an independent byte
+copy at admission; it is count-bounded, not yet byte-accounted against the
+task memory grant.
 
 ```pseudocode
 interface ShuffleWriter:
@@ -3170,7 +2033,7 @@ interface ShuffleWriter:
     function flush()
 
 class EmbeddedShuffleWriter implements ShuffleWriter:
-    // Current default — shuffle data in Worker memory (§3.3.9)
+    // Proposed embedded backend; not the production implementation
     function write(partitionId, batch):
         taskMemoryPool.allocate(batch.size)
         shuffleBuffer[partitionId].append(batch)
@@ -3190,8 +2053,8 @@ function createShuffleWriter(config):
 
 | Aspect | Embedded (Current) | External (ESS) |
 |--------|-------------------|-----------------|
-| Performance | Zero-copy within Worker; minimal latency | IPC overhead (~50–100μs per batch via Unix domain socket or gRPC) |
-| Reliability | Worker crash loses shuffle data; S3 fallback adds latency | Shuffle data survives Worker crash; immediate local recovery |
+| Performance | Current Native path copies serialized bytes once at queue admission; throughput is not yet benchmarked | Additional transport and service overhead; no measured per-batch claim yet |
+| Reliability | In-memory queue is lost on Worker crash; recovery requires recomputation or a durable backend | A durable external service can survive Worker crash if its production commit/restore contract is proven |
 | Scalability | Shuffle competes with compute for memory; cannot scale independently | Independent memory pool; can scale shuffle storage without adding Workers |
 | Complexity | Simple — single process | Medium — separate process lifecycle, deployment, monitoring |
 | Auto-scaling | Dangerous — scale-down loses shuffle | Safe — shuffle data persists on node even after Worker termination |
@@ -3209,3 +2072,50 @@ function createShuffleWriter(config):
 > **Target cross-reference:** The proposed stage-retry and external-shuffle designs
 > use an attempt identifier in the proposed `WritePartitionRequest` for deduplication. The current
 > native shuffle partitioner is described in [native execution](./native-execution.md).
+
+### Table qualification and metadata lookup ownership
+
+`SessionTableNames` binds a query's default catalog/schema to Metadata's
+`QualifiedTableNames`; neither performs authorization. `ConnectorTableLookup`
+uses the caller's already scoped Connector session and preserves unknown-table
+and `IF EXISTS` behavior. The trusted identity, tenant, snapshot selectors, and
+query authority continue to be bound by `SessionContextConverter`; call sites
+invoke it directly. These helpers do not own transactions or close borrowed
+Catalog/Connector resources.
+
+`TableProcedureCall` owns CALL table-literal interpretation shared by
+admission and execution. Clustering, Index DDL, Branch DDL, and Server streaming
+assembly no longer depend on the former query-statement TableResolver (retired) class.
+Metadata's helpers currently ship in the existing `pangrova-metadata-catalog` artifact;
+its full API/Core/Provider split remains pending. Query session adaptation still
+lives in Coordinator until the session contract closure is extracted.
+
+### Compiled relation ownership
+
+Planner Core owns `analysis.AuthorizedRelation` and
+`substrait.CompiledScanSchemas`. Query's authenticated compilation pipeline
+produces the relation, and Generation/Feature/AI consumers depend on that
+Planner product rather than a Query runtime value class. Policy snapshots in
+the product are compilation observations: runtime submission/publication must
+still check current permissions and ownership. Structural schema extraction
+alone does not authorize a read.
+
+`planner.api.fragment.SerializedPlanFragment` owns serialized bytes plus typed
+retrieval/AI plan intents. It exposes no Calcite, protocol SDK, central SPI or
+Core types; inputs and returned bytes retain their defensive-copy semantics.
+`AuthorizedRelation` remains in Core because its graph, scan descriptors and
+policy evidence still have implementation dependencies. `StagePlanAccess`
+continues to expose live compiler capabilities and is not yet a pure execution
+contract. Moving those remaining types into API without extracting their
+closure would violate the module boundary.
+
+### Privilege statement execution
+
+GRANT/REVOKE use the Parser API AST and the Server-owned `PrivilegeStatementTasks`.
+`StatementClassifier` categorizes them as DDL; `PermissionChecker` requires an
+identity and configured access control, while the persistence operation rechecks
+current delegation authority under the shared authorization mutation gate.
+`SecurityAdministrationBootstrap` selects the PostgreSQL repository. NOOP/bypass
+and security-disabled configurations register explicit rejection, not an unsecured
+implementation. Query UUIDs identify durable privilege mutation receipts.
+See [security semantics and verification limits](security.md#sql-privilege-administration).

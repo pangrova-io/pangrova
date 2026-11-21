@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="980" viewBox="0 0 1200 980" role="img" aria-labelledby="t d">
+<title id="t">Metadata architecture</title>
+<desc id="d">Catalog deployments, federation, tiered cache, projections, and durable persistence.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="980" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Metadata architecture</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Catalog identity and projections are fenced to one deployment and revision.</text>
+<rect x="80" y="140" width="1040" height="80" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="140" width="5" height="80" rx="2.5" fill="#2563EB"/>
+<text x="100" y="168" font-size="16.5" font-weight="700" fill="#111827">Callers</text>
+<text x="100" y="192" font-size="13.5" fill="#64748B">Parser and planner metadata resolution · Connector catalog handles · DDL and maintenance tasks</text>
+<line x1="600" y1="220" x2="600" y2="258" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="258" width="1080" height="220" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="290" font-size="19" font-weight="700" fill="#7C3AED">CATALOG LAYER</text>
+<rect x="90" y="310" width="330" height="130" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="310" width="5" height="130" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="338" font-size="16.5" font-weight="700" fill="#111827">Catalog registry</text>
+<text x="110" y="362" font-size="13.5" fill="#64748B">Deployment identity</text>
+<text x="110" y="383" font-size="13.5" fill="#64748B">Catalog revisions</text>
+<text x="110" y="404" font-size="13.5" fill="#64748B">Provider selection</text>
+<rect x="435" y="310" width="330" height="130" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="435" y="310" width="5" height="130" rx="2.5" fill="#7C3AED"/>
+<text x="455" y="338" font-size="16.5" font-weight="700" fill="#111827">Federated catalogs</text>
+<text x="455" y="362" font-size="13.5" fill="#64748B">External catalog handles</text>
+<text x="455" y="383" font-size="13.5" fill="#64748B">Namespaces, tables, columns</text>
+<text x="455" y="404" font-size="13.5" fill="#64748B">Tenant-scoped access</text>
+<rect x="780" y="310" width="330" height="130" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="780" y="310" width="5" height="130" rx="2.5" fill="#0D9488"/>
+<text x="800" y="338" font-size="16.5" font-weight="700" fill="#111827">Metadata cache</text>
+<text x="800" y="362" font-size="13.5" fill="#64748B">L1 Caffeine · short TTL</text>
+<text x="800" y="383" font-size="13.5" fill="#64748B">L2 memory or Redis</text>
+<text x="800" y="404" font-size="13.5" fill="#64748B">Generation-checked fill</text>
+<line x1="600" y1="478" x2="600" y2="518" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="518" width="1080" height="190" rx="18" fill="#FFFFFF" stroke="#0D9488" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="550" font-size="19" font-weight="700" fill="#0D9488">PROJECTIONS</text>
+<rect x="90" y="570" width="490" height="100" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="570" width="5" height="100" rx="2.5" fill="#0D9488"/>
+<text x="110" y="598" font-size="16.5" font-weight="700" fill="#111827">Table and schema projections</text>
+<text x="110" y="622" font-size="13.5" fill="#64748B">Rebuildable read models</text>
+<text x="110" y="643" font-size="13.5" fill="#64748B">Deployment and revision fenced</text>
+<text x="110" y="664" font-size="13.5" fill="#64748B">Invalidation events</text>
+<rect x="620" y="570" width="490" height="100" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="620" y="570" width="5" height="100" rx="2.5" fill="#0D9488"/>
+<text x="640" y="598" font-size="16.5" font-weight="700" fill="#111827">Synchronization</text>
+<text x="640" y="622" font-size="13.5" fill="#64748B">Source progress and diagnostics</text>
+<text x="640" y="643" font-size="13.5" fill="#64748B">Atomic completion receipts</text>
+<text x="640" y="664" font-size="13.5" fill="#64748B">Observation epochs</text>
+<line x1="600" y1="708" x2="600" y2="748" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="80" y="748" width="1040" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="748" width="5" height="90" rx="2.5" fill="#0D9488"/>
+<text x="100" y="776" font-size="16.5" font-weight="700" fill="#111827">Catalog persistence — PostgreSQL</text>
+<text x="100" y="800" font-size="13.5" fill="#64748B">Deployment history · projections · sync state · outbox · authorization-gate receipts</text>
+<text x="600" y="890" font-size="14" fill="#64748B" text-anchor="middle">Projection writes, outbox events, and receipts commit in one transaction; reads may be cached but never bypass the current deployment fence.</text>
+<line x1="60" y1="950" x2="100" y2="950" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="955" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="950" x2="280" y2="950" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="955" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

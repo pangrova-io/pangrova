@@ -40,6 +40,15 @@ class PangrovaCostFactoryTest {
         assertThat(pangrovaCost.getMemory()).isEqualTo(0.0);
     }
 
+    @Test
+    void logicalJoinRowsRemainCostlyWhenCalciteReportsZeroCpu() {
+        RelOptCost small = factory.makeCost(10, 0, 0);
+        RelOptCost large = factory.makeCost(1_000_000, 0, 0);
+
+        assertThat(small.isLt(large)).isTrue();
+        assertThat(large.isLt(small)).isFalse();
+    }
+
     // --- Network dimension ---
 
     @Test

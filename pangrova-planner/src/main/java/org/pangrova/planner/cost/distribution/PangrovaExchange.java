@@ -28,23 +28,44 @@ public final class PangrovaExchange extends SingleRel implements PangrovaRel {
     private static final double DEFAULT_ROW_WIDTH = 100.0;
 
     private final PangrovaDistribution targetDistribution;
+    private final int partitionCount;
 
     public PangrovaExchange(
             RelOptCluster cluster,
             RelTraitSet traitSet,
             RelNode input,
             PangrovaDistribution targetDistribution) {
+        this(cluster, traitSet, input, targetDistribution, 0);
+    }
+
+    /** Creates an exchange whose output partition count is already bound. */
+    public PangrovaExchange(
+            RelOptCluster cluster,
+            RelTraitSet traitSet,
+            RelNode input,
+            PangrovaDistribution targetDistribution,
+            int partitionCount) {
         super(cluster, traitSet, input);
         this.targetDistribution = targetDistribution;
+        if (partitionCount < 0) {
+            throw new IllegalArgumentException("partitionCount must be >= 0");
+        }
+        this.partitionCount = partitionCount;
     }
 
     public PangrovaDistribution targetDistribution() {
         return targetDistribution;
     }
 
+    /** Zero means unbound; fragmented executable plans always bind this. */
+    public int partitionCount() {
+        return partitionCount;
+    }
+
     @Override
     public RelNode copy(RelTraitSet traitSet, List<RelNode> inputs) {
-        return new PangrovaExchange(getCluster(), traitSet, sole(inputs), targetDistribution);
+        return new PangrovaExchange(
+                getCluster(), traitSet, sole(inputs), targetDistribution, partitionCount);
     }
 
     @Override
@@ -72,6 +93,7 @@ public final class PangrovaExchange extends SingleRel implements PangrovaRel {
     @Override
     public RelWriter explainTerms(RelWriter pw) {
         return super.explainTerms(pw)
-                .item("distribution", targetDistribution);
+                .item("distribution", targetDistribution)
+                .item("partitionCount", partitionCount);
     }
 }

@@ -1,5 +1,6 @@
 ---
 title: "Data Governance"
+description: "Schema evolution, lineage, quality rules, classification, and enforcement boundaries"
 sidebar_label: "Data Governance"
 ---
 
@@ -12,27 +13,58 @@ sidebar_label: "Data Governance"
 
 > **Summary.** Data lineage, data-quality rules, and data classification.
 
+## Stable ownership of quality definitions and results
+
+Production rule reads and saves use a stable controlled-table UUID. Catalog, schema
+and table names are diagnostic projections from the current registry. Rename keeps
+the rule; a new table under a released name cannot inherit it. A non-ACTIVE table or
+replaced catalog deployment cannot execute the rule. Scheduled callbacks reload the
+rule by ID before evaluating it, so a captured diagnostic name is not policy authority.
+
+`quality_rule_identity` retains the table owner after rule deletion. A numeric rule ID
+cannot be reassigned to a different table UUID; new targets require new rule IDs.
+Bound definitions and audit results reference that permanent owner. Results retain
+the captured UUID, including an evaluation finishing after its rule was deleted.
+
+V101 preserves historical name-only definitions and results as unbound. It neither
+claims a current table nor changes historical counts/expressions. Enabled unbound
+rules fail closed in the production adapter until an administrator verifies and
+explicitly binds their intended owner or retires them. Assigning every old rule the
+UUID currently found at its name is not a supported migration.
+
+These ownership checks do not qualify actual data evaluation or candidate-write
+validation. Production bootstrap rejects attempted checks without an authorized
+data-plane query runner; definition validity cannot produce a passing result.
+Supplying the Native runner and validating the actual write candidate remain open
+implementation requirements.
+
+## Quality read contract and execution identity
+
+Enabled rules require a persisted principal and tenant. V74 preserves old rules but
+disables definitions without an execution subject; an authorized administrative
+operation must assign that subject before re-enabling them. The store persists
+replacement identities across restarts. An identity is not an authorization grant:
+the execution adapter must recheck current privileges and policies.
+
+`QualityReadRequest` carries catalog, schema, table, stable table UUID, predicate and COUNTS/SAMPLES
+separately. The integration-test fixture `QualityReadSql`
+uses Pangrova's production grammar and constructs an SQL AST from the parsed
+expression and exact identifier components. It rejects added statements, outer
+query clauses and unbound parameters, preserves read subqueries, and treats keywords
+inside literals as data. Sample SQL uses the engine's LIMIT syntax. A FALSE or NULL
+predicate is a violation; result shape is explicit rather than inferred from
+sample column names. PostgreSQL oracle tests are not Native pipeline acceptance.
+
+Legacy cron callbacks reload their own rule by ID, skip disabled or deleted rules,
+and record failed evaluations as FAILED. A leader Boolean gates admission but
+does not guarantee exactly-once execution across coordinator replacement.
+`GovernanceContext.initialize(false)` permits a process host to supply a separate
+durable scheduler. These primitives do not establish production SQL/REST rule
+management, durable execution wiring or candidate-write validation.
+
 ## 1. Data Governance Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Governance Architecture                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Governance capabilities:                                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Capability         │ Responsibilities            │ Implementation      │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Schema Evolution   │ Schema change management    │ Iceberg/Paimon native│   │
-│  │  Data Lineage       │ Data lineage tracking       │ OpenLineage integration│   │
-│  │  Data Quality       │ Data quality validation     │ Rule engine + alerts│   │
-│  │  Data Classification│ Data classification         │ Tag system          │   │
-│  │  Metadata Management│ Unified metadata management │ See metadata.md │
-│  │  Catalog Federation │ External Catalog federation │ See [07 §3.8](./metadata.md) FederatedCatalog SPI │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data governance pipeline: query and table facts feed lineage, quality, and classification; durable records live in PostgreSQL, the lineage backend, and query audit](../../website/static/img/diagrams/governance-pipeline.svg)
 
 ---
 
@@ -40,30 +72,7 @@ sidebar_label: "Data Governance"
 
 ### 2.1 Supported Schema Changes
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Schema Evolution Support                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Change types:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operation          │ Iceberg │ Paimon │ Note                           │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  ADD COLUMN         │ ✓       │ ✓      │ Add a column; position can be specified│   │
-│  │  DROP COLUMN        │ ✓       │ ✓      │ Drop a column; data retained   │   │
-│  │  RENAME COLUMN      │ ✓       │ ✓      │ Rename a column                │   │
-│  │  ALTER COLUMN TYPE  │ Partial │ Partial│ Only compatible type promotions supported│   │
-│  │  REORDER COLUMNS    │ ✓       │ ✗      │ Reorder columns                │   │
-│  │  ADD NESTED FIELD   │ ✓       │ ✓      │ Add field to nested struct     │   │
-│  │  CHANGE NULLABILITY │ ✓       │ ✓      │ NOT NULL → NULL (not the reverse)│   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Type promotion rules (safe changes): see [metadata.md §3.7](./metadata.md)  │
-│  `SchemaEvolutionValidator.SAFE_PROMOTIONS` for the authoritative rule set.      │
-│                                                                                  │
-
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Schema Evolution Support](../../website/static/img/diagrams/generated/data-governance-01-6a2c0f3b68.svg)
 
 ### 2.2 Schema Evolution SQL
 
@@ -109,36 +118,7 @@ SELECT * FROM iceberg.db.orders$snapshots;
 
 ### 3.1 Lineage Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Lineage Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Based on the OpenLineage standard:                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  Query Execution                                                        │   │
-│  │       │                                                                  │   │
-│  │       ▼                                                                  │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │ Lineage Extractor│  ← Extract lineage from the execution plan        │   │
-│  │  │                 │                                                    │   │
-│  │  │ • Source Tables │                                                    │   │
-│  │  │ • Target Tables │                                                    │   │
-│  │  │ • Transformations│                                                   │   │
-│  │  │ • Column Lineage│                                                    │   │
-│  │  └────────┬────────┘                                                    │   │
-│  │           │                                                              │   │
-│  │           ▼                                                              │   │
-│  │  ┌─────────────────┐     ┌─────────────────┐                           │   │
-│  │  │ OpenLineage     │ ──► │ Lineage Backend │                           │   │
-│  │  │ Event           │     │ (Marquez/Datahub)│                          │   │
-│  │  └─────────────────┘     └─────────────────┘                           │   │
-│  │                                                                          │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Lineage Architecture](../../website/static/img/diagrams/generated/data-governance-03-7b247bdda4.svg)
 
 ### 3.2 Lineage Event Model
 
@@ -255,30 +235,7 @@ SELECT * FROM system.lineage.path(
 
 ### 4.1 Data Quality Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Quality Architecture                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Quality check types:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Check Type        │ Example                     │ Trigger timing       │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Completeness      │ NOT NULL, required fields   │ On write / scheduled │   │
-│  │  Uniqueness        │ Primary key unique, business key unique│ On write / scheduled │   │
-│  │  Validity          │ Enum values, format validation│ On write / scheduled │   │
-│  │  Consistency       │ Cross-table consistency, referential integrity│ Scheduled            │   │
-│  │  Timeliness        │ Data freshness              │ Scheduled            │   │
-│  │  Accuracy          │ Business rule validation    │ Scheduled            │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Execution flow:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Rule Definition → Scheduler → Executor → Result Store → Alert         │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Quality Architecture](../../website/static/img/diagrams/generated/data-governance-06-3f5ae9fe04.svg)
 
 ### 4.2 Quality Rule Definition
 
@@ -289,9 +246,9 @@ SELECT * FROM system.lineage.path(
 > present in the parser and are not wired into SQL statement dispatch. The syntax
 > below is therefore target design rather than an available SQL surface.
 >
-> **Executor**: `check_expression` is executed as a sub-query under a dedicated `system` principal with read-only access to the target table. The execution uses the standard query pipeline ([02 §3](./query-execution.md)) with `ResourceQueue = SYSTEM` to avoid competing with user queries. Sub-queries (e.g., `customer_id IN (SELECT ...)`) are supported via normal Calcite planning.
+> The production coordinator uses `UnconfiguredQualityRuleExecutor`. An attempted evaluation fails and records its captured table UUID. Connecting the SQL executor requires a data-plane runner that authenticates the persisted principal and tenant and checks current access to every relation in the expression. The PostgreSQL oracle exercises SQL generation in tests.
 >
-> **Scheduler**: Quality rule scheduling uses a lightweight `CronScheduler` (single-threaded `ScheduledExecutorService`) that evaluates cron expressions from `data_quality_rules.schedule` and submits `RUN DATA QUALITY CHECK` as internal SQL statements. This is independent of `MaintenanceScheduler` ([10 §2.10](./streaming.md)) which handles table maintenance only.
+> `CronScheduler` invokes the governance handler from a leader-gated callback. The handler reloads the rule by ID before evaluating it. Scheduled checks use the same configured executor as the write gate.
 
 ```sql
 -- Create a quality rule
@@ -339,48 +296,101 @@ RUN DATA QUALITY CHECK ON iceberg.sales.orders;
 
 ### 4.3 Quality Rule Storage
 
+`org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore` owns the
+PostgreSQL `quality_rules` and `quality_check_results` tables; governance is the
+single owner of the store, while metadata decorates it with the stable
+table-identity projection (`org.pangrova.metadata.governance`). V53 converges the old
+CDC-prefixed tables into this authority. Rule definitions may be updated;
+execution results append history. During Coordinator assembly, the PostgreSQL provider checks that the canonical rule, identity and result relations resolve before exposing the store. The check reads no rows and creates no schema objects.
 
+A producer's `resultId=0` requests a new database-issued identity, including
+across processes and store restarts. Existing explicit result IDs are preserved;
+a duplicate insert reports SQLSTATE `23505` and leaves the original result intact.
+V67 upgrades the result identity allocator beyond the existing positive high-water
+mark, retaining legacy rows, including a row with ID zero. Apply the production
+Flyway migrations before using the new writer. Fresh standalone schemas use the
+same identity definition below.
 
 ```sql
--- Quality rules table
-CREATE TABLE data_quality_rules (
-    rule_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    rule_name VARCHAR(255) NOT NULL,
-    catalog_name VARCHAR(255) NOT NULL,
-    schema_name VARCHAR(255) NOT NULL,
-    table_name VARCHAR(255) NOT NULL,
-
-    check_expression TEXT NOT NULL,           -- SQL expression
-    severity VARCHAR(20) NOT NULL,            -- ERROR, WARNING, INFO
-    message TEXT,
-
-    enabled BOOLEAN DEFAULT TRUE,
-    schedule VARCHAR(100),                    -- cron expression
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    UNIQUE KEY uk_rule (catalog_name, schema_name, table_name, rule_name)
+CREATE TABLE IF NOT EXISTS quality_rules (
+    rule_id            BIGINT        NOT NULL PRIMARY KEY,
+    rule_name          VARCHAR(512)  NOT NULL,
+    catalog_name       VARCHAR(255)  NOT NULL,
+    schema_name        VARCHAR(255)  NOT NULL,
+    table_name         VARCHAR(255)  NOT NULL,
+    check_expression   TEXT          NOT NULL,
+    severity           VARCHAR(32)   NOT NULL,
+    message            TEXT,
+    enabled            BOOLEAN       NOT NULL DEFAULT TRUE,
+    schedule           VARCHAR(255),
+    created_at         TIMESTAMP     NOT NULL,
+    updated_at         TIMESTAMP     NOT NULL
 );
 
--- Quality check results table
-CREATE TABLE data_quality_results (
-    result_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    rule_id BIGINT NOT NULL,
-    check_time TIMESTAMP NOT NULL,
-
-    passed BOOLEAN NOT NULL,
-    total_rows BIGINT,
-    failed_rows BIGINT,
-    sample_failures JSON,                     -- Failure samples
-
-    execution_time_ms BIGINT,
-    error_message TEXT,
-
-    INDEX idx_rule_time (rule_id, check_time),
-    INDEX idx_time (check_time)
+CREATE TABLE IF NOT EXISTS quality_check_results (
+    result_id          BIGINT        GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    rule_id            BIGINT        NOT NULL,
+    rule_name          VARCHAR(512)  NOT NULL,
+    table_name         VARCHAR(255)  NOT NULL,
+    severity           VARCHAR(32)   NOT NULL,
+    check_time         TIMESTAMP     NOT NULL,
+    passed             BOOLEAN       NOT NULL,
+    total_rows         BIGINT        NOT NULL DEFAULT 0,
+    failed_rows        BIGINT        NOT NULL DEFAULT 0,
+    execution_time_ms  BIGINT        NOT NULL DEFAULT 0,
+    error_message      TEXT
 );
 ```
+
+PostgreSQL's [sequence allocator](https://www.postgresql.org/docs/16/functions-sequence.html)
+issues distinct values across concurrent sessions. Sequence gaps are valid;
+result IDs are identities, not execution counts. Data-plane quality evaluation
+and its complete SQL/CDC chain remain in the acceptance inventory.
+
+**Write-time gate.** When governance is enabled, the coordinator installs a
+`RuleBasedWriteQualityGate` on the distributed write path
+(`pangrova.governance.write-quality-gate.enabled`, default `true`). Before a
+write records its durable commit intent and calls the connector, the gate
+evaluates every enabled rule for the target table:
+
+- An `ERROR`-severity failure fails the query with error code
+  `GOVERNANCE-0002`; the catalog is never asked to commit, and no durable write
+  intent is recorded.
+- `WARNING` and `INFO` failures are recorded but do not block.
+- A gate that cannot evaluate its rules (store unavailable, no recoverable
+  target table) also blocks: the write is never admitted on missing evidence.
+- Every rule result is appended to `quality_check_results`, giving a durable
+  record of the decision.
+
+The gate uses the coordinator's configured `QualityRuleExecutor`. Bootstrap
+currently wires `UnconfiguredQualityRuleExecutor`, which rejects every attempted
+evaluation with an explicit missing-runner error. A nonblank expression is never
+evidence that table data passed a rule. The handler and write gate append the
+failed result with its captured table UUID; an enabled `ERROR` rule blocks the
+write before durable commit intent or connector publication. Tables with no
+enabled rules continue through the gate, and `WARNING`/`INFO` keep their documented
+nonblocking severity while recording failure.
+
+The pre-commit callback currently receives only catalog, schema and table name.
+The connector has yet to publish the attempt's files. A second SELECT through
+ordinary query admission sees committed rows and competes with its waiting parent
+write for capacity. Evaluating a candidate requires its exact attempt, pinned inputs
+and readable post-image. Neither SQL-text construction nor an administrative JDBC
+connection supplies them.
+
+Scheduled checks have a separate requirement. A persisted principal and tenant must
+be resolved against current access at evaluation time. A runner must bind the rule's
+table UUID, authorize all subqueries and return counts and samples from the same
+authorized snapshot. The production SQL resource admits authenticated user requests.
+It exposes no scheduler grant for reconstructing the stored subject. Both triggers
+therefore record unavailable evaluations through the same explicit rejection today.
+
+The governance evaluator checks each returned rule ID, table UUID, table name,
+rule name, severity and row counts against the captured rule. A provider cannot
+convert an ERROR failure into a WARNING or supply another rule's pass. The scheduler
+admits one recurring registration per rule ID. Replacing or cancelling the registration
+lets an in-flight check finish and prevents it from scheduling another occurrence.
+Invalid cron expressions are rejected at registration.
 
 ### 4.4 Quality Alerting
 
@@ -446,27 +456,13 @@ interface AlertChannelRegistry {
 
 ### 5.1 Classification Tag System
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Data Classification                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Classification dimensions:                                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Dimension         │ Tag examples                │ Purpose              │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Sensitivity level │ PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED       │   │
-│  │  PII type          │ PII_NAME, PII_EMAIL, PII_PHONE, PII_SSN          │   │
-│  │  Data domain       │ FINANCE, HR, SALES, MARKETING                    │   │
-│  │  Compliance requirement│ GDPR, HIPAA, PCI_DSS, SOX                        │   │
-│  │  Data quality      │ GOLDEN, SILVER, BRONZE                           │   │
-│  │  Lifecycle         │ ACTIVE, ARCHIVED, DEPRECATED                     │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Data Classification](../../website/static/img/diagrams/generated/data-governance-10-7df05ba21e.svg)
 
 ### 5.2 Tag Management SQL
+
+Column-level `SET TAG` / `UNSET TAG` is wired end to end. Tags are durable, bound
+to the table's stable `table_id`, and query enforcement derives classification
+masks directly from those canonical bindings.
 
 ```sql
 -- Create a tag
@@ -474,14 +470,13 @@ CREATE TAG sensitivity_level WITH VALUES ('PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 
 CREATE TAG pii_type WITH VALUES ('PII_NAME', 'PII_EMAIL', 'PII_PHONE', 'PII_SSN', 'PII_ADDRESS');
 CREATE TAG data_domain WITH VALUES ('FINANCE', 'HR', 'SALES', 'MARKETING', 'OPERATIONS');
 
--- Tag a table
-ALTER TABLE iceberg.hr.employees SET TAG sensitivity_level = 'CONFIDENTIAL';
-ALTER TABLE iceberg.hr.employees SET TAG data_domain = 'HR';
-
 -- Tag a column
 ALTER TABLE iceberg.hr.employees ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL';
 ALTER TABLE iceberg.hr.employees ALTER COLUMN ssn SET TAG pii_type = 'PII_SSN';
 ALTER TABLE iceberg.hr.employees ALTER COLUMN salary SET TAG sensitivity_level = 'RESTRICTED';
+
+-- Remove a tag
+ALTER TABLE iceberg.hr.employees ALTER COLUMN email UNSET TAG pii_type;
 
 -- Query tags
 SHOW TAGS ON TABLE iceberg.hr.employees;
@@ -504,99 +499,80 @@ CALL system.auto_classify(
 );
 ```
 
+Rules enforced by the DDL path:
+
+- The table must be `LINKED` or `MANAGED`. Tagging an `OBSERVED` table fails with
+  `AccessDeniedException`; run `ALTER TABLE ... ADOPT` first.
+- The column must exist; unknown columns are rejected before any write.
+- Table-level `SET TAG` and `CREATE TAG` are not implemented yet; only the
+  column-level statements above are accepted.
+- `UNLINK` and `DROP TABLE` clear that table's durable tags, its `table_id`-scoped
+  bindings, and the auto-masks derived from them.
+
 ### 5.3 Tag and Security Policy Integration
 
-**Event-driven mechanism**: Tag changes automatically trigger security policy updates via events, rather than relying on manual invocation or scheduled scans.
+The default Metadata tag API resolves the actual canonical column through the caller's
+connector session for SET, UNSET and listing; DDL delegates the same admission instead
+of performing a different name/type check. An exact name wins; a case-insensitive match
+must be unique. PII masks require a declared VARCHAR type even for direct API callers.
+Fresh physical identity is checked before and after declaration resolution, and a
+missing or changing schema fingerprint rejects the operation. Persistence receives the
+captured control owner and cannot retarget to a replacement UUID. These admission
+checks do not close concurrent external schema evolution after admission: durable
+field-bound policies and query-bound consumers remain required.
 
-```
-Tag Change Event Flow:
-  1. ALTER TABLE ... SET TAG pii_type = 'PII_EMAIL'
-     → MetadataService.alterTable() publishes TagChangedEvent
-  2. TagBasedSecurityPolicy subscribes to TagChangedEvent
-     → Check whether the new tag matches automatic policy rules
-     → If matched, call ColumnMaskStore.createMask() to create a masking rule
-  3. ColumnMaskStore.createMask() publishes a ColumnMaskChanged event
-     (see security.md §5.4 SecurityPolicyChangeEvent)
-  4. Query Result Cache subscribes to ColumnMaskChanged
-     → Invalidate cache entries for affected tables
-     (see query-optimization.md §3.3 Cache Invalidation Triggers)
-```
+`governance.core.classification.ColumnTagBindings` persists one `COLUMN_TAG` governance binding with stable table
+identity and framed `(column, tag key)` reference. `TableControlColumnMaskStore` combines
+identity-bound authored masks with mandatory PII masks derived from these bindings.
+`ColumnMaskingProcessor` renders their SQL through the same typed operator contracts
+used by ordinary queries. The resulting expression executes in Native.
 
-**Event definition**:
+`PostgresTableControlWriteAuthority` reads the current table/catalog identity and the same
+bindings on the durable publication transaction through the Workflow provider. A background raw-artifact read cannot
+bypass a canonical classification merely because another coordinator has not received
+an event. Production bootstrap does not create a second event-maintained mask authority.
 
-```java
-/**
- * Tag change event — published by MetadataService when tags are modified.
- * Consumed by TagBasedSecurityPolicy for auto-masking.
- */
-public record TagChangedEvent(
-    String catalog, String schema, String table,
-    String columnName,    // null for table-level tags
-    String tagKey,
-    String oldValue,      // null if tag is new
-    String newValue       // null if tag is removed
-) {}
-```
+Deferred subjects do not reconstruct authentication groups. An enabled role-scoped
+row policy or mask cannot be omitted merely because its roles are absent from the
+restored direct assignments: applicability is unknown, so the read is rejected
+until a current identity-context resolver can establish it. This also applies to
+constant expressions without context functions and to masks outside a raw read's
+projection. Matching current durable roles still render the policy; proven mask
+exemptions retain their existing behavior, and disabled policies do not block.
+Security-transformed replay must also match the captured policy content. Ordinary
+authenticated requests retain their current group-to-role resolution.
 
-```java
-/**
- * Tag-based automatic security policy
- *
- * Trigger mechanism: event-driven (subscribes to TagChangedEvent), not polling.
- * Automatically evaluates and applies/removes security policies when tags change.
- */
-public class TagBasedSecurityPolicy implements EventListener<TagChangedEvent> {
+`ColumnTagService` events carry `tableId`; its cache and retirement operations use that
+captured identity. It fans out notifications and reports listener failures after fanout.
+Persistence precedes notification, so a notification failure does not undo the security
+policy. Restarted policy readers consult the canonical store without event replay.
+`TagBasedSecurityPolicy` remains an explicit component for standalone event consumers;
+it is not production authorization's durable source.
 
-    private final ColumnMaskStore columnMaskStore;
-    private final AuditConfigStore auditConfigStore;
+Authored masks persist their stable table ID. Name reuse cannot apply an old identity's
+mask to a replacement. Unbound historical authored masks are rejected until explicitly
+rebound; the upgrade does not guess ownership from a matching name. The `auto_pii_`
+namespace is reserved for classification and cannot be written or deleted through the
+authored-mask API.
 
-    @Override
-    public void onEvent(TagChangedEvent event) {
-        if (event.columnName() != null) {
-            handleColumnTagChange(event);
-        } else {
-            handleTableTagChange(event);
-        }
-    }
+The name-keyed lineage catalog and downstream tag propagation example live in test
+sources. The example lacks tenant-scoped, stable target identity and cannot install
+durable downstream policy. Five in-memory governance repositories also serve tests.
+Coordinator and Server test fixtures borrow the quality-rule and audit-config stores
+from the Governance test-classifier artifact.
 
-    private void handleColumnTagChange(TagChangedEvent event) {
-        if (!"pii_type".equals(event.tagKey())) return;
+The accepted PII values, VARCHAR requirement, NULL/short-string behavior and migration
+rules are specified in [column tag SQL](../sql-reference/ddl.md#alter-table).
+Table-level tags, tag catalog DDL, tag search SQL and automatic classification examples
+in §5.2 remain target design; they are not implemented by this column-tag path.
 
-        String fullTableName = event.catalog() + "." + event.schema() + "." + event.table();
-
-        if (event.newValue() != null) {
-            // Tag added/changed → apply mask
-            String maskExpr = piiTypeToMaskExpression(event.newValue());
-            if (maskExpr != null) {
-                columnMaskStore.createOrUpdateMask(
-                    fullTableName, event.columnName(), maskExpr, "auto_pii_mask");
-            }
-        } else {
-            // Tag removed → remove auto-generated mask
-            columnMaskStore.removeMask(fullTableName, event.columnName(), "auto_pii_mask");
-        }
-    }
-
-    private void handleTableTagChange(TagChangedEvent event) {
-        if (!"sensitivity_level".equals(event.tagKey())) return;
-        String fullTableName = event.catalog() + "." + event.schema() + "." + event.table();
-
-        if ("CONFIDENTIAL".equals(event.newValue()) || "RESTRICTED".equals(event.newValue())) {
-            auditConfigStore.enableDetailedAudit(fullTableName);
-        }
-    }
-
-    private String piiTypeToMaskExpression(String piiType) {
-        return switch (piiType) {
-            case "PII_EMAIL" -> "mask_email({column})";
-            case "PII_PHONE" -> "mask_phone({column})";
-            case "PII_SSN" -> "CONCAT('***-**-', RIGHT({column}, 4))";
-            case "PII_NAME" -> "mask_name({column})";
-            default -> null;
-        };
-    }
-}
-```
+Physical table rename first persists its source intent and reserves both source and
+target names under one table ID. Queries, CREATE and governance mutation fail closed
+while the outcome is uncertain. Registry mutation, name reservations and invalidations
+commit atomically. Successful rename preserves classification identity; ambiguous
+connector exceptions retain RENAMING for reconciliation, rather than inferring failure
+from one observation that the old path still exists. Automatic crash reconciliation and
+stable identity for authored row policies/quality rules require separate completion.
 
 ---
 
@@ -682,4 +658,8 @@ See [14 §7](./observability.md) for structured logging format.
 > **FederatedCatalog SPI**: The authoritative FederatedCatalog SPI definition is in [metadata.md §3.8](./metadata.md). Former references to "11 §6.2" in this document and others have been corrected. §6 of this document contains configuration summaries only, not SPI definitions.
 
 
-> **LineageEventEmitter Error Handling (§3.2)**: Event emission failures are handled with: (1) try-catch around HTTP POST to OpenLineage backend; (2) failed events are buffered in a bounded queue (max 1000 events); (3) exponential backoff retry (initial: 1s, max: 60s); (4) if queue is full, oldest events are dropped with `pangrova.lineage.events_dropped_total` counter incremented. Lineage emission failures never block query execution.
+`LineageEventEmitter` closes its backend after the final physical send and reports a
+transport close failure to its owner. HTTP mode persists each accepted fact in the
+outbox before returning and acknowledges only confirmed sends. LOG mode keeps a
+bounded in-memory queue. When full, it retains queued events and counts the rejected
+incoming event. These delivery guarantees apply to their respective provider modes.

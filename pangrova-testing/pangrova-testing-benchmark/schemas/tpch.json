@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "url": "https://codeload.github.com/electrum/tpch-dbgen/tar.gz/32f1c1b92d1664dba542e927d23d86ffa57aa253",
+    "commit": "32f1c1b92d1664dba542e927d23d86ffa57aa253",
+    "sha256": "01d8a4fa0fff4be83a9f43dbdc5a69f560d34f5ff0b4dbff1fc3a5320baf6318",
+    "file": "dss.ddl",
+    "fileSha256": "632f9ff0d01b41b3ebc94a263558811d083bc6b873c4490db1f0a47179b2781d"
+  },
+  "tables": {
+    "nation": [
+      {
+        "name": "n_nationkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "n_name",
+        "type": "char(25)",
+        "nullable": false
+      },
+      {
+        "name": "n_regionkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "n_comment",
+        "type": "varchar(152)",
+        "nullable": true
+      }
+    ],
+    "region": [
+      {
+        "name": "r_regionkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "r_name",
+        "type": "char(25)",
+        "nullable": false
+      },
+      {
+        "name": "r_comment",
+        "type": "varchar(152)",
+        "nullable": true
+      }
+    ],
+    "part": [
+      {
+        "name": "p_partkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "p_name",
+        "type": "varchar(55)",
+        "nullable": false
+      },
+      {
+        "name": "p_mfgr",
+        "type": "char(25)",
+        "nullable": false
+      },
+      {
+        "name": "p_brand",
+        "type": "char(10)",
+        "nullable": false
+      },
+      {
+        "name": "p_type",
+        "type": "varchar(25)",
+        "nullable": false
+      },
+      {
+        "name": "p_size",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "p_container",
+        "type": "char(10)",
+        "nullable": false
+      },
+      {
+        "name": "p_retailprice",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "p_comment",
+        "type": "varchar(23)",
+        "nullable": false
+      }
+    ],
+    "supplier": [
+      {
+        "name": "s_suppkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "s_name",
+        "type": "char(25)",
+        "nullable": false
+      },
+      {
+        "name": "s_address",
+        "type": "varchar(40)",
+        "nullable": false
+      },
+      {
+        "name": "s_nationkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "s_phone",
+        "type": "char(15)",
+        "nullable": false
+      },
+      {
+        "name": "s_acctbal",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "s_comment",
+        "type": "varchar(101)",
+        "nullable": false
+      }
+    ],
+    "partsupp": [
+      {
+        "name": "ps_partkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "ps_suppkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "ps_availqty",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "ps_supplycost",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "ps_comment",
+        "type": "varchar(199)",
+        "nullable": false
+      }
+    ],
+    "customer": [
+      {
+        "name": "c_custkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "c_name",
+        "type": "varchar(25)",
+        "nullable": false
+      },
+      {
+        "name": "c_address",
+        "type": "varchar(40)",
+        "nullable": false
+      },
+      {
+        "name": "c_nationkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "c_phone",
+        "type": "char(15)",
+        "nullable": false
+      },
+      {
+        "name": "c_acctbal",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "c_mktsegment",
+        "type": "char(10)",
+        "nullable": false
+      },
+      {
+        "name": "c_comment",
+        "type": "varchar(117)",
+        "nullable": false
+      }
+    ],
+    "orders": [
+      {
+        "name": "o_orderkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "o_custkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "o_orderstatus",
+        "type": "char(1)",
+        "nullable": false
+      },
+      {
+        "name": "o_totalprice",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "o_orderdate",
+        "type": "date",
+        "nullable": false
+      },
+      {
+        "name": "o_orderpriority",
+        "type": "char(15)",
+        "nullable": false
+      },
+      {
+        "name": "o_clerk",
+        "type": "char(15)",
+        "nullable": false
+      },
+      {
+        "name": "o_shippriority",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "o_comment",
+        "type": "varchar(79)",
+        "nullable": false
+      }
+    ],
+    "lineitem": [
+      {
+        "name": "l_orderkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "l_partkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "l_suppkey",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "l_linenumber",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "l_quantity",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "l_extendedprice",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "l_discount",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "l_tax",
+        "type": "decimal(15,2)",
+        "nullable": false
+      },
+      {
+        "name": "l_returnflag",
+        "type": "char(1)",
+        "nullable": false
+      },
+      {
+        "name": "l_linestatus",
+        "type": "char(1)",
+        "nullable": false
+      },
+      {
+        "name": "l_shipdate",
+        "type": "date",
+        "nullable": false
+      },
+      {
+        "name": "l_commitdate",
+        "type": "date",
+        "nullable": false
+      },
+      {
+        "name": "l_receiptdate",
+        "type": "date",
+        "nullable": false
+      },
+      {
+        "name": "l_shipinstruct",
+        "type": "char(25)",
+        "nullable": false
+      },
+      {
+        "name": "l_shipmode",
+        "type": "char(10)",
+        "nullable": false
+      },
+      {
+        "name": "l_comment",
+        "type": "varchar(44)",
+        "nullable": false
+      }
+    ]
+  },
+  "identifierStorage": "64-bit identifiers preserve generated keys at SF1000 and above"
+}

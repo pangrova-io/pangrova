@@ -1,12 +1,19 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.api.enums.RetrievalKind;
+import org.pangrova.planner.api.enums.RetrievalScoreDirection;
+import org.pangrova.planner.exception.SubstraitConversionException;
+import org.pangrova.planner.metadata.PlanTable;
+import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
+import org.pangrova.planner.extension.GenerateSeriesRelDetail;
+
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
-import io.substrait.extension.AdvancedExtension;
-import io.substrait.extension.ImmutableAdvancedExtension;
+import io.substrait.extension.ExtensionCollector;
 import io.substrait.relation.ImmutableFetch;
+import io.substrait.relation.ExtensionLeaf;
 import io.substrait.relation.ImmutableJoin;
 import io.substrait.relation.ImmutableNamedScan;
 import io.substrait.relation.ImmutableProject;
@@ -16,18 +23,22 @@ import io.substrait.relation.Join;
 import io.substrait.relation.Rel;
 import io.substrait.type.NamedStruct;
 import io.substrait.type.TypeCreator;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import io.substrait.type.proto.TypeProtoConverter;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
+import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.cost.join.PangrovaNestedLoopJoin;
 import org.pangrova.planner.cost.join.PangrovaSortMergeJoin;
+import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
+import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinInfo;
+import org.apache.calcite.rel.core.Uncollect;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.core.Window;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalCorrelate;
 import org.apache.calcite.rel.logical.LogicalFilter;
@@ -38,13 +49,15 @@ import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.logical.LogicalTableScan;
+import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.logical.LogicalWindow;
 import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 
@@ -52,8 +65,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -64,7 +80,6 @@ import java.util.function.Function;
  * {@link PhysicalJoinConverter}.
  */
 public final class PlanNodeConverter {
-
     private static final Logger LOG = LoggerFactory.getLogger(PlanNodeConverter.class);
 
     private final TypeMapper typeMapper;
@@ -74,10 +89,15 @@ public final class PlanNodeConverter {
     private final WindowFunctionConverter windowConverter;
     private final DmlOperationConverter dmlConverter;
     private final CorrelateConverter correlateConverter;
+    private final UnnestConverter unnestConverter;
     private final PhysicalJoinConverter physicalJoinConverter;
     private final FunctionMapper functionMapper;
     private final Map<Class<? extends RelNode>, Function<RelNode, Rel>> dispatch;
-    private final List<CrossJoinDetail> crossJoinDetails = new ArrayList<>();
+    private final List<RetrievalTopKPlanHint> retrievalTopKHints = new ArrayList<>();
+    private final List<AiInvocationPlanHint> aiInvocationHints = new ArrayList<>();
+    private final Set<LogicalJoin> singleMatchJoins =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+    private int nextGenerateSeriesId;
 
     public PlanNodeConverter(TypeMapper typeMapper, FunctionMapper functionMapper,
                             RexBuilder rexBuilder) {
@@ -94,19 +114,26 @@ public final class PlanNodeConverter {
                             RexBuilder rexBuilder, NativeCapabilityRegistry capabilityRegistry) {
         this.typeMapper = typeMapper;
         this.functionMapper = functionMapper;
-        this.windowConverter = new WindowFunctionConverter(typeMapper, functionMapper);
-        this.rexConverter = new ExpressionConverter(typeMapper, functionMapper, windowConverter, rexBuilder);
-        this.setConverter = new SetOperationConverter(typeMapper, capabilityRegistry);
+        LiteralConverter literalConverter = new LiteralConverter(typeMapper);
+        this.windowConverter = new WindowFunctionConverter(
+                typeMapper, functionMapper, literalConverter, rexBuilder);
+        this.rexConverter = new ExpressionConverter(
+                typeMapper, functionMapper, windowConverter, rexBuilder,
+                literalConverter, aiInvocationHints::add);
+        this.setConverter = new SetOperationConverter();
         this.aggregateConverter = new AggregateConverter(typeMapper, functionMapper);
-        this.dmlConverter = new DmlOperationConverter(this::visit);
+        this.dmlConverter = new DmlOperationConverter(this::visit, singleMatchJoins::add);
+        this.unnestConverter = new UnnestConverter(typeMapper, functionMapper, rexConverter, this::visit);
         this.correlateConverter = new CorrelateConverter(
-                typeMapper, functionMapper, rexConverter, this::visit);
-        this.physicalJoinConverter = new PhysicalJoinConverter(typeMapper, this::visit);
+                typeMapper, functionMapper, rexConverter, this::visit, unnestConverter);
+        this.physicalJoinConverter = new PhysicalJoinConverter(rexConverter, this::visit);
         this.dispatch = Map.ofEntries(
                 Map.entry(LogicalProject.class, n -> visitProject((LogicalProject) n)),
                 Map.entry(LogicalFilter.class, n -> visitFilter((LogicalFilter) n)),
                 Map.entry(LogicalValues.class, n -> visitValues((LogicalValues) n)),
                 Map.entry(LogicalTableScan.class, n -> visitTableScan((LogicalTableScan) n)),
+                Map.entry(LogicalTableFunctionScan.class,
+                        n -> visitTableFunction((LogicalTableFunctionScan) n)),
                 Map.entry(LogicalSort.class, n -> visitSort((LogicalSort) n)),
                 Map.entry(LogicalJoin.class, n -> visitJoin((LogicalJoin) n)),
                 Map.entry(PangrovaSortMergeJoin.class,
@@ -116,6 +143,8 @@ public final class PlanNodeConverter {
                         n -> physicalJoinConverter.visitBroadcastJoin((PangrovaBroadcastJoin) n)),
                 Map.entry(PangrovaNestedLoopJoin.class,
                         n -> physicalJoinConverter.visitNestedLoopJoin((PangrovaNestedLoopJoin) n)),
+                Map.entry(PangrovaExchangeInput.class,
+                        n -> visitExchangeInput((PangrovaExchangeInput) n)),
                 Map.entry(LogicalAggregate.class,
                         n -> aggregateConverter.convert((LogicalAggregate) n,
                         visit(((LogicalAggregate) n).getInput()))),
@@ -124,6 +153,7 @@ public final class PlanNodeConverter {
                 Map.entry(LogicalMinus.class, n -> setConverter.visitMinus((LogicalMinus) n, this::visit)),
                 Map.entry(LogicalWindow.class, n -> visitWindow((LogicalWindow) n)),
                 Map.entry(LogicalCorrelate.class, n -> correlateConverter.convert((LogicalCorrelate) n)),
+                Map.entry(Uncollect.class, n -> unnestConverter.convert((Uncollect) n)),
                 Map.entry(LogicalTableModify.class, n -> dmlConverter.convert((LogicalTableModify) n)),
                 Map.entry(PangrovaExchange.class, n -> physicalJoinConverter.visitExchange((PangrovaExchange) n)));
     }
@@ -137,8 +167,20 @@ public final class PlanNodeConverter {
 
     private Rel visitProject(LogicalProject project) {
         Rel input = visit(project.getInput());
-        return ImmutableProject.builder().input(input)
-                .expressions(project.getProjects().stream().map(rexConverter::convert).toList()).build();
+        List<Expression> expressions = project.getProjects().stream()
+                .map(rexConverter::convert)
+                .toList();
+        // Substrait Project appends expressions to every input field by
+        // default. Calcite Project replaces its input schema, so explicitly
+        // emit only the appended expression range. This also prevents hidden
+        // AI binding literals from changing the SQL-visible output schema.
+        return ImmutableProject.builder()
+                .input(input)
+                .expressions(expressions)
+                .remap(Rel.Remap.offset(
+                        input.getRecordType().fields().size(),
+                        expressions.size()))
+                .build();
     }
 
     private Rel visitFilter(LogicalFilter filter) {
@@ -148,26 +190,79 @@ public final class PlanNodeConverter {
 
     private Rel visitValues(LogicalValues values) {
         NamedStruct schema = buildNamedStruct(values.getRowType());
-        List<Expression.StructLiteral> rows = values.getTuples().stream()
-                .map(t -> ExpressionCreator.struct(false,
-                        t.stream().map(l -> (Expression.Literal) rexConverter.convert(l)).toList()))
+        var fields = values.getRowType().getFieldList();
+        List<Expression.NestedStruct> rows = values.getTuples().stream()
+                .map(t -> ExpressionCreator.nestedStruct(false,
+                        java.util.stream.IntStream.range(0, t.size())
+                                .mapToObj(i -> convertValuesField(
+                                        t.get(i), fields.get(i).getType()))
+                                .toList()))
                 .toList();
-        return ImmutableVirtualTableScan.builder().dfsNames(schema.names()).addAllRows(rows).build();
+        return ImmutableVirtualTableScan.builder()
+                .initialSchema(schema)
+                .addAllRows(rows)
+                .build();
+    }
+
+    private Expression convertValuesField(RexLiteral literal, RelDataType fieldType) {
+        Expression converted = rexConverter.convertValuesLiteral(literal, fieldType);
+        var expectedType = typeMapper.map(fieldType);
+        if (!converted.getType().equals(expectedType)) {
+            throw new SubstraitConversionException(
+                    PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "VALUES literal type " + converted.getType()
+                            + " does not match declared field type " + expectedType);
+        }
+        return converted;
     }
 
     private Rel visitTableScan(LogicalTableScan scan) {
         NamedStruct ns = buildNamedStruct(scan.getRowType());
-        List<String> qualifiedName = scan.getTable().getQualifiedName();
+        List<String> qualifiedName = PlanTable.require(scan)
+                .getQualifiedName();
         return ImmutableNamedScan.builder().names(qualifiedName)
                 .initialSchema(ns).build();
+    }
+
+    private Rel visitTableFunction(LogicalTableFunctionScan scan) {
+        if (!scan.getInputs().isEmpty() || !(scan.getCall() instanceof RexCall call)
+                || !call.getOperator().getName().equalsIgnoreCase("GENERATE_SERIES")) {
+            throw unsupported("TableFunctionScan: " + scan.getCall());
+        }
+        List<Long> arguments = call.getOperands().stream().map(argument -> {
+            if (!(argument instanceof RexLiteral literal)) {
+                throw unsupported("GENERATE_SERIES requires constant integer arguments");
+            }
+            var value = literal.getValueAs(java.math.BigDecimal.class);
+            if (value == null) {
+                throw unsupported("GENERATE_SERIES requires non-NULL integer arguments");
+            }
+            try {
+                return value.longValueExact();
+            } catch (ArithmeticException e) {
+                throw unsupported("GENERATE_SERIES argument exceeds BIGINT range");
+            }
+        }).toList();
+        var detail = new GenerateSeriesRelDetail("generate_series_" + nextGenerateSeriesId++, arguments,
+                buildNamedStruct(scan.getRowType()));
+        return ExtensionLeaf.from(detail).build();
+    }
+
+    private Rel visitExchangeInput(PangrovaExchangeInput input) {
+        NamedStruct schema = buildNamedStruct(input.getRowType());
+        return ExtensionLeaf.from(new ExchangeInputLeafDetail(input, schema))
+                .build();
     }
 
     private Rel visitSort(LogicalSort sort) {
         if (sort.fetch != null && extractLong(sort.fetch) == 0) {
             NamedStruct schema = buildNamedStruct(sort.getRowType());
-            return ImmutableVirtualTableScan.builder().dfsNames(schema.names()).build();
+            return ImmutableVirtualTableScan.builder()
+                    .initialSchema(schema)
+                    .build();
         }
         Rel input = visit(sort.getInput());
+        createRetrievalTopKHint(sort).ifPresent(retrievalTopKHints::add);
         input = applyCollation(input, sort);
         input = applyFetchOffset(input, sort);
         return input;
@@ -194,6 +289,8 @@ public final class PlanNodeConverter {
     private Rel visitJoin(LogicalJoin join) {
         Rel left = visit(join.getLeft());
         Rel right = visit(join.getRight());
+        Join.JoinType joinType = singleMatchJoins.remove(join)
+                ? Join.JoinType.LEFT_SINGLE : mapJoinType(join.getJoinType());
 
         // Non-equi (theta) joins: emit JoinRel with condition.
         // The native engine's convertJoinRel extracts equi-keys; when none are found,
@@ -203,14 +300,14 @@ public final class PlanNodeConverter {
         // from a separate ExtensionCollector that didn't match the plan's extensions).
         if (!join.getCondition().isAlwaysTrue() && isNonEquiJoin(join)) {
             var b = ImmutableJoin.builder().left(left).right(right)
-                    .joinType(mapJoinType(join.getJoinType()))
+                    .joinType(joinType)
                     .condition(rexConverter.convert(join.getCondition()));
             LOG.debug("event=emit_join_rel_non_equi joinType={}", join.getJoinType());
             return b.build();
         }
 
         var b = ImmutableJoin.builder().left(left).right(right)
-                .joinType(mapJoinType(join.getJoinType()));
+                .joinType(joinType);
         if (!join.getCondition().isAlwaysTrue()) b.condition(rexConverter.convert(join.getCondition()));
         return b.build();
     }
@@ -225,92 +322,130 @@ public final class PlanNodeConverter {
         return info.leftKeys.isEmpty();
     }
 
-    /** Returns accumulated non-equi join details for proto post-processing. */
-    List<CrossJoinDetail> getCrossJoinDetails() {
-        return crossJoinDetails;
+    /** Returns typed Top-K intents in post-order, matching serialized relation traversal. */
+    List<RetrievalTopKPlanHint> getRetrievalTopKHints() {
+        return List.copyOf(retrievalTopKHints);
+    }
+
+    /** Returns governed AI expression intents in deterministic conversion order. */
+    List<AiInvocationPlanHint> getAiInvocationHints() {
+        return List.copyOf(aiInvocationHints);
+    }
+
+    private java.util.Optional<RetrievalTopKPlanHint> createRetrievalTopKHint(
+            LogicalSort sort) {
+        if (sort.fetch == null || (sort.offset != null && extractLong(sort.offset) != 0)
+                || sort.getCollation() == null
+                || sort.getCollation().getFieldCollations().size() != 1) {
+            return java.util.Optional.empty();
+        }
+        long limit = extractLong(sort.fetch);
+        int scoreIndex = sort.getCollation().getFieldCollations().get(0).getFieldIndex();
+        var fields = sort.getInput().getRowType().getFieldList();
+        if (limit <= 0 || limit > 100_000 || scoreIndex < 0 || scoreIndex >= fields.size()
+                || fields.get(scoreIndex).getType().getSqlTypeName() != SqlTypeName.DOUBLE
+                || fields.stream().anyMatch(field -> !isScalarCandidateType(
+                        field.getType().getSqlTypeName()))) {
+            return java.util.Optional.empty();
+        }
+        boolean physicalIdentity = fields.size() >= 4 && sort.getInput().getRowType().getFieldNames()
+                .subList(fields.size() - 4, fields.size()).equals(
+                        org.pangrova.protocol.retrieval.RetrievalCandidateIdentity.PHYSICAL_FIELDS);
+        List<Integer> stableKeys = java.util.stream.IntStream.range(
+                        physicalIdentity ? fields.size() - 4 : 0, fields.size())
+                .filter(index -> index != scoreIndex)
+                .boxed()
+                .toList();
+        if (stableKeys.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        var collation = sort.getCollation().getFieldCollations().get(0);
+        var direction = collation.getDirection().isDescending()
+                ? RetrievalScoreDirection.HIGHER_IS_BETTER
+                : RetrievalScoreDirection.LOWER_IS_BETTER;
+        byte[] schema = buildNamedStruct(sort.getInput().getRowType())
+                .toProto(new TypeProtoConverter(new ExtensionCollector()))
+                .toByteArray();
+        RetrievalSemantic semantic = retrievalSemantic(sort, scoreIndex);
+        return java.util.Optional.of(new RetrievalTopKPlanHint(
+                semantic.kind(), semantic.sourceKey(), scoreIndex, (int) limit,
+                direction, stableKeys, schema));
+    }
+
+    private static RetrievalSemantic retrievalSemantic(
+            LogicalSort sort, int scoreIndex) {
+        if (!(sort.getInput() instanceof LogicalProject project)
+                || scoreIndex >= project.getProjects().size()
+                || !(project.getProjects().get(scoreIndex) instanceof RexCall call)) {
+            return RetrievalSemantic.EXACT;
+        }
+        String function = call.getOperator().getName()
+                .toUpperCase(java.util.Locale.ROOT);
+        RetrievalKind kind = switch (function) {
+            case "L2_DISTANCE", "COSINE_DISTANCE", "INNER_PRODUCT" ->
+                    RetrievalKind.VECTOR;
+            case "BM25_SCORE" -> RetrievalKind.FULL_TEXT;
+            default -> RetrievalKind.EXACT;
+        };
+        if (kind == RetrievalKind.EXACT) {
+            return RetrievalSemantic.EXACT;
+        }
+        String column = call.getOperands().stream()
+                .map(PlanNodeConverter::castColumnReference)
+                .filter(java.util.Objects::nonNull)
+                .filter(ref -> ref.getIndex() < project.getInput().getRowType().getFieldCount())
+                .map(ref -> project.getInput().getRowType().getFieldList().get(ref.getIndex()).getName())
+                .findFirst()
+                .orElse("");
+        return column.isBlank()
+                ? RetrievalSemantic.EXACT
+                : new RetrievalSemantic(kind, kind.name() + ":" + column);
+    }
+
+    private static RexInputRef castColumnReference(RexNode expression) {
+        RexNode current = expression;
+        while (current instanceof RexCall cast && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && cast.getOperands().size() == 1) {
+            current = cast.getOperands().get(0);
+        }
+        return current instanceof RexInputRef ref ? ref : null;
+    }
+
+    private record RetrievalSemantic(
+            RetrievalKind kind, String sourceKey) {
+        private static final RetrievalSemantic EXACT = new RetrievalSemantic(
+                RetrievalKind.EXACT, "");
+    }
+
+    private static boolean isScalarCandidateType(SqlTypeName type) {
+        return switch (type) {
+            case TINYINT, SMALLINT, INTEGER, BIGINT, FLOAT, REAL, DOUBLE,
+                    DECIMAL, VARCHAR, CHAR, BOOLEAN, DATE, TIME, TIMESTAMP,
+                    TIMESTAMP_WITH_LOCAL_TIME_ZONE, BINARY, VARBINARY -> true;
+            default -> false;
+        };
     }
 
     private Rel visitWindow(LogicalWindow window) {
         Rel input = visit(window.getInput());
-        var builder = ImmutableProject.builder().input(input).expressions(
-                windowConverter.buildWindowProjections(window,
-                        window.getInput().getRowType().getFieldCount(),
-                        rexConverter::convert, this::convertCollation));
-
-        WindowOptimizationHint hint = detectWindowOptimizationHint(window);
-        if (hint != null) {
-            AdvancedExtension ext = ImmutableAdvancedExtension.builder()
-                    .optimization(hint)
-                    .build();
-            builder.extension(ext);
-            LOG.debug("event=window_optimization_hint eligible_row_number={} eligible_topn={} topn_limit={}",
-                    hint.eligibleForRowNumberNode(), hint.eligibleForTopNRowNumberNode(), hint.topnLimit());
-        }
+        List<Expression> projections = windowConverter.buildWindowProjections(window,
+                window.getInput().getRowType().getFieldCount(),
+                rexConverter::convert, this::convertCollation);
+        // The projection already contains the input columns followed by the
+        // window results. Substrait Project otherwise prepends its input a
+        // second time, unlike Calcite LogicalWindow's output schema.
+        var builder = ImmutableProject.builder()
+                .input(input)
+                .expressions(projections)
+                .remap(Rel.Remap.offset(
+                        input.getRecordType().fields().size(), projections.size()));
 
         return builder.build();
     }
 
-    /**
-     * Detects whether a LogicalWindow is eligible for RowNumberNode or
-     * TopNRowNumberNode optimization in the native engine.
-     *
-     * <p>Eligibility for RowNumberNode requires:
-     * <ul>
-     *   <li>Exactly one window group with exactly one aggregate call</li>
-     *   <li>The function is row_number</li>
-     *   <li>Partition keys are present</li>
-     *   <li>Default frame bounds (ROWS UNBOUNDED PRECEDING to CURRENT ROW)</li>
-     * </ul>
-     *
-     * <p>TopNRowNumberNode additionally requires ORDER BY keys in the group.
-     * The actual limit K is detected by the native engine from the subsequent
-     * FilterRel (lookahead not available at this conversion stage).</p>
-     *
-     * @return optimization hint, or null if the pattern is not eligible
-     */
-    private static WindowOptimizationHint detectWindowOptimizationHint(LogicalWindow window) {
-        if (window.groups.size() != 1) {
-            return null;
-        }
-        Window.Group group = window.groups.get(0);
-        if (group.aggCalls.size() != 1) {
-            return null;
-        }
-        Window.RexWinAggCall aggCall = group.aggCalls.get(0);
-        String fnName = aggCall.getOperator().getName().toUpperCase();
-        if (!"ROW_NUMBER".equals(fnName)) {
-            return null;
-        }
-        if (group.keys.isEmpty()) {
-            return null;
-        }
-        if (!isDefaultWindowFrame(group)) {
-            return null;
-        }
-
-        boolean hasOrderBy = !group.orderKeys.getFieldCollations().isEmpty();
-        boolean eligibleForTopN = hasOrderBy;
-
-        return new WindowOptimizationHint(true, eligibleForTopN, 0);
-    }
-
-    /**
-     * Checks whether the window group uses the default frame bounds
-     * (ROWS UNBOUNDED PRECEDING to CURRENT ROW), which is the implicit
-     * frame for row_number().
-     */
-    private static boolean isDefaultWindowFrame(Window.Group group) {
-        return group.lowerBound.isUnbounded() && group.lowerBound.isPreceding()
-                && group.upperBound.isCurrentRow();
-    }
-
     Expression.SortField convertCollation(RelFieldCollation c) {
         Expression ref = FieldReference.newRootStructReference(c.getFieldIndex(), TypeCreator.of(true).I32);
-        boolean desc = c.getDirection().isDescending();
-        boolean nf = c.nullDirection == RelFieldCollation.NullDirection.FIRST;
-        Expression.SortDirection dir = desc
-                ? (nf ? Expression.SortDirection.DESC_NULLS_FIRST : Expression.SortDirection.DESC_NULLS_LAST)
-                : (nf ? Expression.SortDirection.ASC_NULLS_FIRST : Expression.SortDirection.ASC_NULLS_LAST);
+        Expression.SortDirection dir = SortDirectionMapper.map(c.getDirection(), c.nullDirection);
         return ImmutableExpression.SortField.builder().expr(ref).direction(dir).build();
     }
 
@@ -333,31 +468,10 @@ public final class PlanNodeConverter {
         // "age", "city", ...] alongside a nested struct type. Without this
         // flattening, downstream native readers see auto-generated field names
         // like "col_0" and fail to match against the Parquet schema.
-        List<String> names = new java.util.ArrayList<>();
-        for (RelDataTypeField f : rowType.getFieldList()) {
-            collectFlatFieldNames(f.getName(), f.getType(), names);
-        }
+        List<String> names = SubstraitFieldNames.flatten(rowType, List.of());
         LOG.debug("event=build_named_struct names={}", names);
         return NamedStruct.of(names, TypeCreator.of(false).struct(
                 rowType.getFieldList().stream().map(f -> typeMapper.map(f.getType())).toList()));
-    }
-
-    private static void collectFlatFieldNames(String name, RelDataType type, List<String> out) {
-        out.add(name);
-        recurseFieldNames(type, out);
-    }
-
-    private static void recurseFieldNames(RelDataType type, List<String> out) {
-        if (type.isStruct()) {
-            for (RelDataTypeField nested : type.getFieldList()) {
-                collectFlatFieldNames(nested.getName(), nested.getType(), out);
-            }
-        } else if (type.getSqlTypeName() == SqlTypeName.ARRAY) {
-            recurseFieldNames(type.getComponentType(), out);
-        } else if (type.getSqlTypeName() == SqlTypeName.MAP) {
-            recurseFieldNames(type.getKeyType(), out);
-            recurseFieldNames(type.getValueType(), out);
-        }
     }
 
     static long extractLong(RexNode node) {

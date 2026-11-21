@@ -97,13 +97,12 @@ public final class ShuffleDrainPolicy {
     }
 
     /**
-     * Creates a no-op drain policy that always allows scale-down.
-     * Used when shuffle awareness is not configured.
+     * Preserves the current worker pool when the host has no authoritative shuffle residency data.
      */
-    public static ShuffleDrainPolicy noOp() {
+    public static ShuffleDrainPolicy preserveWorkers() {
         return new ShuffleDrainPolicy(
-                ShuffleResidencyCheck.alwaysAllow(),
-                timeout -> true,
+                (current, target) -> ScaleDownAdvice.adjust(current, "shuffle residency is unknown"),
+                timeout -> false,
                 Duration.ofSeconds(1));
     }
 
@@ -111,7 +110,7 @@ public final class ShuffleDrainPolicy {
      * Executes the drain of shuffle data from workers being decommissioned.
      *
      * <p>Implementations coordinate with the worker-side
-     * {@link org.pangrova.shuffle.ShuffleDrainHandler} to flush pending
+     * {@link org.pangrova.shuffle.api.ShuffleDrainHandler} to flush pending
      * shuffle buffers to durable storage or migrate data to peer workers.
      */
     @FunctionalInterface

@@ -2,7 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
@@ -17,8 +17,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Schema DDL operations for Iceberg tables: add/drop/rename/change column, partition spec.
@@ -89,7 +91,7 @@ final class IcebergDdlOperations {
      * to an Iceberg {@link Literal} for use with {@link UpdateSchema#addColumn}.
      *
      * <p>Supported conversions: Long→long, Integer→int, Double→double, Float→double,
-     * String→string, Boolean→boolean, BigDecimal→decimal.</p>
+     * String→string, Boolean→boolean, BigDecimal→decimal, UUID→uuid.</p>
      */
     static Literal<?> toIcebergLiteral(Object value) {
         if (value instanceof Number n) {
@@ -98,6 +100,8 @@ final class IcebergDdlOperations {
             return Literal.of(s);
         } else if (value instanceof Boolean b) {
             return Literal.of(b);
+        } else if (value instanceof UUID uuid) {
+            return Literal.of(uuid);
         }
         throw new IllegalArgumentException(
                 "Unsupported default value type: " + value.getClass().getName());
@@ -114,11 +118,14 @@ final class IcebergDdlOperations {
         Literal raw = toIcebergLiteral(value);
         if (targetType instanceof Type.PrimitiveType primitive) {
             Literal casted = raw.to(primitive);
-            if (casted != null) {
-                return casted;
+            if (casted == null) {
+                throw new IllegalArgumentException(
+                        "Default value " + value + " cannot be cast to " + targetType);
             }
+            return casted;
         }
-        return raw;
+        throw new IllegalArgumentException(
+                "Default values for non-primitive column type " + targetType + " are unsupported");
     }
 
     private static Literal<?> numericToLiteral(Number value) {
@@ -219,7 +226,7 @@ final class IcebergDdlOperations {
     private static void applyNamedTransform(org.apache.iceberg.UpdatePartitionSpec updateSpec,
                                             String funcName, List<String> args) {
         String colName = args.get(0);
-        switch (funcName.toLowerCase()) {
+        switch (funcName.toLowerCase(Locale.ROOT)) {
             case "year" -> updateSpec.addField(Expressions.year(colName));
             case "month" -> updateSpec.addField(Expressions.month(colName));
             case "day" -> updateSpec.addField(Expressions.day(colName));

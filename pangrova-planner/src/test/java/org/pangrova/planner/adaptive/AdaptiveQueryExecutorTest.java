@@ -1,5 +1,7 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.enums.JoinStrategy;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

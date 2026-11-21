@@ -1,0 +1,143 @@
+--- a/folly/hash/Hash.h
++++ b/folly/hash/Hash.h
+@@ -126,13 +126,13 @@
+  */
+ FOLLY_DISABLE_UNDEFINED_BEHAVIOR_SANITIZER("unsigned-integer-overflow")
+ constexpr uint64_t twang_mix64(uint64_t key) noexcept {
+-  key = (~key) + (key << 21); // key *= (1 << 21) - 1; key -= 1;
++  key = key * ((uint64_t{1} << 21) - 1) - 1;
+   key = key ^ (key >> 24);
+-  key = key + (key << 3) + (key << 8); // key *= 1 + (1 << 3) + (1 << 8)
++  key = key * 265;
+   key = key ^ (key >> 14);
+-  key = key + (key << 2) + (key << 4); // key *= 1 + (1 << 2) + (1 << 4)
++  key = key * 21;
+   key = key ^ (key >> 28);
+-  key = key + (key << 31); // key *= 1 + (1 << 31)
++  key = key * ((uint64_t{1} << 31) + 1);
+   return key;
+ }
+ 
+@@ -160,11 +160,11 @@
+  * @methodset twang
+  */
+ constexpr uint32_t twang_32from64(uint64_t key) noexcept {
+-  key = (~key) + (key << 18);
++  key = key * ((uint64_t{1} << 18) - 1) - 1;
+   key = key ^ (key >> 31);
+   key = key * 21;
+   key = key ^ (key >> 11);
+-  key = key + (key << 6);
++  key = key * 65;
+   key = key ^ (key >> 22);
+   return static_cast<uint32_t>(key);
+ }
+--- a/folly/hash/SpookyHashV2.h
++++ b/folly/hash/SpookyHashV2.h
+@@ -48,6 +48,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdint>
++#include <limits>
+ 
+ #include <folly/CPortability.h>
+ #include <folly/Portability.h>
+@@ -124,11 +125,16 @@
+         uint64_t *hash2) const;   // out only: second 64 bits of hash value.
+ 
+     //
+-    // left rotate a 64-bit value by k bytes
++    // left rotate a 64-bit value by k bits
+     //
+     static inline uint64_t Rot64(uint64_t x, int k)
+     {
+-        return (x << k) | (x >> (64 - k));
++        const unsigned shift = static_cast<unsigned>(k) % 64;
++        if (shift == 0) {
++            return x;
++        }
++        const auto low = x & (std::numeric_limits<uint64_t>::max() >> shift);
++        return (low << shift) | (x >> (64 - shift));
+     }
+ 
+     //
+--- a/folly/detail/Futex.h
++++ b/folly/detail/Futex.h
+@@ -55,7 +55,7 @@
+  */
+ template <typename Futex>
+ FutexResult futexWait(
+-    const Futex* futex, uint32_t expected, uint32_t waitMask = -1);
++    const Futex* futex, uint32_t expected, uint32_t waitMask = std::numeric_limits<uint32_t>::max());
+ 
+ /**
+  * Similar to futexWait but also accepts a deadline until when the wait call
+@@ -72,7 +72,7 @@
+     const Futex* futex,
+     uint32_t expected,
+     std::chrono::time_point<Clock, Duration> const& deadline,
+-    uint32_t waitMask = -1);
++    uint32_t waitMask = std::numeric_limits<uint32_t>::max());
+ 
+ /**
+  * Wakes up to count waiters where (waitMask & wakeMask) != 0, returning the
+@@ -87,7 +87,7 @@
+ int futexWake(
+     const Futex* futex,
+     int count = std::numeric_limits<int>::max(),
+-    uint32_t wakeMask = -1);
++    uint32_t wakeMask = std::numeric_limits<uint32_t>::max());
+ 
+ /** A std::atomic subclass that can be used to force Futex to emulate
+  *  the underlying futex() syscall.  This is primarily useful to test or
+--- a/folly/detail/MemoryIdler.h
++++ b/folly/detail/MemoryIdler.h
+@@ -19,6 +19,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <limits>
+ 
+ #include <folly/detail/Futex.h>
+ #include <folly/hash/Hash.h>
+@@ -107,7 +108,7 @@
+   static FutexResult futexWait(
+       Futex& fut,
+       uint32_t expected,
+-      uint32_t waitMask = -1,
++      uint32_t waitMask = std::numeric_limits<uint32_t>::max(),
+       IdleTime const& idleTimeout =
+           defaultIdleTimeout.load(std::memory_order_acquire),
+       size_t stackToRetain = kDefaultStackToRetain,
+@@ -145,7 +146,7 @@
+       Futex& fut,
+       uint32_t expected,
+       Deadline const& deadline,
+-      uint32_t waitMask = -1,
++      uint32_t waitMask = std::numeric_limits<uint32_t>::max(),
+       IdleTime const& idleTimeout =
+           defaultIdleTimeout.load(std::memory_order_acquire),
+       size_t stackToRetain = kDefaultStackToRetain,
+--- a/folly/synchronization/DistributedMutex-inl.h
++++ b/folly/synchronization/DistributedMutex-inl.h
+@@ -742,7 +742,8 @@
+  * nodes
+  */
+ inline std::uint64_t strip(CpuTicks time) {
+-  return static_cast<std::uint64_t>(time) << 8;
++  constexpr auto tickMask = std::numeric_limits<std::uint64_t>::max() >> 8;
++  return (static_cast<std::uint64_t>(time) & tickMask) << 8;
+ }
+ 
+ /**
+--- a/folly/container/detail/F14Table.cpp
++++ b/folly/container/detail/F14Table.cpp
+@@ -40,7 +40,7 @@
+   FOLLY_SAFE_DCHECK(delta >= -1, "");
+   std::size_t v = value.load(std::memory_order_acquire);
+   if (delta > 0 || (delta == -1 && v > 0)) {
+-    v += delta;
++    v = delta == -1 ? v - 1 : v + static_cast<std::size_t>(delta);
+     v = std::min(std::numeric_limits<std::size_t>::max() / 2, v);
+     value.store(v, std::memory_order_release);
+   }

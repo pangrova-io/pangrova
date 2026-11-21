@@ -1,7 +1,9 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.jni.NativeRuntimeException;
+import org.pangrova.worker.enums.NativeTaskFailureCategory;
+import org.pangrova.worker.exception.NativeRuntimeException;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 
@@ -19,17 +21,6 @@ import java.util.concurrent.TimeoutException;
  */
 public final class NativeTaskFailureClassifier {
 
-    public enum Category {
-        /** C++ process crashed (SIGSEGV, abort). Fail-fast, no retry. */
-        NATIVE_CRASHED,
-        /** Native executor unresponsive. Escalate as heartbeat timeout. */
-        NATIVE_HUNG,
-        /** Native task reached FAILED terminal state. Fail-fast, no retry. */
-        NATIVE_TASK_FAILED,
-        /** Transient IO error. Backoff retry up to max attempts. */
-        TRANSIENT
-    }
-
     private NativeTaskFailureClassifier() {}
 
     /**
@@ -38,30 +29,30 @@ public final class NativeTaskFailureClassifier {
      * @param t the throwable from isFinished()
      * @return the failure category determining the response strategy
      */
-    public static Category classify(Throwable t) {
+    public static NativeTaskFailureCategory classify(Throwable t) {
         if (isCrashSignal(t)) {
-            return Category.NATIVE_CRASHED;
+            return NativeTaskFailureCategory.NATIVE_CRASHED;
         }
         if (isHungSignal(t)) {
-            return Category.NATIVE_HUNG;
+            return NativeTaskFailureCategory.NATIVE_HUNG;
         }
         if (isDefinitiveTaskFailure(t)) {
-            return Category.NATIVE_TASK_FAILED;
+            return NativeTaskFailureCategory.NATIVE_TASK_FAILED;
         }
         Throwable cause = t.getCause();
         while (cause != null) {
             if (isCrashSignal(cause)) {
-                return Category.NATIVE_CRASHED;
+                return NativeTaskFailureCategory.NATIVE_CRASHED;
             }
             if (isHungSignal(cause)) {
-                return Category.NATIVE_HUNG;
+                return NativeTaskFailureCategory.NATIVE_HUNG;
             }
             if (isDefinitiveTaskFailure(cause)) {
-                return Category.NATIVE_TASK_FAILED;
+                return NativeTaskFailureCategory.NATIVE_TASK_FAILED;
             }
             cause = cause.getCause();
         }
-        return Category.TRANSIENT;
+        return NativeTaskFailureCategory.TRANSIENT;
     }
 
     /** Lower-case message patterns indicating a native process crash. */
@@ -78,7 +69,7 @@ public final class NativeTaskFailureClassifier {
         if (message == null) {
             return false;
         }
-        String lower = message.toLowerCase();
+        String lower = message.toLowerCase(Locale.ROOT);
         for (String pattern : CRASH_MESSAGE_PATTERNS) {
             if (lower.contains(pattern)) {
                 return true;
