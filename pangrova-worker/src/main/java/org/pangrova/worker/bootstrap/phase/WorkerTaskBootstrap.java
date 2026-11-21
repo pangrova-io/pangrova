@@ -56,6 +56,13 @@ public final class WorkerTaskBootstrap {
                         org.pangrova.worker.catalog.WorkerCatalogRuntime catalogs) {
             nativeExecutor.setCatalogRuntime(catalogs);
         }
+        var workerBackend = refs.workerExecutedTaskBackend();
+        if (workerBackend != null) {
+            var composite = new org.pangrova.worker.execution.CompositeTaskExecutor(
+                    executor, workerBackend);
+            ownership.retain(composite);
+            executor = composite;
+        }
         injectShuffleHmacKey(refs);
         RemoteTaskStatusReporter reporter = createStatusReporter(config, observability);
         refs.setStatusReporter(reporter);

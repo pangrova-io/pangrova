@@ -19,7 +19,7 @@ class IndexingApiIsolationTest {
     @Test
     void actualClasspathAndAllApiTypesLoadWithoutSecurityRuntimeJdbcOrCloudProviders() throws Exception {
         var forbidden = List.of("org.pangrova.indexing.descriptor.IndexDescriptorTransitions",
-                "org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider",
+                "org.pangrova.indexing.strategies.bloom.provider.BloomFilterStrategyProvider",
                 "org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore",
                 "org.apache.calcite.rel.RelNode", "org.roaringbitmap.RoaringBitmap",
                 "com.github.benmanes.caffeine.cache.Caffeine", "org.pangrova.observability.noop.NoOpMetricsProvider",

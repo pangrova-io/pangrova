@@ -255,6 +255,125 @@ esac
                 self.assertIn("prepared", trace.read_text())
                 self.assertEqual("compiled" in trace.read_text(), phase == "velox")
 
+    def darwin_libevent(self, mode, fixture):
+        prefix = self.root / "brew formula"
+        trace = self.root / "brew-log"
+        self.executable(self.bin / "brew", """
+printf '%s\\n' "$*" >> "$TRACE"
+case "$*" in
+  '--prefix libevent') [ "$FIXTURE" = no-prefix ] || printf '%s\\n' "$PREFIX" ;;
+  'install --formula libevent')
+    [ "$FIXTURE" != install-fails ] || exit 8
+    [ "$HOMEBREW_NO_AUTO_UPDATE:$HOMEBREW_NO_INSTALL_UPGRADE" = 1:1 ] || exit 9
+    mkdir -p "$PREFIX/include" "$PREFIX/lib"
+    touch "$PREFIX/include/event.h" "$PREFIX/lib/libevent.dylib" ;;
+  *) exit 10 ;;
+esac
+""")
+        if fixture == "present":
+            (prefix / "include").mkdir(parents=True)
+            (prefix / "lib").mkdir()
+            (prefix / "include/event.h").touch()
+            (prefix / "lib/libevent.dylib").touch()
+        helper = BOOTSTRAP.with_name("resolve-darwin-libevent.sh")
+        cmd = ('die() { echo "$1" >&2; exit 1; }; '
+               'source "$1"; selected="$(resolve_darwin_libevent "$2" "$3")"; '
+               'printf "configure:%s\\n" "$selected" >> "$TRACE"')
+        result = subprocess.run(
+            ["/bin/bash", "-eu", "-c", cmd, "test", str(helper), str(self.bin / "brew"), mode],
+            env=dict(self.env, TRACE=str(trace), PREFIX=str(prefix), FIXTURE=fixture),
+            text=True, capture_output=True,
+        )
+        return result, prefix, trace.read_text().splitlines()
+
+    def test_darwin_libevent_installs_before_configure(self):
+        result, prefix, trace = self.darwin_libevent("install", "absent")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(trace, ["--prefix libevent", "install --formula libevent",
+                                 "--prefix libevent", f"configure:{prefix}"])
+
+    def test_darwin_libevent_reuses_an_installed_formula(self):
+        result, prefix, trace = self.darwin_libevent("install", "present")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(trace, ["--prefix libevent", f"configure:{prefix}"])
+
+    def test_darwin_libevent_fails_before_configure_on_install_error(self):
+        result, _, trace = self.darwin_libevent("install", "install-fails")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not install libevent", result.stderr)
+        self.assertEqual(trace, ["--prefix libevent", "install --formula libevent"])
+
+    def test_darwin_libevent_fails_before_configure_without_resolved_prefix(self):
+        result, _, trace = self.darwin_libevent("install", "no-prefix")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("libevent headers or library not found", result.stderr)
+        self.assertEqual(trace, ["--prefix libevent", "install --formula libevent", "--prefix libevent"])
+
+    def test_darwin_asan_libevent_check_does_not_install(self):
+        result, _, trace = self.darwin_libevent("check", "absent")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run setup-native-build-env.sh", result.stderr)
+        self.assertEqual(trace, ["--prefix libevent"])
+
+    def test_darwin_folly_builds_pass_the_formula_prefix(self):
+        release = BOOTSTRAP.read_text()
+        asan = BOOTSTRAP.with_name("setup-native-asan-env.sh").read_text()
+        self.assertIn('resolve_darwin_libevent "$PANGROVA_BREW" install', release)
+        self.assertIn('$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX', release)
+        self.assertIn('ensure_folly_compiler_abi "$libevent_prefix"', release)
+        self.assertIn('$VELOX_DIR/deps-install;$libevent_prefix', release)
+        self.assertIn('resolve_darwin_libevent "$PANGROVA_BREW"', asan)
+        self.assertIn('$VELOX_HOME/deps-install${libevent_prefix:+;$libevent_prefix}', asan)
+
+    def test_macos_boost_installer_passes_component_names_and_preserves_failure(self):
+        source = BOOTSTRAP.read_text()
+        installer = 'install_boost() {' + source.split('    install_boost() {', 1)[1].split(
+            '\n    }', 1)[0] + '\n}'
+        boost = self.root / 'dependency sources/boost'
+        boost.mkdir(parents=True)
+        self.executable(boost / 'bootstrap.sh', 'printf "%s\\n" "$@" > "$BOOTSTRAP_TRACE"')
+        self.executable(boost / 'b2', 'printf "%s\\n" "$@" > "$TRACE"; exit "$BUILD_EXIT"')
+        env = dict(self.env, BOOST_VERSION='boost-1.84.0', DEPENDENCY_DIR=str(boost.parent),
+                   INSTALL_PREFIX=str(self.root / 'install prefix'), NPROC='2', SUDO='',
+                   TRACE=str(self.root / 'b2-trace'), BOOTSTRAP_TRACE=str(self.root / 'bootstrap-trace'))
+        for exit_code in (0, 37):
+            with self.subTest(exit_code=exit_code):
+                result = subprocess.run(
+                    ['/bin/bash', '-c', 'set -euo pipefail\nwget_and_untar() { :; }\n' +
+                     installer + '\ninstall_boost\n'], env=dict(env, BUILD_EXIT=str(exit_code)),
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
+                self.assertEqual((self.root / 'bootstrap-trace').read_text().splitlines(),
+                                 [f'--prefix={self.root / "install prefix"}'])
+                self.assertEqual((self.root / 'b2-trace').read_text().splitlines(),
+                                 ['-j2', '-d0', 'install', 'threading=multi', '--without-python',
+                                  '--without-log'])
+
+    def test_macos_bootstrap_patches_folly_sources_before_configure(self):
+        source = BOOTSTRAP.read_text()
+        self.assertIn('folly-2026.01.05-openssl-asn1.patch', source)
+        self.assertIn('folly-2026.01.05-openssl-const.patch', source)
+        self.assertLess(source.index('apply_folly_source_patches "$DEPENDENCY_DIR/folly"'),
+                        source.index('cmake_install_dir folly'))
+        const_patch = (ROOT / 'pangrova-worker-native/patches/'
+                       'folly-2026.01.05-openssl-const.patch').read_text()
+        for patched_file in ('folly/io/async/ssl/OpenSSLUtils.cpp',
+                             'folly/ssl/OpenSSLCertUtils.cpp'):
+            self.assertIn(patched_file, const_patch)
+        self.assertIn('wangle-2026.01.05-openssl-const.patch', source)
+        self.assertIn('fizz-2026.01.05-openssl-const.patch', source)
+        self.assertIn('folly-2026.01.05-libcxx-exception-path.patch', source)
+        self.assertIn('apply_dependency_source_patches "$dir"', source)
+        exception_patch = (ROOT / 'pangrova-worker-native/patches/'
+                           'folly-2026.01.05-libcxx-exception-path.patch').read_text()
+        self.assertIn('folly/lang/Exception.cpp', exception_patch)
+        wangle_patch = (ROOT / 'pangrova-worker-native/patches/'
+                        'wangle-2026.01.05-openssl-const.patch').read_text()
+        self.assertIn('wangle/ssl/SSLUtil.cpp', wangle_patch)
+        fizz_patch = (ROOT / 'pangrova-worker-native/patches/'
+                      'fizz-2026.01.05-openssl-const.patch').read_text()
+        self.assertIn('fizz/protocol/test/CertUtil.h', fizz_patch)
+
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
         self.executable(prefix / "bin/clang++", "echo selected-clang")

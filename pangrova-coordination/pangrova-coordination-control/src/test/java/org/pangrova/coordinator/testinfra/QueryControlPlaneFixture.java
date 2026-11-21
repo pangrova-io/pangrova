@@ -4,14 +4,14 @@ package org.pangrova.coordinator.testinfra;
 import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;

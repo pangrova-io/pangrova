@@ -24,7 +24,9 @@ CREATE TABLE articles (
 );
 ```
 
-**Construction:**
+**Construction:** the examples below use `...` to abbreviate vector coordinates.
+Replace it with actual numeric elements so the array length matches the declared
+dimension; `...` is not executable SQL.
 
 ```sql
 -- Vectors are constructed using ARRAY literal syntax

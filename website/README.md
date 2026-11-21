@@ -17,6 +17,11 @@ pnpm run typecheck
 pnpm run build
 ```
 
+The build first runs `pnpm run check:images`: regression tests and a scan of
+repository Markdown image references. Local images must exist and use relative
+paths that also resolve in GitHub previews; external image URLs are not fetched.
+Search uses a hash in the index filename rather than the query string so the
+index resolves in both GitHub Pages and `pnpm serve` under `/pangrova/`.
 Broken routes, Markdown targets and anchors fail the build. Navigation is owned
 by `sidebars.ts`; documentation format is described in
 [the documentation guide](../docs/contributing/documentation.md).

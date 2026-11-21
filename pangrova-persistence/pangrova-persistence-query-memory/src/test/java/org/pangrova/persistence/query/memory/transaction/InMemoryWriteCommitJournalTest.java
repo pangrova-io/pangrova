@@ -4,6 +4,7 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
@@ -49,6 +50,21 @@ class InMemoryWriteCommitJournalTest {
     }
 
     @Test
+    void cdcSourceIdentitySurvivesTheJournalLifecycle() {
+        var journal = new InMemoryWriteCommitJournal();
+        var cdc = new CdcSourceIdentity("stream-orders", "epoch-1",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20)));
+        var intent = intent(cdc);
+        journal.recordIntent(intent);
+
+        assertThat(journal.getEntry(intent.queryId())).get()
+                .extracting(WriteCommitEntry::cdcSource).isEqualTo(cdc);
+        journal.markCommitted(intent.queryId());
+        assertThat(journal.getEntry(intent.queryId())).get()
+                .extracting(WriteCommitEntry::cdcSource).isEqualTo(cdc);
+    }
+
+    @Test
     void independentInstancesDoNotShareCommittedState() {
         var first = new InMemoryWriteCommitJournal();
         var second = new InMemoryWriteCommitJournal();
@@ -59,6 +75,10 @@ class InMemoryWriteCommitJournalTest {
     }
 
     private static WriteCommitEntry intent() {
+        return intent(null);
+    }
+
+    private static WriteCommitEntry intent(CdcSourceIdentity cdcSource) {
         var table = new QualifiedTableName("catalog", "schema", "table");
         var declaration = new WriteDeclarationSnapshot(table, "0".repeat(64), "0".repeat(64), false);
         // Storage-only test: opaque receipt bytes are fingerprinted, never used as permission to execute.
@@ -67,9 +87,9 @@ class InMemoryWriteCommitJournalTest {
         List<byte[]> fragments = List.of(new byte[] {3});
         String fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
                 "query", "tenant", "catalog", "schema.table", "INSERT", -1, binding,
-                "principal", receipt, null), fragments);
+                "principal", receipt, null, cdcSource), fragments);
         return new WriteCommitEntry("query", "catalog", "schema.table", WriteCommitState.PENDING,
                 1, fragments, "INSERT", fingerprint, "tenant", "principal", receipt, -1, binding,
-                fingerprint, null, null, 0, null, null);
+                fingerprint, null, null, 0, null, null, cdcSource);
     }
 }

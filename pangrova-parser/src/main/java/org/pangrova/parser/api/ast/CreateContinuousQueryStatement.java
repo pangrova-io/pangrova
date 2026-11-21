@@ -1,15 +1,15 @@
 package org.pangrova.parser.api.ast;
 
-import org.pangrova.parser.api.enums.RefreshStrategy;
 import org.pangrova.parser.api.enums.StatementType;
 
 import java.time.Duration;
 
 /**
- * Represents {@code CREATE CONTINUOUS QUERY <name> AS <query> REFRESH EVERY <interval>}.
+ * Represents {@code CREATE CONTINUOUS QUERY <name> REFRESH EVERY <interval> AS <query>}.
  *
- * <p>A continuous query is a Dynamic Table with {@link RefreshStrategy#CONTINUOUS}
- * that auto-refreshes based on watermark advance at the specified interval.</p>
+ * <p>A continuous query is created as a durable dynamic table whose target lag is
+ * the declared refresh interval. Refresh is interval-driven by the materialization
+ * scheduler; it is not watermark-gated.</p>
  */
 public record CreateContinuousQueryStatement(
         Identifier name,

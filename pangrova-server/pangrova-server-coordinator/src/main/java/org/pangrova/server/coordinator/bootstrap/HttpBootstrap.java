@@ -4,7 +4,7 @@ import org.pangrova.common.enums.ClusterNodeType;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;

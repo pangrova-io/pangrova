@@ -31,8 +31,12 @@ FROM prod.analytics.orders;
 ## SUM
 
 ```sql
-SUM(numeric_expr) → same as input type (or DECIMAL for integer overflow)
+SUM(numeric_expr) → planner-derived numeric result type
 ```
+
+`TINYINT`, `SMALLINT`, and `INTEGER` inputs are promoted to `BIGINT`.
+The result type is fixed during planning; overflow does not dynamically switch
+an integer result to `DECIMAL`.
 
 **Example:**
 
@@ -152,7 +156,7 @@ Returns an arbitrary non-NULL value from the group. Useful when a column is func
 **Example:**
 
 ```sql
-SELECT user_id, ANY_VALUE(name) AS user_name, COUNT(*) AS order_count
+SELECT o.user_id, ANY_VALUE(u.name) AS user_name, COUNT(*) AS order_count
 FROM prod.analytics.orders o
 JOIN prod.analytics.users u ON o.user_id = u.user_id
 GROUP BY o.user_id;
@@ -184,7 +188,9 @@ GROUP BY user_id;
 APPROX_COUNT_DISTINCT(expr) → BIGINT
 ```
 
-Approximate distinct count using HyperLogLog. Faster than `COUNT(DISTINCT)` for large datasets with ~2% error.
+Approximate distinct count using HyperLogLog. Accuracy and resource use depend
+on the implementation and workload; this is not an exact count or a guarantee
+of a particular speedup or per-query error bound.
 
 **Example:**
 

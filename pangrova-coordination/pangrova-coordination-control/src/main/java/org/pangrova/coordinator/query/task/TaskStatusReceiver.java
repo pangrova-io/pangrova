@@ -16,7 +16,7 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.query.lifecycle.QueryStateJournalPort;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +30,7 @@ public final class TaskStatusReceiver {
     private final CoordinatorTaskTracker taskTracker;
     private final WorkerManager workerManager;
     private final CanonicalTaskReportValidator taskReportValidator = new CanonicalTaskReportValidator();
-    private final QueryStateJournal stateJournal;
+    private final QueryStateJournalPort stateJournal;
     private final StageCompletionCallback stageCompletionCallback;
     private final GenerationWorkReportSink artifactWorkReportSink;
     private final TaskReportSequences sequences = new TaskReportSequences();
@@ -94,6 +94,15 @@ public final class TaskStatusReceiver {
      * @throws UnregisteredWorkerException if the reporting Worker is not registered
      * @return true if the report was accepted, false if rejected as stale
      */
+    private volatile org.pangrova.coordinator.streaming.CdcTaskCompletionRegistry cdcCompletions;
+
+    /** Installs the dedicated CDC terminal-report sink without changing SQL/DML completion. */
+    public void setCdcCompletions(
+            org.pangrova.coordinator.streaming.CdcTaskCompletionRegistry completions) {
+        this.cdcCompletions = completions;
+    }
+
+    /** Accepts one Worker status report through the exact task authority and completion path. */
     public boolean onTaskStatus(TaskStatusReport report) {
         checkNotNull(report, "report must not be null");
         // A lost HTTP ACK must not make the Worker discard/recreate its actual
@@ -107,6 +116,14 @@ public final class TaskStatusReceiver {
         if (!validation.accepted()) {
             return false;
         }
+        if (expectedRequest != null && expectedRequest.taskRequest().getTaskKind()
+                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST) {
+            var completions = cdcCompletions;
+            if (completions == null) return false;
+            return completions.accept(expectedRequest, report,
+                    validation.canonicalStatus().orElseThrow());
+        }
+
         boolean durableWork = isBackgroundTask(expectedRequest);
 
         ReportOwnership ownership = reportOwnership(report, durableWork);

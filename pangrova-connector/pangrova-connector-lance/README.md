@@ -14,10 +14,8 @@ Catalog properties:
 
 | Property | Meaning |
 | --- | --- |
-| `jdbc.url` | Required PostgreSQL JDBC URL for the durable catalog directory. |
-| `jdbc.user` | PostgreSQL user, when not supplied by the JDBC URL. |
-| `jdbc.password` | PostgreSQL password; use a deployment secret reference. |
 | `warehouse` | Required absolute local path, canonical `file:///` URI, or normalized `s3:` warehouse URI. `file:/` is rejected without rewriting. |
+| `jdbc.url` / `jdbc.user` / `jdbc.password` | Rejected. Catalog identity and publication evidence use the deployment's shared metadata authority; the connector never opens its own database connection. |
 | `native.storage.s3.endpoint` | Required explicit `http:`/`https:` endpoint for S3 warehouses. |
 | `native.storage.s3.region` | Required S3 region. |
 | `native.storage.s3.path-style-access` | Required `true`/`false`; use `true` for path-style deployments. |

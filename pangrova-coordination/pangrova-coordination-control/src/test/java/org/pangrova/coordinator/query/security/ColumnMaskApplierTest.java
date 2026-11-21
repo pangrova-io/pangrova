@@ -4,7 +4,7 @@ import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.mask.ColumnMask;

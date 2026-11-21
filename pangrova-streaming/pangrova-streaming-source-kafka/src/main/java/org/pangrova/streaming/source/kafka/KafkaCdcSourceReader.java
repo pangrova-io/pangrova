@@ -178,6 +178,45 @@ final class KafkaCdcSourceReader implements CdcSourceReader {
     }
 
     @Override
+    public List<TopicPartitionOffset> partitions() {
+        try {
+            var description = consumer.partitionsFor(topic);
+            if (description == null || description.isEmpty()) {
+                throw new SourceUnavailableException(
+                        PangrovaErrorCode.STREAM_SOURCE_UNAVAILABLE,
+                        "Kafka source has no partitions for topic=" + topic);
+            }
+            return description.stream()
+                    .map(info -> new TopicPartitionOffset(info.topic(), info.partition()))
+                    .sorted(java.util.Comparator.comparingInt(TopicPartitionOffset::partition))
+                    .toList();
+        } catch (TimeoutException e) {
+            throw new SourceUnavailableException(
+                    PangrovaErrorCode.STREAM_SOURCE_UNAVAILABLE,
+                    "Kafka partition lookup timed out for topic=" + topic, e);
+        }
+    }
+
+    @Override
+    public Map<TopicPartitionOffset, Long> endOffsets(
+            Collection<TopicPartitionOffset> partitions) {
+        try {
+            Map<TopicPartition, Long> actual = consumer.endOffsets(
+                    partitions.stream()
+                            .map(offset -> new TopicPartition(offset.topic(), offset.partition()))
+                            .toList());
+            Map<TopicPartitionOffset, Long> result = new HashMap<>();
+            actual.forEach((partition, end) -> result.put(
+                    new TopicPartitionOffset(partition.topic(), partition.partition()), end));
+            return Map.copyOf(result);
+        } catch (TimeoutException e) {
+            throw new SourceUnavailableException(
+                    PangrovaErrorCode.STREAM_SOURCE_UNAVAILABLE,
+                    "Kafka end-offset lookup timed out for topic=" + topic, e);
+        }
+    }
+
+    @Override
     public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
         Map<TopicPartition, OffsetAndMetadata> kafkaOffsets = new HashMap<>();
         for (var entry : offsets.entrySet()) {

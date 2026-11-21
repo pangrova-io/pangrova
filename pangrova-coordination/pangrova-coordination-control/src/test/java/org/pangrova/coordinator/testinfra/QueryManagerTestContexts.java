@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
@@ -16,9 +16,16 @@ public final class QueryManagerTestContexts {
     /** Test assembly with an explicitly selected process-local journal. */
     public static QueryManagerContext minimal(
             QueryDispatcher queryDispatcher, TracingProvider tracingProvider) {
+        var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                null, null, null, queryDispatcher, null);
         return new QueryManagerContext(queryDispatcher, tracingProvider,
-                null, null, null, null, null, null, null, null,
-                new InMemoryQueryStateJournal(), null, null, null, null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                audit,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new InMemoryQueryStateJournal(), audit),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     /**
@@ -29,9 +36,15 @@ public final class QueryManagerTestContexts {
     public static QueryManagerContext minimalAsync(
             QueryDispatcher queryDispatcher, TracingProvider tracingProvider,
             AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor) {
+        var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                null, null, null, queryDispatcher, null);
         return new QueryManagerContext(queryDispatcher, tracingProvider,
-                null, null, null, null, null, null, null, null,
-                new InMemoryQueryStateJournal(), null, null,
-                asyncSubmitConfig, asyncExecutor, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                audit,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new InMemoryQueryStateJournal(), audit),
+                null, asyncSubmitConfig, asyncExecutor,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 }

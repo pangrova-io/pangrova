@@ -15,7 +15,7 @@ import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
@@ -68,6 +68,7 @@ public final class CoordinatorBootstrap {
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
+    private CdcWorkerRuntime cdcWorkerRuntime;
     private QueryBootstrap query;
     private HttpBootstrap http;
     private HighAvailabilityBootstrap ha;
@@ -138,6 +139,7 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         query = buildQueryBootstrap();
         query.start();
+        startCdcWorkerRuntime();
         ha = buildHighAvailabilityBootstrap();
         ha.setClaimedExecutionRecovery(claimed ->
                 query.recoverWriteCommitIntents(claimed, ha.haService()));
@@ -150,6 +152,27 @@ public final class CoordinatorBootstrap {
         wireQueryOwnershipTracking();
         http = buildHttpBootstrap();
         http.start();
+    }
+
+    private void startCdcWorkerRuntime() {
+        if (streamingBootstrap == null) {
+            return;
+        }
+        cdcWorkerRuntime = new CdcWorkerRuntime(
+                streamingBootstrap.stateStore(),
+                streamingBootstrap.offsetStore(),
+                streamingBootstrap.sourceRegistry(),
+                metadataBootstrap.catalogRegistry(),
+                query.queryDispatcher().taskDispatcher(),
+                query.queryDispatcher().workerSelector(),
+                query.taskTracker(),
+                query.taskStatusReceiver(),
+                query.writeCommitJournal(),
+                query.queryDispatcher().writeAuthorityResolver(),
+                config.coordinatorId());
+        streamingBootstrap.enableWorkerDispatch();
+        streamingBootstrap.attachWorkerRuntime(cdcWorkerRuntime);
+        LOG.info("event=cdc_worker_runtime_started");
     }
 
     private QueryBootstrap buildQueryBootstrap() {
@@ -264,7 +287,8 @@ public final class CoordinatorBootstrap {
 
     private void closeOwnedResources() {
         CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
-                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, http, moduleWiring,
+                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, cdcWorkerRuntime,
+                http, moduleWiring,
                 nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
                 metadataDataSource, security, observability, coordinationProvider));
     }

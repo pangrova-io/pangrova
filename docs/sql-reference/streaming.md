@@ -12,8 +12,8 @@ Stream syntax and dynamic-table syntax have different maturity boundaries.
 | Surface | Current wiring |
 |---|---|
 | Stream DDL | Registered when the streaming bootstrap supplies its executor |
-| CDC ingestion | Bootstrap creates a Coordinator-local connector page-sink writer; distributed Native ingestion remains incomplete |
-| Continuous-query refresh | The default scheduler callback logs a tick; it does not execute a refresh |
+| CDC ingestion | A Coordinator hosting both streaming and query roles disables its local pipeline and runs a supervised Worker CDC runtime: it plans bounded ranges per admitted offset interval, dispatches `CDC_INGEST` tasks, and retains journal publication plus source-offset acknowledgement. A streaming-only Coordinator still uses the local connector page-sink writer |
+| Continuous-query refresh | `CREATE CONTINUOUS QUERY ... REFRESH EVERY <interval>` creates a durable Dynamic Table whose full refresh is driven by the materialization schedule |
 | Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers are served by the unified materialization kernel when durable metadata publication is configured; refreshes execute Native CTAS and publish immutable generations. Continuous-query materialization remains unsupported |
 | Materialized-view DDL and lifecycle | The same kernel serves create/alter/refresh/drop/show/describe; published views are eligible for transparent query rewrite |
 | Materialization observability | `SHOW MATERIALIZATIONS`, refresh history, dependencies, and GC history project the durable kernel read model per tenant |
@@ -39,9 +39,15 @@ FORMAT 'debezium-json'
 INTO prod.analytics.events
 WITH (
   'batch_size' = '10000',
-  'max_consecutive_failures' = '10'
+  'max_consecutive_failures' = '10',
+  'cdc.write.privileges' = 'INSERT,UPDATE,DELETE'
 );
 ```
+
+`cdc.write.privileges` is mandatory for a distributed CDC target. It must be an
+explicit comma-separated subset of `INSERT`, `UPDATE`, and `DELETE`; the
+Coordinator never infers write authority from the source format. Missing or
+invalid actions fail closed before connector allocation.
 
 The identifier after `FROM` selects a source provider on the Coordinator. Kafka is
 the bundled source. Its `bootstrap.servers` and `topic` settings must be nonblank.
@@ -121,8 +127,23 @@ kernel when durable metadata publication is configured.** Every published
 generation is immutable; refresh reserves a durable attempt, executes through
 the Native execution path, and publishes through the kernel head. Names must be
 unquoted `catalog.schema.table` identifiers. `CREATE ... WAREHOUSE` and
-`CREATE ... WITH (...)` are rejected until a materialization policy exists, and
-continuous-query materialization is not implemented.
+`CREATE ... WITH (...)` are rejected until a materialization policy exists.
+
+### CREATE CONTINUOUS QUERY
+
+```sql
+CREATE CONTINUOUS QUERY catalog.schema.active_orders
+REFRESH EVERY 'PT5M'
+AS SELECT * FROM catalog.schema.orders WHERE status = 'ACTIVE';
+```
+
+A continuous query is created as a Dynamic Table whose target lag is the
+`REFRESH EVERY` interval. Creation bootstraps a full generation; the durable
+materialization scheduler refreshes it at that interval with `FULL` refresh mode.
+`PT0S` is rejected. The object is managed through the Dynamic Table lifecycle
+(`ALTER ... SUSPEND`, `RESUME`, `REFRESH`, `DROP`, `DESCRIBE`, and `SHOW DYNAMIC
+TABLES`). Watermark-gated and incremental continuous-query refresh are not
+implemented.
 
 ### CREATE DYNAMIC TABLE
 

@@ -22,7 +22,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;

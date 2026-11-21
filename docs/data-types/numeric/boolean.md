@@ -36,7 +36,7 @@ WHERE active IS NOT TRUE;  -- includes FALSE and NULL
 |-----------|---------------|--------------|
 | Apache Iceberg | `BOOLEAN` | `BOOLEAN` |
 | Apache Paimon | `BOOLEAN` | `BOOLEAN` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow boolean schema | `BOOLEAN` retained in managed catalog metadata |
 
 ## Example
 

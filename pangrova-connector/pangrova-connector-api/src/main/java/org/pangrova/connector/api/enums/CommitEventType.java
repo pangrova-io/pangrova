@@ -22,7 +22,10 @@ public enum CommitEventType {
     COMPACT(1),
 
     /** MOR delete — delete files written but no data file replacement. */
-    DELETE(4);
+    DELETE(4),
+
+    /** CDC row-kind merge — deletes and inserts published in one snapshot. */
+    MERGE(2);
 
     private final int priority;
 

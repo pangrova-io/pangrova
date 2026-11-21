@@ -26,8 +26,9 @@ null semantics, connector mappings, and limits.
 
 - [Type casting](type-casting.md) defines the compatibility matrix, narrowing behavior, and
   the rule that invalid casts fail at runtime.
-- Every type is nullable unless a future column-level constraint states otherwise. SQL
-  `NULL` is distinct from zero, empty string, empty collection, and false.
+- Column declarations are nullable by default; `NOT NULL` declares a non-nullable
+  column. SQL `NULL` is distinct from zero, empty string, empty collection, and false.
+  Check connector and execution-path enforcement for the schema being used.
 - Use `DECIMAL` for exact monetary arithmetic; `FLOAT` and `DOUBLE` are binary
   approximations.
 
@@ -37,8 +38,14 @@ null semantics, connector mappings, and limits.
 - Paimon preserves integer widths but stores `GEOMETRY` and `GEOGRAPHY` as `VARBINARY`.
 - `VARCHAR(n)` is a logical declaration; Iceberg and Paimon do not enforce a smaller
   length at write time.
-- Precision-less `DECIMAL` maps to a default `(38,18)` in the Iceberg and Paimon write
-  paths; declare precision and scale explicitly for production schemas.
+- SQL `DECIMAL` / `NUMERIC` defaults to `(38,0)`; specifying only precision gives
+  scale `0`. Connector enum-only mappings that receive no parameters use their own
+  `(38,18)` default, but SQL DDL supplies parameterized types. Declare both
+  precision and scale explicitly for production schemas.
+
+Managed Lance persists structural type signatures and validates the canonical
+physical schema through its Native dataset control path. A metadata mapping is
+not a qualification of every nested value, format version, or read/write path.
 
 Connector-specific pages:
 [Iceberg](../getting-started/connectors/iceberg.md),

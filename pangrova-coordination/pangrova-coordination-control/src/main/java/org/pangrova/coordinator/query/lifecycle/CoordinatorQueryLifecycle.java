@@ -1,8 +1,9 @@
 package org.pangrova.coordinator.query.lifecycle;
 
+import org.pangrova.query.runtime.QueryManager;
+
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
-import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;

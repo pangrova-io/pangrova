@@ -78,7 +78,7 @@ Monitor and record:
 
 | Outcome | Pass Criteria |
 |---------|--------------|
-| Detection time | < 15 seconds (heartbeat timeout) |
+| Detection time | Consistent with the configured heartbeat timeout (30 seconds by default) plus monitoring/scheduling delay |
 | Query failure | Clear error with retryable code |
 | Data integrity | No partial/corrupt results returned |
 | Cluster recovery | Healthy within 60 seconds |
@@ -88,7 +88,7 @@ Monitor and record:
 
 1. Restart killed worker: `ssh worker-2 "systemctl start pangrova-worker"`
 2. Verify worker re-registers with coordinator
-3. If shuffle files are orphaned, trigger manual cleanup via admin API
+3. Verify owner-driven cleanup after the affected attempts have drained; there is no shuffle-cleanup admin API, and file age alone does not prove safe deletion
 
 ## Observability Checklist
 

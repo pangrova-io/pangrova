@@ -1,4 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.degradation.DegradationManager;

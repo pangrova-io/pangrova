@@ -12,6 +12,7 @@ import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.protocol.v2.SourceSnapshotReport;
 import org.pangrova.protocol.v2.ResourceUsage;
+import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -25,6 +26,54 @@ public final class WorkerTerminalTaskReports {
             CanonicalTaskRequests.MAX_COVERAGE_IDENTITIES;
 
     private WorkerTerminalTaskReports() {}
+
+    /**
+     * Builds the sole successful JVM completion report accepted for a bounded Worker task.
+     * It carries no Native statistics, no error, and the exact Worker-task drain state.
+     */
+    public static byte[] workerExecuted(TaskRequest request) {
+        if (request == null || !request.hasAttempt()
+                || request.getTaskKind() != TaskKind.TASK_KIND_CDC_INGEST) {
+            throw new IllegalArgumentException(
+                    "Worker-executed success requires a CDC ingest task attempt");
+        }
+        return TaskReport.newBuilder()
+                .setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setExecutionDrainState(
+                        org.pangrova.protocol.v2.ExecutionDrainState
+                                .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
+                .setCoverage(CoverageReport.newBuilder()
+                        .setCompletionState(CompletionState.COMPLETION_STATE_COMPLETE)
+                        .setExpectedWorkUnits(1)
+                        .setCompletedWorkUnits(1)
+                        .setCoverageRatio(1.0))
+                .build().toByteArray();
+    }
+
+    /**
+     * Builds an unsuccessful Worker-JVM receipt with no Native owner claim.
+     * It is valid only for the CDC ingest task that was dispatched to this Worker.
+     */
+    public static byte[] workerExecutedFailure(
+            TaskRequest request, TaskState state, ExecutionError failure) {
+        if (request == null || request.getTaskKind() != TaskKind.TASK_KIND_CDC_INGEST
+                || state == TaskState.TASK_STATE_FINISHED) {
+            throw new IllegalArgumentException(
+                    "Worker-executed failure requires an unsuccessful CDC ingest task");
+        }
+        byte[] base = unsuccessfulWithError(request, state, failure, null);
+        try {
+            return TaskReport.parseFrom(base).toBuilder()
+                    .setExecutionDrainState(
+                            org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
+                    .build().toByteArray();
+        } catch (com.google.protobuf.InvalidProtocolBufferException impossible) {
+            throw new IllegalStateException("Worker failure report encoding failed", impossible);
+        }
+    }
 
     public static byte[] unsuccessful(
             TaskRequest request, TaskState state, ErrorDetail error) {

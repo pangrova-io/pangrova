@@ -33,6 +33,10 @@ concurrency:
 
 jobs:
   benchmark:
+    # An unattended schedule needs the dedicated fleet and its configuration;
+    # without them it would stay queued forever inside the exclusive hardware
+    # group. Manual dispatches still run and fail loudly on missing setup.
+    if: github.event_name != 'schedule' || vars.TPC_BENCHMARK_CONFIG_DIR != ''
     runs-on: [self-hosted, benchmark, linux, x86_64]
     timeout-minutes: 1440
     env:

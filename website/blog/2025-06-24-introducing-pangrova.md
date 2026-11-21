@@ -34,7 +34,7 @@ boundaries explicitly—an implemented path is not a production qualification.
 Pangrova is a distributed SQL engine with a strict separation between **control
 plane** and **data plane**:
 
-![Query execution path: clients submit SQL over HTTP; the Coordinator parses, plans, authorizes, admits, schedules, fences, and commits; a canonical v2 task binding crosses JNI to the Worker JVM and C++/Velox execution; Arrow Flight returns the result stream](/img/diagrams/blog-query-execution.svg)
+![Query execution path: clients submit SQL over HTTP; the Coordinator parses, plans, authorizes, admits, schedules, fences, and commits; a canonical v2 task binding crosses JNI to the Worker JVM and C++/Velox execution; Arrow Flight returns the result stream](../static/img/diagrams/blog-query-execution.svg)
 
 The Coordinator parses and plans SQL, resolves catalogs and snapshots, authorizes
 access, admits resources, builds the stage DAG, tracks attempts, validates terminal

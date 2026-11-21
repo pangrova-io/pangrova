@@ -170,6 +170,12 @@ public final class CanonicalTaskAdmissionSeals {
                             "Worker reconciliation cannot invent successful Native execution");
                 }
             }
+            case TASK_REPORT_ORIGIN_WORKER_EXECUTED -> {
+                if (actual.getState() != TaskState.TASK_STATE_FINISHED || actual.hasError()) {
+                    throw new IllegalArgumentException(
+                            "Worker-JVM execution receipt must be a successful terminal report");
+                }
+            }
             default -> throw new IllegalArgumentException("Drain receipt has no canonical report origin");
         }
         if (actual.getExecutionDrainState()
@@ -184,6 +190,18 @@ public final class CanonicalTaskAdmissionSeals {
                 && (actual.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
                         || actual.hasNativeTaskStats())) {
             throw new IllegalArgumentException("No-owner receipt contradicts its actual execution authority");
+        }
+        if (actual.getExecutionDrainState()
+                == ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED
+                && (actual.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED
+                        || actual.getState() != TaskState.TASK_STATE_FINISHED
+                        || actual.hasError() || actual.hasNativeTaskStats())) {
+            throw new IllegalArgumentException(
+                    "Worker-JVM completion receipt contradicts its actual execution authority");
+        }
+        if (actual.getReportOrigin() == TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED
+                && actual.getExecutionDrainState() != ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED) {
+            throw new IllegalArgumentException("Worker-JVM completion requires its exact drain evidence");
         }
     }
 }

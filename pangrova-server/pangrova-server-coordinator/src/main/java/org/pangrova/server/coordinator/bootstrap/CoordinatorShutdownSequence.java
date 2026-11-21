@@ -7,7 +7,7 @@ import org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleA
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
@@ -36,7 +36,8 @@ final class CoordinatorShutdownSequence {
     record ShutdownOwners(QueryBootstrap query, HighAvailabilityBootstrap ha,
             MaintenanceLeadershipBootstrap maintenanceLeadership,
             org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask branchTtlCleanupTask,
-            StreamingBootstrap streamingBootstrap, HttpBootstrap http, ModuleIntegrationBootstrap moduleWiring,
+            StreamingBootstrap streamingBootstrap, CdcWorkerRuntime cdcWorkerRuntime,
+            HttpBootstrap http, ModuleIntegrationBootstrap moduleWiring,
             NativeDatasetControlBootstrap nativeDatasetControl, MetadataBootstrap metadataBootstrap,
             PluginConnectorHandleFactory connectorHandleFactory,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
@@ -67,6 +68,8 @@ final class CoordinatorShutdownSequence {
                         present(owners.maintenanceLeadership(), MaintenanceLeadershipBootstrap::close)),
                 () -> lifecycle.step("branch",
                         present(owners.branchTtlCleanupTask(), CoordinatorShutdownSequence::closeBranchCleanup)),
+                () -> lifecycle.step("cdc-worker-runtime",
+                        present(owners.cdcWorkerRuntime(), CdcWorkerRuntime::close)),
                 () -> lifecycle.step("streaming",
                         present(owners.streamingBootstrap(), CoordinatorShutdownSequence::closeStreamingBootstrap)),
                 () -> lifecycle.step("query-drain", present(owners.query(), QueryBootstrap::drainQueries)));
