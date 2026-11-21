@@ -69,6 +69,11 @@ RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrov
     SKIP_VELOX=1 pangrova-worker-native/bin/setup-native-build-env.sh
 COPY pangrova-worker-native/patches/velox-codeload-archives.patch /workspace/pangrova-worker-native/patches/velox-codeload-archives.patch
 COPY pangrova-worker-native/patches/velox-darwin-atomic-link.patch /workspace/pangrova-worker-native/patches/velox-darwin-atomic-link.patch
+COPY pangrova-worker-native/patches/velox-folly-common-build.patch \
+     pangrova-worker-native/patches/velox-folly-alignment-build.patch \
+     pangrova-worker-native/patches/folly-2026.01.05-openssl-const.patch \
+     pangrova-worker-native/patches/folly-2026.01.05-spookyhash-alignment.patch \
+     /workspace/pangrova-worker-native/patches/
 COPY pangrova-worker-native/bin/prepare-aws-sdk-source.sh /workspace/pangrova-worker-native/bin/prepare-aws-sdk-source.sh
 # Use one pinned binary distribution rather than Velox's unversioned installer.
 # Keep this layer after the native dependency archives so changing the bootstrap
@@ -140,7 +145,7 @@ RUN set -eu; \
 # Ubuntu's libgflags.a is not PIC. Production JNI embeds a matching static build.
 RUN cmake -S "$PANGROVA_DEPS_PREFIX/src/gflags-2.2.2" -B /tmp/pangrova-gflags-build -GNinja \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PANGROVA_DEPS_PREFIX" \
-        -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DGFLAGS_LIBRARY_INSTALL_DIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DGFLAGS_BUILD_STATIC_LIBS=ON -DGFLAGS_BUILD_SHARED_LIBS=OFF \
         -DGFLAGS_BUILD_gflags_nothreads_LIB=OFF '-DGFLAGS_NAMESPACE=google;gflags' \
     && cmake --build /tmp/pangrova-gflags-build \

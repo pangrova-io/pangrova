@@ -82,7 +82,7 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
-Three dependency contracts are enforced at configure time:
+The bootstrap enforces four dependency contracts.
 
 - Ubuntu's packaged static gflags archive is not position-independent. Linux
   development and sanitizer builds link the shared library, including Folly's
@@ -94,6 +94,9 @@ Three dependency contracts are enforced at configure time:
 - Fizz and Folly developer examples are disabled during their dependency
   builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
   Velox consumes the libraries, not those tools.
+- The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
+  the regular, production and instrumented builds. The byte order and hash
+  values stay compatible with the pinned upstream version.
 
 ## Sanitizer Dependency Chain
 

@@ -442,12 +442,14 @@ static int (*sendmmsg)(...) = nullptr;
                        "-p1", "-i", str(patch)]
             subprocess.run([*command, "--dry-run", "--forward"], check=True, capture_output=True)
             setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
-            start = setup.index("    if ! patch --dry-run",
-                                setup.index('    local socket_patch="'))
-            patch_step = setup[start:setup.index("    local architecture_flags", start)]
+            start = setup.index("    local folly_patch", setup.index("build_asan_folly()"))
+            patch_loop = setup[start:setup.index("    local architecture_flags", start)]
+            self.assertIn(f'"$ASAN_SCRIPT_DIR/../patches/{patch.name}"', patch_loop)
+            patch_step = patch_loop[patch_loop.index("      if ! patch --dry-run"):
+                                    patch_loop.index("    done")]
             shell = ('set -euo pipefail\n'
                      f'FOLLY_SOURCE={shlex.quote(str(root / "deps-download/folly"))}\n'
-                     f'socket_patch={shlex.quote(str(patch))}\n' + patch_step)
+                     f'folly_patch={shlex.quote(str(patch))}\n' + patch_step)
             for _ in range(2):
                 subprocess.run(["/bin/bash", "-c", shell], check=True, capture_output=True)
             subprocess.run([*command, "--dry-run", "--forward", "--reverse"],
