@@ -67,7 +67,8 @@ final class ProcessInputSnapshot implements AutoCloseable {
     long committedRows(String tableName) {
         Table current = catalog.loadTable(TableIdentifier.of("default", tableName));
         current.refresh();
-        return Long.parseLong(current.currentSnapshot().summary().get("total-records"));
+        var snapshot = current.currentSnapshot();
+        return snapshot == null ? 0L : Long.parseLong(snapshot.summary().get("total-records"));
     }
 
     private void appendActualRows() throws IOException {

@@ -349,6 +349,12 @@ public interface ConnectorMetadata
         return java.util.Optional.empty();
     }
 
+    /** Binds governed clustering maintenance to the exact selected table. */
+    default java.util.Optional<org.pangrova.connector.api.clustering.ClusteringMaintenance> clusteringMaintenance(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return java.util.Optional.empty();
+    }
+
     /**
      * Returns snapshot-aware metadata for snapshot-diff based incremental indexing
      * for the specified table.

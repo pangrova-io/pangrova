@@ -75,6 +75,52 @@ mvn -pl pangrova-testing/pangrova-testing-integration-tests test \
 A missing artifact, rejected runtime hash, child startup failure, or failed scenario
 is a test failure; the fixture does not skip or replace it with an in-process worker.
 
+## Independent Iceberg write recovery
+
+`IndependentRelationalWriteRecoveryE2ETest` kills the original Worker process
+after it has staged an Iceberg write and before the Coordinator receives its
+terminal report. The surviving attempt publishes one snapshot with the expected
+row count. The delayed original report leaves the published row count unchanged.
+
+## Independent Iceberg clustering recovery
+
+`IndependentClusteringE2ETest` runs both Iceberg clustering modes through the
+real CLI and verifies the original rows through the registered Worker. For
+the linear rewrite, a PostgreSQL trigger rejects journal completion after
+the Iceberg replacement snapshot is already visible. After restarting the
+Coordinator and Worker, the test verifies that `SHOW CLUSTERING STATUS`
+recovers the same task and snapshot and that the catalog still contains only
+one replacement snapshot for that run.
+
+## Independent CDC and Cross-Encoder acceptance
+
+`IndependentCdcProcessesE2ETest` also exercises Iceberg mutations using one
+real Kafka partition and a version 2 JDBC catalog. The Worker stages an
+UPDATE, PostgreSQL rejects write-journal completion after the Iceberg
+snapshot becomes visible, and MAINTENANCE confirms the same intent and
+source offset. MAINTENANCE then publishes a DELETE and records COMMITTED
+while PostgreSQL blocks acknowledging the new offset. A second restart
+advances the offset from the original fingerprint. The query role verifies
+that unrelated data remains visible and that each publication produced one
+snapshot.
+
+`IndependentCdcProcessesE2ETest` uses the same frozen runtime and process
+fixture. The COMBINED case uses public stream DDL, Kafka insert, update and
+delete events, and Flight reads of Paimon. The MAINTENANCE case takes over
+after the Worker exits and observes the real Paimon snapshot through its SDK.
+A PostgreSQL trigger rejects the journal update after the Paimon commit.
+After Coordinator restart the same fingerprint reaches COMMITTED, the
+snapshot ID stays unchanged, and the exact Kafka offset advances. A further case
+forces the Worker process to exit after its real staging report reaches the
+relay. The Coordinator receives no successful report for that attempt while the
+surviving Worker stages the range and publishes one snapshot.
+
+`IndependentCrossEncoderE2ETest` starts a pinned Text Embeddings Inference image
+and model revision. It forwards real model scores through an adapter for the
+`/v1/rerank` response contract and stops the model to verify the provider error through both the production CLI
+and the public query status endpoint.
+The model container needs outbound access to download its pinned weights.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK

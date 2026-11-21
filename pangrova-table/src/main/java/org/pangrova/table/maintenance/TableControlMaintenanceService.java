@@ -137,8 +137,15 @@ public final class TableControlMaintenanceService {
     /** Records the start of a run before any connector call is made. */
     public TableMaintenanceRun beginRun(TableControlRecord record,
             MaintenanceOperation operation, String mode, String versionBefore, String actor) {
+        return beginRun(record, operation, mode, versionBefore, actor, Map.of());
+    }
+
+    /** Persists a connector's immutable admission evidence with the running attempt. */
+    public TableMaintenanceRun beginRun(TableControlRecord record,
+            MaintenanceOperation operation, String mode, String versionBefore, String actor,
+            Map<String, String> details) {
         TableMaintenanceRun run = TableMaintenanceRun.running(
-                record, operation, mode, versionBefore, actor, clock.instant());
+                record, operation, mode, versionBefore, actor, clock.instant(), details);
         store.saveRun(run);
         return run;
     }
@@ -150,6 +157,10 @@ public final class TableControlMaintenanceService {
                 state, versionAfter, details, clock.instant());
         store.saveRun(finished);
         return finished;
+    }
+
+    public Optional<TableMaintenanceRun> findLatestRun(UUID tableId, MaintenanceOperation operation) {
+        return store.findLatestRun(tableId, operation);
     }
 
     public List<TableMaintenanceRun> listRuns(UUID tableId, int limit) {

@@ -46,7 +46,7 @@ public interface ExecutionAnchorStore {
             String ownerIncarnation,
             Duration leaseDuration);
 
-    /** Marks an execution complete only for the exact current fenced owner. */
+    /** Releases the exact fenced owner, preserving takeover eligibility for unresolved durable writes. */
     boolean release(ExecutionAnchor anchor);
 
     /** Makes one exact fenced execution immediately eligible for takeover. */

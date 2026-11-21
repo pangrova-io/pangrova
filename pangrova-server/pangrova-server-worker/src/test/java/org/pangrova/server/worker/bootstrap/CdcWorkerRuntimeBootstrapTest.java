@@ -44,6 +44,7 @@ class CdcWorkerRuntimeBootstrapTest {
 
     private static TaskRequest request(String... topics) {
         var binding = CdcIngestBinding.newBuilder()
+                .addAllowedOperations(org.pangrova.protocol.v2.CdcWriteOperation.CDC_WRITE_OPERATION_INSERT)
                 .setStreamId("stream-1").setTenantId("tenant-a")
                 .setSourceOwnershipEpoch("epoch-1")
                 .setSourceProvider("kafka").setFormatId("debezium-json");

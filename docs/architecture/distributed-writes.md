@@ -6,6 +6,12 @@ sidebar_label: "Distributed Write"
 
 # Distributed Write
 
+When speculative attempts finish together, only the elected attempt's
+fragments enter the commit. The Coordinator can acknowledge a late report
+from an already drained attempt against its retained exact attempt identity,
+so query cleanup can release the admission even after the logical loser
+state is retired.
+
 ## Authenticated planning scope
 
 Catalog/schema discovery, table binding and statistics use an immutable query-local
@@ -120,7 +126,7 @@ Current implementation anchors:
 | Protected DELETE routing | Implemented; full-chain verification pending | `PlanExecutionFactory` passes the original DELETE to the Native compiler. No-WHERE DELETE retains policy-hidden rows, or emits no survivors when unrestricted; it cannot bypass authenticated admission and the journal |
 | Copy-on-write mutation policies | Planner and single-worker Iceberg/Paimon E2E passed; distributed verification pending | Target policies restrict UPDATE/DELETE/MERGE matches, while original physical survivor values remain intact. Predicate/assignment masks never become replacement values for untouched target columns. A conditional matched-only MERGE adds the action predicate to target matching; conditional matched+insert, conditional insert, and repeated actions of one kind fail before lowering because their full clause semantics are not implemented. |
 | Full relational distributed UPDATE/DELETE/MERGE execution | In progress | Multi-worker row preservation, failure recovery and final-source release gates remain required |
-| CDC ingestion | Not distributed/atomic yet | `StreamingBootstrap` wires `ConnectorPageSinkCdcWriter` with no Native dispatcher; its DELETE and INSERT phases commit separately |
+| CDC ingestion | Journaled publication in COMBINED and MAINTENANCE | `JournaledCdcRuntime` publishes the exact staged fragments with a commit context before acknowledging PostgreSQL offsets |
 
 Routing rule: relational writes, including DELETE ALL and VALUES, use Native tasks. DDL metadata operations and the final fenced catalog commit remain coordinator-owned through the connector SPI.
 
@@ -161,7 +167,10 @@ A timed-out catalog commit is resolved in three states, never by an immediate re
 
 ### Two-Phase Write Commit Protocol
 
-The fix moves catalog commit authority from the worker to the coordinator. Workers write data files and produce commit metadata fragments; the coordinator performs the single atomic catalog commit.
+Workers write data files and produce commit metadata fragments. The Coordinator
+performs the single atomic catalog commit and uses `WriteCommitComponentFactory`
+to construct the commit journal, quarantine store, recovery service, and
+execution-owner fencer.
 
 SPI change on `ConnectorPageSink`:
 
@@ -334,23 +343,12 @@ matching fingerprint instead of re-attempting the commit, and a different intent
 id is not skipped by an older decision. If the quarantine decision cannot be persisted, the intent
 stays eligible and the next pass retries it; recovery still reports the intent as quarantined.
 
-The coordinator-local CDC sink is not covered by the distributed write journal. Its staged token
-allows file deletion only before any catalog publication attempt. Once publication starts, an
-exception can mean the snapshot landed and a later notification failed; `discard()` must preserve
-the files even if the source offset commit aborts. This prevents deletion of files referenced by a
-published snapshot, but does not make CDC exactly-once: the existing connector CDC path still uses
-the context-free commit overload, Paimon rejects that overload, and DELETE/INSERT phases are not
-one atomic catalog transaction. Native Worker routing and durable CDC commit identity remain
-required before claiming production CDC support.
+Both streaming roles use the same journal and connector commit context.
+The streaming-only role stages the admitted ranges with a local page sink.
+Its recovery acquires the exact execution anchor before consulting the catalog
+reconciler. Recovered offsets advance only while the PostgreSQL stream revision
+matches the running definition.
 
-The CDC commit-state store now uses an atomic `PREPARED → COMMITTING` claim so two
-coordinators cannot both enter the publication loop for one source batch. A failure
-after that claim leaves `COMMITTING` for reconciliation: recovery no longer changes
-it to `COMMITTED` without checking the external catalog, and rollback no longer
-deletes possibly published files. Migration `V39__cdc_retry_after_rollback.sql`
-allows the same source batch to obtain a new prepare token after a proven pre-publish
-rollback. These are fail-closed correctness guards, not a durable CDC publication
-implementation; Paimon CDC and atomic UPDATE remain unclosed.
 Participant rollback now claims `PREPARED → ROLLING_BACK` before aborting staged
 files; otherwise a concurrent publisher could claim `COMMITTING` between the
 state read and file deletion. PostgreSQL tests exercise this interleaving.
@@ -368,7 +366,9 @@ Old active/committed records without complete source checkpoints cannot be safel
 reconstructed and explicitly block recovery until reconciled against actual
 source and catalog history. The migration never substitutes a stream ID for a topic.
 
-### CDC Repair Contract (Identity Implemented, Execution Pending)
+<span id="cdc-repair-contract-identity-implemented-execution-pending" />
+
+### Worker CDC Publication and Recovery
 
 The durable write intent now binds tenant, stream ID, source ownership epoch, exact
 topic/partition offset ranges, target table UUID, base snapshot, and canonical output
@@ -404,32 +404,45 @@ inventory, and the task planner derives bounded ranges from committed offsets pl
 ends while retaining the end offsets that may be acknowledged only after publication. A
 dedicated CDC terminal-report registry updates task state without entering SQL/DML completion,
 and the intent factory binds collected fragments plus the CDC source into the PENDING journal
-record. Both connectors now expose an atomic CDC merge mode: Iceberg uses row-delta
-fragments, and Paimon preserves `UPDATE_BEFORE`/`UPDATE_AFTER` row kinds in one MERGE
-commit fragment. A live acceptance test now drives real Kafka records through two independent
-Worker CDC backends into one Paimon merge. It terminates one backend before it reports a terminal
-state and proves the crashed attempt neither publishes nor acknowledges offsets, while the retry
-publishes exactly once and acknowledges only after publication.
+record. Paimon preserves `UPDATE_BEFORE`/`UPDATE_AFTER` row kinds in one MERGE
+commit fragment. Iceberg stages CDC mutations for bounded unpartitioned v2
+Parquet tables. The ordered range sink resolves visible row positions against
+the exact base, folds changes to earlier rows from the range, and returns one
+typed fragment. The Coordinator atomically publishes the position deletes and
+after-images under the existing catalog CAS and source-fingerprint fences.
+A live acceptance test drives real Kafka records through two independent
+Worker CDC backends into one Paimon merge. It injects failure before one backend reports a
+terminal state and verifies that the attempt leaves both publication and offsets unchanged.
+The retry publishes once and acknowledges only after publication. Independent process
+tests also demonstrate Paimon recovery after a staged Worker exits and after a
+MAINTENANCE Coordinator restarts with a published snapshot and a PENDING journal
+intent. The restart confirms the same fingerprint, keeps the snapshot ID, and advances
+the exact source offset. See [process acceptance](../testing/speculative-process-e2e.md#independent-cdc-and-cross-encoder-acceptance).
 
 One source batch must bind tenant,
 stream ID, source ownership epoch, exact topic/partition offset ranges, target table UUID,
 base snapshot, and canonical output binding before any Worker task is dispatched. Persist
 that immutable identity and its attempt state in the write journal. Worker tasks receive
 the same canonical v2 task/write descriptor as SQL DML, stage fragments, and return only
-validated terminal metadata to the Coordinator; no CDC row materialization belongs in
-the Coordinator JVM. Derive the commit fingerprint from this durable source identity and
+validated terminal metadata to a COMBINED Coordinator. A MAINTENANCE Coordinator
+stages the same ranges locally. Derive the commit fingerprint from this durable source identity and
 the exact fragment digest, never from the current offset or a newly selected snapshot on
 replay. The source offset acknowledgement follows proof of the exact catalog publication;
 on an ambiguous result, preserve files and replay the same intent rather than deleting or
 minting a new fingerprint.
+
+When a SQL query ends with an unresolved PENDING write, PostgreSQL expires
+its execution anchor instead of deleting it. A successor can claim the original
+execution under a new fencing token and confirm the same intent. A durable
+quarantine decision ends automatic recovery for that fingerprint.
 
 An UPDATE batch must publish its delete and insert fragments in **one** target-table
 snapshot/commit operation (Iceberg's
 [row-delta API](https://iceberg.apache.org/javadoc/1.11.0/org/apache/iceberg/RowDelta.html)
 can add rows and delete files to one snapshot; Paimon supports source
 [row kinds](https://paimon.apache.org/docs/master/primary-key-table/sequence-rowkind/)
-that must be committed together), not the current two
-catalog commits. Catalog commit fencing and table UUID rules are the same as for SQL DML;
+that are committed together).
+Catalog commit fencing and table UUID rules are the same as for SQL DML;
 without the catalog-owned atomic fence specified below, overlapping old and recovered
 owners remain an explicit P1. Acceptance requires real Kafka plus two Worker processes,
 Iceberg and Paimon target tables, exact row/value and offset assertions, and injected

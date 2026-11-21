@@ -310,6 +310,28 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void reclusterRecoveryFencesAnUnpublishedAttemptAtItsExactRevision() {
+        var name = new SchemaTableName("db", "events");
+        var initial = metadata.clusteringMaintenance(SESSION, metadata.getTableHandle(SESSION, name)).orElseThrow();
+        String revision = initial.revision();
+        var stale = IcebergDeclarationCommit.bindExact(first, table, () -> {});
+        UUID runId = UUID.randomUUID();
+
+        var independent = new IcebergMetadata(second, second.name());
+        var fresh = independent.clusteringMaintenance(SESSION, independent.getTableHandle(SESSION, name))
+                .orElseThrow();
+        var recovery = fresh.reconcile(runId, revision, () -> {});
+        assertThat(recovery.aborted()).isTrue();
+        assertThat(recovery.snapshot()).isEmpty();
+        assertThat(initial.reconcile(runId, revision, () -> {}).aborted()).isTrue();
+        assertThat(initial.reconcile(UUID.randomUUID(), revision, () -> {}).aborted()).isFalse();
+        assertThatThrownBy(() -> stale.updateProperties().set("late-write", "true").commit())
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("metadata changed");
+        assertThat(second.loadTable(ID).currentSnapshot()).isNull();
+        assertThat(second.loadTable(ID).properties()).doesNotContainKey("late-write");
+    }
+
+    @Test
     void postCommitSdkRefreshDoesNotRevokeKnownPublicationAndCannotPublishAgain() throws IOException {
         var handle = allocate();
         var file = file(table, 1);

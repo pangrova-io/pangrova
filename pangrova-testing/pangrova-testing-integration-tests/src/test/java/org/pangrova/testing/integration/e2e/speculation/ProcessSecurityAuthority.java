@@ -27,6 +27,7 @@ import java.sql.DriverManager;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,6 +40,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     static final String TENANT = "spec-process-tenant";
     private final String schema = "spec_" + UUID.randomUUID().toString().replace("-", "");
     private final PGSimpleDataSource dataSource = new PGSimpleDataSource();
+    private final LinkedHashSet<String> catalogs = new LinkedHashSet<>(List.of("spec_catalog"));
     private final GenericContainer<?> ldap;
     private boolean schemaCreated;
 
@@ -66,6 +68,11 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
 
     PGSimpleDataSource dataSource() { return dataSource; }
+
+    void allowCatalog(String catalog) {
+        if (schemaCreated) throw new IllegalStateException("Process permissions are already initialized");
+        catalogs.add(catalog);
+    }
     String hostLdapUrl() {
         return "ldap://" + ldap.getHost() + ":" + ldap.getMappedPort(389);
     }
@@ -99,12 +106,14 @@ final class ProcessSecurityAuthority implements AutoCloseable {
         roles.createRole(Role.of("spec_process_operator"));
         roles.grantRoleToUser(UserRoleAssignment.of(USER, "spec_process_operator"));
         var grants = new JdbcGrantStore(dataSource);
-        grants.addGrant(PrivilegeGrant.of("spec_process_operator", Privilege.ALL, "CATALOG", "spec_catalog", "*", "*", null));
+        for (String catalog : catalogs) {
+            grants.addGrant(PrivilegeGrant.of("spec_process_operator", Privilege.ALL, "CATALOG", catalog, "*", "*", null));
+        }
         var tenants = new JdbcTenantStore(dataSource);
 
         tenants.createTenant(new Tenant(TENANT, "Process speculation", TenantStatus.ACTIVE,
                 new ResourceQuota(1L << 30, 2, 2, 300_000, 4L << 30, 100, 40L << 30, 4L << 30),
-                List.of("spec_catalog"), List.of("default"), null, Map.of(), Instant.now(), USER));
+                List.copyOf(catalogs), List.of("default"), null, Map.of(), Instant.now(), USER));
         tenants.addUserToTenant(TENANT, USER, TenantRole.OWNER);
     }
 
