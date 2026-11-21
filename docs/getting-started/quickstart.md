@@ -191,6 +191,41 @@ The response includes a `query_id` and `state`. See [REST API](clients/rest-api.
 bin/pangrova-stop.sh --all
 ```
 
+## Run the Iceberg Trial in One Command
+
+After the [source build](#build-from-source) and [standalone startup](#start-standalone-mode),
+run from the checkout root with Python 3.10+:
+
+```bash
+python3 examples/iceberg-smoke.py --local-standalone-port 8080 --catalog iceberg_trial_demo
+```
+
+Use the port of a **disposable, host-local standalone instance**, with one
+active Worker and no catalogs. Set `PANGROVA_ICEBERG_TRIAL_TOKEN` to a valid
+OAuth2 Bearer token for a trial principal who belongs to an active tenant with
+enough query and scan quota. Set `tenant.enabled: true` on the standalone instance.
+Provision that principal with catalog-scoped grants for `CREATE_CATALOG`,
+`DROP_CATALOG`, `CREATE_SCHEMA`, `CREATE_TABLE`, `DROP`, `INSERT`, and `SELECT`
+on the unused catalog name given to `--catalog`. See
+[security configuration](../configuration/security.md) for OAuth2 setup.
+
+Run the trial on an isolated development machine. Restrict the Java and Flight
+listeners to a trusted environment before starting the development instance.
+Make the Worker's Flight listener reachable from the CLI at the advertised
+address so the client can consume the `SELECT` result.
+Do not use a port forwarded to a container, shared cluster or production service.
+
+The script uses a temporary local warehouse. Omitting `--catalog` generates a
+unique catalog name for a principal already authorized to use it. It checks each
+batch SQL result receipt and requires both aggregate rows. On verified cleanup
+it drops the table, unregisters the catalog, and removes its temporary
+warehouse, including the schema directory. Expect
+`Iceberg trial passed: click=2, purchase=1`. If a catalog change or cleanup
+cannot be confirmed, the script reports the generated catalog name and keeps
+the diagnostic files for inspection. When both the trial and cleanup fail, the
+script reports both errors. This is a smoke check, not an installer,
+distributed correctness test or production qualification.
+
 ## End-to-End Example: Query Iceberg Data
 
 Run this example in the CLI against a **local standalone instance** as described
@@ -282,7 +317,6 @@ VACUUM local_iceberg.demo.events;
 
 ```sql
 DROP TABLE local_iceberg.demo.events;
-DROP SCHEMA local_iceberg.demo;
 DROP CATALOG local_iceberg;
 ```
 
