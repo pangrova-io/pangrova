@@ -754,7 +754,7 @@ if(PANGROVA_BUILD_TESTS)
               ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalAbseilPackageTest.py
               --cmake ${CMAKE_COMMAND}
               --package ${absl_DIR}
-              --sdk-deps ${_DEPS_INSTALL}
+              --sdk-deps ${PANGROVA_DEPS_PREFIX}
               --compiler ${CMAKE_CXX_COMPILER}
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )

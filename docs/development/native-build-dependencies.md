@@ -82,6 +82,17 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
+Three dependency contracts are enforced at configure time:
+
+- Ubuntu's `libgflags-dev` ships only a non-PIC static archive. `FindVelox.cmake`
+  resolves the runtime shared `libgflags.so.2.2` for every gflags link so
+  `libpangrova_native.so` never embeds non-relocatable code.
+- fbthrift's CMake requires an Xxhash package that Velox's dependency set does
+  not install on macOS; the bootstrap builds and installs it before fbthrift.
+- Fizz and Folly developer examples are disabled during their dependency
+  builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
+  Velox consumes the libraries, not those tools.
+
 ## Sanitizer Dependency Chain
 
 AddressSanitizer needs matching instrumentation across the runtime and the

@@ -473,10 +473,27 @@ build_velox() {
       apply_dependency_source_patches "$dir"
     }
 
+    install_fizz() {
+      # The examples target (BogoShim) links libc++abi symbols that macOS 13
+      # does not provide; Velox needs the library, not the developer tools.
+      wget_and_untar \
+        "https://github.com/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+        fizz
+      cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF
+    }
+
     install_fbthrift() {
       wget_and_untar \
         "https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         fbthrift
+      # fbthrift's CMake requires an Xxhash package that Velox's dependency set
+      # does not install on macOS.
+      if [[ ! -f "$INSTALL_PREFIX/include/xxhash.h" ]]; then
+        wget_and_untar \
+          "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.2.tar.gz" xxHash
+        cmake_install_dir xxHash/cmake_unofficial \
+          -DBUILD_SHARED_LIBS=OFF -DXXHASH_BUILD_XXHSUM=OFF
+      fi
       local type_system_builder="$DEPENDENCY_DIR/fbthrift/thrift/lib/cpp2/dynamic/TypeSystemBuilder.cpp"
       grep -Fq 'std::invoke([&]() -> TSDefinition' "$type_system_builder" || \
         die "Unexpected fbthrift TypeSystemBuilder.cpp at $FB_OS_VERSION"
