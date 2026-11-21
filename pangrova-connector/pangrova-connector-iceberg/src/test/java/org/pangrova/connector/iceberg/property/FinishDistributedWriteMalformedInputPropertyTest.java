@@ -12,8 +12,8 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import org.pangrova.connector.iceberg.HadoopTestGuard;
 import org.pangrova.connector.iceberg.IcebergMetadata;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -57,6 +57,11 @@ class FinishDistributedWriteMalformedInputPropertyTest {
             Types.NestedField.optional(2, "name", Types.StringType.get()));
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }

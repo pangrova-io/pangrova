@@ -1,0 +1,223 @@
+package org.pangrova.coordinator.materialization;
+
+import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+import org.pangrova.materialization.api.domain.InternalNamespace;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.domain.PhysicalTableRef;
+import org.pangrova.materialization.api.domain.QualifiedName;
+import org.pangrova.materialization.api.domain.TenantId;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.api.exception.CatalogNotFoundException;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.api.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+
+/** GC physical generation lifecycle against connector-owned catalogs. */
+class CoordinatorPhysicalGenerationStoreTest {
+
+    private static final String CATALOG = "lake";
+    private static final String TABLE_NAME = "__pg_mat_" + "a".repeat(32);
+    private static final PhysicalTableRef TABLE = new PhysicalTableRef(
+            CATALOG, InternalNamespace.SCHEMA_NAME, TABLE_NAME);
+    private static final MaterializationId OBJECT = new MaterializationId(
+            new TenantId("tenant"), QualifiedName.parse("lake.analytics.orders_mv"));
+
+    @Test
+    void existsReportsWhetherTheConnectorOwnsThePhysicalTable() {
+        FakeMetadata metadata = new FakeMetadata();
+        CoordinatorPhysicalGenerationStore store = store(metadata);
+
+        assertThat(store.exists(OBJECT, TABLE)).isFalse();
+
+        metadata.present = true;
+        assertThat(store.exists(OBJECT, TABLE)).isTrue();
+        assertThat(metadata.lookups).containsExactly(TABLE.schema() + "." + TABLE.table(),
+                TABLE.schema() + "." + TABLE.table());
+    }
+
+    @Test
+    void dropDropsTheHandleReturnedForTheExactPhysicalTable() {
+        FakeMetadata metadata = new FakeMetadata();
+        metadata.present = true;
+
+        store(metadata).drop(OBJECT, TABLE);
+
+        assertThat(metadata.dropped).isEqualTo(List.of(
+                TABLE.schema() + "." + TABLE.table()));
+    }
+
+    @Test
+    void dropIsIdempotentWhenThePhysicalTableIsAlreadyGone() {
+        FakeMetadata metadata = new FakeMetadata();
+
+        store(metadata).drop(OBJECT, TABLE);
+
+        assertThat(metadata.dropped).isEmpty();
+    }
+
+    @Test
+    void operationsRunAsTheInternalGcPrincipalBoundToTheCandidateTable() {
+        FakeMetadata metadata = new FakeMetadata();
+        metadata.present = true;
+
+        store(metadata).exists(OBJECT, TABLE);
+
+        assertThat(metadata.session.getUser()).isEqualTo("system:materialization-gc");
+        assertThat(metadata.session.getCatalog()).contains(CATALOG);
+        assertThat(metadata.session.getSchema()).contains(InternalNamespace.SCHEMA_NAME);
+    }
+
+    @Test
+    void unknownCatalogFailsClosedInsteadOfClaimingTheTableIsAbsent() {
+        CoordinatorPhysicalGenerationStore store = store(new FakeMetadata());
+
+        assertThatThrownBy(() -> store.exists(OBJECT,
+                new PhysicalTableRef("unknown", InternalNamespace.SCHEMA_NAME, TABLE_NAME)))
+                .isInstanceOf(CatalogNotFoundException.class)
+                .hasMessageContaining("unknown");
+    }
+
+    private static CoordinatorPhysicalGenerationStore store(ConnectorMetadata metadata) {
+        Connector connector = new FakeConnector(metadata);
+        CatalogRegistry registry = new CatalogRegistry(memoryTableStores(), new EmptyStore(),
+                descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
+        registry.register(new CatalogDescriptor(CATALOG, CatalogType.CONNECTOR, "iceberg",
+                CatalogState.ACTIVE, Map.of(), "", Set.of()));
+        return new CoordinatorPhysicalGenerationStore(registry, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+    }
+
+    private static final class FakeHandle implements ConnectorTableHandle {
+        private final SchemaTableName name;
+
+        private FakeHandle(SchemaTableName name) {
+            this.name = name;
+        }
+    }
+
+    private static final class FakeMetadata implements ConnectorMetadata {
+        private boolean present;
+        private final List<String> lookups = new java.util.ArrayList<>();
+        private final List<String> dropped = new java.util.ArrayList<>();
+        private ConnectorSession session;
+
+        @Override
+        public ConnectorTableHandle getTableHandle(ConnectorSession session,
+                SchemaTableName tableName) {
+            this.session = session;
+            lookups.add(tableName.toString());
+            return present ? new FakeHandle(tableName) : null;
+        }
+
+        @Override
+        public ConnectorTableMetadata getTableMetadata(ConnectorSession session,
+                ConnectorTableHandle table) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session,
+                ConnectorTableHandle table) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TableStatistics getTableStatistics(ConnectorSession session,
+                ConnectorTableHandle table) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<String> listSchemaNames(ConnectorSession session) {
+            return List.of();
+        }
+
+        @Override
+        public List<SchemaTableName> listTables(ConnectorSession session,
+                Optional<String> schemaName) {
+            return List.of();
+        }
+
+        @Override
+        public void dropTable(ConnectorSession session, ConnectorTableHandle table) {
+            dropped.add(((FakeHandle) table).name.toString());
+        }
+    }
+
+    private static final class FakeConnector implements Connector {
+        private final ConnectorMetadata metadata;
+
+        private FakeConnector(ConnectorMetadata metadata) {
+            this.metadata = metadata;
+        }
+
+        @Override
+        public ConnectorMetadata getMetadata(ConnectorSession session) {
+            return metadata;
+        }
+
+        @Override
+        public ConnectorSplitManager getSplitManager() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ConnectorPageSourceProvider getPageSourceProvider() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ConnectorPageSinkProvider getPageSinkProvider() {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    private static final class EmptyStore implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
+        @Override
+        public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
+        }
+
+        @Override
+        public Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean deleteCatalogDescriptor(CatalogDeploymentIdentity expected) { throw new UnsupportedOperationException("Read-only catalog fixture"); }
+
+        @Override
+        public List<CatalogDescriptor> listAllCatalogDescriptors() {
+            return List.of();
+        }
+
+    }
+}

@@ -2,6 +2,7 @@ package org.pangrova.common.util;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -10,6 +11,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PreconditionsTest {
+
+    @Test
+    void fieldChecksPreserveValuesAndReportArgumentErrorsWithFieldNames() {
+        String text = "  label  ";
+        assertThat(Preconditions.requireText(text, "name")).isSameAs(text);
+        assertThat(Preconditions.requireNonNullField(text, "name")).isSameAs(text);
+        assertThatThrownBy(() -> Preconditions.requireText("\u2003", "name"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("name must not be blank");
+        assertThatThrownBy(() -> Preconditions.requireText(null, "name"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("name must not be blank");
+        assertThatThrownBy(() -> Preconditions.requireNonNullField(null, "name"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("name must not be null");
+    }
+
+    @Test
+    void optionalTextAndDurationsRetainTheirDistinctEmptyValueRules() {
+        Preconditions.requireOptionalText(null, "description");
+        Preconditions.requireOptionalText(" available ", "description");
+        assertThatThrownBy(() -> Preconditions.requireOptionalText(" ", "description"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("description must be null or non-blank");
+
+        Duration nanos = Duration.ofNanos(1);
+        assertThat(Preconditions.requirePositiveDuration(nanos, "timeout")).isSameAs(nanos);
+        for (Duration invalid : java.util.Arrays.asList(null, Duration.ZERO, nanos.negated())) {
+            assertThatThrownBy(() -> Preconditions.requirePositiveDuration(invalid, "timeout"))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("timeout must be positive");
+        }
+    }
 
     @Test
     void checkNotNull_withNonNull_returnsReference() {

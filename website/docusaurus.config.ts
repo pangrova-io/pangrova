@@ -2,18 +2,35 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const siteUrl = process.env.PANGROVA_SITE_URL ?? 'https://pangrova-io.github.io';
+const siteBaseUrl = process.env.PANGROVA_SITE_BASE_URL ?? '/pangrova/';
+
 const config: Config = {
   title: 'Pangrova',
-  tagline: 'The Distributed SQL Query Engine Built for Lakehouse',
+  tagline: 'Distributed SQL for open lakehouses',
   favicon: 'img/favicon.ico',
 
-  url: 'https://pangrova-project.github.io',
-  baseUrl: '/pangrova/',
+  url: siteUrl,
+  baseUrl: siteBaseUrl,
+  trailingSlash: true,
 
-  organizationName: 'pangrova-project',
+  organizationName: 'pangrova-io',
   projectName: 'pangrova',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
+  onDuplicateRoutes: 'throw',
+
+  headTags: [
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'keywords',
+        content:
+          'Pangrova, distributed SQL, lakehouse, Apache Iceberg, Apache Paimon, Apache Calcite, Velox, Arrow Flight, vector search',
+      },
+    },
+  ],
 
   i18n: {
     defaultLocale: 'en',
@@ -34,9 +51,10 @@ const config: Config = {
   themes: [
     '@docusaurus/theme-mermaid',
     [
-      require.resolve('@easyops-cn/docusaurus-search-local'),
+      '@easyops-cn/docusaurus-search-local',
       {
-        hashed: true,
+        // Query hashes are misrouted by the preview server under a non-root base path.
+        hashed: 'filename',
         language: ['en'],
         highlightSearchTermsOnTargetPage: true,
         indexDocs: true,
@@ -54,13 +72,9 @@ const config: Config = {
         docs: {
           path: '../docs',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/pangrova-project/pangrova/tree/main/',
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
           numberPrefixParser: false,
-          exclude: [
-            'internal/**',
-          ],
         },
         blog: {
           showReadingTime: true,
@@ -71,7 +85,6 @@ const config: Config = {
             title: 'Pangrova Blog',
             copyright: `Copyright ${new Date().getFullYear()} The Pangrova Authors`,
           },
-          editUrl: 'https://github.com/pangrova-project/pangrova/tree/main/website/',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -82,11 +95,29 @@ const config: Config = {
 
   themeConfig: {
     image: 'img/logo.png',
+    docs: {
+      sidebar: {
+        hideable: true,
+        autoCollapseCategories: false,
+      },
+    },
+    announcementBar: {
+      id: 'active_development',
+      content:
+        `Pangrova is under active development. Review the <a href="${siteBaseUrl}docs/getting-started/capability-status/">current capability status</a> before evaluating a workload.`,
+      backgroundColor: '#171336',
+      textColor: '#ddd6fe',
+      isCloseable: true,
+    },
+    tableOfContents: {
+      minHeadingLevel: 2,
+      maxHeadingLevel: 4,
+    },
     navbar: {
       title: 'Pangrova',
       logo: {
         alt: 'Pangrova Logo',
-        src: 'img/logo.png',
+        src: 'img/logo-transparent.png',
       },
       items: [
         {
@@ -95,9 +126,10 @@ const config: Config = {
           position: 'left',
           label: 'Documentation',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
+        {to: '/blog/', label: 'Blog', position: 'left'},
+
         {
-          href: 'https://github.com/pangrova-project/pangrova',
+          href: 'https://github.com/pangrova-io',
           label: 'GitHub',
           position: 'right',
         },
@@ -109,27 +141,27 @@ const config: Config = {
         {
           title: 'Documentation',
           items: [
-            {label: 'Getting Started', to: '/docs/getting-started/quickstart'},
-            {label: 'SQL Reference', to: '/docs/sql-reference/queries'},
-            {label: 'Architecture', to: '/docs/architecture/overview'},
+            {label: 'Getting Started', to: '/docs/getting-started/quickstart/'},
+            {label: 'SQL Reference', to: '/docs/sql-reference/queries/'},
+            {label: 'Architecture', to: '/docs/architecture/overview/'},
           ],
         },
         {
           title: 'Community',
           items: [
-            {label: 'GitHub Discussions', href: 'https://github.com/pangrova-project/pangrova/discussions'},
-            {label: 'Contributing', href: 'https://github.com/pangrova-project/pangrova/blob/main/CONTRIBUTING.md'},
-            {label: 'Code of Conduct', href: 'https://github.com/pangrova-project/pangrova/blob/main/CODE_OF_CONDUCT.md'},
+            {label: 'GitHub organization', href: 'https://github.com/pangrova-io'},
+            {label: 'Documentation', to: '/docs/'},
           ],
         },
         {
-          title: 'More',
+          title: 'Resources',
           items: [
-            {label: 'Blog', to: '/blog'},
-            {label: 'Changelog', href: 'https://github.com/pangrova-project/pangrova/blob/main/CHANGELOG.md'},
-            {label: 'Releases', href: 'https://github.com/pangrova-project/pangrova/releases'},
+            {label: 'Quickstart', to: '/docs/getting-started/quickstart/'},
+            {label: 'Capability status', to: '/docs/getting-started/capability-status/'},
+            {label: 'Roadmap', to: '/docs/getting-started/roadmap/'},
           ],
         },
+
       ],
       copyright: `Copyright © ${new Date().getFullYear()} The Pangrova Authors. Apache 2.0 Licensed.`,
     },

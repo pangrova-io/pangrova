@@ -1,5 +1,6 @@
 ---
 title: "Resource Management"
+description: "Unified memory arbitration, spilling, resource queues, and quota enforcement"
 sidebar_label: "Resource Management"
 ---
 
@@ -14,82 +15,13 @@ sidebar_label: "Resource Management"
 
 ## 1. Resource Management Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Unified Resource Management Architecture                    │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Unified control: the Java layer manages JVM Heap + Off-Heap; Native memory has an upper limit set by Java + independently managed by Native│
-│  • Graceful degradation: automatically trigger Spill under memory pressure to avoid OOM│
-│  • Fair scheduling: fair resource allocation across queries, supporting priority and preemption│
-│  • Observability: monitor resource usage in real time, supporting alerts and auto-scaling│
-│                                                                                  │
-│  Resource types:                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Resource Type    │ Layer   │ Limit method    │ Spill handling         │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  JVM Heap         │ Java    │ -Xmx            │ GC → OOM               │   │
-│  │  JVM Off-Heap     │ Java    │ -XX:MaxDirect   │ Spill → OOM            │   │
-│  │  Native Memory    │ Native  │ MemoryPool      │ Spill → reject allocation│   │
-│  │  CPU (Threads)    │ Both    │ ThreadPool      │ Queue                  │   │
-│  │  Disk (Spill)     │ Native  │ Quota           │ Clean up → reject      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Memory arbitration: NodePool and MemoryArbitrator reservations for tasks, shuffle, and native cache, with admission, spilling, and backpressure](../../website/static/img/diagrams/memory-arbitration.svg)
 
 ## 2. Memory Management Hierarchy
 
 
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Memory Hierarchy Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Worker Total Memory: 64GB                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                                                                          │   │
-│  │  ┌────────────────────────────────────────────────────────────────────┐ │   │
-│  │  │                    Root Memory Arbitrator (Java)                       │ │   │
-│  │  │                    Total Budget: 60GB                               │ │   │
-│  │  │                                                                     │ │   │
-│  │  │  Responsibilities:                                                  │ │   │
-│  │  │  • Global memory budget management                                  │ │   │
-│  │  │  • Cross-query memory arbitration                                   │ │   │
-│  │  │  • Spill trigger decisions                                          │ │   │
-│  │  │  • Native memory quota allocation                                   │ │   │
-│  │  └────────────────────────────────────────────────────────────────────┘ │   │
-│  │                              │                                          │   │
-│  │         ┌────────────────────┼────────────────────┐                    │   │
-│  │         ▼                    ▼                    ▼                    │   │
-│  │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │   │
-│  │  │ Query Pool  │     │ Query Pool  │     │ System Pool │              │   │
-│  │  │  Query-1    │     │  Query-2    │     │  Reserved   │              │   │
-│  │  │   25GB      │     │   25GB      │     │    10GB     │              │   │
-│  │  └──────┬──────┘     └──────┬──────┘     └─────────────┘              │   │
-│  │         │                   │                                          │   │
-│  │    ┌────┴────┐         ┌────┴────┐                                    │   │
-│  │    ▼         ▼         ▼         ▼                                    │   │
-│  │ ┌──────┐ ┌──────┐   ┌──────┐ ┌──────┐                                │   │
-│  │ │Task-1│ │Task-2│   │Task-1│ │Task-2│   (Task Pools)                 │   │
-│  │ │ 10GB │ │ 10GB │   │ 10GB │ │ 10GB │                                │   │
-│  │ └──┬───┘ └──────┘   └──────┘ └──────┘                                │   │
-│  │    │                                                                   │   │
-│  │    │  ┌─────────────────────────────────────────────────────────┐    │   │
-│  │    └─►│              Native Memory Pool (C++)                    │    │   │
-│  │       │  • Velox MemoryPool (compute buffers)                   │    │   │
-│  │       │  • Arrow MemoryPool (data buffers)                      │    │   │
-│  │       │  • Spill Buffer (spill buffers)                         │    │   │
-│  │       └─────────────────────────────────────────────────────────┘    │   │
-│  │                                                                       │   │
-│  └───────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Reserved (4GB): JVM Heap, Metadata Cache, System Overhead                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Memory Hierarchy Architecture](../../website/static/img/diagrams/generated/resource-management-01-e62b0f0306.svg)
 
 
 ## 3. Java-Layer Resource Manager
@@ -382,43 +314,7 @@ private:
 
 ## 6. Spill Manager
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Spill Manager Architecture                             │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Spill trigger conditions:                                                       │
-│  1. Memory pressure reaches MEDIUM (70%) → begin Spilling low-priority data     │
-│  2. Memory pressure reaches HIGH (85%) → aggressively Spill all spillable data  │
-│  3. A single operator exceeds its memory limit → operator-level Spill           │
-│                                                                                  │
-│  Spillable components:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Component          │ Spill priority│ Spill strategy                     │   │
-│  │  ────────────────────────────────────────────────────────────────────── │   │
-│  │  Hash Join Build    │ High         │ Spill by partition, keep hot partitions│   │
-│  │  Aggregation        │ High         │ Spill by Group partition           │   │
-│  │  Sort               │ Medium       │ External sort, multi-way merge     │   │
-│  │  Shuffle Buffer     │ Medium       │ Spill by target partition          │   │
-│  │  Scan Buffer        │ Low          │ Reduce read-ahead, read on demand  │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Spill storage hierarchy:                                                        │
-│                 │
-│  1. NVMe SSD (local) → fastest, preferred                                       │
-│  2. HDD (local) → fallback                                                      │
-│  3. S3/HDFS (remote) → cross-Worker fault-tolerance scenarios                   │
-│                                                                                  │
-│  Current scope: single-tier local spill (SpillConfig.spillDir).                  │
-│  Multi-tier storage is a future enhancement. When implemented,                   │
-│  SpillConfig.spillDir will be extended to a list of paths with tier              │
-│  annotations. Tier selection: try paths in order; if current tier's              │
-│  free space < spillFileTargetSize, fall through to next tier.                    │
-│  S3/HDFS remote spill triggers only for cross-Worker fault tolerance             │
-│  (stage-level retry with OPT-012).                                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Spill Manager Architecture](../../website/static/img/diagrams/generated/resource-management-05-97349245d1.svg)
 
 ### 6.1 Spill Trigger Decision Algorithm
 
@@ -426,42 +322,7 @@ Spill triggering is performed cooperatively by the Java-layer `MemoryArbitrator`
 
 **Decision flow**:
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Spill Trigger Decision Flow                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Trigger source 1: Java MemoryArbitrator global memory pressure                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  MemoryPressure = MEDIUM (70-85%):                                       │   │
-│  │    1. Collect the SpillCandidate list for all Tasks                      │   │
-│  │    2. Sort by (spillPriority ASC, reclaimableBytes DESC)                 │   │
-│  │    3. Starting from low-priority Tasks, trigger Spill one by one         │   │
-│  │    4. After each Spill, check whether pressure drops to LOW; if so, stop │   │
-│  │                                                                          │   │
-│  │  MemoryPressure = HIGH (85-95%):                                         │   │
-│  │    1. Trigger Spill in parallel for all spillable Tasks                  │   │
-│  │    2. Do not distinguish priority; Spill everything                      │   │
-│  │    3. Still HIGH after Spill → cancel the lowest-priority query (BACKGROUND queue first)│   │
-│  │                                                                          │   │
-│  │  MemoryPressure = CRITICAL (>95%):                                       │   │
-│  │    1. Reject all new queries                                             │   │
-│  │    2. Cancel all BACKGROUND queries                                      │   │
-│  │    3. Cancel the BATCH query with the largest memory footprint           │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Trigger source 2: Native Velox MemoryArbitrator operator-level memory overrun   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Operator requests memory → exceeds Task Pool limit:                     │   │
-│  │    1. The Velox MemoryArbitrator tries to reclaim from other Operators in the same Task│   │
-│  │    2. Insufficient reclamation → select a Spillable Operator (by reclaimableBytes DESC)│   │
-│  │    3. Trigger Operator.spill(targetBytes)                                │   │
-│  │    4. Retry allocation after Spill                                       │   │
-│  │    5. Still insufficient → throw VeloxRuntimeError → Task FAILED        │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Spill Trigger Decision Flow](../../website/static/img/diagrams/generated/resource-management-06-69293c2067.svg)
 
 **SpillCandidate selection algorithm**:
 
@@ -1313,7 +1174,7 @@ class MemoryReclaimer:
 
 | Aspect | Current (Hard Limit Only) | Proposed (Soft/Hard + Overflow) |
 |--------|---------------------------|----------------------------------|
-| Performance | Premature spill when Worker has free memory; 30–50% unnecessary spill I/O for mixed workloads | Tasks borrow idle memory; spill only when Worker is truly under pressure; 30–50% spill reduction |
+| Performance | Fixed per-task limits may cause spill while other capacity is idle | Proposed borrowing may reduce spill; the effect and contention costs require workload measurements |
 | Complexity | Simple — hard limit per task | Medium — soft/hard limits, overflow pool accounting, reclaim protocol |
 | Risk | Low — hard limits prevent OOM | Medium — overcommit can cause cascading spill if many tasks borrow simultaneously; hard limit remains as OOM guard |
 | Memory utilization | Low for mixed workloads (idle tasks hold unused memory) | High — unused memory is available to active tasks |
@@ -1620,3 +1481,28 @@ class DynamicMemoryBoundary:
 | 3 | Bidirectional Rebalancing | Allow cache to grow into unused query memory. Full dynamic boundary. |
 
 > **Cross-reference**: Dynamic boundary complements Memory Overcommit (§13 OPT-007) — overcommit handles intra-query-pool borrowing, while dynamic boundary handles inter-pool rebalancing. Cache pool integration with [caching.md §5](./caching.md) CacheManager. The `nativeUpdateQueryPoolSize()` JNI method updates the Velox MemoryArbitrator (§12).
+
+
+### Java spill ownership and actual reclaimed bytes
+
+`SpillManager` retains a live `SpillableBuffer` owner for each candidate. Candidate
+byte counts order work; `handleMemoryPressure` reports only the actual return from
+`spillToDisk(remainingTarget)`. A partial spill retains the owner and its live byte
+count. A drained candidate is removed by exact candidate identity. Each buffer
+serializes its own operations; the manager does not hold a global lock during IO.
+
+`DiskSpillableBuffer` owns unique files under its configured directory, removes
+heap batches only after successful writes, and publishes restored batches only
+after all pending files are read. It restores the original order. Cleanup failures
+remain visible and their paths remain owned for a later `close()` retry. Its byte
+count describes retained payloads, not JVM garbage collection or an arbitrator
+reservation. An implementation charged to an arbitrator must release its actual
+reservation in the same successful spill operation.
+
+The current Worker configures a Java spill manager, but its pressure callback
+serves descriptor-only task admission. Canonical task admission bypasses that
+branch, and there is no production registration of `DiskSpillableBuffer` candidates.
+The Java shuffle classes have a separate optional `ShuffleDiskSpiller` implementation;
+no production construction of those classes is wired to this manager. Native
+operators use their task grant and Velox spill lifecycle. Java component IO tests
+do not qualify those production execution paths.

@@ -1,0 +1,27 @@
+{
+  "schema" : "{\n  \"version\" : 3,\n  \"id\" : 0,\n  \"fields\" : [ {\n    \"id\" : 0,\n    \"name\" : \"id\",\n    \"type\" : \"BIGINT NOT NULL\"\n  }, {\n    \"id\" : 1,\n    \"name\" : \"region\",\n    \"type\" : \"STRING NOT NULL\"\n  }, {\n    \"id\" : 2,\n    \"name\" : \"label\",\n    \"type\" : \"STRING\"\n  } ],\n  \"highestFieldId\" : 2,\n  \"partitionKeys\" : [ \"region\" ],\n  \"primaryKeys\" : [ \"region\", \"id\" ],\n  \"options\" : {\n    \"bucket\" : \"1\",\n    \"bucket-key\" : \"id\",\n    \"file.format\" : \"parquet\"\n  },\n  \"timeMillis\" : 1792549126464\n}",
+  "rows" : [ {
+    "identifier" : "1c20d9d6e1aa0f0531020377ef9eca13d4cab0cfdb8084d10d2463fc000e975e",
+    "partition" : "{west}",
+    "bucket" : 0,
+    "file_path" : "file:/fixture/external/data-8fc24f57-614a-4ec7-ae36-4c98504920e3-0.parquet",
+    "file_format" : "parquet",
+    "schema_id" : 0,
+    "level" : 3,
+    "record_count" : 1,
+    "file_size_in_bytes" : 1278,
+    "min_key" : "[2]",
+    "max_key" : "[2]",
+    "null_value_counts" : "{id=0, label=1, region=0}",
+    "min_value_stats" : "{id=2, label=null, region=west}",
+    "max_value_stats" : "{id=2, label=null, region=west}",
+    "min_sequence_number" : 0,
+    "max_sequence_number" : 0,
+    "creation_time" : 1792577926514,
+    "deleteRowCount" : null,
+    "file_source" : "COMPACT",
+    "first_row_id" : 900,
+    "write_cols" : [ "id", "label" ]
+  } ],
+  "snapshot" : "{\n  \"version\" : 3,\n  \"id\" : 1,\n  \"schemaId\" : 0,\n  \"baseManifestList\" : \"manifest-list-6d8939b2-1fb4-4243-9843-cf6156ed6fd4-0\",\n  \"baseManifestListSize\" : 1006,\n  \"deltaManifestList\" : \"manifest-list-6d8939b2-1fb4-4243-9843-cf6156ed6fd4-1\",\n  \"deltaManifestListSize\" : 1121,\n  \"commitUser\" : \"33f2db6f-7dd2-45d9-aab7-1e71ae71fd1b\",\n  \"commitIdentifier\" : 9223372036854775807,\n  \"commitKind\" : \"APPEND\",\n  \"timeMillis\" : 1792549126519,\n  \"totalRecordCount\" : 2,\n  \"deltaRecordCount\" : 2,\n  \"nextRowId\" : 0\n}"
+}

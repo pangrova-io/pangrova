@@ -1,5 +1,8 @@
 package org.pangrova.planner.optimization;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.planner.metadata.PlanTable;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -8,19 +11,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.planner.cost.PangrovaCostFactory;
-import org.pangrova.planner.cost.distribution.PangrovaDistributionTraitDef;
 import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.cost.join.BroadcastJoinRule;
 import org.pangrova.planner.cost.join.HashJoinRule;
 import org.pangrova.planner.cost.join.SortMergeJoinRule;
-import org.apache.calcite.plan.ConventionTraitDef;
-import org.apache.calcite.plan.Context;
-import org.apache.calcite.plan.Contexts;
 import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptRule;
@@ -59,12 +58,9 @@ public final class CascadesCboPass implements OptimizationPass {
             }
             return cascadesOptimize(relNode, context);
         } catch (Exception | AssertionError e) {
-            // VolcanoPlanner throws AssertionError (not Exception) for
-            // "belongs to a different planner" when the input tree comes
-            // from a prior optimization pass (HEP). Catch both.
-            LOG.warn("event=cbo_failed joinCount={} action=use_input error={}",
-                    joinCount, e.getMessage());
-            return relNode;
+            // Returning the logical input here can silently remove required
+            // exchanges and execute a distributed query as a single stage.
+            throw new IllegalStateException("CBO failed for " + joinCount + " joins", e);
         }
     }
 
@@ -90,8 +86,13 @@ public final class CascadesCboPass implements OptimizationPass {
      */
     private RelNode cascadesOptimize(RelNode input, OptimizationContext context) {
         CboConfig cboConfig = context.cboConfig();
-        AtomicBoolean cancelledFlag = new AtomicBoolean(false);
-        VolcanoPlanner volcano = createVolcanoPlanner(input, context, cancelledFlag);
+        VolcanoPlanner volcano = createVolcanoPlanner(input, context);
+        CancelFlag cancelFlag = volcano.getContext().unwrap(CancelFlag.class);
+        if (cancelFlag == null) {
+            throw new IllegalStateException("CBO planner must have a cancellation flag");
+        }
+        AtomicBoolean cancelledFlag = cancelFlag.atomicBoolean;
+        cancelledFlag.set(false);
         RelNode stage1Result = runVolcanoWithTimeout(
                 volcano, cboConfig.stage1TimeoutMs(), 1, cancelledFlag);
         if (stage1Result == input) {
@@ -109,10 +110,11 @@ public final class CascadesCboPass implements OptimizationPass {
 
     private static final List<RelOptRule> STATIC_RULES = List.of(
             CoreRules.JOIN_COMMUTE,
-            CoreRules.JOIN_ASSOCIATE,
+            // Reassociation changes predicates and inputs. Physical join copies would
+            // retain an obsolete algorithm and distribution after that transformation.
+            CoreRules.JOIN_ASSOCIATE.config.withOperandFor(LogicalJoin.class).toRule(),
             new BroadcastJoinRule(),
-            new SortMergeJoinRule(),
-            org.pangrova.planner.rule.CteRelOptRule.INSTANCE
+            new SortMergeJoinRule()
     );
 
     private static final ConcurrentHashMap<CostModelConfig, List<RelOptRule>> RULE_CACHE =
@@ -128,17 +130,15 @@ public final class CascadesCboPass implements OptimizationPass {
     }
 
     private static VolcanoPlanner createVolcanoPlanner(
-            RelNode input, OptimizationContext context, AtomicBoolean cancelledFlag) {
-        CostModelConfig costModelConfig = context.costModelConfig();
-        var costFactory = new PangrovaCostFactory(costModelConfig);
-        CancelFlag cancelFlag = new CancelFlag(cancelledFlag);
-        Context plannerContext = Contexts.of(cancelFlag);
-        VolcanoPlanner volcano = new VolcanoPlanner(costFactory, plannerContext);
-        for (RelOptRule rule : cachedRules(costModelConfig)) {
+            RelNode input, OptimizationContext context) {
+        // RelOptCluster owns its planner. Registering its nodes in a second
+        // VolcanoPlanner fails and silently leaves a single-stage logical plan.
+        if (!(input.getCluster().getPlanner() instanceof VolcanoPlanner volcano)) {
+            throw new IllegalStateException("CBO requires the query's VolcanoPlanner");
+        }
+        for (RelOptRule rule : cachedRules(context.costModelConfig())) {
             volcano.addRule(rule);
         }
-        volcano.addRelTraitDef(ConventionTraitDef.INSTANCE);
-        volcano.addRelTraitDef(PangrovaDistributionTraitDef.INSTANCE);
         volcano.setRoot(volcano.register(input, null));
         return volcano;
     }
@@ -170,7 +170,7 @@ public final class CascadesCboPass implements OptimizationPass {
             AtomicBoolean cancelledFlag) {
         CountDownLatch optimizationDone = new CountDownLatch(1);
         ScheduledExecutorService watchdog = createCboWatchdog(stage);
-        watchdog.schedule(() -> {
+        ScheduledFuture<?> timeout = watchdog.schedule(() -> {
             LOG.warn("event=cbo_timeout stage={} timeoutMs={} action=cooperative_cancel",
                     stage, timeoutMs);
             cancelledFlag.set(true);
@@ -188,11 +188,14 @@ public final class CascadesCboPass implements OptimizationPass {
             LOG.info("event=cbo_complete stage={}", stage);
             return result;
         } catch (RelOptPlanner.CannotPlanException e) {
-            LOG.warn("event=cbo_cancelled stage={} reason={}", stage, e.getMessage());
-            return volcano.getRoot();
+            // The root may be a RelSubset, not an executable RelNode. A
+            // cancelled or unplannable search must never dispatch it.
+            throw new IllegalStateException(
+                    "CBO could not produce a plan at stage " + stage
+                            + (cancelledFlag.get() ? " (cancelled)" : ""), e);
         } finally {
             optimizationDone.countDown();
-            watchdog.shutdownNow();
+            timeout.cancel(false);
         }
     }
 
@@ -380,7 +383,7 @@ public final class CascadesCboPass implements OptimizationPass {
         if (filterColumns.isEmpty()) {
             return rows;
         }
-        String tableName = resolveTableNameFromScan(node);
+        QualifiedTableName tableName = resolveTableNameFromScan(node);
         if (tableName == null) {
             return rows;
         }
@@ -416,9 +419,10 @@ public final class CascadesCboPass implements OptimizationPass {
         return Set.of();
     }
 
-    private static String resolveTableNameFromScan(RelNode node) {
+    private static QualifiedTableName resolveTableNameFromScan(RelNode node) {
         if (node instanceof org.apache.calcite.rel.core.TableScan scan) {
-            return String.join(".", scan.getTable().getQualifiedName());
+            var parts = PlanTable.require(scan).getQualifiedName();
+            return parts.size() == 3 ? new QualifiedTableName(parts.get(0), parts.get(1), parts.get(2)) : null;
         }
         if (node.getInputs().size() == 1) {
             return resolveTableNameFromScan(node.getInput(0));

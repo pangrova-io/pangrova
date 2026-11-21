@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.protocol.rest.task.OperatorStats;
-import org.pangrova.worker.jni.NativeRuntime;
+import org.pangrova.protocol.rest.task.TaskStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,7 +15,7 @@ import java.util.List;
  * <p>G-OBS-06 fix: this class bridges the gap between the existing
  * {@code nativeGetTaskStats} JNI entry point (which was declared but never
  * called) and the Java-side observability layer. The native side serializes
- * a {@code pangrova.protocol.v1.TaskStats} protobuf that contains a
+ * a canonical v2 {@code NativeTaskStats} protobuf that contains a
  * {@code repeated OperatorStats} field; this collector decodes that field
  * into {@link OperatorStats} DTOs suitable for REST responses and metrics
  * emission.</p>
@@ -31,29 +31,7 @@ final class NativeOperatorStatsCollector {
     private NativeOperatorStatsCollector() {}
 
     /**
-     * Collects per-operator stats from the native engine for the given
-     * executor handle. Returns an empty list if the handle is invalid,
-     * the native runtime is unavailable, or parsing fails.
-     *
-     * @param executorHandle the native task executor handle
-     * @return decoded per-operator stats, never null
-     */
-    static List<OperatorStats> collect(long executorHandle) {
-        if (executorHandle == 0) {
-            return List.of();
-        }
-        try {
-            byte[] rawStats = NativeRuntime.nativeGetTaskStats(executorHandle);
-            return decodeOperatorStats(rawStats);
-        } catch (Exception e) {
-            LOG.debug("event=native_operator_stats_collection_failed handle={} error={}",
-                    executorHandle, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Decodes the serialized {@code pangrova.protocol.v1.TaskStats} protobuf
+     * Decodes the serialized canonical v2 {@code NativeTaskStats} protobuf
      * and extracts the {@code repeated OperatorStats} field.
      *
      * <p>Uses the generated protobuf classes for safe, forward-compatible
@@ -64,15 +42,15 @@ final class NativeOperatorStatsCollector {
             return List.of();
         }
         try {
-            org.pangrova.protocol.v1.TaskStats protoStats =
-                    org.pangrova.protocol.v1.TaskStats.parseFrom(rawTaskStats);
-            List<org.pangrova.protocol.v1.OperatorStats> protoOps =
+            org.pangrova.protocol.v2.NativeTaskStats protoStats =
+                    org.pangrova.protocol.v2.NativeTaskStats.parseFrom(rawTaskStats);
+            List<org.pangrova.protocol.v2.OperatorStats> protoOps =
                     protoStats.getOperatorStatsList();
             if (protoOps.isEmpty()) {
                 return List.of();
             }
             List<OperatorStats> result = new ArrayList<>(protoOps.size());
-            for (org.pangrova.protocol.v1.OperatorStats pop : protoOps) {
+            for (org.pangrova.protocol.v2.OperatorStats pop : protoOps) {
                 result.add(new OperatorStats(
                         pop.getOperatorType(),
                         pop.getInputRows(),
@@ -97,27 +75,66 @@ final class NativeOperatorStatsCollector {
     }
 
     /**
-     * Emits per-operator stats as structured log entries for observability.
-     * Mirrors the structured logging format in
-     * {@link org.pangrova.observability.metrics.NativeMetricsPublisher#publishOperatorStats}.
-     *
-     * @param taskId        the task identifier for log correlation
-     * @param operatorStats the per-operator stats to log
+     * Strictly decodes the complete canonical task statistics envelope.
+     * Terminal status reporting uses this method so missing or malformed
+     * Native telemetry cannot be rewritten as an all-zero success record.
      */
-    static void logOperatorStats(String taskId, List<OperatorStats> operatorStats) {
-        if (operatorStats == null || operatorStats.isEmpty()) {
-            return;
+    static TaskStats decodeTaskStats(byte[] rawTaskStats) {
+        if (rawTaskStats == null || rawTaskStats.length == 0) {
+            throw new IllegalArgumentException("Canonical NativeTaskStats is empty");
         }
-        for (OperatorStats stats : operatorStats) {
-            LOG.info("event=native_operator_stats taskId={} operator_type={} plan_node_id={} "
-                            + "input_rows={} output_rows={} input_bytes={} output_bytes={} "
-                            + "cpu_nanos={} wall_nanos={} memory_bytes={} peak_memory_bytes={} "
-                            + "spill_bytes={}",
-                    taskId, stats.operatorType(), stats.planNodeId(),
-                    stats.inputRows(), stats.outputRows(),
-                    stats.inputBytes(), stats.outputBytes(),
-                    stats.cpuNanos(), stats.wallNanos(),
-                    stats.memoryBytes(), stats.peakMemoryBytes(), stats.spillBytes());
+        try {
+            org.pangrova.protocol.v2.NativeTaskStats protoStats =
+                    org.pangrova.protocol.v2.NativeTaskStats.parseFrom(rawTaskStats);
+            List<OperatorStats> operators = mapOperatorStats(
+                    protoStats.getOperatorStatsList());
+            return new TaskStats(
+                    protoStats.getRowsRead(),
+                    protoStats.getBytesRead(),
+                    protoStats.getRowsWritten(),
+                    protoStats.getBytesWritten(),
+                    protoStats.getElapsedTimeMs(),
+                    protoStats.getCpuTimeMs(),
+                    protoStats.getMemoryBytes(),
+                    protoStats.getPeakMemoryBytes(),
+                    protoStats.getSpillBytes(),
+                    protoStats.getCacheHitBytes(),
+                    protoStats.getCacheMissBytes(),
+                    0,
+                    0,
+                    operators,
+                    protoStats.getBackpressureWaitMs(),
+                    protoStats.getCacheHitCount(),
+                    protoStats.getCacheMissCount(),
+                    protoStats.getCacheEvictionCount(),
+                    protoStats.getCacheAdmissionRejectionCount());
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalArgumentException(
+                    "Canonical NativeTaskStats is malformed", malformed);
         }
     }
+
+    private static List<OperatorStats> mapOperatorStats(
+            List<org.pangrova.protocol.v2.OperatorStats> protoOps) {
+        if (protoOps.isEmpty()) {
+            return List.of();
+        }
+        List<OperatorStats> result = new ArrayList<>(protoOps.size());
+        for (org.pangrova.protocol.v2.OperatorStats pop : protoOps) {
+            result.add(new OperatorStats(
+                    pop.getOperatorType(),
+                    pop.getInputRows(),
+                    pop.getOutputRows(),
+                    pop.getInputBytes(),
+                    pop.getOutputBytes(),
+                    pop.getCpuNanos(),
+                    pop.getWallNanos(),
+                    pop.getPlanNodeId(),
+                    pop.getMemoryBytes(),
+                    pop.getPeakMemoryBytes(),
+                    pop.getSpillBytes()));
+        }
+        return List.copyOf(result);
+    }
+
 }

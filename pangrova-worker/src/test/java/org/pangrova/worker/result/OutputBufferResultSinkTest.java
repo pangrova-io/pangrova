@@ -1,6 +1,8 @@
 package org.pangrova.worker.result;
 
-import org.pangrova.resilience.backpressure.BackpressureController;
+import org.pangrova.worker.exception.BatchRejectedException;
+
+import org.pangrova.worker.buffer.BackpressureController;
 import org.pangrova.worker.buffer.ActiveOutputBuffer;
 import org.pangrova.worker.buffer.OutputBufferBackpressure;
 import org.pangrova.worker.buffer.OutputBufferManager;

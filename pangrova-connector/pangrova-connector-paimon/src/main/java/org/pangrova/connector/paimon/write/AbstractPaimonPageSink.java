@@ -1,15 +1,16 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.api.data.ColumnarPageSink;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.enums.CommitEventType;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -35,7 +36,7 @@ import java.util.List;
  * <p>Not thread-safe: instances are confined to a single writer thread.
  */
 @NotThreadSafe
-abstract class AbstractPaimonPageSink implements ConnectorPageSink {
+abstract class AbstractPaimonPageSink implements ColumnarPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractPaimonPageSink.class);
 
@@ -46,9 +47,13 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
     private final String schemaName;
     private final String tableName;
     private final boolean dynamicBucket;
-    private final boolean postponeBucket;
     private boolean finished;
     private boolean aborted;
+    private boolean stopped;
+    private boolean writeClosed;
+    private boolean commitClosed;
+    private boolean ioClosed;
+    private byte[] commitMetadata;
 
     protected AbstractPaimonPageSink(PaimonPageSinkContext context) {
         this.ioManager = new IOManagerImpl(context.tempDir());
@@ -59,7 +64,6 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
         this.schemaName = context.schemaName();
         this.tableName = context.tableName();
         this.dynamicBucket = context.dynamicBucket();
-        this.postponeBucket = context.postponeBucket();
     }
 
     @Override
@@ -69,18 +73,43 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
         }
     }
 
+    /**
+     * Converts and writes each row synchronously without retaining the caller's batch.
+     *
+     * @param batch caller-owned batch, with missing target columns written as null
+     * @throws ConnectorException if value conversion or writing fails
+     */
+    @Override
+    public void appendColumnarBatch(ReadableBatch batch) {
+        requireWriting();
+        int[] ordinals = rowConverter.columnOrdinals(batch.columns());
+        int rowCount = batch.rowCount();
+        try {
+            for (int row = 0; row < rowCount; row++) {
+                writeConvertedRow(rowConverter.convertColumnarRow(batch, row, ordinals, writeRowKind()));
+            }
+        } catch (Exception e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to write columnar batch to Paimon table: " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public void appendNativePage(NativePage page) {
-        appendPage(NativePageConverter.toPage(page));
+        appendPage(ConnectorBinaryPageCodec.toPage(page));
     }
 
     @Override
     public byte[] finishWithMetadata() {
-        if (finished || aborted) {
+        if (aborted) {
             return new byte[0];
         }
+        if (finished) return commitMetadata.clone();
+        requireWriting();
+        stopped = true;
+        commitMetadata = collectCommitMetadata();
         finished = true;
-        return collectCommitMetadata();
+        return commitMetadata.clone();
     }
 
     @Override
@@ -88,31 +117,63 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
         if (finished || aborted) {
             return;
         }
+        stopped = true;
+        closeWrite();
         aborted = true;
-        ResourceCloser.closeQuietly(tableWrite);
     }
 
     @Override
     public void close() {
-        ResourceCloser.closeQuietly(tableWrite);
-        ResourceCloser.closeQuietly(tableCommit);
-        ResourceCloser.closeQuietly(ioManager);
+        stopped = true;
+        // The writer may still be joining compaction/IO. Its owner and spill
+        // manager must survive a failed close; never free them first.
+        closeWrite();
+        if (!commitClosed) {
+            closeResource(tableCommit, "commit");
+            commitClosed = true;
+        }
+        if (!ioClosed) {
+            closeResource(ioManager, "spill manager");
+            ioClosed = true;
+        }
     }
 
     private void writeRow(TypedRow row) {
+        requireWriting();
         try {
-            if (dynamicBucket) {
-                tableWrite.write(rowConverter.convert(row, writeRowKind()), 0);
-            } else if (postponeBucket) {
-                // Postpone bucket (bucket=-2): let Paimon's internal
-                // PostponeBucketRowKeyExtractor assign bucket=-2
-                tableWrite.write(rowConverter.convert(row, writeRowKind()));
-            } else {
-                tableWrite.write(rowConverter.convert(row, writeRowKind()));
-            }
+            writeConvertedRow(rowConverter.convert(row, writeRowKind()));
         } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Failed to write row to Paimon table: " + e.getMessage(), e);
+        }
+    }
+
+    private void writeConvertedRow(GenericRow row) throws Exception {
+        if (dynamicBucket) {
+            tableWrite.write(row, 0);
+        } else {
+            // The SDK extractor assigns fixed or postponed buckets from table options.
+            tableWrite.write(row);
+        }
+    }
+
+    private void requireWriting() {
+        if (stopped) throw new IllegalStateException("Paimon write sink has stopped accepting rows");
+    }
+
+    private void closeWrite() {
+        if (!writeClosed) {
+            closeResource(tableWrite, "writer");
+            writeClosed = true;
+        }
+    }
+
+    private void closeResource(AutoCloseable resource, String name) {
+        try {
+            resource.close();
+        } catch (Exception failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to close Paimon " + name + " for " + schemaName + "." + tableName, failure);
         }
     }
 
@@ -122,6 +183,17 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
      */
     protected RowKind writeRowKind() {
         return RowKind.INSERT;
+    }
+
+    /** Appends one row with an explicit CDC row kind. */
+    protected void appendRowKind(TypedRow row, RowKind kind) {
+        requireWriting();
+        try {
+            writeConvertedRow(rowConverter.convert(row, kind));
+        } catch (Exception e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to write CDC row to Paimon table: " + e.getMessage(), e);
+        }
     }
 
     /**

@@ -1,14 +1,16 @@
 package org.pangrova.connector.iceberg.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.DecimalType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.types.NullOnlyType;
+import org.pangrova.types.RowType;
+import org.pangrova.types.VectorType;
+import org.pangrova.types.primitive.DecimalType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.ArrayType;
+import org.pangrova.types.MapType;
+import org.pangrova.types.RowField;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -101,7 +103,7 @@ public final class IcebergTypeMapper {
      * @return the corresponding Iceberg ListType
      */
     public static Types.ListType toIcebergVectorType(VectorType vectorType, int elementFieldId) {
-        Type.PrimitiveType elementType = vectorType.elementType() == VectorType.ElementType.DOUBLE
+        Type.PrimitiveType elementType = vectorType.elementType() == VectorElementType.DOUBLE
                 ? Types.DoubleType.get()
                 : Types.FloatType.get();
         return Types.ListType.ofRequired(elementFieldId, elementType);
@@ -137,7 +139,7 @@ public final class IcebergTypeMapper {
     }
 
     /**
-     * Converts an Iceberg type to a parameterized Pangrova {@link org.pangrova.spi.connector.data.type.Type},
+     * Converts an Iceberg type to a parameterized Pangrova {@link org.pangrova.types.Type},
      * using table properties to detect vector columns. A {@code list(float/double)} column
      * with a matching dimension property is mapped to {@link VectorType}.
      *
@@ -146,7 +148,7 @@ public final class IcebergTypeMapper {
      * @param tableProperties the Iceberg table properties
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(
+    public static org.pangrova.types.Type toParameterizedType(
             Type icebergType, String columnName, Map<String, String> tableProperties) {
         if (isVectorColumn(icebergType, columnName, tableProperties)) {
             return parseVectorFromMetadata(icebergType, columnName, tableProperties);
@@ -191,9 +193,9 @@ public final class IcebergTypeMapper {
                     "Invalid vector dimension for column '" + columnName + "': " + dimValue, e);
         }
         Types.ListType list = (Types.ListType) icebergType.asNestedType();
-        VectorType.ElementType elementType = list.elementType().typeId() == Type.TypeID.DOUBLE
-                ? VectorType.ElementType.DOUBLE
-                : VectorType.ElementType.FLOAT;
+        VectorElementType elementType = list.elementType().typeId() == Type.TypeID.DOUBLE
+                ? VectorElementType.DOUBLE
+                : VectorElementType.FLOAT;
         return new VectorType(dimension, elementType);
     }
 
@@ -222,14 +224,17 @@ public final class IcebergTypeMapper {
     }
 
     /**
-     * Converts an Iceberg type to the parameterized {@link org.pangrova.spi.connector.data.Type}.
+     * Converts an Iceberg type to the parameterized {@link org.pangrova.types.Type}.
      * For DECIMAL, ARRAY, MAP, and STRUCT, preserves full parameter information.
      * For simple types, bridges via {@link PangrovaTypeMapping}.
      *
      * @param icebergType the Iceberg type to convert
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(Type icebergType) {
+    public static org.pangrova.types.Type toParameterizedType(Type icebergType) {
+        if (icebergType.typeId() == Type.TypeID.UNKNOWN) {
+            return NullOnlyType.INSTANCE;
+        }
         PangrovaType special = mapSpecialType(icebergType);
         if (special != null) {
             return PangrovaTypeMapping.toType(special);
@@ -237,10 +242,26 @@ public final class IcebergTypeMapper {
         if (icebergType.isPrimitiveType()) {
             return mapPrimitiveToParameterized(icebergType.asPrimitiveType());
         }
+        if (containsNestedUnknown(icebergType)) {
+            throw new IllegalArgumentException(
+                    "Nested Iceberg unknown requires recursive null-only Native projection");
+        }
         return mapComplexToParameterized(icebergType.asNestedType());
     }
 
-    private static org.pangrova.spi.connector.data.type.Type mapPrimitiveToParameterized(
+    private static boolean containsNestedUnknown(Type type) {
+        return switch (type.typeId()) {
+            case UNKNOWN -> true;
+            case LIST -> containsNestedUnknown(type.asListType().elementType());
+            case MAP -> containsNestedUnknown(type.asMapType().keyType())
+                    || containsNestedUnknown(type.asMapType().valueType());
+            case STRUCT -> type.asStructType().fields().stream()
+                    .anyMatch(field -> containsNestedUnknown(field.type()));
+            default -> false;
+        };
+    }
+
+    private static org.pangrova.types.Type mapPrimitiveToParameterized(
             Type.PrimitiveType primitive) {
         if (primitive.typeId() == Type.TypeID.DECIMAL) {
             Types.DecimalType dt = (Types.DecimalType) primitive;
@@ -249,7 +270,7 @@ public final class IcebergTypeMapper {
         return PangrovaTypeMapping.toType(mapPrimitiveToPangrova(primitive));
     }
 
-    private static org.pangrova.spi.connector.data.type.Type mapComplexToParameterized(
+    private static org.pangrova.types.Type mapComplexToParameterized(
             Type.NestedType nested) {
         return switch (nested.typeId()) {
             case LIST -> {
@@ -275,7 +296,7 @@ public final class IcebergTypeMapper {
 
     private static ConnectorTableMetadata.Column toColumn(Types.NestedField field) {
         PangrovaType type = toPangrovaType(field.type());
-        org.pangrova.spi.connector.data.type.Type paramType = toParameterizedType(field.type());
+        org.pangrova.types.Type paramType = toParameterizedType(field.type());
         return new ConnectorTableMetadata.Column(
                 field.name(), type, OptionalInt.of(field.fieldId()), paramType);
     }
@@ -283,7 +304,7 @@ public final class IcebergTypeMapper {
     private static ConnectorTableMetadata.Column toColumnWithProperties(
             Types.NestedField field, Map<String, String> tableProperties) {
         PangrovaType type = toPangrovaType(field.type(), field.name(), tableProperties);
-        org.pangrova.spi.connector.data.type.Type paramType =
+        org.pangrova.types.Type paramType =
                 toParameterizedType(field.type(), field.name(), tableProperties);
         return new ConnectorTableMetadata.Column(
                 field.name(), type, OptionalInt.of(field.fieldId()), paramType);
@@ -300,7 +321,7 @@ public final class IcebergTypeMapper {
             case DATE -> PangrovaType.DATE;
             case TIME -> PangrovaType.TIME;
             case TIMESTAMP -> mapTimestamp((Types.TimestampType) primitive);
-            case TIMESTAMP_NANO -> PangrovaType.TIMESTAMP_NS;
+            case TIMESTAMP_NANO -> mapNanoTimestamp((Types.TimestampNanoType) primitive);
             case STRING -> PangrovaType.VARCHAR;
             case UUID -> PangrovaType.UUID;
             case FIXED -> PangrovaType.FIXED;
@@ -315,6 +336,14 @@ public final class IcebergTypeMapper {
 
     private static PangrovaType mapTimestamp(Types.TimestampType ts) {
         return ts.shouldAdjustToUTC() ? PangrovaType.TIMESTAMP_TZ : PangrovaType.TIMESTAMP;
+    }
+
+    private static PangrovaType mapNanoTimestamp(Types.TimestampNanoType ts) {
+        if (ts.shouldAdjustToUTC()) {
+            throw new IllegalArgumentException(
+                    "Nanosecond timestamp with timezone requires a precision-aware timestamp type contract");
+        }
+        return PangrovaType.TIMESTAMP_NS;
     }
 
     private static PangrovaType mapComplexToPangrova(Type.NestedType nested) {
@@ -362,7 +391,7 @@ public final class IcebergTypeMapper {
      * Converts a parameterized type to Iceberg Type, recursively handling STRUCT/ARRAY/MAP.
      */
     public static Type toIcebergTypeFromParameterizedType(
-            org.pangrova.spi.connector.data.type.Type paramType, int baseFieldId) {
+            org.pangrova.types.Type paramType, int baseFieldId) {
         if (paramType instanceof RowType rowType) {
             return toIcebergTypeFromParameterized(rowType, baseFieldId);
         } else if (paramType instanceof ArrayType arrayType) {

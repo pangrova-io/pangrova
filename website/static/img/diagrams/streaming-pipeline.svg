@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="980" viewBox="0 0 1200 980" role="img" aria-labelledby="t d">
+<title id="t">Streaming and CDC pipeline</title>
+<desc id="d">Source ingestion through CDC decoding, two-phase commit, connector writes, and checkpoint state.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="980" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Streaming and CDC pipeline</text>
+<text x="60" y="106" font-size="17" fill="#64748B">CDC ingestion uses a Coordinator-local writer today; offsets and catalog publication are separate commits.</text>
+<rect x="80" y="140" width="1040" height="76" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="140" width="5" height="76" rx="2.5" fill="#2563EB"/>
+<text x="100" y="168" font-size="16.5" font-weight="700" fill="#111827">Source</text>
+<text x="100" y="192" font-size="13.5" fill="#64748B">Kafka topics · partitions · consumer groups</text>
+<line x1="600" y1="216" x2="600" y2="254" stroke="#34D399" stroke-width="2.4" marker-end="url(#arrowGreen)"/>
+<rect x="80" y="254" width="1040" height="76" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="254" width="5" height="76" rx="2.5" fill="#34D399"/>
+<text x="100" y="282" font-size="16.5" font-weight="700" fill="#111827">CdcSourceReader</text>
+<text x="100" y="306" font-size="13.5" fill="#64748B">Source-specific SDK, seek, rebalance, and commit</text>
+<line x1="600" y1="330" x2="600" y2="368" stroke="#34D399" stroke-width="2.4" marker-end="url(#arrowGreen)"/>
+<rect x="60" y="368" width="1080" height="190" rx="18" fill="#F6FEFB" stroke="#34D399" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="400" font-size="19" font-weight="700" fill="#34D399">DECODE AND BUFFER</text>
+<rect x="90" y="420" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="420" width="5" height="110" rx="2.5" fill="#34D399"/>
+<text x="110" y="448" font-size="16.5" font-weight="700" fill="#111827">Format decoder</text>
+<text x="110" y="472" font-size="13.5" fill="#64748B">Canal · Debezium · Maxwell</text>
+<text x="110" y="493" font-size="13.5" fill="#64748B">Typed CDC envelopes</text>
+<rect x="440" y="420" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="420" width="5" height="110" rx="2.5" fill="#34D399"/>
+<text x="460" y="448" font-size="16.5" font-weight="700" fill="#111827">CdcPipelineLoop</text>
+<text x="460" y="472" font-size="13.5" fill="#64748B">Mini-batch buffering</text>
+<text x="460" y="493" font-size="13.5" fill="#64748B">Watermark and late data</text>
+<rect x="790" y="420" width="310" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="790" y="420" width="5" height="110" rx="2.5" fill="#0D9488"/>
+<text x="810" y="448" font-size="16.5" font-weight="700" fill="#111827">Checkpoint store</text>
+<text x="810" y="472" font-size="13.5" fill="#64748B">Offset and watermark state</text>
+<text x="810" y="493" font-size="13.5" fill="#64748B">Recovery seek</text>
+<line x1="600" y1="558" x2="600" y2="598" stroke="#D97706" stroke-width="2.4" marker-end="url(#arrowAmber)"/>
+<rect x="60" y="598" width="1080" height="190" rx="18" fill="#FFFCF5" stroke="#D97706" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="630" font-size="19" font-weight="700" fill="#D97706">COMMIT PATH</text>
+<rect x="90" y="650" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="650" width="5" height="110" rx="2.5" fill="#D97706"/>
+<text x="110" y="678" font-size="16.5" font-weight="700" fill="#111827">CdcTwoPhaseCommitter</text>
+<text x="110" y="702" font-size="13.5" fill="#64748B">Prepare and commit</text>
+<text x="110" y="723" font-size="13.5" fill="#64748B">Abort on failure</text>
+<rect x="440" y="650" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="650" width="5" height="110" rx="2.5" fill="#D97706"/>
+<text x="460" y="678" font-size="16.5" font-weight="700" fill="#111827">ConnectorPageSinkCdcWriter</text>
+<text x="460" y="702" font-size="13.5" fill="#64748B">Connector SDK page sink</text>
+<text x="460" y="723" font-size="13.5" fill="#64748B">Coordinator-local today</text>
+<rect x="790" y="650" width="310" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="790" y="650" width="5" height="110" rx="2.5" fill="#0D9488"/>
+<text x="810" y="678" font-size="16.5" font-weight="700" fill="#111827">Catalog publication</text>
+<text x="810" y="702" font-size="13.5" fill="#64748B">Iceberg / Paimon commit</text>
+<text x="810" y="723" font-size="13.5" fill="#64748B">Final fenced publication</text>
+<text x="600" y="840" font-size="14" fill="#64748B" text-anchor="middle">Source offsets, checkpoints, and catalog publication are separate commits. Exactly-once/effectively-once delivery is not established.</text>
+<line x1="60" y1="930" x2="100" y2="930" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="935" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="930" x2="280" y2="930" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="935" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

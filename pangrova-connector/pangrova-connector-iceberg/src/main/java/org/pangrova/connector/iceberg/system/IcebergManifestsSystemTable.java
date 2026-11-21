@@ -3,8 +3,8 @@ package org.pangrova.connector.iceberg.system;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -32,7 +32,7 @@ public final class IcebergManifestsSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return COLUMNS;
+        return List.copyOf(COLUMNS);
     }
 
     @Override

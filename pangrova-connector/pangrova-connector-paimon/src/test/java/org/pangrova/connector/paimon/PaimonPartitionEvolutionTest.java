@@ -1,9 +1,9 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -40,6 +40,11 @@ class PaimonPartitionEvolutionTest {
     private PaimonMetadata metadata;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test_catalog"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
@@ -62,7 +67,7 @@ class PaimonPartitionEvolutionTest {
                 .build();
         catalog.createTable(Identifier.create("db", "events"), schema, false);
 
-        metadata = new PaimonMetadata(catalog, "test_catalog");
+        metadata = new PaimonMetadata(catalog, "test_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
     }
 
     @Test

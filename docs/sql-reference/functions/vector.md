@@ -1,11 +1,12 @@
 ---
-title: "Vector"
+title: "Vector Functions"
 description: "L2_DISTANCE, COSINE_DISTANCE, INNER_PRODUCT similarity functions"
 ---
 
 # Vector Functions
 
-SIMD-optimized distance functions for vector similarity search. All functions follow the convention that **lower values indicate greater similarity**.
+Vector distance functions use **lower values for greater similarity**.
+`COSINE_SIMILARITY` is the exception: higher values indicate greater similarity.
 
 ---
 
@@ -95,6 +96,19 @@ LIMIT 10;
 ---
 
 ## Implementation Details
+
+The four scalar distance/similarity functions require two numeric arrays. SQL
+validation writes explicit casts to the Native array signature: `DOUBLE` if
+either component is `DOUBLE`, otherwise `REAL` for `FLOAT`/`REAL` inputs, and
+`DOUBLE` for exact numeric inputs. Ordinary `ARRAY` expressions retain their
+declared integer or `DECIMAL(p,s)` elements, including typed NULLs; they are not
+globally lowered to floating point. Non-numeric, nested-array, scalar and wrong
+arity inputs are rejected during SQL validation.
+
+ANN pattern recognition retains casts that do not change the physical element
+type, but a `REAL` to `DOUBLE` column cast cannot use an index built on the
+original `REAL` values. Indexed execution and result accuracy require the
+separate Native/Worker end-to-end checks.
 
 - **SIMD optimization:** AVX-512 (16 floats/iter), AVX2 (8 floats/iter), ARM NEON, scalar fallback
 - **Automatic dispatch:** Compiled for the best available instruction set

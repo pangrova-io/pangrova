@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="773" height="342" viewBox="0 0 773 342" role="img">
+<rect width="773" height="342" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="771.5" height="340.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">C++ side:</text>
+<path d="M352.8 57.0 L352.8 68.0 L363.8 62.5 z" fill="#D97706"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">  VeloxMemoryGovernor (singleton)   MemoryManager (singleton)</text>
+<path d="M70.8 76.0 L70.8 87.0 L81.8 81.5 z" fill="#D97706"/>
+<path d="M277.59999999999997 76.0 L277.59999999999997 87.0 L288.59999999999997 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">      QueryCtx (per-task)   task MemoryPool (per-task)</text>
+<path d="M89.60000000000001 95.0 L89.60000000000001 106.0 L100.60000000000001 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">        RowVector buffers (per-batch, allocated from task pool)</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">Interop side:</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">  ArrowArray / ArrowSchema exported under the task MemoryPool</text>
+<path d="M70.8 171.0 L70.8 182.0 L81.8 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">      release callback retains original buffers and required layout buffers</text>
+<path d="M89.60000000000001 190.0 L89.60000000000001 201.0 L100.60000000000001 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">        importing consumer owns the transferred release obligation</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">Client side:</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">  client-owned allocator / stream / vectors</text>
+<path d="M70.8 266.0 L70.8 277.0 L81.8 271.5 z" fill="#D97706"/>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">      consume and close stream and vectors</text>
+<path d="M89.60000000000001 285.0 L89.60000000000001 296.0 L100.60000000000001 290.5 z" fill="#D97706"/>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">        close allocator after its dependent vectors</text>
+</g>
+</svg>

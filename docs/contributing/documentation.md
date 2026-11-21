@@ -6,7 +6,9 @@ description: "Structure, naming, accuracy, and validation rules for Pangrova doc
 # Documentation Guide
 
 Pangrova documentation is organized by reader task. Published guides, architecture references,
-internal roadmap material, runtime configuration, and deployment assets have separate homes.
+roadmap material, runtime configuration, and deployment assets have separate homes.
+“Internal” excludes content from the website only; tracked files remain public when
+the repository is made public. Do not store confidential material there.
 
 ## Directory ownership
 
@@ -21,7 +23,8 @@ internal roadmap material, runtime configuration, and deployment assets have sep
 | `docs/architecture/` | Current system design, boundaries, invariants, and known gaps |
 | `docs/operations/` | Day-2 procedures, runbooks, game-day scenarios, and templates |
 | `docs/contributing/` | Developer, test, and documentation workflows |
-| `docs/internal/` | Non-published audits and roadmap inputs; never a user-facing capability contract |
+| `docs/testing/` | Test methodology and qualified acceptance evidence |
+| `docs/development/` | Platform-specific developer environment qualification |
 | `etc/` | Runtime configuration templates used by launch scripts |
 | `deploy/` | Docker and Helm deployment assets |
 
@@ -54,25 +57,34 @@ Sources of truth, in descending order:
 2. Focused integration and E2E tests.
 3. Typed configuration definitions and bundled defaults.
 4. `.pangrova/rules/` for architectural and repository policy.
-5. Architecture documentation and internal roadmaps.
+5. Architecture documentation and the public roadmap.
 
 ## Format
 
 - Add YAML front matter with a concise `title` and `description` to every published Markdown file.
 - Use exactly one level-one heading matching the title.
 - Prefer relative links ending in `.md`; the website build validates targets and anchors.
+- Reference images by a relative path to `website/static/img/`, not a site-root
+  `/img/` URL. For example, a page in `docs/architecture/` uses
+  `../../website/static/img/diagrams/planning-stack.svg`. Relative paths work in
+  both GitHub Markdown previews and the website, including its `/pangrova/` base path.
 - Mark shell, SQL, YAML, Java, and C++ fences with a language.
 - Use tables only for exact mappings; use prose for rationale and constraints.
 - Keep examples executable and free of real credentials, personal paths, and unverified output.
 
 ## Validation
 
+Repository policy is discovered through `AGENTS.md` and `.pangrova/rules/`.
+`.pangrova/setup.sh --check` validates this canonical layout without creating any
+tool-specific adapter directories.
+
 Run the closest documentation checks after every structural change:
 
 ```bash
 cd website
-npm run typecheck
-npm run build
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run build
 
 cd ..
 .pangrova/scripts/check-doc-class-refs.sh
@@ -81,3 +93,6 @@ cd ..
 
 The website treats broken routes and Markdown links as build failures. When renaming a document,
 update source comments, README links, the sidebar, and every relative link in the same change.
+Preview the production build with `pnpm serve` and check search results as well as
+images and navigation. The search index uses filename hashing so its URL also
+works with the preview server's `/pangrova/` base path.

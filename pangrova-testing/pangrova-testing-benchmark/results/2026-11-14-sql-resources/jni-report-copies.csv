@@ -1,0 +1,13 @@
+fork,pid,method,successful_calls,copied_report_bytes
+jni-baseline,69017,nativeReleaseExecutor0,9,4082
+jni-baseline,69017,nativeGetTaskStatus0,148,71952
+jni-baseline,69017,nativeGetTaskStats0,0,0
+jni-baseline,69848,nativeReleaseExecutor0,5,2142
+jni-baseline,69848,nativeGetTaskStatus0,38,13728
+jni-baseline,69848,nativeGetTaskStats0,0,0
+jni-candidate,71681,nativeReleaseExecutor0,9,4090
+jni-candidate,71681,nativeGetTaskStatus0,282,114469
+jni-candidate,71681,nativeGetTaskStats0,0,0
+jni-candidate,72687,nativeReleaseExecutor0,5,2142
+jni-candidate,72687,nativeGetTaskStatus0,36,13052
+jni-candidate,72687,nativeGetTaskStats0,0,0

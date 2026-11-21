@@ -1,6 +1,7 @@
 package org.pangrova.protocol.property.rest.task;
 
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -44,7 +45,8 @@ class TaskStatusReportPropertyTest {
         assertThatThrownBy(() -> new TaskStatusReport(
                 effectiveTaskId, effectiveQueryId, 0, 0, "COMPUTE",
                 effectiveWorkerId, effectiveState,
-                null, null, null, 1L, System.currentTimeMillis()
+                null, null, null, 1L, System.currentTimeMillis(),
+                null, null, TaskAttemptDescriptor.of(1, 0)
         ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(MANDATORY_FIELDS[nullIndex]);
@@ -74,7 +76,8 @@ class TaskStatusReportPropertyTest {
         assertThatThrownBy(() -> new TaskStatusReport(
                 effectiveTaskId, effectiveQueryId, 0, 0, "COMPUTE",
                 effectiveWorkerId, effectiveState,
-                null, null, null, 1L, System.currentTimeMillis()
+                null, null, null, 1L, System.currentTimeMillis(),
+                null, null, TaskAttemptDescriptor.of(1, 0)
         ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(MANDATORY_FIELDS[blankIndex]);
@@ -94,7 +97,8 @@ class TaskStatusReportPropertyTest {
         TaskStatusReport report = new TaskStatusReport(
                 taskId, queryId, 1, 2, "COMPUTE",
                 workerId, state,
-                null, null, null, 5L, 1700000000000L
+                null, null, null, 5L, 1700000000000L,
+                null, null, TaskAttemptDescriptor.of(1, 0)
         );
 
         assertThat(report.taskId()).isEqualTo(taskId);
@@ -104,6 +108,17 @@ class TaskStatusReportPropertyTest {
         assertThat(report.stats()).isNull();
         assertThat(report.error()).isNull();
         assertThat(report.writeResult()).isNull();
+        assertThat(report.attempt()).isEqualTo(TaskAttemptDescriptor.of(1, 0));
+    }
+
+    @Property(tries = 10)
+    void nullAttemptAlwaysThrows(@ForAll("validStrings") String taskId) {
+        assertThatThrownBy(() -> new TaskStatusReport(
+                taskId, "query", 0, 0, "COMPUTE", "worker", "RUNNING",
+                null, null, null, 1L, System.currentTimeMillis(),
+                null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("attempt");
     }
 
     // --- Generators ---

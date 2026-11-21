@@ -1,17 +1,18 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-import org.pangrova.spi.execution.TaskDescriptor;
+import org.pangrova.protocol.execution.PlanFragment;
+import org.pangrova.protocol.execution.PlanNodeId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.protocol.execution.TaskDescriptor;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -26,7 +27,7 @@ class TaskSubmitDedupTest {
     void duplicateSubmitReturnsSameTaskId() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-1", "q-dedup-1");
+        SubmitTaskRequest request = buildRequest("coord-task-1", "q-dedup-1", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         String firstId = manager.submitTask(descriptor, request);
@@ -39,8 +40,8 @@ class TaskSubmitDedupTest {
     void differentCoordinatorTaskIdsCreateSeparateTasks() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest req1 = buildRequest("coord-task-1", "q-dedup-2");
-        SubmitTaskRequest req2 = buildRequest("coord-task-2", "q-dedup-2");
+        SubmitTaskRequest req1 = buildRequest("coord-task-1", "q-dedup-2", manager);
+        SubmitTaskRequest req2 = buildRequest("coord-task-2", "q-dedup-2", manager);
         TaskDescriptor desc1 = toDescriptor(req1);
         TaskDescriptor desc2 = toDescriptor(req2);
 
@@ -51,38 +52,53 @@ class TaskSubmitDedupTest {
     }
 
     @Test
-    void nullCoordinatorTaskIdRejectedByContract() {
-        assertThatThrownBy(() -> buildRequest(null, "q-dedup-3"))
+    void nullTaskRequestRejectedByAdmission() {
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("taskId must not be null or blank");
+                .hasMessageContaining("TaskRequest must not be null");
+    }
+
+    @Test
+    void nullCoordinatorTaskIdRejectedByProtobufBuilder() {
+        assertThatThrownBy(() -> buildRequest(null, "q-dedup-null", null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
     void blankCoordinatorTaskIdRejectedByContract() {
-        assertThatThrownBy(() -> buildRequest("", "q-dedup-4"))
+        var canonical = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
+                        "valid-task", "q-dedup-4", 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        new byte[]{0x01});
+        var request = canonical
+                .setAttempt(canonical.getAttempt().toBuilder().clearTaskId())
+                .build();
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("taskId must not be null or blank");
+                .hasMessageContaining("attempt and execution-owner identity are incomplete");
     }
 
     @Test
-    void dedupIndexClearedAfterCancel() {
+    void delayedSubmitCannotRecreateCancelledAttempt() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5");
+        SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         String firstId = manager.submitTask(descriptor, request);
         manager.cancelTask(firstId);
 
         String secondId = manager.submitTask(descriptor, request);
-        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(manager.getTaskState(secondId)).contains(TaskState.CANCELLED);
+        assertThat(manager.tasks.values()).hasSize(1);
     }
 
     @Test
     void taskCountUnchangedOnDuplicateSubmit() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-count", "q-dedup-6");
+        SubmitTaskRequest request = buildRequest("coord-task-count", "q-dedup-6", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         manager.submitTask(descriptor, request);
@@ -94,22 +110,18 @@ class TaskSubmitDedupTest {
         assertThat(countAfterSecond).isEqualTo(countAfterFirst);
     }
 
-    private static SubmitTaskRequest buildRequest(String taskId, String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01});
-        return SubmitTaskRequest.builder()
-                .taskId(taskId)
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
+    private static SubmitTaskRequest buildRequest(String taskId, String queryId, TaskManager manager) {
+        var builder = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
+                                taskId, queryId, 0, 0,
+                                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                                new byte[]{0x01})
+                        .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                                .setGrantId(taskId + ":grant")
+                                .setCpuSlots(1)
+                                .setNativeMemoryBytes(64L * 1024 * 1024))
+                        .build();
+        return SubmitTaskRequest.from(builder.toBuilder().setAttempt(builder.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build());
     }
 
     private static TaskDescriptor toDescriptor(SubmitTaskRequest request) {
@@ -120,7 +132,8 @@ class TaskSubmitDedupTest {
             public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
         };
         return new TaskDescriptor(
-                new QueryId(request.queryId()), fragment, List.of(),
-                request.sessionProperties() != null ? request.sessionProperties() : Map.of());
+                new QueryId(request.taskRequest().getAttempt().getQueryOrJobId()),
+                fragment, List.of(),
+                request.taskRequest().getExecutionOptions().getSessionPropertiesMap(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 }

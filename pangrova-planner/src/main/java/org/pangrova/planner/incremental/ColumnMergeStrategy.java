@@ -1,5 +1,7 @@
 package org.pangrova.planner.incremental;
 
+import org.pangrova.planner.enums.MergeOperator;
+
 import java.util.Objects;
 
 /**

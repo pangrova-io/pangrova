@@ -1,5 +1,13 @@
 package org.pangrova.worker.bootstrap;
 
+import java.util.Map;
+
+import org.pangrova.config.PangrovaConfiguration;
+
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -47,8 +55,8 @@ class WorkerObservabilityBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -61,8 +69,8 @@ class WorkerObservabilityBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, true, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -70,15 +78,15 @@ class WorkerObservabilityBootstrapTest {
 
     @Test
     void enabledWithOtelConfigStartsAndShutsDownCleanly() {
-        var obsCfg = new WorkerBootstrapConfig.ObservabilityBootstrapConfig(
-                "pangrova-worker", "http://localhost:4317");
+        var obsCfg = new ObservabilityConfig(PangrovaConfiguration.fromYaml(Map.of(
+                "observability.service-name", "pangrova-worker", "observability.otlp-endpoint", "http://localhost:4317")));
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "worker-obs-3", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, true, obsCfg, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

@@ -1,19 +1,20 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.paimon.PaimonMetadata;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.index.CommitEvent;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.index.CommitEvent;
+import org.pangrova.connector.api.enums.CommitEventType;
+import org.pangrova.connector.api.index.CommitListener;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -49,13 +50,18 @@ class PaimonCommitListenerNotificationTest {
     private static final String CATALOG_NAME = "paimon_listener_test";
     private static final String DATABASE = "listener_db";
 
-    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
+    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.empty();
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> APPEND_COLUMNS = List.of(
@@ -78,7 +84,7 @@ class PaimonCommitListenerNotificationTest {
         options.setString("warehouse", warehouse.toString());
         catalog = CatalogFactory.createCatalog(CatalogContext.create(options));
         catalog.createDatabase(DATABASE, false);
-        metadata = new PaimonMetadata(catalog, CATALOG_NAME);
+        metadata = new PaimonMetadata(catalog, CATALOG_NAME, new org.pangrova.connector.paimon.PaimonSplitRegistry());
         pageSinkProvider = new PaimonPageSinkProvider(catalog);
     }
 
@@ -144,7 +150,7 @@ class PaimonCommitListenerNotificationTest {
         List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
         sink.appendPage(new Page(columns, rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

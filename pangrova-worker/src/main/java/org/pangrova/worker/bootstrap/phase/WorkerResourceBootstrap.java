@@ -1,25 +1,26 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
+
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-
-import org.pangrova.observability.metrics.NativeMetricsPuller;
-import org.pangrova.observability.metrics.NativeMetricsPublisher;
-import org.pangrova.observability.metrics.WorkerMetrics;
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.CriticalPressureHandler;
-import org.pangrova.resource.memory.LargestQueryKiller;
-import org.pangrova.resource.memory.NodeMemoryPool;
-import org.pangrova.resource.memory.RootMemoryPool;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.spill.SpillManager;
-import org.pangrova.resource.tenant.TenantResourceTracker;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.bootstrap.ShutdownContext;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
+import org.pangrova.observability.sdk.metrics.WorkerMetrics;
+import org.pangrova.worker.resource.ResourceManager;
+import org.pangrova.worker.resource.memory.CriticalPressureHandler;
+import org.pangrova.worker.resource.memory.LargestQueryKiller;
+import org.pangrova.worker.resource.memory.NodeMemoryPool;
+import org.pangrova.worker.resource.memory.RootMemoryPool;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.spill.SpillManager;
+import org.pangrova.worker.resource.tenant.TenantResourceTracker;
+import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.lifecycle.WorkerResourceShutdown;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.jni.NativeCommandBuilder;
@@ -74,11 +75,22 @@ public final class WorkerResourceBootstrap {
                 pool -> LOG.warn("event=oom_kill_query pool={} usedBytes={}", pool.getName(), pool.getUsedBytes()));
         refs.setResourceManager(new ResourceManager(arbitrator, threadPool, spillManager, pressureHandler));
         refs.setNodeMemoryPool(nodePool);
+        if (refs.nativeAvailable()) {
+            startShuffleServiceLease(config, refs);
+        }
         LOG.info("event=phase_started phase=resources memoryMB={} nodePoolMB={} queryThreads={} "
                         + "ioThreads={} schedulerThreads={} tenantQuotaEnabled=true",
                 rc.memoryBudgetBytes() / (1024 * 1024),
                 rc.nodeMemoryBytes() / (1024 * 1024),
                 rc.queryThreads(), rc.ioThreads(), rc.schedulerThreads());
+    }
+
+    /** Reserves process-lifetime Flight service memory after Native initialization. */
+    public static void startShuffleServiceLease(WorkerBootstrapConfig config, WorkerComponentRefs refs) {
+        var rc = config.resourceConfig();
+        refs.setShuffleServiceMemoryLease(ShuffleServiceMemoryLease.reserve(
+                config.workerId(), rc.shuffleRetentionBytes(), rc.shuffleTransitBytes(),
+                refs.nodeMemoryPool(), refs.memoryArbitrator()));
     }
 
     /**
@@ -122,13 +134,10 @@ public final class WorkerResourceBootstrap {
      * Releases all resource infrastructure (delegated to WorkerShutdownSequence).
      */
     public static void releaseResources(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
-        ShutdownContext ctx = new ShutdownContext(
-                new ShutdownContext.SchedulerRefs(
-                        null, null, refs.metricsExecutor()),
-                new ShutdownContext.ResourceRefs(
-                        refs.resourceManager(), refs.nativeMetricsPublisher(),
-                        observability.otelInitializer(), refs.nativeAvailable()),
-                new ShutdownContext.BufferRefs(null, refs.shuffleBufferManager()));
-        WorkerShutdownSequence.releaseResources(ctx);
+        WorkerResourceShutdown resources = new WorkerResourceShutdown(
+                refs.metricsExecutor(), refs.resourceManager(), refs.nativeMetricsPublisher(),
+                observability.metricsScope(), observability.otelInitializer(), refs.nativeAvailable(),
+                refs.shuffleServiceMemoryLease(), refs.shuffleBufferManager());
+        WorkerShutdownSequence.releaseResources(resources, () -> refs.setNativeAvailable(false));
     }
 }

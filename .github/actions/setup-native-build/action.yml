@@ -1,0 +1,227 @@
+name: Set up native build environment
+description: >-
+  Install and verify the toolchain contracted by
+  pangrova-worker-native/bin/setup-native-build-env.sh. Keeps CI and the
+  bootstrap script from drifting: the final step runs the script's own
+  --check-tools verification, so a missing tool fails the job immediately with
+  the exact name instead of midway through the Velox build.
+
+inputs:
+  rust-cache-key:
+    description: Extra cache key component; defaults to the pinned Lance FFI toolchain
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Free runner disk space (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # A standard Ubuntu runner has about 14 GB free; a cold dependency plus
+        # Velox build needs roughly 30 GB. Remove preinstalled toolchains this
+        # build never uses before downloading anything.
+        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup           /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+        sudo docker image prune --all --force >/dev/null 2>&1 || true
+        df -h /
+
+    - name: Free runner disk space (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        # Simulator runtimes, extra Xcode copies, Android toolchains and package
+        # caches are many GB and are not used by a C++ build; a cold Velox tree
+        # needs the space instead. Keep the Xcode selected by xcode-select.
+        selected_xcode="$(xcode-select -p)"
+        selected_xcode="${selected_xcode%/Contents/Developer}"
+        for app in /Applications/Xcode*.app; do
+          [[ -d "$app" && "$app" != "$selected_xcode" ]] && sudo rm -rf "$app" || true
+        done
+        sudo rm -rf ~/Library/Android/sdk ~/Library/Developer/CoreSimulator \
+          /Library/Developer/CoreSimulator ~/Library/Developer/Xcode/DerivedData \
+          ~/Library/Developer/Xcode/iOS\ DeviceSupport \
+          ~/Library/Developer/Xcode/watchOS\ DeviceSupport \
+          ~/Library/Developer/Xcode/tvOS\ DeviceSupport \
+          /usr/local/share/dotnet ~/.gradle/caches || true
+        df -h /
+
+    - name: Add swap headroom (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Velox translation units can exceed the runner's RAM. Swap turns a
+        # compiler OOM kill into a slow but successful build.
+        if [[ "$(free -m | awk '/^Swap:/ {print $2}')" -lt 2048 ]]; then
+          # Prefer the large scratch volume on hosted runners so the build keeps
+          # the root disk.
+          swap=/swap-pangrova
+          [[ -d /mnt && -w /mnt ]] && swap=/mnt/swap-pangrova
+          sudo fallocate -l 8G "$swap" || \
+            sudo dd if=/dev/zero of="$swap" bs=1M count=8192 status=none
+          sudo chmod 600 "$swap"
+          sudo mkswap "$swap" >/dev/null
+          sudo swapon "$swap" || echo "warning: swap unavailable on this runner; continuing"
+        fi
+        free -h
+
+    - name: Install build tools (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        # cmake/ninja/gcc for CMake; autotools and pkg-config for Velox and
+        # Arrow dependency builds; patchelf for JNI archive checks; curl,
+        # unzip and xz for dependency archives. OpenSSL and zlib headers are
+        # required by the gRPC build that runs before Velox's setup-ubuntu.sh.
+        # gflags is also installed early to verify the system C++ ABI.
+        sudo apt-get install -y --no-install-recommends \
+          build-essential gcc-13 g++-13 cmake ninja-build autoconf automake libtool \
+          pkg-config curl ca-certificates xz-utils unzip zip patch patchelf ripgrep \
+          libssl-dev zlib1g-dev libgflags-dev ccache lld
+        echo "CC=gcc-13" >> "$GITHUB_ENV"
+        echo "CXX=g++-13" >> "$GITHUB_ENV"
+
+    - name: Install build tools (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1
+        # configure_compiler() requires a Clang 15+ toolchain because Velox
+        # rejects AppleClang; bison/flex/autotools support Velox's dependency
+        # builds and the repository bootstrap checks glibtoolize explicitly.
+        # Reuse the image's tools: Intel macOS 15 is Tier 3 for Homebrew and
+        # some formulas have no bottles, so a blanket install can fail where
+        # the image already has a usable version.
+        ensure_tool() {
+          local formula="$1" command="$2"
+          command -v "$command" >/dev/null 2>&1 && return 0
+          brew list --versions "$formula" >/dev/null 2>&1 && return 0
+          brew install "$formula" || brew install --build-from-source "$formula"
+        }
+        ensure_tool cmake cmake
+        ensure_tool ninja ninja
+        ensure_tool autoconf autoconf
+        ensure_tool automake automake
+        ensure_tool libtool glibtoolize
+        ensure_tool pkg-config pkg-config
+        ensure_tool bison bison
+        ensure_tool flex flex
+        ensure_tool ripgrep rg
+
+        select_llvm() {
+          local formula candidate version
+          for formula in llvm@17 llvm llvm@18 llvm@19 llvm@20; do
+            candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
+            [[ -n "$candidate" && "$candidate" != "/" \
+              && "$candidate" != "/usr" && -x "$candidate/bin/clang++" ]] || continue
+            version="$("$candidate/bin/clang++" --version \
+              | sed -n 's/.*clang version \([0-9][0-9]*\).*/\1/p' | head -1)"
+            if [[ "${version:-0}" -ge 15 ]]; then
+              printf '%s\n' "$candidate"
+              return 0
+            fi
+          done
+          return 1
+        }
+        # Prefer the vetted LLVM 17. A no-bottle install failure falls back to
+        # any installed Clang 15+ so Intel macOS 15 can still build.
+        llvm_prefix="$(select_llvm || true)"
+        if [[ -z "$llvm_prefix" ]]; then
+          if brew install llvm@17; then
+            llvm_prefix="$(select_llvm || true)"
+          fi
+        fi
+        if [[ -z "$llvm_prefix" ]]; then
+          echo "ERROR: no usable Homebrew Clang 15+ is installed" >&2
+          exit 1
+        fi
+        sdk_root="$(xcrun --sdk macosx --show-sdk-path)"
+        [[ "$sdk_root" == /* && "$sdk_root" != "/" && -d "$sdk_root/usr/include" ]] || {
+          echo "ERROR: macOS SDK headers not found at $sdk_root" >&2
+          exit 1
+        }
+        echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
+        echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
+        echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
+        for tool in bison flex; do
+          prefix="$(brew --prefix "$tool" 2>/dev/null || true)"
+          if [[ -d "$prefix/bin" ]]; then
+            echo "$prefix/bin" >> "$GITHUB_PATH"
+          fi
+        done
+
+    - name: Install rustup (no default toolchain)
+      shell: bash
+      run: |
+        if ! command -v rustup >/dev/null 2>&1; then
+          installer="$(mktemp -d)/rustup-init"
+          curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$installer"
+          sh "$installer" -y --profile minimal --default-toolchain none
+        fi
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+    - name: Cache Rust toolchains and registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.rustup
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: pangrova-rust-${{ runner.os }}-${{ runner.arch }}-${{ inputs.rust-cache-key || hashFiles('pangrova-worker-native/lance-ffi/rust-toolchain.toml', 'pangrova-worker-native/lance-ffi/Cargo.lock') }}
+        restore-keys: |
+          pangrova-rust-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install the toolchain pinned by rust-toolchain.toml
+      shell: bash
+      working-directory: pangrova-worker-native/lance-ffi
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        # rustup reads rust-toolchain.toml here and installs the exact channel
+        # before any Lance FFI build runs; refuse silent fallback to a
+        # different channel later in the job.
+        cargo --version
+        echo "RUSTUP_AUTO_INSTALL=0" >> "$GITHUB_ENV"
+        rustc --version
+
+    - name: Verify free disk for a cold Velox build
+      shell: bash
+      run: |
+        # A cold dependency + Velox build plus its archives needs roughly 30 GB.
+        available_kb=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
+        available_gb=$((available_kb / 1024 / 1024))
+        echo "Free disk on the runner: ${available_gb} GB"
+        if [[ "$available_gb" -lt 20 ]]; then
+          echo "ERROR: a cold native dependency and Velox build needs at least 20 GB free" >&2
+          exit 1
+        fi
+
+    - name: Verify the native toolchain contract
+      shell: bash
+      run: ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
+
+    - name: Verify Linux system C++ ABI
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        printf '%s\n' \
+          '#include <gflags/gflags.h>' \
+          'int main(int argc, char** argv) {' \
+          '  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);' \
+          '}' \
+          | "$CXX" -std=c++17 -x c++ - -o "$RUNNER_TEMP/pangrova-gflags-abi-check" \
+              -Wl,-Bstatic -lgflags -Wl,-Bdynamic -pthread
+        "$RUNNER_TEMP/pangrova-gflags-abi-check"
+
+    - name: Verify macOS SDK header ordering
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        build_dir="$RUNNER_TEMP/pangrova-macos-sdk-check"
+        cmake -S pangrova-worker-native/cmake/dependency-checks/macos-sdk \
+          -B "$build_dir" -G Ninja \
+          -DCMAKE_CXX_COMPILER="$PANGROVA_LLVM_PREFIX/bin/clang++" \
+          -DCMAKE_PREFIX_PATH="$HOME/.pangrova/native-deps" \
+          -DCMAKE_IGNORE_PATH="/opt/local;/opt/homebrew"
+        cmake --build "$build_dir" --verbose
+        "$build_dir/pangrova_macos_sdk_check"

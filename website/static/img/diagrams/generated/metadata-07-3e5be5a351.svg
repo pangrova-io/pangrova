@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1092" height="3724" viewBox="0 0 1092 3724" role="img">
+<rect width="1092" height="3724" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1090.5" height="3722.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * Catalog handle — the unified abstraction for Catalog operations</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve"> * Three implementations correspond to the three Catalog types:</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve"> * - InternalCatalogHandle: system catalog (SHOW TABLES, system.runtime.*)</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve"> * - ConnectorCatalogHandle: Connector-backed (iceberg, paimon)</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve"> * - FederationCatalogHandle: external Metastore (hms, glue)</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">public interface CatalogHandle {</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    CatalogDescriptor getDescriptor();</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    CatalogState getState();</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    void setState(CatalogState state);</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">    ConnectorMetadata getMetadata(SessionContext session);</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">    ConnectorSplitManager getSplitManager();</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">    ConnectorPageSourceProvider getPageSourceProvider();</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">    default ConnectorPageSinkProvider getPageSinkProvider() {</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Write not supported");</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">    /** health check */</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">    HealthStatus checkHealth();</text>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">    /** close and release resources */</text>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">    void shutdown();</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve"> * Connector-backed Catalog handle</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve"> * Bridges to the Connector SPI (connectors.md §1.2)</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">public class ConnectorCatalogHandle implements CatalogHandle {</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">    private final CatalogDescriptor descriptor;</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">    private final Connector connector;</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">    private volatile CatalogState state;</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">    public ConnectorMetadata getMetadata(SessionContext session) {</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">        return connector.getMetadata(session.toConnectorSession());</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="845.7" fill="#1F2937" xml:space="preserve">    public HealthStatus checkHealth() {</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">        try {</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">            connector.getMetadata(SystemSession.INSTANCE).listSchemaNames(SystemSession.INSTANCE);</text>
+<text x="34.0" y="902.7" fill="#1F2937" xml:space="preserve">            return HealthStatus.HEALTHY;</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">        } catch (Exception e) {</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">            return HealthStatus.unhealthy(e.getMessage());</text>
+<text x="34.0" y="959.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve"> * Federation Catalog handle</text>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve"> * Bridges to the FederatedCatalog SPI (this doc §3.8)</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve"> * Adapts external Metastore metadata to the ConnectorMetadata interface</text>
+<text x="34.0" y="1111.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">public class FederationCatalogHandle implements CatalogHandle {</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">    private final CatalogDescriptor descriptor;</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">    private final FederatedCatalog adapter;</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">    private volatile CatalogState state;</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">    public ConnectorMetadata getMetadata(SessionContext session) {</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">        return new FederationConnectorMetadata(adapter, session);</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1320.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">    public HealthStatus checkHealth() {</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">        try {</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">            adapter.listSchemas();</text>
+<text x="34.0" y="1396.7" fill="#1F2937" xml:space="preserve">            return HealthStatus.HEALTHY;</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">        } catch (Exception e) {</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">            state = CatalogState.DEGRADED;</text>
+<text x="34.0" y="1453.7" fill="#1F2937" xml:space="preserve">            return HealthStatus.unhealthy(e.getMessage());</text>
+<text x="34.0" y="1472.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="1548.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="1567.7" fill="#1F2937" xml:space="preserve"> * FederationConnectorMetadata — Bridges FederatedCatalog to ConnectorMetadata.</text>
+<text x="34.0" y="1586.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="1605.7" fill="#1F2937" xml:space="preserve"> * Delegates read-only metadata operations to FederatedCatalog (§3.8) and throws</text>
+<text x="34.0" y="1624.7" fill="#1F2937" xml:space="preserve"> * UnsupportedOperationException for DDL/write operations not supported through</text>
+<text x="34.0" y="1643.7" fill="#1F2937" xml:space="preserve"> * the federation path.</text>
+<text x="34.0" y="1662.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="1681.7" fill="#1F2937" xml:space="preserve"> * Resolves: IC-MD-005 — FederationConnectorMetadata class definition.</text>
+<text x="34.0" y="1700.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="1719.7" fill="#1F2937" xml:space="preserve"> * Supported/Unsupported method mapping:</text>
+<text x="34.0" y="1738.7" fill="#1F2937" xml:space="preserve"> *   Supported (delegated to FederatedCatalog):</text>
+<path d="M334.0 1748.0 L334.0 1759.0 L345.0 1753.5 z" fill="#D97706"/>
+<text x="34.0" y="1757.7" fill="#1F2937" xml:space="preserve"> *     - listSchemaNames()        adapter.listSchemas()</text>
+<path d="M334.0 1767.0 L334.0 1778.0 L345.0 1772.5 z" fill="#D97706"/>
+<text x="34.0" y="1776.7" fill="#1F2937" xml:space="preserve"> *     - listTables(schema)       adapter.listTables(schema)</text>
+<path d="M334.0 1786.0 L334.0 1797.0 L345.0 1791.5 z" fill="#D97706"/>
+<text x="34.0" y="1795.7" fill="#1F2937" xml:space="preserve"> *     - getTableHandle()         adapter.getTable() != null</text>
+<path d="M334.0 1805.0 L334.0 1816.0 L345.0 1810.5 z" fill="#D97706"/>
+<text x="34.0" y="1814.7" fill="#1F2937" xml:space="preserve"> *     - getTableMetadata()       adapter.getTable()</text>
+<path d="M334.0 1824.0 L334.0 1835.0 L345.0 1829.5 z" fill="#D97706"/>
+<text x="34.0" y="1833.7" fill="#1F2937" xml:space="preserve"> *     - getTableStatistics()     adapter.getTableStatistics()</text>
+<path d="M334.0 1843.0 L334.0 1854.0 L345.0 1848.5 z" fill="#D97706"/>
+<text x="34.0" y="1852.7" fill="#1F2937" xml:space="preserve"> *     - getColumnHandles()       derived from adapter.getTable().columns()</text>
+<text x="34.0" y="1871.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="1890.7" fill="#1F2937" xml:space="preserve"> *   Unsupported (throws UnsupportedOperationException):</text>
+<text x="34.0" y="1909.7" fill="#1F2937" xml:space="preserve"> *     - createSchema(), dropSchema()</text>
+<text x="34.0" y="1928.7" fill="#1F2937" xml:space="preserve"> *     - createTable(), dropTable(), renameTable()</text>
+<text x="34.0" y="1947.7" fill="#1F2937" xml:space="preserve"> *     - alterTable()</text>
+<text x="34.0" y="1966.7" fill="#1F2937" xml:space="preserve"> *     - applyFilter(), applyProjection() (no pushdown for federation)</text>
+<text x="34.0" y="1985.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="2004.7" fill="#1F2937" xml:space="preserve">public class FederationConnectorMetadata implements ConnectorMetadata {</text>
+<text x="34.0" y="2042.7" fill="#1F2937" xml:space="preserve">    private final FederatedCatalog adapter;</text>
+<text x="34.0" y="2061.7" fill="#1F2937" xml:space="preserve">    private final SessionContext session;</text>
+<text x="34.0" y="2099.7" fill="#1F2937" xml:space="preserve">    public FederationConnectorMetadata(FederatedCatalog adapter, SessionContext session) {</text>
+<text x="34.0" y="2118.7" fill="#1F2937" xml:space="preserve">        this.adapter = requireNonNull(adapter, "adapter is null");</text>
+<text x="34.0" y="2137.7" fill="#1F2937" xml:space="preserve">        this.session = requireNonNull(session, "session is null");</text>
+<text x="34.0" y="2156.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2194.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2213.7" fill="#1F2937" xml:space="preserve">    public List&lt;String&gt; listSchemaNames(ConnectorSession session) {</text>
+<text x="34.0" y="2232.7" fill="#1F2937" xml:space="preserve">        return adapter.listSchemas();</text>
+<text x="34.0" y="2251.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2289.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2308.7" fill="#1F2937" xml:space="preserve">    public List&lt;SchemaTableName&gt; listTables(ConnectorSession session, Optional&lt;String&gt; schema) {</text>
+<text x="34.0" y="2327.7" fill="#1F2937" xml:space="preserve">        List&lt;String&gt; schemas = schema.map(List::of).orElseGet(adapter::listSchemas);</text>
+<text x="34.0" y="2346.7" fill="#1F2937" xml:space="preserve">        return schemas.stream()</text>
+<text x="34.0" y="2365.7" fill="#1F2937" xml:space="preserve">            .flatMap(s -&gt; adapter.listTables(s).stream()</text>
+<text x="34.0" y="2384.7" fill="#1F2937" xml:space="preserve">                .map(t -&gt; new SchemaTableName(s, t)))</text>
+<text x="34.0" y="2403.7" fill="#1F2937" xml:space="preserve">            .toList();</text>
+<text x="34.0" y="2422.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2460.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2479.7" fill="#1F2937" xml:space="preserve">    public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {</text>
+<text x="34.0" y="2498.7" fill="#1F2937" xml:space="preserve">        try {</text>
+<text x="34.0" y="2517.7" fill="#1F2937" xml:space="preserve">            TableMetadata meta = adapter.getTable(tableName.getSchemaName(), tableName.getTableName());</text>
+<text x="34.0" y="2536.7" fill="#1F2937" xml:space="preserve">            return new FederationTableHandle(tableName, meta);</text>
+<text x="34.0" y="2555.7" fill="#1F2937" xml:space="preserve">        } catch (TableNotFoundException e) {</text>
+<text x="34.0" y="2574.7" fill="#1F2937" xml:space="preserve">            return null;</text>
+<text x="34.0" y="2593.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="2612.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2650.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2669.7" fill="#1F2937" xml:space="preserve">    public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {</text>
+<text x="34.0" y="2688.7" fill="#1F2937" xml:space="preserve">        FederationTableHandle handle = (FederationTableHandle) table;</text>
+<text x="34.0" y="2707.7" fill="#1F2937" xml:space="preserve">        TableMetadata meta = handle.getMetadata();</text>
+<text x="34.0" y="2726.7" fill="#1F2937" xml:space="preserve">        return MetadataModelConverter.toConnectorTableMetadata(meta);</text>
+<text x="34.0" y="2745.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2783.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2802.7" fill="#1F2937" xml:space="preserve">    public Map&lt;String, ColumnHandle&gt; getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {</text>
+<text x="34.0" y="2821.7" fill="#1F2937" xml:space="preserve">        FederationTableHandle handle = (FederationTableHandle) table;</text>
+<text x="34.0" y="2840.7" fill="#1F2937" xml:space="preserve">        return handle.getMetadata().columns().stream()</text>
+<text x="34.0" y="2859.7" fill="#1F2937" xml:space="preserve">            .collect(Collectors.toMap(</text>
+<text x="34.0" y="2878.7" fill="#1F2937" xml:space="preserve">                ColumnMetadata::name,</text>
+<text x="34.0" y="2897.7" fill="#1F2937" xml:space="preserve">                col -&gt; new FederationColumnHandle(col.name(), col.type())));</text>
+<text x="34.0" y="2916.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2954.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="2973.7" fill="#1F2937" xml:space="preserve">    public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {</text>
+<text x="34.0" y="2992.7" fill="#1F2937" xml:space="preserve">        FederationTableHandle handle = (FederationTableHandle) table;</text>
+<text x="34.0" y="3011.7" fill="#1F2937" xml:space="preserve">        SchemaTableName name = handle.getTableName();</text>
+<text x="34.0" y="3030.7" fill="#1F2937" xml:space="preserve">        return adapter.getTableStatistics(name.getSchemaName(), name.getTableName());</text>
+<text x="34.0" y="3049.7" fill="#1F2937" xml:space="preserve">    }</text>
+<line x1="99.8" y1="3083.5" x2="109.2" y2="3083.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="3083.5" x2="118.6" y2="3083.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="438.2" y1="3083.5" x2="447.6" y2="3083.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="447.6" y1="3083.5" x2="457.0" y2="3083.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="3087.7" fill="#1F2937" xml:space="preserve">    //    Unsupported DDL/Write operations</text>
+<text x="34.0" y="3125.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3144.7" fill="#1F2937" xml:space="preserve">    public void createSchema(ConnectorSession s, String schema, Map&lt;String, Object&gt; props) {</text>
+<text x="34.0" y="3163.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3182.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3220.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3239.7" fill="#1F2937" xml:space="preserve">    public void dropSchema(ConnectorSession s, String schema) {</text>
+<text x="34.0" y="3258.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3277.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3315.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3334.7" fill="#1F2937" xml:space="preserve">    public void createTable(ConnectorSession s, ConnectorTableMetadata meta, boolean ignoreExisting) {</text>
+<text x="34.0" y="3353.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3372.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3410.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3429.7" fill="#1F2937" xml:space="preserve">    public void dropTable(ConnectorSession s, ConnectorTableHandle table) {</text>
+<text x="34.0" y="3448.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3467.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3505.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3524.7" fill="#1F2937" xml:space="preserve">    public void renameTable(ConnectorSession s, ConnectorTableHandle table, SchemaTableName newName) {</text>
+<text x="34.0" y="3543.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3562.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3600.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="3619.7" fill="#1F2937" xml:space="preserve">    public void alterTable(ConnectorSession s, ConnectorTableHandle table, List&lt;SchemaChange&gt; changes) {</text>
+<text x="34.0" y="3638.7" fill="#1F2937" xml:space="preserve">        throw new UnsupportedOperationException("Federation catalogs are read-only");</text>
+<text x="34.0" y="3657.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="3676.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

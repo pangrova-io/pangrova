@@ -1,5 +1,6 @@
 ---
 title: "Operations"
+description: "Operational entry points, day-2 tasks, runbooks, and game-day scenarios"
 sidebar_position: 1
 ---
 
@@ -35,18 +36,61 @@ sidebar_position: 1
 | Resilience & SOPs | [Resilience](../architecture/resilience.md) |
 | Game Day Exercises | [Game Day](game-day/index.md) |
 
+## Release Verification
+
+Run these checks before promoting a build:
+
+```bash
+# Clean distribution artifacts and scan for retired classes
+mvn clean package -DskipTests
+find . -path '*/target/*.jar' -exec unzip -l {} \; | grep -E 'org/pangrova/metadata/(store|checkpoint|generation)/' && exit 1
+
+# Unit regression without the integration module (E2E needs a prepared AI image fixture).
+# Run serially: parallel -T aborts on the first failing module and can skip later modules.
+mvn test -fae -pl '!pangrova-testing/pangrova-testing-integration-tests'
+
+# SBOM
+mvn -P sbom -DskipTests verify
+```
+
+A two-node smoke requires the shared internal auth secret, PostgreSQL authority,
+and Worker spill directory first (see
+[Security configuration](../configuration/security.md#internal-authentication-coordinator--worker)
+and [Worker configuration](../configuration/worker.md)). Then start PostgreSQL,
+let a Coordinator run the canonical schema migrations, register one Catalog,
+start the Worker, wait for
+`GET /v1/health` to return `"ready":true`, then run a query through
+`bin/pangrova-cli.sh`. Stop both processes before deleting the database.
+
+For a cross-version rollback rehearsal, build the previous release, stop the new
+processes, start the previous Coordinator against the same migrated database,
+and verify `/v1/health/live` returns 200 before resuming traffic.
+
+## Software Bill of Materials
+
+Generate an aggregate CycloneDX 1.5 SBOM for all reactor modules and their
+runtime dependencies:
+
+```bash
+mvn -P sbom -DskipTests verify
+```
+
+The result is written to `target/bom.json` at the repository root. The `sbom`
+profile is opt-in and does not affect normal development builds; attach the
+generated file to release artifacts and archive it with the release evidence.
+
 ## Quick Reference
 
 ```bash
 # Health check
 curl -f http://localhost:8080/v1/health
 
-# Start standalone
-bin/pangrova-standalone.sh
+# Start standalone with a prepared configuration (see Quickstart)
+bin/pangrova-standalone.sh --config /path/to/standalone-local.yml
 
-# Start distributed
-bin/pangrova-coordinator.sh --daemon
-bin/pangrova-worker.sh --daemon
+# Start distributed with prepared role configurations
+bin/pangrova-coordinator.sh --config /etc/pangrova/coordinator.yml --daemon
+bin/pangrova-worker.sh --config /etc/pangrova/worker.yml --daemon
 
 # Stop all
 bin/pangrova-stop.sh --all
@@ -56,5 +100,8 @@ cd deploy/docker && docker compose up -d
 
 # Kubernetes
 helm install pangrova deploy/helm/pangrova \
-  --namespace pangrova --create-namespace
+  --namespace pangrova --create-namespace \
+  --set developmentMode=true
 ```
+`developmentMode=true` selects the embedded NOOP profile for local evaluation.
+Configure OAUTH2 or LDAP and remove it for production.

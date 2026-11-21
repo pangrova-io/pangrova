@@ -11,7 +11,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for pull-mode split protocol DTOs and splitMode field on SubmitTaskRequest.
+ * Tests for the pull-mode split transport protocol. Task execution semantics
+ * live exclusively in canonical v2 and are not mirrored in this REST API.
  */
 class SplitProtocolTest {
 
@@ -57,30 +58,4 @@ class SplitProtocolTest {
         assertEquals(List.of("host-a"), resp.dataLocations());
     }
 
-    @Test
-    void submitTaskRequestSplitModeDefaultsToNull() {
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                "t1", "q1", 0, 0, "COMPUTE", "plan",
-                List.of(), List.of(), null, null, null, null,
-                null, null, null, null, null, null, null);
-        assertNull(req.splitMode());
-    }
-
-    @Test
-    void submitTaskRequestSplitModePull() {
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                "t1", "q1", 0, 0, "COMPUTE", "plan",
-                List.of(), List.of(), null, null, null, null,
-                null, null, "PULL", null, null, null, null);
-        assertEquals("PULL", req.splitMode());
-    }
-
-    @Test
-    void submitTaskRequest14ArgConstructorDefaultsSplitModeToNull() {
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                "t1", "q1", 0, 0, "COMPUTE", "plan",
-                List.of(), List.of(), null, null, null, null,
-                List.of(), null, null, null, null, null, null);
-        assertNull(req.splitMode());
-    }
 }

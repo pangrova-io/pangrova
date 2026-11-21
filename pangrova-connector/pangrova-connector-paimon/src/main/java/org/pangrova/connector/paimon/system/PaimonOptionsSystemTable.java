@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.paimon.table.Table;
 
 /**
@@ -25,7 +25,7 @@ public final class PaimonOptionsSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return COLUMNS;
+        return List.copyOf(COLUMNS);
     }
 
     @Override

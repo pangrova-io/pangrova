@@ -12,10 +12,15 @@
 // Placement: vector/diskann/ — Native disk-resident vector index.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
+
+#include "engine/resource/OwnerMemoryResource.h"
 
 namespace pangrova::vector::diskann {
 
@@ -51,6 +56,12 @@ struct SearchResult {
   float distance;
 };
 
+/** Actual graph work, independent of the number of SQL result rows. */
+struct GraphTraversalStats {
+  uint64_t expanded = 0;
+  bool frontier_exhausted = false;
+};
+
 class VamanaIndex {
  public:
   VamanaIndex(VamanaConfig config, std::string indexPath);
@@ -62,9 +73,31 @@ class VamanaIndex {
   void build(const float* vectors, int64_t numVectors, int64_t dimension);
 
   std::vector<SearchResult> search(
-      const float* query, int64_t topK, int64_t beamWidth = 0) const;
+      const float* query,
+      int64_t topK,
+      int64_t beamWidth = 0,
+      int64_t searchListSize = 0) const;
 
-  bool loadFromDisk(const std::string& path);
+  /**
+   * Visits nodes in the genuine PQ-guided graph walk. The visitor decides
+   * candidate eligibility; ineligible nodes still expose their neighbors.
+   * Both frontier and visited allocations belong to the caller's resource.
+   * checkpoint must propagate cancellation/deadline failures; neither this
+   * function nor its callers may switch to another execution plan.
+   */
+  GraphTraversalStats traverse(
+      const float* query,
+      uint64_t max_expanded,
+      pangrova::resource::OwnerMemoryResource& resource,
+      const std::function<void()>& checkpoint,
+      const std::function<void(int64_t, float)>& visitor) const;
+
+  /** Reads the immutable graph's declared process-resident footprint. */
+  static std::optional<uint64_t> residentBytesFromDisk(
+      const std::string& path, int64_t expectedDimension);
+
+  /** Loads only when every resident allocation fits inside maxResidentBytes. */
+  bool loadFromDisk(const std::string& path, uint64_t maxResidentBytes);
   bool saveToDisk(const std::string& path) const;
 
   // Read a full-precision vector from the companion .vecs file on SSD.
@@ -75,6 +108,8 @@ class VamanaIndex {
   int64_t dimension() const { return config_.dimension; }
   int64_t medoid() const { return medoid_; }
   const std::string& indexPath() const { return indexPath_; }
+  /** Process-resident graph/PQ bytes used for node-level cache admission. */
+  uint64_t memoryBytes() const;
 
  private:
   void buildVamanaGraph(const float* vectors);
@@ -87,6 +122,9 @@ class VamanaIndex {
 
   VamanaConfig config_;
   std::string indexPath_;
+  // Companion .vecs descriptor, opened on first rerank read. pread() is
+  // thread-safe, so concurrent searches share it without a lock or seek.
+  mutable std::atomic<int> vecsFd_{-1};
   int64_t numVectors_ = 0;
   int64_t medoid_ = 0;
 

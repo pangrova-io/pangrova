@@ -24,7 +24,7 @@ http://<coordinator-host>:<port>/v1
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
-| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON) |
+| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON); operator tree comes from real task telemetry and is empty with `telemetryAvailable=false` when none was retained |
 | `GET` | `/v1/health` | Health check (`503` when not ready) |
 | `POST` | `/v1/workers/register` | Worker registration (internal) |
 | `POST` | `/v1/worker/heartbeat` | Worker heartbeat (internal) |
@@ -54,21 +54,30 @@ Response:
 {
   "query_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "state": "QUEUED",
-  "result_endpoint": {
-    "host": "worker-1",
-    "port": 9090,
-    "ticket": "exchange-ticket-xyz",
-    "protocol": "arrow_flight"
-  },
-  "column_names": ["id", "name", "amount"]
+  "result_endpoint": null,
+  "column_names": []
 }
 ```
 
-The `result_endpoint` points to the Worker serving results via Arrow Flight
-transport (`ticket` identifies the Flight ticket; `protocol` identifies the
-result transport). The `session_properties` field is optional and defaults to an
-empty map. Retried submissions can be deduplicated by sending an
-`Idempotency-Key` header; a retry with the same key resolves to the same query.
+The initial receipt can have a null `result_endpoint` and no column names while
+planning is pending. Poll the state endpoint until the result endpoint is available.
+It identifies the Worker serving Arrow Flight results (`ticket` is opaque and
+`protocol` identifies the transport). Consume a readable `RUNNING` or `FINISHING`
+stream before waiting for `FINISHED`; bounded output can require an active reader
+to finish. The `session_properties` field is optional and defaults to an
+empty map. When an authenticated principal submits an `Idempotency-Key`, the
+Coordinator retains the original submission receipt for ten minutes after completion.
+A retry with the same SQL and session properties returns that receipt, including its
+original state and result endpoint. Poll the state endpoint for later transitions.
+Changing the SQL or session properties with the same key returns HTTP 409. Each
+principal has an independent key space. Concurrent matching requests share the first
+submission.
+
+A rejection before query registration, such as a draining Coordinator, releases the
+key. If the submission throws after registration or registration cannot be confirmed,
+the Coordinator preserves the error for the same retention window and returns
+`X-Pangrova-Query-Id` so the client can look up the execution. These guarantees cover
+one running Coordinator. Restart and failover discard its in-memory submission keys.
 
 ### Query Lifecycle
 
@@ -92,11 +101,14 @@ Response:
 {
   "query_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "state": "FINISHED",
-  "error": null,
   "stats": { "elapsed_time_ms": 1234, "queued_time_ms": 12, "rows_returned": 100 },
   "result_endpoint": { "host": "worker-1", "port": 9090, "ticket": "...", "protocol": "arrow_flight" }
 }
 ```
+
+Absent optional `error`, `stats`, and `result_endpoint` fields are omitted from
+state responses rather than serialized as null. Field availability depends on
+the current query state and retained execution evidence.
 
 ### Cancel a Query
 
@@ -121,16 +133,17 @@ All error responses use a consistent format:
 ```json
 {
   "error_code": "NOT_FOUND",
-  "error_type": null,
+  "error_type": "USER_ERROR",
   "message": "Query not found: invalid-id"
 }
 ```
 
 | HTTP Status | Error Code | Meaning |
 |-------------|-----------|---------|
-| 400 | `INVALID_REQUEST` | Malformed request (missing query field) |
+| 400 | `BAD_REQUEST` | Malformed request (missing query field) |
 | 404 | `NOT_FOUND` | Query ID not found |
 | 409 | `CONFLICT` | Unregistered worker (registration conflict) |
+| 422 | `API_VERSION_UNSUPPORTED` | Invalid or unsupported API version on a version-checked endpoint |
 | 500 | `INTERNAL_ERROR` | Server-side failure |
 
 ### Authentication Headers
@@ -138,8 +151,8 @@ All error responses use a consistent format:
 | Header | Description |
 |--------|-------------|
 | `Authorization: Bearer <jwt-token>` | JWT authentication |
-| `Authorization: Basic <user:password>` | Password authentication |
-| `X-Pangrova-Api-Version` | Requested API version; responses always echo the negotiated version |
+| `Authorization: Basic <base64(user:password)>` | Base64-encoded UTF-8 credentials for password authentication; use TLS |
+| `X-Pangrova-Api-Version` | Clients send their API version. The response advertises the server’s current version. |
 | `X-Pangrova-Request-Id` | Client-generated request ID for tracing and idempotent retries |
 | `Idempotency-Key` | Deduplicates retried `POST /v1/query/submit` requests |
 
@@ -169,13 +182,31 @@ Returns `200` when the node is ready and `503` otherwise:
 For queries returning large result sets, the REST API returns a `result_endpoint` pointing to the Worker serving results via Arrow Flight transport. The client fetches results in batches:
 
 ```
-1. POST /v1/query/submit → get query_id + result_endpoint
-2. Connect to result_endpoint via Arrow Flight
-3. Stream result batches (Arrow RecordBatch)
-4. Close Flight connection when done
+1. POST /v1/query/submit and retain query_id.
+2. Poll /v1/query/{queryId}/state until a readable result_endpoint is available.
+3. Consume Arrow Flight batches through EOF while the query is RUNNING or FINISHING.
+4. Confirm FINISHED; treat FAILED or CANCELLED as failure, even after partial output.
+5. Close the result reader and client.
 ```
 
 This architecture avoids loading entire result sets into Coordinator memory.
+
+For the Java REST client, `useTls(true)` with `trustStorePath` loads the configured
+JKS/PKCS12 trust store into the HTTPS context. A store requires HTTPS; an orphan
+store password, missing file, or invalid password is rejected. A supplied shared
+`HttpClient` cannot be combined with a configured store because its immutable trust
+policy cannot be overwritten. Result transport uses independent PEM credentials.
+`httpExecutorThreads(n)` sets a positive owned HTTP executor size independent of
+failover endpoint count. Combining it with a supplied shared `HttpClient` is
+rejected instead of ignoring the executor configuration.
+Closing seals HTTP admission and refuses to retire an executor while a real request
+is active; retry after the request exits. JDK 17 exposes no HTTP socket close/drain
+API, so executor termination must not be presented as a physical network receipt.
+Query cancellation rejects HTTP authentication/authorization/server errors and
+malformed or conflicting replies. Logical outcomes require the exact requested
+`query_id`, boolean `cancelled` and outcome to match the service's 200/202/404
+contract. `CANCEL_ACCEPTED`, `ALREADY_TERMINAL` and `NOT_FOUND` are not physical
+execution or network-drain evidence; even a 404 from an unrelated proxy is rejected.
 
 ### Troubleshooting
 
@@ -183,6 +214,6 @@ This architecture avoids loading entire result sets into Coordinator memory.
 |-------|-------|-----|
 | `Connection refused` | Coordinator not running or wrong host/port | Verify with `curl http://host:port/v1/health` |
 | `SQLException: query field is required` | Empty query string | Ensure query is not null or blank |
-| `SSL handshake failed` | Wrong trust store or self-signed cert | Configure `sslTrustStore` and `sslTrustStorePassword` |
-| Slow first query | JIT warmup on Coordinator | Expected; subsequent queries will be faster |
-| `Query not found` after submit | Query completed and result expired | Increase `worker.task.result-retention-seconds` |
+| `SSL handshake failed` | Wrong trust roots, missing client certificate, or hostname mismatch | REST HTTPS uses `sslTrustStore`/`sslTrustStorePassword`; result transport uses independent PEM `ResultTransportSecurity` trust roots and a paired client certificate/key for mutual TLS |
+| Slow first query | Possible JVM warmup, cold caches, Native initialization, or storage latency | Inspect the query profile and logs; do not assume subsequent queries will be faster |
+| `Query not found` after submit | Query was removed or results are no longer available | Inspect query status and result authorization deadline; Worker terminal retention does not extend either |

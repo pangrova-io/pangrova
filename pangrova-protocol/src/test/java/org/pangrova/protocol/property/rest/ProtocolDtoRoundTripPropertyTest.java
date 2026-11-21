@@ -9,28 +9,31 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
-import org.pangrova.protocol.rest.config.NativeInitConfig;
+import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.rest.config.OutputConfig;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.data.DataFile;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.protocol.rest.query.QueryStats;
-import org.pangrova.protocol.rest.query.QueryStatusResponse;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.SubmitQueryRequest;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
-import org.pangrova.protocol.rest.task.ExchangeSourceDescriptor;
+import org.pangrova.common.client.error.ErrorDetail;
+import org.pangrova.common.client.query.QueryStats;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.query.SubmitQueryRequest;
+import org.pangrova.common.client.query.SubmitQueryResponse;
+import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.task.OperatorStats;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.TaskStats;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.rest.task.TaskStatusResponse;
-import org.pangrova.protocol.rest.task.UpdateExchangeSourcesRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.v2.StageResourceGrant;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.TaskExecutionOptions;
+import org.pangrova.protocol.v2.TaskKind;
 
 import java.util.List;
 import java.util.Map;
@@ -52,44 +55,30 @@ class ProtocolDtoRoundTripPropertyTest {
     // --- config/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
-    void resourceLimitRoundTrip(
-            @ForAll("resourceLimits") ResourceLimitPayload original) {
-        assertRoundTrip(original, ResourceLimitPayload.class);
-    }
-
-    @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void writeConfigRoundTrip(
             @ForAll("writeConfigs") WriteConfig original) {
         assertRoundTrip(original, WriteConfig.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void outputConfigRoundTrip(
             @ForAll("outputConfigs") OutputConfig original) {
         assertRoundTrip(original, OutputConfig.class);
     }
 
-    @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
-    void nativeInitConfigRoundTrip(
-            @ForAll("nativeInitConfigs") NativeInitConfig original) {
-        assertRoundTrip(original, NativeInitConfig.class);
-    }
-
     // --- data/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void dataFileRoundTrip(
             @ForAll("dataFiles") DataFile original) {
         assertRoundTrip(original, DataFile.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void writeResultRoundTrip(
             @ForAll("writeResults") WriteResultDescriptor original) {
         assertRoundTrip(original, WriteResultDescriptor.class);
@@ -98,7 +87,7 @@ class ProtocolDtoRoundTripPropertyTest {
     // --- error/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void errorDetailRoundTrip(
             @ForAll("errorDetails") ErrorDetail original) {
         assertRoundTrip(original, ErrorDetail.class);
@@ -107,35 +96,35 @@ class ProtocolDtoRoundTripPropertyTest {
     // --- query/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void queryStatsRoundTrip(
             @ForAll("queryStatsList") QueryStats original) {
         assertRoundTrip(original, QueryStats.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void submitQueryRequestRoundTrip(
             @ForAll("submitQueryRequests") SubmitQueryRequest original) {
         assertRoundTrip(original, SubmitQueryRequest.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void submitQueryResponseRoundTrip(
             @ForAll("submitQueryResponses") SubmitQueryResponse original) {
         assertRoundTrip(original, SubmitQueryResponse.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void queryStatusResponseRoundTrip(
             @ForAll("queryStatusResponses") QueryStatusResponse original) {
         assertRoundTrip(original, QueryStatusResponse.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void resultEndpointRoundTrip(
             @ForAll("resultEndpoints") ResultEndpoint original) {
         assertRoundTrip(original, ResultEndpoint.class);
@@ -144,72 +133,65 @@ class ProtocolDtoRoundTripPropertyTest {
     // --- task/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void operatorStatsRoundTrip(
             @ForAll("operatorStatsList") OperatorStats original) {
         assertRoundTrip(original, OperatorStats.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void exchangeSourceRoundTrip(
             @ForAll("exchangeSources") ExchangeSourceDescriptor original) {
         assertRoundTrip(original, ExchangeSourceDescriptor.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void taskStatsRoundTrip(
             @ForAll("taskStatsList") TaskStats original) {
         assertRoundTrip(original, TaskStats.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void submitTaskRequestRoundTrip(
             @ForAll("submitTaskRequests") SubmitTaskRequest original) {
         assertRoundTrip(original, SubmitTaskRequest.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void submitTaskResponseRoundTrip(
             @ForAll("submitTaskResponses") SubmitTaskResponse original) {
         assertRoundTrip(original, SubmitTaskResponse.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void taskStatusReportRoundTrip(
             @ForAll("taskStatusReports") TaskStatusReport original) {
         assertRoundTrip(original, TaskStatusReport.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void taskStatusReportResponseRoundTrip(
             @ForAll("taskStatusReportResponses") TaskStatusReportResponse original) {
         assertRoundTrip(original, TaskStatusReportResponse.class);
     }
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void taskStatusResponseRoundTrip(
             @ForAll("taskStatusResponses") TaskStatusResponse original) {
         assertRoundTrip(original, TaskStatusResponse.class);
     }
 
-    @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
-    void updateExchangeSourcesRequestRoundTrip(
-            @ForAll("updateExchangeSourcesRequests") UpdateExchangeSourcesRequest original) {
-        assertRoundTrip(original, UpdateExchangeSourcesRequest.class);
-    }
-
     // --- worker/ package ---
 
     @Property(tries = 10)
-    @Tag("Property 31: Protocol DTO Round-Trip")
+    @Tag("protocol-dto-round-trip")
     void workerRegistrationRequestRoundTrip(
             @ForAll("workerRegistrationRequests") WorkerRegistrationRequest original) {
         assertRoundTrip(original, WorkerRegistrationRequest.class);
@@ -220,13 +202,17 @@ class ProtocolDtoRoundTripPropertyTest {
     // --- Leaf generators ---
 
     @Provide
-    Arbitrary<ResourceLimitPayload> resourceLimits() {
+    Arbitrary<StageResourceGrant> resourceGrants() {
         return Combinators.combine(
-                Arbitraries.longs().between(0, 64L * 1024 * 1024 * 1024),
+                Arbitraries.longs().between(1, 64L * 1024 * 1024 * 1024),
                 Arbitraries.integers().between(1, 128),
-                Arbitraries.longs().between(0, 128L * 1024 * 1024 * 1024),
-                Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(30)
-        ).as(ResourceLimitPayload::new);
+                Arbitraries.longs().between(0, 128L * 1024 * 1024 * 1024)
+        ).as((memory, cpu, spill) -> StageResourceGrant.newBuilder()
+                .setGrantId("property-task:grant")
+                .setNativeMemoryBytes(memory)
+                .setCpuSlots(cpu)
+                .setSpillBytes(spill)
+                .build());
     }
 
     @Provide
@@ -248,19 +234,8 @@ class ProtocolDtoRoundTripPropertyTest {
                         .list().ofMinSize(0).ofMaxSize(3),
                 Arbitraries.of("PARQUET", "ORC"),
                 Arbitraries.longs().between(1024, 256L * 1024 * 1024)
-        ).as(WriteConfig::new);
-    }
-
-    @Provide
-    Arbitrary<NativeInitConfig> nativeInitConfigs() {
-        return Combinators.combine(
-                Arbitraries.longs().between(1, 64L * 1024 * 1024 * 1024),
-                Arbitraries.integers().between(1, 64),
-                Arbitraries.of(true, false),
-                Arbitraries.longs().between(0, 32L * 1024 * 1024 * 1024),
-                Arbitraries.longs().between(0, 200L * 1024 * 1024 * 1024),
-                Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(30)
-        ).as(NativeInitConfig::new);
+        ).as((target, mode, partitions, format, size) ->
+                new WriteConfig(target, mode, partitions, format, size, "binding"));
     }
 
     @Provide
@@ -279,7 +254,7 @@ class ProtocolDtoRoundTripPropertyTest {
                 dataFiles().list().ofMinSize(0).ofMaxSize(3),
                 Arbitraries.longs().between(0, 100_000_000),
                 Arbitraries.longs().between(0, 10L * 1024 * 1024 * 1024)
-        ).as((files, rows, bytes) -> new WriteResultDescriptor(files, rows, bytes, new byte[0]));
+        ).as((files, rows, bytes) -> new WriteResultDescriptor(files, rows, bytes, new byte[0], java.util.List.of()));
     }
 
     @Provide
@@ -368,7 +343,9 @@ class ProtocolDtoRoundTripPropertyTest {
                 Arbitraries.integers().between(0, 100),
                 Arbitraries.of("SHUFFLE", "BROADCAST", "REPLICATE"),
                 Arbitraries.longs().between(0, 1_000_000)
-        ).as(ExchangeSourceDescriptor::new);
+        ).as((taskId, host, port, partition, ignoredExchangeType, epoch) ->
+                org.pangrova.protocol.rest.task.ProtocolTestFixtures.exchangeSource(
+                        taskId, host, port, partition, "BLOCKING", epoch));
     }
 
     @Provide
@@ -389,7 +366,12 @@ class ProtocolDtoRoundTripPropertyTest {
                                 Math.abs(rowsRead % (4L * 1024 * 1024)),
                                 Math.abs(rowsRead % 1_000_000),
                                 Math.abs(rowsRead % 2_000_000),
-                                ops)));
+                                ops,
+                                Math.abs(rowsRead % 10_000),
+                                Math.abs(rowsRead % 1_000),
+                                Math.abs(rowsRead % 1_000),
+                                Math.abs(rowsRead % 1_000),
+                                Math.abs(rowsRead % 1_000))));
     }
 
     @Provide
@@ -404,18 +386,29 @@ class ProtocolDtoRoundTripPropertyTest {
         .flatMap(tuple -> Combinators.combine(
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(20)
                         .list().ofMinSize(0).ofMaxSize(3),
-                exchangeSources().list().ofMinSize(0).ofMaxSize(2),
-                resourceLimits(),
-                sessionProperties(),
-                outputConfigs().injectNull(0.3),
-                writeConfigs().injectNull(0.5)
-        ).as((splits, exSources, rl, sp, oc, wc) ->
-                new SubmitTaskRequest(
-                        tuple.id, tuple.queryId, tuple.stageId,
-                        tuple.partitionId, tuple.taskType,
-                        "plan-fragment-base64",
-                        splits, exSources, rl, sp, oc, wc,
-                        null, null, null, null, null, null, null)));
+                resourceGrants(),
+                sessionProperties()
+        ).as((splits, grant, sessionProperties) -> {
+            TaskKind kind = switch (tuple.taskType) {
+                case "WRITE" -> TaskKind.TASK_KIND_WRITE;
+                case "SHUFFLE" -> TaskKind.TASK_KIND_SHUFFLE_READ;
+                default -> TaskKind.TASK_KIND_READ;
+            };
+            var canonical = CanonicalTaskRequestTestFixture.builder(
+                            tuple.id, tuple.queryId, kind,
+                            "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    .setAttempt(CanonicalTaskRequestTestFixture.builder(
+                                    tuple.id, tuple.queryId, kind, new byte[]{1})
+                            .getAttempt().toBuilder()
+                            .setStageId(tuple.stageId)
+                            .setPartitionId(tuple.partitionId))
+                    .setResourceGrant(grant)
+                    .setExecutionOptions(TaskExecutionOptions.newBuilder()
+                            .putAllSessionProperties(sessionProperties));
+            splits.forEach(split -> canonical.addSplits(
+                    DataSplit.newBuilder().setSplitId(split)));
+            return SubmitTaskRequest.from(canonical.build());
+        }));
     }
 
     @Provide
@@ -425,7 +418,8 @@ class ProtocolDtoRoundTripPropertyTest {
                 Arbitraries.strings().alpha().ofMinLength(0).ofMaxLength(30).injectNull(0.5),
                 nonBlankString(),
                 resultEndpoints().injectNull(0.5)
-        ).as(SubmitTaskResponse::new);
+        ).as((accepted, reason, taskId, endpoint) ->
+                new SubmitTaskResponse(accepted, reason, taskId, endpoint, null));
     }
 
     @Provide
@@ -449,7 +443,8 @@ class ProtocolDtoRoundTripPropertyTest {
                 new TaskStatusReport(
                         tuple.id, tuple.queryId, tuple.stageId,
                         tuple.partitionId, tuple.taskType,
-                        workerId, state, stats, error, wr, seq, ts)));
+                        workerId, state, stats, error, wr, seq, ts,
+                        null, null, TaskAttemptDescriptor.of(1, 0))));
     }
 
     @Provide
@@ -471,26 +466,13 @@ class ProtocolDtoRoundTripPropertyTest {
     }
 
     @Provide
-    Arbitrary<UpdateExchangeSourcesRequest> updateExchangeSourcesRequests() {
-        return Combinators.combine(
-                nonBlankString(),
-                nonBlankString(),
-                exchangeSources().list().ofMinSize(0).ofMaxSize(3),
-                Arbitraries.of("NEW_STAGE_OUTPUT", "RETRY", "REBALANCE")
-        ).as(UpdateExchangeSourcesRequest::new);
-    }
-
-    @Provide
     Arbitrary<WorkerRegistrationRequest> workerRegistrationRequests() {
         return Combinators.combine(
                 nonBlankString(),
                 nonBlankString(),
                 Arbitraries.integers().between(1, 65535),
                 Arbitraries.integers().between(1, 65535),
-                Arbitraries.integers().between(0, 65535),
-                Arbitraries.integers().between(1, 10),
-                Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(10)
-                        .list().ofMinSize(0).ofMaxSize(3)
+                Arbitraries.integers().between(0, 65535)
         ).as(WorkerBaseTuple::new)
         .flatMap(tuple -> Combinators.combine(
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(10).injectNull(0.3),
@@ -500,8 +482,9 @@ class ProtocolDtoRoundTripPropertyTest {
                 new WorkerRegistrationRequest(
                         tuple.workerId, tuple.httpHost, tuple.httpPort,
                         tuple.transportPort, tuple.resultServerPort,
-                        tuple.protocolVersion, tuple.capabilities,
-                        rackId, dataLocality, null)));
+                        2, rackId, dataLocality, null,
+                        org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture
+                                .encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"))));
     }
 
     // ========== Intermediate tuple records for flatMap ==========
@@ -512,8 +495,7 @@ class ProtocolDtoRoundTripPropertyTest {
 
     private record WorkerBaseTuple(
             String workerId, String httpHost, int httpPort,
-            int transportPort, int resultServerPort,
-            int protocolVersion, List<String> capabilities) {}
+            int transportPort, int resultServerPort) {}
 
     // ========== Helpers ==========
 

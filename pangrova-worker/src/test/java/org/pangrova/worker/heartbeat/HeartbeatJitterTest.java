@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Uses real HeartbeatSender instance with package-private nextIntervalMs().
  */
 class HeartbeatJitterTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     private static final long BASE_INTERVAL_MS = 5_000;
     private static final int SAMPLE_COUNT = 1_000;
@@ -82,6 +84,6 @@ class HeartbeatJitterTest {
     }
 
     private static HeartbeatPayload dummyPayload() {
-        return new HeartbeatPayload("worker-jitter-test", "NONE", 0.5, 0, 1024L * 1024 * 1024);
+        return new HeartbeatPayload("worker-jitter-test", "NONE", 0.5, 0, 1024L * 1024 * 1024, HEARTBEAT_IDENTITY);
     }
 }

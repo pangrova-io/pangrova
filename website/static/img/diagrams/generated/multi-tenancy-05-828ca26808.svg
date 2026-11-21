@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="942" height="1634" viewBox="0 0 942 1634" role="img">
+<rect width="942" height="1634" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="940.5" height="1632.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * Quota checker</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">public class QuotaChecker {</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    private final TenantStore tenantStore;</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">    private final UsageStore usageStore;</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">    /**</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">     * Check quota before query submission</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">     */</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    public QuotaCheckResult checkBeforeSubmit(QueryContext context) {</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">        Tenant tenant = context.getTenant();</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">        ResourceQuota quota = tenant.getQuota();</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">        TenantUsage todayUsage = usageStore.getTodayUsage(tenant.getTenantId());</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">        List&lt;String&gt; violations = new ArrayList&lt;&gt;();</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">        // Check concurrent query count</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">        int runningQueries = getRunningQueryCount(tenant.getTenantId());</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">        if (runningQueries &gt;= quota.getMaxConcurrentQueries()) {</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">            violations.add("Concurrent query limit exceeded: " +</text>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">                           runningQueries + "/" + quota.getMaxConcurrentQueries());</text>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">        // Check queued query count</text>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve">        int queuedQueries = getQueuedQueryCount(tenant.getTenantId());</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">        if (queuedQueries &gt;= quota.getMaxQueuedQueries()) {</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">            violations.add("Query queue limit exceeded: " +</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">                           queuedQueries + "/" + quota.getMaxQueuedQueries());</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">        // Check daily query count</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">        if (todayUsage.getQueryCount() &gt;= quota.getMaxDailyQueryCount()) {</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">            violations.add("Daily query count limit exceeded: " +</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">                           todayUsage.getQueryCount() + "/" + quota.getMaxDailyQueryCount());</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">        // Check daily scan bytes</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">        if (todayUsage.getScanBytes() &gt;= quota.getMaxDailyScanBytes()) {</text>
+<text x="34.0" y="807.7" fill="#1F2937" xml:space="preserve">            violations.add("Daily scan bytes limit exceeded: " +</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">                           formatBytes(todayUsage.getScanBytes()) + "/" +</text>
+<text x="34.0" y="845.7" fill="#1F2937" xml:space="preserve">                           formatBytes(quota.getMaxDailyScanBytes()));</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="902.7" fill="#1F2937" xml:space="preserve">        return violations.isEmpty()</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">            ? QuotaCheckResult.pass()</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">            : QuotaCheckResult.fail(violations);</text>
+<text x="34.0" y="959.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">    /**</text>
+<text x="34.0" y="1016.7" fill="#1F2937" xml:space="preserve">     * Check quota during query execution</text>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">     *</text>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve">     *</text>
+<path d="M362.2 1064.0 L362.2 1075.0 L373.2 1069.5 z" fill="#D97706"/>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve">     * Field mapping: quota fields   QueryStats fields</text>
+<path d="M324.6 1083.0 L324.6 1094.0 L335.6 1088.5 z" fill="#D97706"/>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">     *   maxCpuTimePerQueryMs    stats.getCpuTimeMs()</text>
+<path d="M324.6 1102.0 L324.6 1113.0 L335.6 1107.5 z" fill="#D97706"/>
+<text x="34.0" y="1111.7" fill="#1F2937" xml:space="preserve">     *   maxScanBytesPerQuery    stats.getInputBytes()</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">     *</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">     * NOTE: "scanBytes" (raw bytes scanned from storage, pre-filter) vs "inputBytes"</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">     * (bytes processed by operators, post-filter) are semantically different.</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">     * Current implementation uses inputBytes as a conservative lower bound.</text>
+<text x="34.0" y="1206.7" fill="#1F2937" xml:space="preserve">     * For precise scan-level enforcement, a dedicated stats.getScanBytes() field</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">     * should be added to QueryStats (tracked separately from inputBytes).</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">     */</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">    public void checkDuringExecution(QueryContext context, QueryStats stats) {</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">        Tenant tenant = context.getTenant();</text>
+<text x="34.0" y="1301.7" fill="#1F2937" xml:space="preserve">        ResourceQuota quota = tenant.getQuota();</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">        // Check per-query CPU time</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">        // Error code: TENANT_QUOTA_EXCEEDED(1602) — see resilience.md §2.2</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">        if (stats.getCpuTimeMs() &gt; quota.getMaxCpuTimePerQueryMs()) {</text>
+<text x="34.0" y="1396.7" fill="#1F2937" xml:space="preserve">            throw new TenantQuotaExceededException(</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">                PangrovaErrorCode.TENANT_QUOTA_EXCEEDED, "Query CPU time limit exceeded");</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1472.7" fill="#1F2937" xml:space="preserve">        // Check per-query scan bytes (quota.scanBytes maps to stats.inputBytes)</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">        if (stats.getInputBytes() &gt; quota.getMaxScanBytesPerQuery()) {</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">            throw new TenantQuotaExceededException(</text>
+<text x="34.0" y="1529.7" fill="#1F2937" xml:space="preserve">                PangrovaErrorCode.TENANT_QUOTA_EXCEEDED, "Query scan bytes limit exceeded");</text>
+<text x="34.0" y="1548.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1567.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1586.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

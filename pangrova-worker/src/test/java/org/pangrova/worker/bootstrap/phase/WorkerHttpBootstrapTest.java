@@ -1,11 +1,18 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.ServiceLoader;
+
+import org.pangrova.filesystem.api.blob.BlobStorageFactory;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies {@link WorkerHttpBootstrap#resolveAdvertisedHost}: the address handed to
@@ -15,13 +22,56 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class WorkerHttpBootstrapTest {
 
+    @Test
+    void flightTlsWithoutCopyPortDoesNotCreatePrivateListener() {
+        var flightOnly = new WorkerBootstrapConfig.TransportSecurityConfig(
+                true, "/cert.pem", "/key.pem", "/ca.pem", "worker-1");
+        assertThat(WorkerHttpBootstrap.copyTaskTls(flightOnly)).isNull();
+        var withCopy = new WorkerBootstrapConfig.TransportSecurityConfig(
+                true, "/cert.pem", "/key.pem", "/ca.pem", "worker-1", 8443);
+        assertThat(WorkerHttpBootstrap.copyTaskTls(withCopy).port()).isEqualTo(8443);
+    }
+
+    @Test
+    void copyRequiresAnInstalledAdmissionAwareStorageFactory() throws Exception {
+        var factories = ServiceLoader.load(BlobStorageFactory.class);
+        assertThatThrownBy(() -> WorkerHttpBootstrap.copyStorage(Map.of("file.storage-backend", "local"), factories))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support managed COPY");
+        assertThatThrownBy(() -> WorkerHttpBootstrap.copyStorage(Map.of("file.storage-backend", "missing"), factories))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unsupported FILE storage backend");
+        assertThatThrownBy(() -> WorkerHttpBootstrap.copyStorage(Map.of(
+                "file.storage-backend", "s3", "file.storage.s3.bucket", "managed-staging",
+                "file.storage.s3.region", "us-east-1", "file.storage.s3.sse", "AES256"), factories))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("file.storage.s3.endpoint");
+        try (var storage = WorkerHttpBootstrap.copyStorage(Map.of(
+                "file.storage-backend", "s3", "file.storage.s3.bucket", "managed-staging",
+                "file.storage.s3.region", "us-east-1", "file.storage.s3.sse", "AES256",
+                "file.storage.s3.endpoint", "https://files.example.test"), factories)) {
+            assertThat(storage.rootUri()).startsWith("s3://managed-staging/");
+            assertThat(storage.backendIdentitySha256()).matches("[a-f0-9]{64}");
+        }
+    }
+
+    @Test
+    void partialEndpointStartupPreservesPrimaryFailureAndReleasesEarlierOwners() {
+        var failure = new IllegalArgumentException("file-space provider discovery");
+        var cleanup = new IOException("close copy staging");
+        var closed = new ArrayList<String>();
+        WorkerHttpBootstrap.closeAfterFailure(failure, null,
+                () -> { closed.add("copy"); throw cleanup; }, () -> closed.add("dataset"));
+        assertThat(closed).containsExactly("copy", "dataset");
+        assertThat(failure.getSuppressed()).containsExactly(cleanup);
+    }
+
     private static WorkerBootstrapConfig config(String httpHost, String advertisedHost) {
         return new WorkerBootstrapConfig(
                 "w-1", 0, 0, null,
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, null,
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
-                false, null, httpHost, null, null, null, advertisedHost);
+                false, null, httpHost, null, null, null, advertisedHost,
+                null,
+                null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 
     @Test

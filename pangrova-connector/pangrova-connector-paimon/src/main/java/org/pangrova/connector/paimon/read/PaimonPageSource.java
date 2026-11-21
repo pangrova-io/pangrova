@@ -1,15 +1,15 @@
 package org.pangrova.connector.paimon.read;
 
-import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import java.io.Closeable;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.PageOutputFormat;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.connector.api.enums.PageOutputFormat;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.types.DataField;
@@ -25,15 +25,15 @@ import java.util.Map;
  * Paimon SDK handles LSM merge semantics transparently.
  *
  * <p>Preferred output is columnar {@link NativePage} via {@link #getNextNativePage()}.
- * The row-based {@link #getNextPage()} is retained as fallback for
- * coordinator-local DML operations.</p>
+ * Both page formats consume the same selected SDK reader.</p>
  */
-public class PaimonPageSource implements ConnectorPageSource {
+public final class PaimonPageSource implements ConnectorPageSource {
 
     /** Default read batch size. Configurable via constructor. */
     public static final int DEFAULT_BATCH_SIZE = 1024;
 
     private final RecordReader<InternalRow> reader;
+    private final Closeable lease;
     private final List<PaimonColumnHandle> projectedColumns;
     private final RowType rowType;
     private final Map<Integer, Integer> fieldIdToOrdinal;
@@ -46,8 +46,10 @@ public class PaimonPageSource implements ConnectorPageSource {
             RecordReader<InternalRow> reader,
             List<PaimonColumnHandle> projectedColumns,
             RowType rowType,
-            int batchSize) {
+            int batchSize,
+            Closeable lease) {
         this.reader = reader;
+        this.lease = java.util.Objects.requireNonNull(lease, "lease");
         this.projectedColumns = List.copyOf(projectedColumns);
         this.rowType = rowType;
         this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
@@ -58,6 +60,11 @@ public class PaimonPageSource implements ConnectorPageSource {
             ordinalMap.put(fields.get(i).id(), i);
         }
         this.fieldIdToOrdinal = Map.copyOf(ordinalMap);
+        for (PaimonColumnHandle column : projectedColumns) {
+            if (!fieldIdToOrdinal.containsKey(column.fieldId())) {
+                throw new IllegalArgumentException("Field ID not found: " + column.fieldId());
+            }
+        }
     }
 
     @Override
@@ -95,7 +102,7 @@ public class PaimonPageSource implements ConnectorPageSource {
                 .map(PaimonColumnHandle::name)
                 .toList();
         Page page = new Page(columnNames, rows);
-        return NativePageConverter.fromPage(page);
+        return ConnectorBinaryPageCodec.fromPage(page);
     }
 
     @Override
@@ -107,7 +114,12 @@ public class PaimonPageSource implements ConnectorPageSource {
     public void close() {
         finished = true;
         releaseBatch();
-        ResourceCloser.closeQuietly(reader);
+        try {
+            lease.close();
+        } catch (IOException failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
+                    "Failed to close Paimon reader", failure);
+        }
     }
 
     private List<TypedRow> readBatch() {

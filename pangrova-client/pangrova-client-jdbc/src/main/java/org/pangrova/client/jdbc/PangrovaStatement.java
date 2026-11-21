@@ -1,17 +1,19 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.rest.PangrovaClientException;
-import org.pangrova.client.rest.PangrovaConnectionException;
-import org.pangrova.client.rest.PangrovaProtocolException;
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.PangrovaServerException;
-import org.pangrova.protocol.rest.query.QueryStatusResponse;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultPage;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
-import org.pangrova.transport.TransportException;
+import org.pangrova.client.jdbc.enums.StatementKeywordKind;
+
+import org.pangrova.common.client.enums.CancelOutcome;
+
+import org.pangrova.common.client.exception.PangrovaClientException;
+import org.pangrova.common.client.exception.PangrovaConnectionException;
+import org.pangrova.common.client.exception.PangrovaProtocolException;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.exception.PangrovaServerException;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.SubmitQueryResponse;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.exception.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,9 +21,12 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLTimeoutException;
 import java.sql.SQLWarning;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -31,14 +36,13 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class PangrovaStatement implements java.sql.Statement {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaStatement.class);
-    private static final String STATE_FINISHED = "FINISHED";
-    /** Number of rows requested when fetching the first result page. */
-    private static final int DEFAULT_PAGE_ROWS = 10_000;
     /** Length of the WITH keyword, the scan start position for CTE parsing. */
     private static final int WITH_KEYWORD_LENGTH = 4;
 
     private final PangrovaConnection connection;
-    private boolean closed;
+    private volatile boolean closed;
+    // The future belongs to one invocation, including the interval before submit returns its ID.
+    private final AtomicReference<CompletableFuture<String>> submission = new AtomicReference<>();
     private int queryTimeoutSeconds;
     private int fetchSize;
     private ResultSet currentResultSet;
@@ -53,52 +57,118 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
+        return executeQuerySql(sql, this);
+    }
+
+    /** Bound and plain JDBC queries share the same submission, deadline and cancellation owner. */
+    ResultSet executeBoundQuery(String sql, Map<Integer, Object> parameters, java.sql.Statement producer)
+            throws SQLException {
         checkOpen();
-        closeCurrentResultSet();
+        return executeQuerySql(SqlParameterSubstitutor.substitute(sql, parameters), producer);
+    }
+
+    private ResultSet executeQuerySql(String sql, java.sql.Statement producer) throws SQLException {
+        checkOpen();
+        acquireExecution();
         try {
-            return executeQueryInternal(sql);
+            closeCurrentResultSet();
+            return runQuery(sql, (client, queryId, response, deadlineMs) ->
+                    fetchQueryResult(client, queryId, response, deadlineMs, producer));
         } catch (SQLException e) {
             throw e;
         } catch (Exception e) {
             throw toSqlException(e);
+        } finally {
+            releaseExecution();
         }
     }
 
-    private ResultSet executeQueryInternal(String sql) throws Exception {
+    private <T> T runQuery(String sql, QueryOperation<T> operation) throws Exception {
         PangrovaRestClient client = connection.restClient();
         Map<String, String> props = buildSessionProperties();
+        long deadlineMs = QueryCompletionWaiter.deadlineFor(queryTimeoutSeconds);
         SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
         String queryId = submitResponse.queryId();
         currentQueryId.set(queryId);
+        submission.get().complete(queryId);
         LOG.debug("Submitted query queryId={}", queryId);
-        boolean success = false;
         try {
-            ResultSet rs = fetchQueryResult(client, queryId, submitResponse);
-            success = true;
-            return rs;
-        } finally {
-            currentQueryId.set(null);
-            cancelOnFailure(client, queryId, success);
+            T result = operation.execute(client, queryId, submitResponse, deadlineMs);
+            currentQueryId.compareAndSet(queryId, null);
+            return result;
+        } catch (Exception failure) {
+            cancelOnFailure(client, queryId, failure);
+            throw failure;
         }
     }
 
+    private void acquireExecution() throws SQLException {
+        if (!submission.compareAndSet(null, new CompletableFuture<>())) {
+            throw new SQLException("Statement execution is still owned", "HY010");
+        }
+        try {
+            checkOpen();
+            if (currentQueryId.get() != null) {
+                throw new SQLException("Previous query cancellation is unresolved; call cancel before executing",
+                        "HY010");
+            }
+        } catch (SQLException failure) {
+            releaseExecution();
+            throw failure;
+        }
+    }
+
+    private void releaseExecution() {
+        var completed = submission.getAndSet(null);
+        // Also unblock a cancel waiting on an unsuccessful or unconfirmed submission.
+        completed.complete(null);
+    }
+
+    @FunctionalInterface
+    private interface QueryOperation<T> {
+        T execute(PangrovaRestClient client, String queryId, SubmitQueryResponse response, long deadlineMs)
+                throws Exception;
+    }
+
     private ResultSet fetchQueryResult(PangrovaRestClient client, String queryId,
-                                       SubmitQueryResponse submitResponse) throws Exception {
-        ResultEndpoint endpoint = QueryCompletionWaiter.awaitCompletion(
-                client, queryId, submitResponse, queryTimeoutSeconds);
-        byte[] arrowData = client.fetchResult(endpoint);
-        ResultSet rs = createResultSet(arrowData);
+                                       SubmitQueryResponse submitResponse,
+                                       long deadlineMs, java.sql.Statement producer) throws Exception {
+        QueryCompletionWaiter.ReadyEndpoint ready = QueryCompletionWaiter.awaitReadableEndpoint(
+                client, queryId, submitResponse, deadlineMs, queryTimeoutSeconds);
+        byte[] arrowData;
+        try {
+            arrowData = client.fetchResult(ready.endpoint(), deadlineMs);
+        } catch (PangrovaConnectionException failure) {
+            if ("TRANSPORT_QUERY_DEADLINE_EXCEEDED".equals(failure.errorCode())) {
+                throw new SQLTimeoutException(
+                        "Query timed out after " + queryTimeoutSeconds
+                                + "s while reading results, queryId=" + queryId,
+                        failure);
+            }
+            throw failure;
+        }
+        QueryCompletionWaiter.checkTimeout(
+                queryId, deadlineMs, queryTimeoutSeconds);
+        if (!ready.terminal()) {
+            QueryCompletionWaiter.awaitTerminalSuccess(
+                    client, queryId, deadlineMs, queryTimeoutSeconds);
+        }
+        checkOpen();
+        ResultSet rs = createResultSet(arrowData, producer);
         currentResultSet = rs;
         return rs;
     }
 
-    private void cancelOnFailure(PangrovaRestClient client, String queryId, boolean success) {
-        if (!success) {
-            try {
-                client.cancelQuery(queryId);
-            } catch (Exception ignored) {
-                LOG.debug("event=cancel_on_disconnect_failed queryId={}", queryId);
+    private void cancelOnFailure(PangrovaRestClient client, String queryId, Exception failure) {
+        try {
+            if (client.cancelQuery(queryId) == CancelOutcome.NOT_FOUND) {
+                throw new SQLException("Coordinator did not find active query queryId=" + queryId);
             }
+            currentQueryId.compareAndSet(queryId, null);
+        } catch (Exception cleanup) {
+            // Keep the exact query identity for explicit retry and preserve the primary error.
+            failure.addSuppressed(new SQLException("Failed to cancel query queryId=" + queryId, cleanup));
+            LOG.debug("event=cancel_on_disconnect_failed queryId={}", queryId, cleanup);
         }
     }
 
@@ -120,10 +190,15 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     @Override
     public void close() throws SQLException {
-        if (!closed) {
-            closed = true;
-            closeCurrentResultSet();
+        closed = true;
+        if (submission.get() != null) {
+            throw new SQLException("Statement execution has not drained; cancel and retry close", "HY010");
         }
+        if (currentQueryId.get() != null) {
+            cancel();
+        }
+        closeCurrentResultSet();
+        connection.statementClosed(this);
     }
 
     private void closeCurrentResultSet() throws SQLException {
@@ -148,17 +223,17 @@ public final class PangrovaStatement implements java.sql.Statement {
         return Map.of();
     }
 
-    private ResultSet createResultSet(byte[] arrowData) throws SQLException {
+    private ResultSet createResultSet(byte[] arrowData, java.sql.Statement producer) throws SQLException {
         try {
             ResultBatch batch = ArrowBatchDecoder.decode(arrowData);
-            return new PangrovaResultSet(batch, this);
+            return new PangrovaResultSet(batch, producer);
         } catch (TransportException e) {
             throw new SQLException("Failed to decode result: " + e.getMessage(), e);
         }
     }
 
     private void checkOpen() throws SQLException {
-        if (closed) {
+        if (closed || connection.isClosed()) {
             throw new SQLException("Statement is closed");
         }
     }
@@ -168,77 +243,63 @@ public final class PangrovaStatement implements java.sql.Statement {
     @Override
     public boolean execute(String sql) throws SQLException {
         checkOpen();
-        closeCurrentResultSet();
-        currentUpdateCount = -1;
+        acquireExecution();
         try {
-            PangrovaRestClient client = connection.restClient();
-            Map<String, String> props = buildSessionProperties();
-            SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
-            String queryId = submitResponse.queryId();
-            currentQueryId.set(queryId);
-            boolean success = false;
-            try {
+            closeCurrentResultSet();
+            currentUpdateCount = -1;
+            return runQuery(sql, (client, queryId, response, deadlineMs) -> {
                 if (isUpdateStatement(sql)) {
-                    currentUpdateCount = fetchUpdateCount(client, queryId);
-                    success = true;
+                    currentUpdateCount = fetchUpdateCount(client, queryId, deadlineMs);
                     return false;
                 } else {
-                    if (submitResponse.resultEndpoint() != null) {
-                        currentResultSet = fetchQueryResult(client, queryId, submitResponse);
-                    } else {
-                        currentResultSet = fetchPaginatedResultSet(client, queryId);
-                    }
-                    success = true;
+                    currentResultSet = fetchQueryResult(client, queryId, response, deadlineMs, this);
                     return true;
                 }
-            } finally {
-                currentQueryId.set(null);
-                cancelOnFailure(client, queryId, success);
-            }
+            });
         } catch (SQLException e) {
             throw e;
         } catch (Exception e) {
             throw toSqlException(e);
+        } finally {
+            releaseExecution();
         }
     }
 
     @Override
     public int executeUpdate(String sql) throws SQLException {
         checkOpen();
-        closeCurrentResultSet();
-        currentUpdateCount = -1;
+        acquireExecution();
         try {
-            PangrovaRestClient client = connection.restClient();
-            Map<String, String> props = buildSessionProperties();
-            SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
-            String queryId = submitResponse.queryId();
-            int count = fetchUpdateCount(client, queryId);
-            currentUpdateCount = count;
-            return count;
+            closeCurrentResultSet();
+            currentUpdateCount = -1;
+            return runQuery(sql, (client, queryId, response, deadlineMs) -> {
+                int count = fetchUpdateCount(client, queryId, deadlineMs);
+                currentUpdateCount = count;
+                return count;
+            });
+        } catch (SQLException e) {
+            throw e;
         } catch (Exception e) {
             throw toSqlException(e);
+        } finally {
+            releaseExecution();
         }
     }
 
-    private int fetchUpdateCount(PangrovaRestClient client, String queryId) {
-        QueryStatusResponse status = client.getQueryStatus(queryId);
+    private int fetchUpdateCount(
+            PangrovaRestClient client, String queryId, long deadlineMs)
+            throws SQLException {
+        QueryStatusResponse status = QueryCompletionWaiter.awaitTerminalSuccess(
+                client, queryId, deadlineMs, queryTimeoutSeconds);
         if (status.stats() != null) {
-            return (int) status.stats().rowsReturned();
+            long affectedRows = status.stats().rowsReturned();
+            if (affectedRows < 0 || affectedRows > Integer.MAX_VALUE) {
+                throw new SQLException(
+                        "Affected row count exceeds JDBC int range, queryId=" + queryId);
+            }
+            return (int) affectedRows;
         }
         return 0;
-    }
-
-    private ResultSet fetchPaginatedResultSet(PangrovaRestClient client, String queryId)
-            throws Exception {
-        ResultPage page = client.fetchResultPage(queryId, DEFAULT_PAGE_ROWS, null);
-        if (page.data().length > 0) {
-            return createResultSet(page.data());
-        }
-        return createEmptyResultSet();
-    }
-
-    private ResultSet createEmptyResultSet() {
-        return new PangrovaResultSet(ResultBatch.EMPTY, this);
     }
 
     static boolean isUpdateStatement(String sql) {
@@ -284,9 +345,9 @@ public final class PangrovaStatement implements java.sql.Statement {
                 // At top-level, check if we've found a keyword (non-CTE-name position)
                 // Look for the terminal keyword after the last CTE closing paren
                 // by finding a keyword that's a DML verb
-                Boolean outcome = classifyTopLevelKeyword(sql, i);
-                if (outcome != null) {
-                    return outcome;
+                StatementKeywordKind outcome = classifyTopLevelKeyword(sql, i);
+                if (outcome != StatementKeywordKind.OTHER) {
+                    return outcome == StatementKeywordKind.DML;
                 }
             }
             i++;
@@ -309,9 +370,9 @@ public final class PangrovaStatement implements java.sql.Statement {
     /**
      * Reads the top-level word starting at {@code start} and classifies it.
      *
-     * @return TRUE for a DML verb, FALSE for SELECT, null for anything else
+     * @return an explicit classification; an unknown token is never a nullable Boolean
      */
-    private static Boolean classifyTopLevelKeyword(String sql, int start) {
+    private static StatementKeywordKind classifyTopLevelKeyword(String sql, int start) {
         int len = sql.length();
         int wordEnd = start;
         while (wordEnd < len && !Character.isWhitespace(sql.charAt(wordEnd))
@@ -320,13 +381,14 @@ public final class PangrovaStatement implements java.sql.Statement {
         }
         String word = sql.substring(start, wordEnd).toUpperCase(Locale.ROOT);
         if (isDmlKeyword(word)) {
-            return Boolean.TRUE;
+            return StatementKeywordKind.DML;
         }
         if (isSelectKeyword(word)) {
-            return Boolean.FALSE;
+            return StatementKeywordKind.SELECT;
         }
-        return null;
+        return StatementKeywordKind.OTHER;
     }
+
 
     private static boolean isDmlKeyword(String word) {
         return switch (word) {
@@ -372,12 +434,32 @@ public final class PangrovaStatement implements java.sql.Statement {
         this.queryTimeoutSeconds = Math.max(0, seconds);
     }
     @Override public void cancel() throws SQLException {
-        // Atomic getAndSet ensures the cancel thread gets the queryId exactly once,
-        // even if executeQueryInternal's finally block races to clear it.
-        String qid = currentQueryId.getAndSet(null);
-        if (qid != null) {
+        var pending = submission.get();
+        String qid;
+        if (pending == null) {
+            qid = currentQueryId.get();
+        } else {
             try {
-                connection.restClient().cancelQuery(qid);
+                qid = pending.get();
+                if (qid == null) throw new SQLException("Query submission did not return a confirmed identity");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("Interrupted waiting for the query identity to cancel", interrupted);
+            } catch (ExecutionException failure) {
+                throw new SQLException("Could not resolve the query identity to cancel", failure.getCause());
+            }
+        }
+        if (qid != null && qid.equals(currentQueryId.get())) {
+            try {
+                CancelOutcome outcome = connection.restClient().cancelQuery(qid);
+                if (outcome == CancelOutcome.NOT_FOUND) {
+                    throw new SQLException("Coordinator did not find active query queryId=" + qid);
+                }
+                // Confirmed logical intent/terminal status is not physical resource-drain proof.
+                // Retire only the identity that this RPC actually addressed.
+                currentQueryId.compareAndSet(qid, null);
+            } catch (SQLException failure) {
+                throw failure;
             } catch (Exception e) {
                 throw new SQLException("Failed to cancel query queryId=" + qid, e);
             }
@@ -386,7 +468,10 @@ public final class PangrovaStatement implements java.sql.Statement {
     @Override public SQLWarning getWarnings() { return null; }
     @Override public void clearWarnings() {}
     @Override public void setCursorName(String name) throws SQLException { throw unsupported(); }
-    @Override public ResultSet getResultSet() { return currentResultSet; }
+    @Override public ResultSet getResultSet() throws SQLException {
+        checkOpen();
+        return currentResultSet;
+    }
     @Override public int getUpdateCount() { return currentUpdateCount; }
     @Override
     public boolean getMoreResults() {
@@ -407,7 +492,10 @@ public final class PangrovaStatement implements java.sql.Statement {
     @Override public void addBatch(String sql) throws SQLException { throw unsupported(); }
     @Override public void clearBatch() throws SQLException { throw unsupported(); }
     @Override public int[] executeBatch() throws SQLException { throw unsupported(); }
-    @Override public Connection getConnection() { return connection; }
+    @Override public Connection getConnection() throws SQLException {
+        checkOpen();
+        return connection;
+    }
     @Override public boolean getMoreResults(int current) { return getMoreResults(); }
     @Override public ResultSet getGeneratedKeys() throws SQLException { throw unsupported(); }
     @Override public int executeUpdate(String sql, int autoGeneratedKeys) throws SQLException { return executeUpdate(sql); }

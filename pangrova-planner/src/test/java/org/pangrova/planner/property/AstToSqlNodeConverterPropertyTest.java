@@ -1,45 +1,46 @@
 package org.pangrova.planner.property;
 
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.SetOperatorType;
 import org.pangrova.planner.parse.AstToSqlNodeConverter;
 import net.jqwik.api.*;
-import org.pangrova.parser.ast.*;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.expression.CaseExpression;
-import org.pangrova.parser.ast.expression.CastExpression;
-import org.pangrova.parser.ast.expression.ExistsExpression;
-import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.parser.ast.expression.InExpression;
-import org.pangrova.parser.ast.expression.InSubqueryExpression;
-import org.pangrova.parser.ast.expression.IsNullExpression;
-import org.pangrova.parser.ast.expression.LikeExpression;
-import org.pangrova.parser.ast.expression.NotExpression;
-import org.pangrova.parser.ast.expression.NotInExpression;
-import org.pangrova.parser.ast.expression.NotInSubqueryExpression;
-import org.pangrova.parser.ast.expression.StarFunctionCall;
-import org.pangrova.parser.ast.expression.SubqueryExpression;
-import org.pangrova.parser.ast.expression.BetweenExpression;
-import org.pangrova.parser.ast.expression.WindowedFunctionCall;
-import org.pangrova.parser.ast.statement.AlterCatalogStatement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
-import org.pangrova.parser.ast.statement.DescribeTableStatement;
-import org.pangrova.parser.ast.statement.DropCatalogStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
-import org.pangrova.parser.ast.statement.ShowTablesStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.parser.ast.statement.maintenance.CallStatement;
-import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
-import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.parser.ast.expression.UnaryMinusExpression;
+import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.expression.CaseExpression;
+import org.pangrova.parser.api.ast.expression.CastExpression;
+import org.pangrova.parser.api.ast.expression.ExistsExpression;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
+import org.pangrova.parser.api.ast.expression.InExpression;
+import org.pangrova.parser.api.ast.expression.InSubqueryExpression;
+import org.pangrova.parser.api.ast.expression.IsNullExpression;
+import org.pangrova.parser.api.ast.expression.LikeExpression;
+import org.pangrova.parser.api.ast.expression.NotExpression;
+import org.pangrova.parser.api.ast.expression.NotInExpression;
+import org.pangrova.parser.api.ast.expression.NotInSubqueryExpression;
+import org.pangrova.parser.api.ast.expression.StarFunctionCall;
+import org.pangrova.parser.api.ast.expression.SubqueryExpression;
+import org.pangrova.parser.api.ast.expression.BetweenExpression;
+import org.pangrova.parser.api.ast.expression.WindowedFunctionCall;
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.ShowCatalogsStatement;
+import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
+import org.pangrova.parser.api.ast.expression.UnaryMinusExpression;
 import org.apache.calcite.sql.SqlNode;
 
 import java.util.List;
@@ -58,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * should produce a non-null Calcite {@link SqlNode} without throwing "unsupported" exceptions.</p>
  */
 @Tag("Feature: full-pipeline-audit-fix")
-@Tag("Property 2: AST → SqlNode 映射完整性")
+@Tag("Property 2: AST → SqlNode mapping completeness")
 class AstToSqlNodeConverterPropertyTest {
 
     private final AstToSqlNodeConverter converter = new AstToSqlNodeConverter();
@@ -152,7 +153,7 @@ class AstToSqlNodeConverterPropertyTest {
 
     private Arbitrary<Expression> binaryExpressions() {
         return Combinators.combine(leafExpressions(),
-                        Arbitraries.of(BinaryExpression.Operator.values()),
+                        Arbitraries.of(BinaryExpressionOperator.values()),
                         leafExpressions())
                 .as(BinaryExpression::new);
     }
@@ -261,15 +262,15 @@ class AstToSqlNodeConverterPropertyTest {
     private Arbitrary<Statement> setQueryStatements() {
         return Combinators.combine(
                         simpleQueries().list().ofMinSize(2).ofMaxSize(3),
-                        Arbitraries.of(SetQuery.SetOperatorType.values())
+                        Arbitraries.of(SetOperatorType.values())
                                 .list().ofMinSize(1).ofMaxSize(2))
                 .as((queries, ops) -> {
                     // ensure operators.size() == queries.size() - 1
-                    List<SetQuery.SetOperatorType> trimmed = ops.subList(0,
+                    List<SetOperatorType> trimmed = ops.subList(0,
                             Math.min(ops.size(), queries.size() - 1));
                     while (trimmed.size() < queries.size() - 1) {
                         trimmed = new java.util.ArrayList<>(trimmed);
-                        trimmed.add(SetQuery.SetOperatorType.UNION_ALL);
+                        trimmed.add(SetOperatorType.UNION_ALL);
                     }
                     return (Statement) new SetQuery(queries, trimmed);
                 });
@@ -289,13 +290,13 @@ class AstToSqlNodeConverterPropertyTest {
     private Arbitrary<Statement> ddlStatements() {
         return Arbitraries.oneOf(
                 identifiers().map(id -> new CreateTableStatement(id,
-                        List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("BIGINT"))),
+                        List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.build.type.RawSqlTypeParser.parse("BIGINT"))),
                         false, List.of(), List.of(), Optional.empty(), Map.of())),
                 identifiers().map(id -> new DropTableStatement(id, false)),
-                identifiers().map(id -> new AlterTableStatement.AddColumn(id, "col", DataTypeSpec.fromRawTypeString("VARCHAR"))),
+                identifiers().map(id -> new AlterTableStatement.AddColumn(id, "col", org.pangrova.parser.build.type.RawSqlTypeParser.parse("VARCHAR"))),
                 identifiers().map(id -> new AlterTableStatement.DropColumn(id, "col")),
                 identifiers().map(id -> new AlterTableStatement.RenameColumn(id, "old_col", "new_col")),
-                identifiers().map(id -> new AlterTableStatement.ChangeColumnType(id, "col", DataTypeSpec.fromRawTypeString("BIGINT"))),
+                identifiers().map(id -> new AlterTableStatement.ChangeColumnType(id, "col", org.pangrova.parser.build.type.RawSqlTypeParser.parse("BIGINT"))),
                 identifiers().map(id -> new CreateSchemaStatement(id, false))
         );
     }
@@ -317,7 +318,7 @@ class AstToSqlNodeConverterPropertyTest {
                         .as((target, source) -> (Statement) new MergeStatement(target, Optional.empty(),
                                 new TableRef(source),
                                 new BinaryExpression(Identifier.of("a"),
-                                        BinaryExpression.Operator.EQUAL, Identifier.of("b")),
+                                        BinaryExpressionOperator.EQUAL, Identifier.of("b")),
                                 List.of()))
         );
     }

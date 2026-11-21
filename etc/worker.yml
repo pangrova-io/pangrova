@@ -98,6 +98,17 @@ worker:
   # Shuffle buffers hold in-flight exchange data between stages.
   # Size them to hold at least 2 concurrent query exchanges.
   shuffle:
+    # Must match coordinator.shuffle.mode. REMOTE writes shuffle output to the
+    # external service the Coordinator names, so a dead Worker's output can be
+    # re-read instead of recomputed. REMOTE requires worker.transport.tls.*
+    # because the shuffle service demands mutual TLS.
+    mode: "NATIVE"
+
+    # Native Flight service spill must point at an existing writable directory.
+    # This can share the node's configured spill mount when sized for both quotas.
+    service:
+      spill-directory: "${PANGROVA_SHUFFLE_SERVICE_SPILL_DIRECTORY:-/mnt/spill/pangrova}"
+
     # Maximum number of batches per shuffle partition buffer.
     buffer-capacity: 500
 

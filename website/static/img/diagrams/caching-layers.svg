@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="930" viewBox="0 0 1200 930" role="img" aria-labelledby="t d">
+<title id="t">Cache architecture</title>
+<desc id="d">Metadata caches and Native caching, with the proposed unified RAM/SSD manager.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="930" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Cache architecture</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Implemented caches are separated from the proposed unified multi-tier manager.</text>
+<rect x="80" y="140" width="1040" height="76" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="140" width="5" height="76" rx="2.5" fill="#2563EB"/>
+<text x="100" y="168" font-size="16.5" font-weight="700" fill="#111827">Callers</text>
+<text x="100" y="192" font-size="13.5" fill="#64748B">Planner and metadata resolution · Worker scans · Connector file access</text>
+<rect x="60" y="250" width="660" height="230" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="282" font-size="19" font-weight="700" fill="#7C3AED">IMPLEMENTED</text>
+<rect x="90" y="300" width="290" height="150" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="300" width="5" height="150" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="328" font-size="16.5" font-weight="700" fill="#111827">Metadata L1</text>
+<text x="110" y="352" font-size="13.5" fill="#64748B">Caffeine · on-heap</text>
+<text x="110" y="373" font-size="13.5" fill="#64748B">10k entries · 60s TTL</text>
+<text x="110" y="394" font-size="13.5" fill="#64748B">Per-process</text>
+<rect x="400" y="300" width="290" height="150" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="400" y="300" width="5" height="150" rx="2.5" fill="#0D9488"/>
+<text x="420" y="328" font-size="16.5" font-weight="700" fill="#111827">Metadata L2</text>
+<text x="420" y="352" font-size="13.5" fill="#64748B">Memory or Redis</text>
+<text x="420" y="373" font-size="13.5" fill="#64748B">Generation-checked fill</text>
+<text x="420" y="394" font-size="13.5" fill="#64748B">Invalidation by group and entry</text>
+<line x1="380" y1="375" x2="400" y2="375" stroke="#7C3AED" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+<rect x="740" y="250" width="400" height="230" rx="18" fill="#FFFCF5" stroke="#D97706" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="764" y="282" font-size="19" font-weight="700" fill="#D97706">NATIVE CACHE</text>
+<rect x="770" y="300" width="340" height="150" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="770" y="300" width="5" height="150" rx="2.5" fill="#D97706"/>
+<text x="790" y="328" font-size="16.5" font-weight="700" fill="#111827">Velox async cache</text>
+<text x="790" y="352" font-size="13.5" fill="#64748B">RAM budget · optional SSD path</text>
+<text x="790" y="373" font-size="13.5" fill="#64748B">Shards and checkpoint interval</text>
+<text x="790" y="394" font-size="13.5" fill="#64748B">Worker-local eviction</text>
+<line x1="600" y1="216" x2="520" y2="250" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<line x1="600" y1="216" x2="940" y2="250" stroke="#D97706" stroke-width="2.4" marker-end="url(#arrowAmber)"/>
+<line x1="600" y1="480" x2="600" y2="530" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="530" width="1080" height="210" rx="18" fill="#FFFFFF" stroke="#94A3B8" stroke-opacity="0.45" stroke-width="1.6" stroke-dasharray="9 7"/>
+<text x="84" y="562" font-size="19" font-weight="700" fill="#94A3B8">TARGET DESIGN</text>
+<rect x="90" y="585" width="330" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="585" width="5" height="120" rx="2.5" fill="#94A3B8"/>
+<text x="110" y="613" font-size="16.5" font-weight="700" fill="#111827">Unified RAM/SSD manager</text>
+<text x="110" y="637" font-size="13.5" fill="#64748B">Per-table cache accounting</text>
+<text x="110" y="658" font-size="13.5" fill="#64748B">Eviction policy interface</text>
+<rect x="435" y="585" width="330" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="435" y="585" width="5" height="120" rx="2.5" fill="#94A3B8"/>
+<text x="455" y="613" font-size="16.5" font-weight="700" fill="#111827">Adaptive prefetch</text>
+<text x="455" y="637" font-size="13.5" fill="#64748B">Column and block prediction</text>
+<text x="455" y="658" font-size="13.5" fill="#64748B">Evidence required before enabling</text>
+<rect x="780" y="585" width="330" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="780" y="585" width="5" height="120" rx="2.5" fill="#94A3B8"/>
+<text x="800" y="613" font-size="16.5" font-weight="700" fill="#111827">Remote tiers</text>
+<text x="800" y="637" font-size="13.5" fill="#64748B">Object store and remote cache</text>
+<text x="800" y="658" font-size="13.5" fill="#64748B">Latency and cost accounting</text>
+<line x1="600" y1="480" x2="600" y2="530" stroke="#94A3B8" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+<rect x="280" y="790" width="640" height="76" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="280" y="790" width="5" height="76" rx="2.5" fill="#0D9488"/>
+<text x="300" y="818" font-size="16.5" font-weight="700" fill="#111827">Remote object storage</text>
+<text x="300" y="842" font-size="13.5" fill="#64748B">S3 · OSS · HDFS — the source of truth</text>
+<line x1="600" y1="740" x2="600" y2="790" stroke="#94A3B8" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+<line x1="60" y1="900" x2="100" y2="900" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="905" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="900" x2="280" y2="900" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="905" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

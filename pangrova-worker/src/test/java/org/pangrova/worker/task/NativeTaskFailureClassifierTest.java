@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.NativeTaskFailureCategory;
+
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -17,28 +19,28 @@ class NativeTaskFailureClassifierTest {
     void sigsegvException_classifiedAsCrashed() {
         Exception ex = new RuntimeException("SIGSEGV in native task execution");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_CRASHED);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_CRASHED);
     }
 
     @Test
     void signalSixMessage_classifiedAsCrashed() {
         Exception ex = new RuntimeException("signal 6 (SIGABRT) received");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_CRASHED);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_CRASHED);
     }
 
     @Test
     void segmentationFaultMessage_classifiedAsCrashed() {
         Exception ex = new RuntimeException("Segmentation fault in operator");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_CRASHED);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_CRASHED);
     }
 
     @Test
     void nativeCrashMessage_classifiedAsCrashed() {
         Exception ex = new RuntimeException("native crash detected");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_CRASHED);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_CRASHED);
     }
 
     @Test
@@ -46,14 +48,14 @@ class NativeTaskFailureClassifierTest {
         Exception root = new RuntimeException("SIGSEGV at 0x0");
         Exception wrapper = new RuntimeException("JNI call failed", root);
         assertThat(NativeTaskFailureClassifier.classify(wrapper))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_CRASHED);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_CRASHED);
     }
 
     @Test
     void timeoutException_classifiedAsHung() {
         Exception ex = new TimeoutException("nativeGetTaskStatus timed out");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_HUNG);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_HUNG);
     }
 
     @Test
@@ -61,27 +63,27 @@ class NativeTaskFailureClassifierTest {
         Exception root = new TimeoutException("RPC deadline exceeded");
         Exception wrapper = new RuntimeException("isFinished failed", root);
         assertThat(NativeTaskFailureClassifier.classify(wrapper))
-                .isEqualTo(NativeTaskFailureClassifier.Category.NATIVE_HUNG);
+                .isEqualTo(NativeTaskFailureCategory.NATIVE_HUNG);
     }
 
     @Test
     void ioException_classifiedAsTransient() {
         Exception ex = new IOException("Connection reset by peer");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.TRANSIENT);
+                .isEqualTo(NativeTaskFailureCategory.TRANSIENT);
     }
 
     @Test
     void genericRuntimeException_classifiedAsTransient() {
         Exception ex = new RuntimeException("Unexpected error");
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.TRANSIENT);
+                .isEqualTo(NativeTaskFailureCategory.TRANSIENT);
     }
 
     @Test
     void nullMessage_classifiedAsTransient() {
         Exception ex = new RuntimeException((String) null);
         assertThat(NativeTaskFailureClassifier.classify(ex))
-                .isEqualTo(NativeTaskFailureClassifier.Category.TRANSIENT);
+                .isEqualTo(NativeTaskFailureCategory.TRANSIENT);
     }
 }

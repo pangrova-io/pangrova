@@ -18,31 +18,7 @@ description: "Diagnose and recover from coordinator or metadata clock skew"
 
 ## Decision Tree
 
-```
-Clock skew suspected?
-  │
-  ├─► What are the symptoms?
-  │     │
-  │     ├─► HTTP 401 errors on a specific coordinator
-  │     │     └─► Check: is that coordinator's clock ahead? → Step 1
-  │     │
-  │     ├─► Unexpected JDBC lease expiry / leader thrashing
-  │     │     └─► Check: is the leader coordinator's clock severely skewed? (Lease
-  │     │         timing uses the database clock, so skew only disrupts renewals) → Step 3
-  │     │
-  │     ├─► Trace spans out of order in Tempo/Jaeger
-  │     │     └─► Check all nodes for clock drift → Step 1 (observability impact only)
-  │     │
-  │     └─► Iceberg snapshot timestamps disordered
-  │           └─► Investigate after clock correction; may need snapshot repair → Step 5
-  │
-  └─► Is the skew > 60 seconds?
-        │
-        ├─► YES ──► Exceeds the JWT clock-skew tolerance; tokens expiring within
-        │           the skew window will be rejected — urgent NTP fix → Step 2
-        │
-        └─► NO  ──► Within the JWT tolerance; monitor and resync NTP → Step 2
-```
+![Clock skew suspected?](../../../../website/static/img/diagrams/generated/clock-skew-runbook-01-b2725cdb20.svg)
 
 ---
 
@@ -156,12 +132,12 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} lease/role events (last 30 min) ==="
   ssh "${coord}" "
     grep -E 'lease.*(expired|lost)|demoted|event=ha_started|STANDBY.*LEADER' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -10
+      /var/log/pangrova/coordinator.log | tail -10
   " 2>/dev/null
 done
 
 # Verify current cluster state is stable (exactly one active lease holder)
-ACTIVE_LEASES=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+ACTIVE_LEASES=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;")
 echo "Leaders: ${ACTIVE_LEASES}"
 if [[ "${ACTIVE_LEASES}" -eq 1 ]]; then

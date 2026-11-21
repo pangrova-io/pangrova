@@ -31,6 +31,8 @@ SELECT settings['timeout'] AS timeout_value FROM configs;
 ## Notes
 
 - Keys must share a common type; values must share a common type
+- `MAP[...]` currently accepts typed literal keys and values. Runtime expressions in a MAP constructor are rejected until the canonical nested MAP expression is supported end to end.
+- Keys must be non-null and unique.
 - NULL values are allowed; looking up a missing key returns NULL
 
 **See Also:** [MAP data type](../../data-types/complex/map.md)

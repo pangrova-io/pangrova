@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="980" viewBox="0 0 1200 980" role="img" aria-labelledby="t d">
+<title id="t">Observability pipeline</title>
+<desc id="d">Instrumented components, SDK providers, sampling, and OTLP export.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="980" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Observability pipeline</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Providers are configured per role; disabled deployments use the local NoOp implementation.</text>
+<rect x="80" y="140" width="1040" height="80" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="80" y="140" width="5" height="80" rx="2.5" fill="#2563EB"/>
+<text x="100" y="168" font-size="16.5" font-weight="700" fill="#111827">Instrumented components</text>
+<text x="100" y="192" font-size="13.5" fill="#64748B">Coordinator · Worker JVM · connector callbacks · Native execution</text>
+<line x1="600" y1="220" x2="600" y2="260" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="260" width="1080" height="200" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="292" font-size="19" font-weight="700" fill="#7C3AED">SDK AND PROVIDERS</text>
+<rect x="90" y="315" width="250" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="315" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="343" font-size="16.5" font-weight="700" fill="#111827">Metrics</text>
+<text x="110" y="367" font-size="13.5" fill="#64748B">Counters and gauges</text>
+<text x="110" y="388" font-size="13.5" fill="#64748B">Metric attributes and units</text>
+<rect x="360" y="315" width="250" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="360" y="315" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="380" y="343" font-size="16.5" font-weight="700" fill="#111827">Tracing</text>
+<text x="380" y="367" font-size="13.5" fill="#64748B">Spans and current context</text>
+<text x="380" y="388" font-size="13.5" fill="#64748B">Sampling policy</text>
+<rect x="630" y="315" width="250" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="630" y="315" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="650" y="343" font-size="16.5" font-weight="700" fill="#111827">Logging</text>
+<text x="650" y="367" font-size="13.5" fill="#64748B">Structured event keys</text>
+<text x="650" y="388" font-size="13.5" fill="#64748B">MDC enrichment</text>
+<rect x="900" y="315" width="210" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="900" y="315" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="920" y="343" font-size="16.5" font-weight="700" fill="#111827">Profiling</text>
+<text x="920" y="367" font-size="13.5" fill="#64748B">Delegated Native profiling</text>
+<text x="920" y="388" font-size="13.5" fill="#64748B">Unavailable profiles rejected</text>
+<line x1="600" y1="460" x2="600" y2="500" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="500" width="1080" height="210" rx="18" fill="#F7FEFC" stroke="#0D9488" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="532" font-size="19" font-weight="700" fill="#0D9488">EXPORT</text>
+<rect x="90" y="555" width="330" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="555" width="5" height="120" rx="2.5" fill="#0D9488"/>
+<text x="110" y="583" font-size="16.5" font-weight="700" fill="#111827">OTLP exporter</text>
+<text x="110" y="607" font-size="13.5" fill="#64748B">gRPC endpoint</text>
+<text x="110" y="628" font-size="13.5" fill="#64748B">Compression and TLS</text>
+<text x="110" y="649" font-size="13.5" fill="#64748B">Configured headers</text>
+<rect x="450" y="555" width="300" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="450" y="555" width="5" height="120" rx="2.5" fill="#0D9488"/>
+<text x="470" y="583" font-size="16.5" font-weight="700" fill="#111827">Sampling</text>
+<text x="470" y="607" font-size="13.5" fill="#64748B">Probability or rate limiting</text>
+<text x="470" y="628" font-size="13.5" fill="#64748B">Root trace decisions</text>
+<rect x="780" y="555" width="330" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="780" y="555" width="5" height="120" rx="2.5" fill="#94A3B8"/>
+<text x="800" y="583" font-size="16.5" font-weight="700" fill="#111827">NoOp provider</text>
+<text x="800" y="607" font-size="13.5" fill="#64748B">Explicitly disabled exporters</text>
+<text x="800" y="628" font-size="13.5" fill="#64748B">No silent fallback</text>
+<line x1="600" y1="710" x2="600" y2="750" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="280" y="750" width="640" height="80" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="280" y="750" width="5" height="80" rx="2.5" fill="#0D9488"/>
+<text x="300" y="778" font-size="16.5" font-weight="700" fill="#111827">Collector and backends</text>
+<text x="300" y="802" font-size="13.5" fill="#64748B">OTel collector · Prometheus · tracing backend · log store</text>
+<text x="600" y="880" font-size="14" fill="#64748B" text-anchor="middle">Telemetry is diagnostic evidence, not durable audit. Local query events do not replace the audit store.</text>
+<line x1="60" y1="950" x2="100" y2="950" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="955" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="950" x2="280" y2="950" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="955" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

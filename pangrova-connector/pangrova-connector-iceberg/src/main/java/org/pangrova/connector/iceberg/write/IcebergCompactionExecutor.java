@@ -2,12 +2,15 @@ package org.pangrova.connector.iceberg.write;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.actions.BinPackRewriteFilePlanner;
+import org.apache.iceberg.actions.RewriteFileGroup;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetReaders;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
@@ -28,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,41 +53,83 @@ public final class IcebergCompactionExecutor {
             Types.NestedField.required(2147483546, "file_path", Types.StringType.get()),
             Types.NestedField.required(2147483545, "pos", Types.LongType.get()));
 
+    /** Default target size for merged data files. */
+    public static final long DEFAULT_TARGET_FILE_SIZE_BYTES = 512L * 1024 * 1024;
+
     private IcebergCompactionExecutor() {}
 
     /**
-     * Compacts the table by rewriting data files that have associated
-     * delete files. Data files without deletes are left untouched.
+     * Compacts the table using Iceberg's bin-pack planner: files carrying deletes
+     * are materialized and small files are merged into target-sized outputs.
      *
      * @param table the Iceberg table to compact
      * @return summary with file counts and bytes rewritten
      */
     public static CompactionSummary compact(Table table) {
+        return compact(table, DEFAULT_TARGET_FILE_SIZE_BYTES);
+    }
+
+    /**
+     * Compacts the table with an explicit target output file size.
+     *
+     * <p>{@code delete-file-threshold=1} is mandatory: the planner default is
+     * {@link Integer#MAX_VALUE}, which would silently stop rewriting
+     * delete-carrying files and regress the previous behavior.</p>
+     *
+     * @param table                 the Iceberg table to compact
+     * @param targetFileSizeBytes   soft target for each produced data file
+     * @return summary with file counts and bytes rewritten
+     */
+    public static CompactionSummary compact(Table table, long targetFileSizeBytes) {
+        if (targetFileSizeBytes <= 0) {
+            throw new IllegalArgumentException("targetFileSizeBytes must be positive");
+        }
         table.refresh();
 
-        List<FileScanTask> tasksWithDeletes = collectTasksWithDeletes(table);
-        if (tasksWithDeletes.isEmpty()) {
-            LOG.info("event=compact_skip table={} reason=no_delete_files", table.name());
+        var planner = new BinPackRewriteFilePlanner(table);
+        planner.init(Map.of(
+                BinPackRewriteFilePlanner.DELETE_FILE_THRESHOLD, "1"));
+        List<RewriteFileGroup> groups = new ArrayList<>();
+        try (CloseableIterable<RewriteFileGroup> planned = planner.plan().groups()) {
+            for (RewriteFileGroup group : planned) {
+                groups.add(group);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to plan compaction groups", e);
+        }
+        if (groups.isEmpty()) {
+            LOG.info("event=compact_skip table={} reason=no_rewrite_groups", table.name());
             return new CompactionSummary(0, 0, 0L, 0L, 0);
         }
 
-        LOG.info("event=compact_start table={} tasksWithDeletes={}",
-                table.name(), tasksWithDeletes.size());
+        LOG.info("event=compact_start table={} groups={} targetFileSizeBytes={}",
+                table.name(), groups.size(), targetFileSizeBytes);
 
         Set<DataFile> oldDataFiles = new HashSet<>();
         Set<DeleteFile> oldDeleteFiles = new HashSet<>();
         Set<DataFile> newDataFiles = new HashSet<>();
         long totalBytesRewritten = 0L;
 
-        for (FileScanTask task : tasksWithDeletes) {
-            oldDataFiles.add(task.file());
-            task.deletes().forEach(oldDeleteFiles::add);
-
-            DataFile newFile = rewriteTask(table, task);
-            if (newFile != null) {
-                newDataFiles.add(newFile);
+        for (RewriteFileGroup group : groups) {
+            boolean mergeable = isMergeableGroup(table, group);
+            if (mergeable) {
+                rewriteGroup(table, group, targetFileSizeBytes,
+                        oldDataFiles, oldDeleteFiles, newDataFiles);
+            } else {
+                // Mixed partition specs cannot share one output file without the
+                // per-row PartitionKey rewrite; keep the strict per-file path.
+                for (FileScanTask task : group.fileScanTasks()) {
+                    DataFile newFile = rewriteTask(table, task);
+                    oldDataFiles.add(task.file());
+                    task.deletes().forEach(oldDeleteFiles::add);
+                    if (newFile != null) {
+                        newDataFiles.add(newFile);
+                    }
+                }
             }
-            totalBytesRewritten += task.file().fileSizeInBytes();
+            for (FileScanTask task : group.fileScanTasks()) {
+                totalBytesRewritten += task.file().fileSizeInBytes();
+            }
         }
 
         commitRewrite(table, oldDataFiles, oldDeleteFiles, newDataFiles);
@@ -103,22 +149,60 @@ public final class IcebergCompactionExecutor {
                 totalBytesRewritten, bytesSaved, oldDeleteFiles.size());
     }
 
-    private static List<FileScanTask> collectTasksWithDeletes(Table table) {
-        List<FileScanTask> result = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
-            for (FileScanTask task : tasks) {
-                if (!task.deletes().isEmpty()) {
-                    result.add(task);
-                }
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to plan scan for compaction", e);
+    private static boolean isMergeableGroup(Table table, RewriteFileGroup group) {
+        List<FileScanTask> tasks = group.fileScanTasks();
+        if (tasks.isEmpty()) {
+            return false;
         }
-        return result;
+        int specId = group.outputSpecId();
+        Object partition = tasks.get(0).file().partition();
+        for (FileScanTask task : tasks) {
+            if (task.spec().specId() != specId) {
+                return false;
+            }
+            if (!task.file().partition().equals(partition)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void rewriteGroup(Table table, RewriteFileGroup group,
+                                     long targetFileSizeBytes,
+                                     Set<DataFile> oldDataFiles,
+                                     Set<DeleteFile> oldDeleteFiles,
+                                     Set<DataFile> newDataFiles) {
+        Schema schema = table.schema();
+        List<Record> rows = new ArrayList<>();
+        for (FileScanTask task : group.fileScanTasks()) {
+            rejectEqualityDeletes(task);
+            Set<Long> deletedPositions = collectDeletedPositions(table, task);
+            rows.addAll(readSurvivingRows(table, schema, task, deletedPositions));
+            oldDataFiles.add(task.file());
+            task.deletes().forEach(oldDeleteFiles::add);
+        }
+        if (rows.isEmpty()) {
+            return;
+        }
+        sortBySortOrder(rows, table.sortOrder(), schema);
+        FileScanTask sample = group.fileScanTasks().get(0);
+        newDataFiles.addAll(writeDataFiles(table, schema, sample.spec(),
+                sample.file().partition(), rows, targetFileSizeBytes));
+    }
+
+    private static void rejectEqualityDeletes(FileScanTask task) {
+        for (DeleteFile deleteFile : task.deletes()) {
+            if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                throw new UnsupportedOperationException(
+                        "Compaction cannot materialize equality deletes without a "
+                                + "row-level key match: " + deleteFile.path());
+            }
+        }
     }
 
     private static DataFile rewriteTask(Table table, FileScanTask task) {
         Schema schema = table.schema();
+        rejectEqualityDeletes(task);
         Set<Long> deletedPositions = collectDeletedPositions(table, task);
         List<Record> surviving = readSurvivingRows(table, schema, task, deletedPositions);
 
@@ -268,7 +352,7 @@ public final class IcebergCompactionExecutor {
                 .split(task.start(), task.length())
                 .build()) {
 
-            long position = 0;
+            long position = task.start();
             for (Record row : reader) {
                 if (!deletedPositions.contains(position)) {
                     surviving.add(row);
@@ -285,26 +369,57 @@ public final class IcebergCompactionExecutor {
     private static DataFile writeDataFile(
             Table table, Schema schema, PartitionSpec spec,
             org.apache.iceberg.StructLike partition, List<Record> rows) {
-        String path = table.location() + "/data/" + UUID.randomUUID() + ".parquet";
-        OutputFile outputFile = table.io().newOutputFile(path);
+        return writeDataFiles(table, schema, spec, partition, rows,
+                Long.MAX_VALUE).get(0);
+    }
 
+    /** Streams rows into target-sized data files without retaining a second copy. */
+    private static List<DataFile> writeDataFiles(
+            Table table, Schema schema, PartitionSpec spec,
+            org.apache.iceberg.StructLike partition, List<Record> rows,
+            long targetFileSizeBytes) {
+        List<DataFile> files = new ArrayList<>();
+        DataWriter<Record> writer = null;
         try {
-            DataWriter<Record> writer = Parquet.writeData(outputFile)
-                    .schema(schema)
-                    .withSpec(spec)
-                    .withPartition(partition)
-                    .createWriterFunc(GenericParquetWriter::create)
-                    .overwrite()
-                    .build();
-
             for (Record row : rows) {
+                if (writer == null) {
+                    writer = newWriter(table, schema, spec, partition);
+                }
                 writer.write(row);
+                if (writer.length() >= targetFileSizeBytes) {
+                    writer.close();
+                    files.add(writer.toDataFile());
+                    writer = null;
+                }
             }
-            writer.close();
-            return writer.toDataFile();
+            if (writer != null) {
+                writer.close();
+                files.add(writer.toDataFile());
+            }
+            return files;
         } catch (IOException e) {
+            if (writer != null) {
+                try {
+                    writer.close();
+                } catch (IOException suppressed) {
+                    e.addSuppressed(suppressed);
+                }
+            }
             throw new UncheckedIOException("Failed to write compacted data file", e);
         }
+    }
+
+    private static DataWriter<Record> newWriter(Table table, Schema schema,
+            PartitionSpec spec, org.apache.iceberg.StructLike partition) throws IOException {
+        String path = table.location() + "/data/" + UUID.randomUUID() + ".parquet";
+        OutputFile outputFile = table.io().newOutputFile(path);
+        return Parquet.writeData(outputFile)
+                .schema(schema)
+                .withSpec(spec)
+                .withPartition(partition)
+                .createWriterFunc(GenericParquetWriter::create)
+                .overwrite()
+                .build();
     }
 
     private static void commitRewrite(

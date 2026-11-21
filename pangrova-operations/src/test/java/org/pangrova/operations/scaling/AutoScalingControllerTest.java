@@ -241,7 +241,7 @@ class AutoScalingControllerTest {
                 EMERGENCY,
                 executorTarget::set,
                 liveWorkerCount::get,
-                clock);
+                verifiedEmptyResidency(), clock);
 
         // Use a truly idle snapshot (all zeros → score=0.0 < 0.2 threshold) to trigger scale-in.
         // The controller reads 8 from the supplier and scales in to 7.
@@ -325,12 +325,25 @@ class AutoScalingControllerTest {
     }
 
     @Test
+    void unknownResidencyKeepsExistingWorkersEvenWhenIdle() {
+        var workers = new AtomicInteger(8);
+        var scaling = controller(new MutableClock(), workers);
+        assertThat(scaling.evaluate(new MetricSnapshot(0, 0, 0, 0))).isEqualTo(8);
+        assertThat(workers.get()).isEqualTo(8);
+    }
+
+    private static ShuffleDrainPolicy verifiedEmptyResidency() {
+        return new ShuffleDrainPolicy((current, target) -> ShuffleResidencyCheck.ScaleDownAdvice.allow(target),
+                timeout -> { throw new AssertionError("Empty residency needs no drain"); }, Duration.ofSeconds(1));
+    }
+
+    @Test
     void scaleInWithClearResidencyProceedsNormally() {
         MutableClock clock = new MutableClock();
         AtomicInteger workerCount = new AtomicInteger(8);
 
         // All workers clear — no shuffle data concerns
-        ShuffleDrainPolicy drainPolicy = ShuffleDrainPolicy.noOp();
+        ShuffleDrainPolicy drainPolicy = verifiedEmptyResidency();
 
         AutoScalingController c = controllerWithShuffleDrain(clock, workerCount, drainPolicy);
 

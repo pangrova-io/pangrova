@@ -3,13 +3,16 @@ package org.pangrova.worker.buffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
@@ -23,14 +26,12 @@ import org.pangrova.common.concurrent.ThreadSafe;
  * the manager spills the largest partition to disk when memory usage exceeds
  * the configured threshold.</p>
  *
- * <p>Concurrency strategy: ConcurrentHashMap for partition buffer registry,
- * ConcurrentHashMap.newKeySet for closed partitions tracking.
- * ArrayBlockingQueue provides thread-safe bounded buffering per partition.
- * The {@code closed} flag is checked before and after blocking operations
- * to ensure clean shutdown without data corruption.</p>
+ * <p>Each partition owns a bounded queue and separate producer/consumer conditions.
+ * Publication, removal and byte accounting share that queue's lock. Closing seals
+ * admission and wakes every waiter without inserting synthetic data.</p>
  */
 @ThreadSafe
-public class ShuffleBufferManager implements AutoCloseable {
+public final class ShuffleBufferManager implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ShuffleBufferManager.class);
     private static final int DEFAULT_CAPACITY = 100;
@@ -39,7 +40,8 @@ public class ShuffleBufferManager implements AutoCloseable {
     private static final long DEFAULT_MAX_TOTAL_BYTES = 512L * 1024 * 1024;
 
     private final int capacity;
-    private final ConcurrentHashMap<ShuffleBufferKey, ArrayBlockingQueue<byte[]>> partitionBuffers =
+    private final Object partitionOwnership = new Object();
+    private final ConcurrentHashMap<ShuffleBufferKey, PartitionBuffer> partitionBuffers =
             new ConcurrentHashMap<>();
     private final Set<ShuffleBufferKey> closedPartitions = ConcurrentHashMap.newKeySet();
     private final ShuffleDiskSpiller spiller;  // null = MEMORY_ONLY
@@ -97,72 +99,42 @@ public class ShuffleBufferManager implements AutoCloseable {
      * @throws IllegalStateException if the manager has been closed (BUG-D10 fix)
      */
     public void createPartition(ShuffleBufferKey key) {
-        if (closed.get()) {
-            throw new IllegalStateException("ShuffleBufferManager is closed");
+        synchronized (partitionOwnership) {
+            requireOpen();
+            partitionBuffers.putIfAbsent(key, new PartitionBuffer());
         }
-        partitionBuffers.putIfAbsent(key, new ArrayBlockingQueue<>(capacity));
         LOG.debug("event=partition_buffer_created key={}", key);
     }
 
-    /** Adds a batch to the partition buffer. Blocks when full (backpressure).
-     *
-     * <p>BUG-03 fix: Updates {@code totalBufferedBytes} AFTER successful enqueue
-     * instead of before. The previous "update before put" design caused the
-     * counter to be inflated while {@code put()} blocked, triggering premature
-     * spills. The spill check now runs after the counter is accurate.</p>
-     *
-     * <p>Race condition handling: after {@code put()} unblocks (either by space
-     * becoming available or by close() injecting a sentinel), we re-check the
-     * closed flag. If closed, we do NOT update the byte counter (the buffer was
-     * already cleared by close()) and throw IllegalStateException. This prevents
-     * the counter from drifting when close() races with blocked producers.</p>
-     */
+    /** Adds a batch, waiting for actual capacity until admission is sealed. */
     public void addBatch(ShuffleBufferKey key, byte[] batch) throws InterruptedException {
-        if (closed.get()) {
-            throw new IllegalStateException("ShuffleBufferManager is closed");
-        }
-        ArrayBlockingQueue<byte[]> buffer = getBuffer(key);
-        buffer.put(batch);
-        // Re-check after blocking: close() may have fired while we were in put().
-        if (closed.get()) {
-            throw new IllegalStateException("ShuffleBufferManager is closed");
-        }
-        totalBufferedBytes.addAndGet(batch.length);
+        java.util.Objects.requireNonNull(batch, "batch");
+        requireOpen();
+        getBuffer(key).put(batch);
+        requireOpen();
         maybeSpill();
     }
 
     /**
-     * Polls a batch from the partition buffer.
+     * Polls one actual batch, returning null on timeout or manager closure.
      *
-     * <p>Returns null when the manager is closed or when the poll times out.
-     * Filters out zero-length sentinel arrays injected by {@link #close()}
-     * to prevent downstream consumers from misinterpreting them as EOF.</p>
-     *
-     * @param key       the composite key to poll from
-     * @param timeoutMs maximum wait time in milliseconds
-     * @return the next batch, or null on timeout or closed state
+     * @param key composite partition key
+     * @param timeoutMs maximum wait in milliseconds
+     * @return the next nonempty batch, or null on timeout, empty batch or closure
      */
     public byte[] pollBatch(ShuffleBufferKey key, long timeoutMs) throws InterruptedException {
         if (closed.get()) {
             return null;
         }
-        ArrayBlockingQueue<byte[]> buffer = partitionBuffers.get(key);
+        PartitionBuffer buffer = partitionBuffers.get(key);
         if (buffer == null) {
             if (closed.get()) {
                 return null;
             }
             throw new IllegalArgumentException("No buffer for key: " + key);
         }
-        byte[] batch = buffer.poll(timeoutMs, TimeUnit.MILLISECONDS);
-        if (batch == null) {
-            return null;
-        }
-        // Filter zero-length sentinel injected by close() to unblock producers.
-        if (batch.length == 0) {
-            return null;
-        }
-        totalBufferedBytes.addAndGet(-batch.length);
-        return batch;
+        byte[] batch = buffer.poll(TimeUnit.MILLISECONDS.toNanos(timeoutMs));
+        return batch != null && batch.length != 0 ? batch : null;
     }
 
     /** Signals that the given partition has finished producing data. */
@@ -178,40 +150,28 @@ public class ShuffleBufferManager implements AutoCloseable {
 
     // ── Lifecycle ──
 
-    /** Clears all partition buffers and closed state. Idempotent — safe to call multiple times.
-     *
-     * <p>After setting the closed flag, offers a zero-length sentinel to each
-     * partition queue to unblock threads waiting in {@code put()}. The sentinel
-     * is filtered out by {@link #pollBatch} so it never reaches consumers.</p>
-     *
-     * <p>Partition buffers are NOT removed from the map during close. This
-     * prevents a race where a producer thread wakes from {@code put()}, passes
-     * the closed re-check in {@code addBatch()}, and then calls
-     * {@code getBuffer()} which would throw IllegalArgumentException if the
-     * map had been cleared. Instead, the closed flag ensures no further
-     * meaningful operations occur.</p>
-     */
+    /** Seals admission, discards queued data and wakes every blocked queue operation. */
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
+        synchronized (partitionOwnership) {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
         }
-        // Unblock waiting producers by offering a sentinel to each queue.
-        for (var entry : partitionBuffers.entrySet()) {
-            ArrayBlockingQueue<byte[]> buf = entry.getValue();
-            buf.clear();
-            // Wake any thread blocked in put() — sentinel is filtered by pollBatch().
-            buf.offer(new byte[0]);
+        for (PartitionBuffer buffer : partitionBuffers.values()) {
+            buffer.discardAndWake();
         }
-        // Do NOT clear partitionBuffers — producers that wake from put() already
-        // hold a buffer reference, and the closed flag prevents further operations.
-        // Only clear auxiliary state.
         closedPartitions.clear();
-        totalBufferedBytes.set(0);
         if (spiller != null) {
             spiller.close();
         }
         LOG.info("event=shuffle_buffer_manager_closed spillCount={}", spillCount.get());
+    }
+
+    private void requireOpen() {
+        if (closed.get()) {
+            throw new IllegalStateException("ShuffleBufferManager is closed");
+        }
     }
 
     // ── Spill internals ──
@@ -243,11 +203,11 @@ public class ShuffleBufferManager implements AutoCloseable {
         if (largestKey == null) {
             return false;
         }
-        ArrayBlockingQueue<byte[]> buffer = partitionBuffers.get(largestKey);
+        PartitionBuffer buffer = partitionBuffers.get(largestKey);
         if (buffer == null) {
             return false;
         }
-        byte[] batch = buffer.poll();
+        byte[] batch = buffer.removeReady();
         if (batch == null) {
             return false;
         }
@@ -260,7 +220,6 @@ public class ShuffleBufferManager implements AutoCloseable {
         // ShuffleBufferManager instance is scoped to a single task execution.
         int spillId = largestKey.toString().hashCode() & NON_NEGATIVE_INT_MASK;
         spiller.spill(spillId, batch);
-        totalBufferedBytes.addAndGet(-batch.length);
         spillCount.incrementAndGet();
         LOG.info("event=shuffle_spill_triggered key={} spillId={} bytes={}",
                 largestKey, spillId, batch.length);
@@ -280,8 +239,8 @@ public class ShuffleBufferManager implements AutoCloseable {
         return largestKey;
     }
 
-    private ArrayBlockingQueue<byte[]> getBuffer(ShuffleBufferKey key) {
-        ArrayBlockingQueue<byte[]> buffer = partitionBuffers.get(key);
+    private PartitionBuffer getBuffer(ShuffleBufferKey key) {
+        PartitionBuffer buffer = partitionBuffers.get(key);
         if (buffer == null) {
             if (closed.get()) {
                 throw new IllegalStateException("ShuffleBufferManager is closed");
@@ -289,6 +248,87 @@ public class ShuffleBufferManager implements AutoCloseable {
             throw new IllegalArgumentException("No buffer for key: " + key);
         }
         return buffer;
+    }
+
+    /** Owns queue publication and byte accounting, including all closure wakeups. */
+    private final class PartitionBuffer {
+        private final ReentrantLock lock = new ReentrantLock();
+        private final Condition notFull = lock.newCondition();
+        private final Condition notEmpty = lock.newCondition();
+        @GuardedBy("lock")
+        private final ArrayDeque<byte[]> batches = new ArrayDeque<>();
+
+        private void put(byte[] batch) throws InterruptedException {
+            lock.lockInterruptibly();
+            try {
+                while (batches.size() >= capacity && !closed.get()) {
+                    notFull.await();
+                }
+                requireOpen();
+                batches.addLast(batch);
+                totalBufferedBytes.addAndGet(batch.length);
+                notEmpty.signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private byte[] poll(long nanos) throws InterruptedException {
+            lock.lockInterruptibly();
+            try {
+                while (batches.isEmpty() && !closed.get()) {
+                    if (nanos <= 0) {
+                        return null;
+                    }
+                    nanos = notEmpty.awaitNanos(nanos);
+                }
+                return closed.get() ? null : removeBatch();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private byte[] removeReady() {
+            lock.lock();
+            try {
+                return closed.get() ? null : removeBatch();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        @GuardedBy("lock")
+        private byte[] removeBatch() {
+            byte[] batch = batches.pollFirst();
+            if (batch != null) {
+                totalBufferedBytes.addAndGet(-batch.length);
+                notFull.signal();
+            }
+            return batch;
+        }
+
+        private int size() {
+            lock.lock();
+            try {
+                return batches.size();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private void discardAndWake() {
+            lock.lock();
+            try {
+                for (byte[] batch : batches) {
+                    totalBufferedBytes.addAndGet(-batch.length);
+                }
+                batches.clear();
+                notFull.signalAll();
+                notEmpty.signalAll();
+            } finally {
+                lock.unlock();
+            }
+        }
     }
 
     // ── Observability ──

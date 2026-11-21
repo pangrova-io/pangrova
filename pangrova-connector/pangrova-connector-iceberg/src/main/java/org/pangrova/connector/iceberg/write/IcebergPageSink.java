@@ -18,10 +18,9 @@ import java.util.StringJoiner;
  * tables, buffers records and writes one data file per partition so that
  * each file carries correct partition metadata for pruning and overwrite.
  */
-public class IcebergPageSink extends AbstractIcebergPageSink {
+public final class IcebergPageSink extends AbstractIcebergPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergPageSink.class);
-    private boolean writerClosed;
 
     public IcebergPageSink(IcebergWriteContext ctx) {
         super(ctx);
@@ -38,11 +37,15 @@ public class IcebergPageSink extends AbstractIcebergPageSink {
 
     private byte[] collectUnpartitionedMetadata() {
         try {
-            if (!writerClosed) {
-                unpartitionedWriter().close();
-                writerClosed = true;
-            }
+            closeUnpartitionedWriterForCommit();
             DataFile dataFile = unpartitionedWriter().toDataFile();
+            if (dataFile.recordCount() == 0) {
+                // Closing an unused Parquet writer can yield a descriptor for
+                // a path that was never created. An empty append is a no-op;
+                // never publish that descriptor for the coordinator to commit.
+                LOG.debug("event=unpartitioned_append_empty");
+                return new byte[0];
+            }
             LOG.debug("event=append_metadata_collected dataFile={}", dataFile.path());
             return serializeDataFiles(List.of(dataFile));
         } catch (IOException e) {

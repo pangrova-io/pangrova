@@ -1,2 +1,0 @@
-# EmbeddingProviderLookup is wired programmatically via SelfIntelligenceBootstrap.
-# No ServiceLoader-constructible implementation exists (all impls need injected dependencies).

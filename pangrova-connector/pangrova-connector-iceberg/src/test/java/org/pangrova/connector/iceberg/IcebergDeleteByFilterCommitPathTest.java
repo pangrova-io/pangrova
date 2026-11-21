@@ -1,19 +1,28 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.connector.iceberg.exception.CommitTimeoutException;
+
+import org.apache.hadoop.conf.Configuration;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.enums.CommitEventType;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Types;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,12 +33,13 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for F-ICEBERG-09: verifies that {@code deleteByFilter} uses the same
  * retry/timeout/notification pipeline as all other commit paths.
  *
- * <p>Uses InMemoryCatalog to avoid Hadoop dependency (JDK 26 compatible).
+ * <p>Uses a local Hadoop catalog, whose metadata pointer supports the declaration fence.
  *
  * <p>Covers:
  * <ul>
@@ -51,10 +61,15 @@ class IcebergDeleteByFilterCommitPathTest {
     private static final String NAMESPACE = "dbf_db";
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final Schema TEST_SCHEMA = new Schema(
@@ -63,7 +78,7 @@ class IcebergDeleteByFilterCommitPathTest {
 
     @BeforeEach
     void setUp() {
-        catalog = createInMemoryCatalog();
+        catalog = createLocalCatalog();
         if (catalog instanceof SupportsNamespaces nsCatalog) {
             nsCatalog.createNamespace(Namespace.of(NAMESPACE));
         }
@@ -142,6 +157,90 @@ class IcebergDeleteByFilterCommitPathTest {
                 .isNotEqualTo(snapshotBefore);
     }
 
+    @Test
+    void deleteByFilter_rejectsRestCatalogBeforeCommit() {
+        Table table = createTableWithData("rest_denied");
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+        var handle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "rest_denied"));
+        var restCommitter = new IcebergWriteCommitter(
+                new RESTCatalog(), CATALOG_NAME, 30_000L,
+                new IcebergCommitNotifier(CATALOG_NAME));
+
+        assertThatThrownBy(() -> restCommitter.deleteByFilter(
+                table, (org.pangrova.connector.iceberg.handle.IcebergTableHandle) handle,
+                new DeleteFilter.All(), "test-tenant"))
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
+                .hasMessageContaining("whole-metadata CAS has not been verified");
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshotBefore);
+    }
+
+    @Test
+    void deleteByFilter_rejectsDeclarationChangedAfterPlanning() {
+        Table table = createTableWithData("changed_declaration");
+        var handle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "changed_declaration"));
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+        table.updateProperties().set("pangrova.vector.dimension.embedding", "3").commit();
+
+        assertThatThrownBy(() -> metadata.deleteByFilter(SESSION, handle, new DeleteFilter.All()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("write declaration changed since allocation");
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshotBefore);
+    }
+
+    @Test
+    void deleteByFilterRetainsExplicitHistoricalDeclarationWithoutLeakingSecrets() {
+        Table table = createTableWithData("historical_declaration");
+        table.updateProperties().set("private.auth.token", "secret")
+                .set(TableProperties.METADATA_PREVIOUS_VERSIONS_MAX, "1")
+                .set(TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED, "true").commit();
+        var handle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "historical_declaration"));
+
+        metadata.deleteByFilter(SESSION, handle, new DeleteFilter.All());
+        Table current = catalog.loadTable(TableIdentifier.of(NAMESPACE, "historical_declaration"));
+        var snapshot = current.currentSnapshot();
+        assertThat(snapshot.summary())
+                .containsKeys(GeneratedColumnMetadataCodec.PAYLOAD_PROPERTY,
+                        GeneratedColumnMetadataCodec.SHA256_PROPERTY)
+                .doesNotContainKey("private.auth.token");
+
+        current.updateProperties().set("irrelevant", "revision-1").commit();
+        current.updateProperties().set("irrelevant", "revision-2").commit();
+        var pinned = IcebergTableHandleFactory.fromTableWithSnapshot(
+                NAMESPACE, "historical_declaration", current, snapshot.snapshotId());
+        var historical = metadata.getTableReadMetadata(SESSION, pinned);
+        assertThat(historical.declarationEvidence()).isEqualTo(TableDeclarationEvidence.EXACT);
+        assertThat(GeneratedColumnMetadataCodec.decode(historical.requireExactDeclaration().properties())
+                .getDefinitionsCount()).isZero();
+    }
+
+    @Test
+    void deleteByFilter_rejectsSessionWithoutTenant() {
+        createTableWithData("missing_tenant_test");
+        var handle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "missing_tenant_test"));
+        ConnectorSession missingTenant = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
+            @Override public String getUser() { return "test"; }
+            @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
+            @Override public Optional<String> getSchema() { return Optional.empty(); }
+            @Override public Map<String, String> getProperties() { return Map.of(); }
+        };
+
+        assertThatThrownBy(() -> metadata.deleteByFilter(
+                missingTenant, handle, new DeleteFilter.All()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tenant_id");
+    }
+
     /**
      * Verifies that deleteByFilter is protected by the commit timeout.
      * Creates an IcebergMetadata with a very short timeout (1ms) so that
@@ -182,12 +281,10 @@ class IcebergDeleteByFilterCommitPathTest {
 
     // --- helpers ---
 
-    private Catalog createInMemoryCatalog() {
-        org.apache.iceberg.inmemory.InMemoryCatalog cat =
-                new org.apache.iceberg.inmemory.InMemoryCatalog();
-        cat.initialize(CATALOG_NAME,
-                Map.of("warehouse", warehouse.toUri().toString()));
-        return cat;
+    private Catalog createLocalCatalog() {
+        var configuration = new Configuration();
+        configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
+        return new HadoopCatalog(configuration, warehouse.toString());
     }
 
     private Table createTableWithData(String tableName) {

@@ -1,5 +1,11 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.exception.SubstraitConversionException;
+
+import org.pangrova.planner.metadata.PlanTable;
+
+import static org.pangrova.planner.substrait.DmlMergeJoinSupport.swapToTargetFirstLeftJoin;
+
 import io.substrait.relation.Rel;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinRelType;
@@ -7,12 +13,14 @@ import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalTableModify;
+import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -24,9 +32,12 @@ final class DmlOperationConverter {
     private static final Logger LOG = LoggerFactory.getLogger(DmlOperationConverter.class);
 
     private final Function<RelNode, Rel> visitFn;
+    private final Consumer<LogicalJoin> requireSingleMatch;
 
-    DmlOperationConverter(Function<RelNode, Rel> visitFn) {
+    DmlOperationConverter(Function<RelNode, Rel> visitFn,
+                          Consumer<LogicalJoin> requireSingleMatch) {
         this.visitFn = visitFn;
+        this.requireSingleMatch = requireSingleMatch;
     }
 
     /**
@@ -36,7 +47,8 @@ final class DmlOperationConverter {
      */
     Rel convert(LogicalTableModify modify) {
         LOG.debug("event=convert_table_modify operation={} table={}",
-                modify.getOperation(), modify.getTable().getQualifiedName());
+                modify.getOperation(), PlanTable.require(modify)
+                        .getQualifiedName());
         if (modify.getOperation() == org.apache.calcite.rel.core.TableModify.Operation.MERGE) {
             return convertMerge(modify);
         }
@@ -76,7 +88,10 @@ final class DmlOperationConverter {
                     filter.getTraitSet(), filter.getInput(), invertedCondition);
             return visitFn.apply(invertedFilter);
         }
-        return visitFn.apply(filterCandidate);
+        // DELETE without WHERE deletes every row. The write still needs the
+        // target schema, but must not copy the unchanged table back to storage.
+        return visitFn.apply(LogicalFilter.create(filterCandidate,
+                filterCandidate.getCluster().getRexBuilder().makeLiteral(false)));
     }
 
     /**
@@ -143,24 +158,17 @@ final class DmlOperationConverter {
      */
     private static java.util.Map<Integer, Integer> resolveUpdateExpressionMap(
             List<String> updateColumns, RelNode tableScan, int tableColumnCount) {
-        var updatedIndices = new java.util.HashSet<Integer>();
+        var exprMap = new java.util.HashMap<Integer, Integer>();
         if (updateColumns != null) {
-            for (String colName : updateColumns) {
+            for (int setIndex = 0; setIndex < updateColumns.size(); setIndex++) {
+                String colName = updateColumns.get(setIndex);
                 for (int j = 0; j < tableColumnCount; j++) {
                     if (tableScan.getRowType().getFieldList().get(j).getName()
                             .equalsIgnoreCase(colName)) {
-                        updatedIndices.add(j);
+                        exprMap.put(j, tableColumnCount + setIndex);
                         break;
                     }
                 }
-            }
-        }
-        var exprMap = new java.util.HashMap<Integer, Integer>();
-        int setIdx = 0;
-        for (int j = 0; j < tableColumnCount; j++) {
-            if (updatedIndices.contains(j)) {
-                exprMap.put(j, tableColumnCount + setIdx);
-                setIdx++;
             }
         }
         return exprMap;
@@ -218,17 +226,40 @@ final class DmlOperationConverter {
 
         if (!(input instanceof LogicalProject project)
                 || !(project.getInput() instanceof LogicalJoin join)) {
-            return visitFn.apply(input);
+            throw unsupportedMergeShape("expected Project over Join");
         }
 
         if (hasUpdateColumns) {
-            return convertMergeUpdate(project, join, updateColumns,
-                    modify.getTable().getRowType().getFieldNames());
+            int targetColumnCount = join.getRight().getRowType().getFieldCount();
+            if (join.getJoinType() == JoinRelType.LEFT
+                    && project.getProjects().size()
+                    == 2 * targetColumnCount + updateColumns.size()) {
+                return convertMergeUpdateInsert(project, join, updateColumns,
+                        PlanTable.require(modify)
+                                .getRowType().getFieldNames());
+            }
+            if (join.getJoinType() == JoinRelType.INNER
+                    && project.getProjects().size()
+                    == targetColumnCount + updateColumns.size()) {
+                return convertMergeUpdate(project, join, updateColumns,
+                        PlanTable.require(modify)
+                                .getRowType().getFieldNames());
+            }
+            throw unsupportedMergeShape("unexpected update project or join type");
         }
         if (join.getJoinType() == JoinRelType.INNER) {
             return convertMergeDelete(join);
         }
-        return convertMergeInsertOnly(project, join);
+        if (join.getJoinType() == JoinRelType.LEFT) {
+            return convertMergeInsertOnly(project, join);
+        }
+        throw unsupportedMergeShape("unexpected join type");
+    }
+
+    private static SubstraitConversionException unsupportedMergeShape(String detail) {
+        return new SubstraitConversionException(
+                org.pangrova.common.enums.PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                "MERGE cannot be lowered to one native write: " + detail);
     }
 
     /**
@@ -238,17 +269,66 @@ final class DmlOperationConverter {
     private Rel convertMergeUpdate(LogicalProject project, LogicalJoin join,
                                    List<String> updateColumns,
                                    List<String> targetColumnNames) {
+        return visitFn.apply(buildMergeUpdateProject(
+                project, join, updateColumns, targetColumnNames));
+    }
+
+    private Rel convertMergeUpdateInsert(LogicalProject project, LogicalJoin join,
+                                         List<String> updateColumns,
+                                         List<String> targetColumnNames) {
+        LogicalProject updatedTargets = buildMergeUpdateProject(
+                project, join, updateColumns, targetColumnNames);
+        LogicalJoin unmatchedSources = join.copy(
+                join.getTraitSet(), join.getCondition(), join.getLeft(), join.getRight(),
+                JoinRelType.ANTI, join.isSemiJoinDone());
+        LogicalProject insertedSources = buildMergeInsertProject(
+                project, unmatchedSources, targetColumnNames);
+        return visitFn.apply(LogicalUnion.create(
+                List.of(updatedTargets, insertedSources), true));
+    }
+
+    private LogicalProject buildMergeInsertProject(
+            LogicalProject mergeProject, LogicalJoin unmatchedSources,
+            List<String> targetColumnNames) {
+        int sourceColumnCount = unmatchedSources.getRowType().getFieldCount();
+        List<RexNode> expressions = new java.util.ArrayList<>();
+        RexBuilder rexBuilder = mergeProject.getCluster().getRexBuilder();
+        for (int i = 0; i < targetColumnNames.size(); i++) {
+            RexNode expression = mergeProject.getProjects().get(i);
+            if (!org.apache.calcite.plan.RelOptUtil.InputFinder.bits(expression)
+                    .stream().allMatch(index -> index < sourceColumnCount)) {
+                throw new IllegalArgumentException(
+                        "MERGE INSERT expression references target columns");
+            }
+            var targetType = mergeProject.getProjects().get(
+                    targetColumnNames.size() + i).getType();
+            expressions.add(rexBuilder.makeAbstractCast(targetType, expression));
+        }
+        var rowType = rexBuilder.getTypeFactory().createStructType(
+                expressions.stream().map(RexNode::getType).toList(), targetColumnNames);
+        return LogicalProject.create(unmatchedSources, List.of(), expressions, rowType);
+    }
+
+    private LogicalProject buildMergeUpdateProject(LogicalProject project, LogicalJoin join,
+                                                    List<String> updateColumns,
+                                                    List<String> targetColumnNames) {
         RexBuilder rexBuilder = join.getCluster().getRexBuilder();
         LogicalJoin leftJoin = swapToTargetFirstLeftJoin(join, rexBuilder);
+        // A target row must produce exactly one row from this LEFT JOIN. The
+        // standard Substrait LEFT_SINGLE contract is checked by Native before
+        // a write task can publish its commit fragment. If this join is ever
+        // partitioned across tasks, each target partition must receive every
+        // matching source row before the per-task check can be authoritative.
+        requireSingleMatch.accept(leftJoin);
         int sourceFieldCount = join.getLeft().getRowType().getFieldCount();
         int targetFieldCount = join.getRight().getRowType().getFieldCount();
 
-        // Match indicator: first source column (at targetFieldCount after swap).
-        // For matched rows this is non-NULL (it was used in the equi-join);
-        // for unmatched rows all source columns are NULL.
+        // The extra non-null source marker survives matched rows even if every
+        // source data column is nullable; unmatched rows have a null marker.
+        int markerIndex = targetFieldCount + sourceFieldCount;
         RexNode matchIndicator = rexBuilder.makeInputRef(
-                leftJoin.getRowType().getFieldList().get(targetFieldCount).getType(),
-                targetFieldCount);
+                leftJoin.getRowType().getFieldList().get(markerIndex).getType(),
+                markerIndex);
         RexNode isMatched = rexBuilder.makeCall(
                 org.apache.calcite.sql.fun.SqlStdOperatorTable.IS_NOT_NULL,
                 matchIndicator);
@@ -256,7 +336,7 @@ final class DmlOperationConverter {
         // Build a trimmed output project with exactly targetFieldCount columns.
         // For non-updated columns: reference target position directly.
         // For updated columns: use CASE WHEN to handle unmatched rows:
-        //   CASE WHEN <source_indicator> IS NOT NULL
+        //   CASE WHEN <match_marker> IS NOT NULL
         //        THEN source_col ELSE target_col END
         // This ensures unmatched target rows (LEFT JOIN produces NULL source)
         // retain their original values instead of being overwritten with NULL.
@@ -264,11 +344,12 @@ final class DmlOperationConverter {
         List<String> outputNames = new java.util.ArrayList<>();
         for (int i = 0; i < targetFieldCount; i++) {
             String colName = targetColumnNames.get(i);
-            int updateIndex = updateColumns.indexOf(colName);
+            int updateIndex = updateColumnIndex(updateColumns, colName);
             RexNode setExpression = updateIndex >= 0
                 ? remapForSwappedJoin(
-                    project.getProjects().get(targetFieldCount + updateIndex),
-                    sourceFieldCount, targetFieldCount, rexBuilder)
+                    project.getProjects().get(
+                            project.getProjects().size() - updateColumns.size() + updateIndex),
+                    sourceFieldCount, targetFieldCount, leftJoin, rexBuilder)
                 : null;
             trimmedProjects.add(buildMergeUpdateColumnExpr(
                 leftJoin, i, setExpression, isMatched, rexBuilder));
@@ -282,7 +363,16 @@ final class DmlOperationConverter {
         LogicalProject trimmedProject = LogicalProject.create(
                 leftJoin, java.util.Collections.emptyList(),
                 trimmedProjects, outputRowType);
-        return visitFn.apply(trimmedProject);
+        return trimmedProject;
+    }
+
+    private static int updateColumnIndex(List<String> updateColumns, String columnName) {
+        for (int i = 0; i < updateColumns.size(); i++) {
+            if (updateColumns.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -300,23 +390,27 @@ final class DmlOperationConverter {
                 leftJoin.getRowType().getFieldList().get(columnIdx).getType(), columnIdx);
         return rexBuilder.makeCall(
                 org.apache.calcite.sql.fun.SqlStdOperatorTable.CASE,
-            isMatched, setExpression, targetRef);
+                isMatched, setExpression, targetRef);
     }
 
-        private static RexNode remapForSwappedJoin(
+    private static RexNode remapForSwappedJoin(
             RexNode expression, int sourceFieldCount, int targetFieldCount,
-            RexBuilder rexBuilder) {
+            LogicalJoin leftJoin, RexBuilder rexBuilder) {
         return expression.accept(new org.apache.calcite.rex.RexShuttle() {
             @Override
             public RexNode visitInputRef(org.apache.calcite.rex.RexInputRef inputRef) {
-            int index = inputRef.getIndex();
-            int remappedIndex = index < sourceFieldCount
-                ? targetFieldCount + index
-                : index - sourceFieldCount;
-            return rexBuilder.makeInputRef(inputRef.getType(), remappedIndex);
+                int index = inputRef.getIndex();
+                int remappedIndex = index < sourceFieldCount
+                        ? targetFieldCount + index
+                        : index - sourceFieldCount;
+                // The source side becomes nullable under the target-preserving
+                // LEFT join; retain the joined input's actual field type.
+                return rexBuilder.makeInputRef(
+                        leftJoin.getRowType().getFieldList().get(remappedIndex).getType(),
+                        remappedIndex);
             }
         });
-        }
+    }
 
     /**
      * MERGE DELETE (INNER JOIN): transforms to LEFT JOIN + IS NULL filter
@@ -334,9 +428,10 @@ final class DmlOperationConverter {
 
         // Filter: keep only unmatched rows (where source side IS NULL).
         // Use the first source column as the null indicator.
+        int markerIndex = leftJoinDel.getRowType().getFieldCount() - 1;
         RexNode sourceIndicator = rexBuilder.makeInputRef(
-                leftJoinDel.getRowType().getFieldList().get(targetFieldCount).getType(),
-                targetFieldCount);
+                leftJoinDel.getRowType().getFieldList().get(markerIndex).getType(),
+                markerIndex);
         RexNode isNullFilter = rexBuilder.makeCall(
                 org.apache.calcite.sql.fun.SqlStdOperatorTable.IS_NULL,
                 sourceIndicator);
@@ -371,30 +466,4 @@ final class DmlOperationConverter {
         return visitFn.apply(newProject);
     }
 
-    /**
-     * Swaps join inputs to (target|source) layout as a LEFT JOIN, remapping the
-     * join condition field references accordingly.
-     */
-    private static LogicalJoin swapToTargetFirstLeftJoin(LogicalJoin join, RexBuilder rexBuilder) {
-        int sourceFieldCount = join.getLeft().getRowType().getFieldCount();
-        int targetFieldCount = join.getRight().getRowType().getFieldCount();
-        // Remap condition from (source|target) to (target|source) layout.
-        org.apache.calcite.rex.RexShuttle swapShuttle =
-                new org.apache.calcite.rex.RexShuttle() {
-                    @Override
-                    public RexNode visitInputRef(
-                            org.apache.calcite.rex.RexInputRef inputRef) {
-                        int idx = inputRef.getIndex();
-                        int newIdx = (idx < sourceFieldCount)
-                                ? targetFieldCount + idx
-                                : idx - sourceFieldCount;
-                        return rexBuilder.makeInputRef(inputRef.getType(), newIdx);
-                    }
-                };
-        RexNode remappedCondition = join.getCondition().accept(swapShuttle);
-        return join.copy(
-                join.getTraitSet(), remappedCondition,
-                join.getRight(), join.getLeft(),
-                JoinRelType.LEFT, join.isSemiJoinDone());
-    }
 }

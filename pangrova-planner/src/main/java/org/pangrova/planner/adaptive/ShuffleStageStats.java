@@ -3,7 +3,7 @@ package org.pangrova.planner.adaptive;
 import java.util.Map;
 import java.util.Objects;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 /**
  * Statistics collected after a shuffle stage completes.

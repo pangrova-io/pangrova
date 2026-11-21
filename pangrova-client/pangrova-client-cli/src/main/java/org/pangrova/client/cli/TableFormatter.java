@@ -18,6 +18,8 @@ import java.util.List;
  * </pre>
  */
 final class TableFormatter {
+    private static final int LINE_SEPARATOR = 0x2028;
+    private static final int PARAGRAPH_SEPARATOR = 0x2029;
 
     private TableFormatter() {}
 
@@ -108,7 +110,7 @@ final class TableFormatter {
     }
 
     private static int displayLength(String value) {
-        return value == null ? 4 : displayWidth(value); // "NULL" is 4 chars
+        return displayWidth(displayValue(value));
     }
 
     /**
@@ -155,6 +157,43 @@ final class TableFormatter {
     }
 
     private static String displayValue(String value) {
-        return value == null ? "NULL" : value;
+        if (value == null) {
+            return "NULL";
+        }
+        StringBuilder escaped = null;
+        for (int offset = 0; offset < value.length(); ) {
+            int codePoint = value.codePointAt(offset);
+            String replacement = escapeCodePoint(codePoint);
+            if (replacement != null) {
+                if (escaped == null) {
+                    escaped = new StringBuilder(value.length()).append(value, 0, offset);
+                }
+                escaped.append(replacement);
+            } else if (escaped != null) {
+                escaped.appendCodePoint(codePoint);
+            }
+            offset += Character.charCount(codePoint);
+        }
+        return escaped == null ? value : escaped.toString();
+    }
+
+    private static String escapeCodePoint(int codePoint) {
+        return switch (codePoint) {
+            case '\n' -> "\\n";
+            case '\r' -> "\\r";
+            case '\t' -> "\\t";
+            case '\\' -> "\\\\";
+            case '|' -> "\\u007c";
+            default -> escapeControl(codePoint);
+        };
+    }
+
+    private static String escapeControl(int codePoint) {
+        if (!Character.isISOControl(codePoint)
+                && codePoint != LINE_SEPARATOR && codePoint != PARAGRAPH_SEPARATOR) {
+            return null;
+        }
+        String hex = Integer.toHexString(codePoint);
+        return "\\u" + "0000".substring(hex.length()) + hex;
     }
 }

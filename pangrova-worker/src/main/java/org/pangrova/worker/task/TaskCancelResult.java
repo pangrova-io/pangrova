@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskCancellationStatus;
+
 /**
  * Structured result of a worker-side task cancellation attempt.
  * Replaces the previous boolean return from {@link TaskManager#cancelTask(String)}.
@@ -7,28 +9,22 @@ package org.pangrova.worker.task;
  * @param status       outcome of the cancel operation
  * @param errorMessage human-readable error detail (null on success)
  */
-public record TaskCancelResult(Status status, String errorMessage) {
-
-    public enum Status {
-        CANCELLED,
-        NOT_FOUND,
-        NOT_CANCELLABLE
-    }
+public record TaskCancelResult(TaskCancellationStatus status, String errorMessage) {
 
     public static TaskCancelResult cancelled() {
-        return new TaskCancelResult(Status.CANCELLED, null);
+        return new TaskCancelResult(TaskCancellationStatus.CANCELLED, null);
     }
 
     public static TaskCancelResult notFound(String taskId) {
-        return new TaskCancelResult(Status.NOT_FOUND, "Task not found: " + taskId);
+        return new TaskCancelResult(TaskCancellationStatus.NOT_FOUND, "Task not found: " + taskId);
     }
 
     public static TaskCancelResult notCancellable(String taskId, String currentState) {
-        return new TaskCancelResult(Status.NOT_CANCELLABLE,
+        return new TaskCancelResult(TaskCancellationStatus.NOT_CANCELLABLE,
                 "Task " + taskId + " in state " + currentState + " cannot be cancelled");
     }
 
     public boolean isSuccess() {
-        return status == Status.CANCELLED;
+        return status == TaskCancellationStatus.CANCELLED;
     }
 }

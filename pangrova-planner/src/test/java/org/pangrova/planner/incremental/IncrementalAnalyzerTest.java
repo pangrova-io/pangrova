@@ -1,5 +1,7 @@
 package org.pangrova.planner.incremental;
 
+import org.pangrova.planner.enums.MergeOperator;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -34,23 +34,41 @@ coordinator:
   # HTTP REST API port (client-facing).
   # Expose this port in load balancers and firewalls.
   port: 8080
+  # Shared with every Worker; injected, never stored as a literal secret.
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+  speculation:
+    enabled: false
 
   # Deployment role: QUERY (serve queries only), MAINTENANCE
   # (background tasks only), or COMBINED (both).
   role: "COMBINED"
 
+  # ── Shuffle durability ──────────────────────────────────────
+  #
+  # NATIVE serves shuffle from each Worker's own Flight server: a Worker that
+  # dies loses its output and the affected stage chain must be recomputed.
+  # REMOTE writes to the external shuffle service so that output can be re-read
+  # from another node instead. REMOTE additionally requires:
+  #   - shared PostgreSQL execution authority (the metadata database)
+  #   - coordinator.transport.tls.* and coordinator.shuffle.tls.server-identity
+  #     (the shuffle service demands mutual TLS)
+  #   - worker.shuffle.mode=REMOTE on every Worker
+  #   - a deployed shuffle service (PostgreSQL + S3 + capability secret)
+  # Note: BROADCAST exchange is not supported in REMOTE mode.
+  shuffle:
+    mode: "NATIVE"
+    # Comma-separated host:port list. Required when mode=REMOTE.
+    endpoints: ""
+
   # ── High Availability ───────────────────────────────────────
   #
-  # HA uses a JDBC-backed lease for leader election.
-  # All coordinator nodes MUST point to the same database.
+  # Leader election uses the metadata DataSource and the distributed_lease
+  # table in pangrova_meta. All coordinator nodes MUST share that metadata
+  # database. There is no separate HA database and no coordinator.ha.jdbc-url
+  # option. coordinator.ha.enabled is declared in CoordinatorOptions but is
+  # not read by the current bootstrap.
   ha:
     enabled: true
-
-    # Use a dedicated HA database, not the metadata database.
-    # The connection is opened with empty username/password — supply
-    # credentials via connection-string parameters or instance-level
-    # trust (e.g. IAM database authentication, .pgpass).
-    jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_ha"
 
     # When true, DDL is restricted to the leader coordinator
     # (non-leaders respond with HTTP 307 redirect). When false
@@ -59,6 +77,7 @@ coordinator:
 
   # ── Query Execution ─────────────────────────────────────────
   query:
+    placement-provider: load-balanced
     # Wall-clock timeout per query. Queries exceeding this
     # are cancelled and the client receives a timeout error.
     # Increase for analytical workloads with large scans.
@@ -66,6 +85,12 @@ coordinator:
 
     # Maximum number of queries executing concurrently.
     max-concurrent: 200
+
+  # Per-task byte grant. Zero disables task spilling; positive values also
+  # require worker.spill.directory on each executing Worker.
+  task:
+    spill:
+      max-bytes: 0
 
   # ── Worker Management ───────────────────────────────────────
   worker:
@@ -78,19 +103,14 @@ coordinator:
     max-retry: 3
 
 
-# ── State Store ───────────────────────────────────────────────
-#
-# Unified backend for all distributed state (HA leases, task
-# journals, distributed DDL locks). JDBC is mandatory in
-# production — IN_MEMORY loses all state on restart.
-state-store:
-  type: JDBC
 
 
 # ── Metadata ─────────────────────────────────────────────────
 metadata:
   enabled: true
   jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_meta"
+  jdbc-username: "${PANGROVA_DB_USERNAME}"
+  jdbc-password: "${PANGROVA_DB_PASSWORD}"
 
   # ── Metadata Cache ────────────────────────────────────────
   cache:

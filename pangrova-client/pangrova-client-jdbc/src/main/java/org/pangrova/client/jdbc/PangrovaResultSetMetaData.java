@@ -13,12 +13,13 @@
  */
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.ColumnDescriptor;
+import org.pangrova.transport.client.ColumnDescriptor;
 
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JDBC ResultSetMetaData backed by a list of {@link ColumnDescriptor}s.
@@ -26,8 +27,9 @@ import java.util.List;
  */
 public final class PangrovaResultSetMetaData implements ResultSetMetaData {
 
-    /** Uniform display size reported for all columns. */
+    /** Default width when the type has no specific presentation width. */
     private static final int DEFAULT_DISPLAY_SIZE = 20;
+    private static final int UUID_DISPLAY_SIZE = 36;
 
     private final List<ColumnDescriptor> columns;
 
@@ -62,6 +64,12 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
 
     @Override
     public String getColumnClassName(int column) throws SQLException {
+        ColumnDescriptor descriptor = getColumn(column);
+        if (descriptor.sqlType() == Types.OTHER && descriptor.typeName().equals("UUID")) {
+            return UUID.class.getName();
+        }
+        var vectorClass = descriptor.vectorArrayClass();
+        if (vectorClass.isPresent()) return vectorClass.orElseThrow().getName();
         return switch (getColumnType(column)) {
             case Types.BOOLEAN -> Boolean.class.getName();
             case Types.INTEGER -> Integer.class.getName();
@@ -85,7 +93,9 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     public boolean isCurrency(int column) { return false; }
 
     @Override
-    public int isNullable(int column) { return ResultSetMetaData.columnNullable; }
+    public int isNullable(int column) throws SQLException {
+        return getColumn(column).allowsNull() ? ResultSetMetaData.columnNullable : ResultSetMetaData.columnNoNulls;
+    }
 
     @Override
     public boolean isSigned(int column) throws SQLException {
@@ -95,7 +105,11 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     }
 
     @Override
-    public int getColumnDisplaySize(int column) { return DEFAULT_DISPLAY_SIZE; }
+    public int getColumnDisplaySize(int column) throws SQLException {
+        ColumnDescriptor descriptor = getColumn(column);
+        return descriptor.sqlType() == Types.OTHER && descriptor.typeName().equals("UUID")
+                ? UUID_DISPLAY_SIZE : DEFAULT_DISPLAY_SIZE;
+    }
 
     @Override
     public String getSchemaName(int column) { return ""; }

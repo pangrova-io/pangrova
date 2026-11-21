@@ -1,31 +1,52 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.jni.write.CatalogResourceResolver;
-import org.pangrova.worker.jni.write.NativeWriteExecutor;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.catalog.CatalogResourceResolver;
+import org.pangrova.worker.write.NativeWriteExecutor;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that the native write path registration in {@link WorkerTaskBootstrap}
  * correctly wires the {@link NativeWriteExecutor} when a catalog resolver is provided,
- * and gracefully skips when native is unavailable or no resolver is injected.
+ * and rejects a native-capable Worker when no resolver is injected.
  */
 class NativeWriterRegistrationTest {
+    private WorkerComponentRefs nativeRefs;
+
+    @AfterEach
+    void releaseNativeRuntime() {
+        if (nativeRefs != null) {
+            try {
+                if (nativeRefs.nativeWriteExecutor() != null) nativeRefs.nativeWriteExecutor().close();
+            } finally {
+                org.pangrova.worker.jni.NativeRuntime.shutdownNativeRuntime();
+            }
+        }
+    }
+
+    private WorkerComponentRefs initializedRefs() {
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        NativeRuntimeBootstrap.initialize(org.pangrova.testing.nativefixture.TestShuffleServiceConfig.config(
+                org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.withDefaults("writer-registration")), refs);
+        nativeRefs = refs;
+        return refs;
+    }
 
     @Test
     void registerNativeWriter_skipsWhenNativeUnavailable() {
@@ -39,20 +60,19 @@ class NativeWriterRegistrationTest {
     }
 
     @Test
-    void registerNativeWriter_skipsWhenNoCatalogResolver() {
+    void registerNativeWriterRejectsMissingCatalogRuntime() {
         WorkerComponentRefs refs = new WorkerComponentRefs();
         refs.setNativeAvailable(true);
 
-        WorkerTaskBootstrap.registerNativeWriter(refs);
-
-        assertThat(refs.nativeWriteExecutor()).isNull();
+        assertThatThrownBy(() -> WorkerTaskBootstrap.registerNativeWriter(refs))
+                .isInstanceOf(org.pangrova.common.exception.BootstrapFailedException.class)
+                .hasMessageContaining("NativeWriter");
     }
 
     @Test
     @Tag("native-required")
     void registerNativeWriter_registersWhenNativeAvailableAndResolverPresent() {
-        WorkerComponentRefs refs = new WorkerComponentRefs();
-        refs.setNativeAvailable(true);
+        WorkerComponentRefs refs = initializedRefs();
         refs.setCatalogResourceResolver(buildStubResolver());
 
         WorkerTaskBootstrap.registerNativeWriter(refs);
@@ -64,8 +84,7 @@ class NativeWriterRegistrationTest {
     @Test
     @Tag("native-required")
     void nativeWriteExecutor_canBeginAndAbortWriteSession() {
-        WorkerComponentRefs refs = new WorkerComponentRefs();
-        refs.setNativeAvailable(true);
+        WorkerComponentRefs refs = initializedRefs();
         refs.setCatalogResourceResolver(buildStubResolver());
 
         WorkerTaskBootstrap.registerNativeWriter(refs);
@@ -73,12 +92,11 @@ class NativeWriterRegistrationTest {
         NativeWriteExecutor writer = refs.nativeWriteExecutor();
         assertThat(writer).isNotNull();
 
-        var descriptor = new org.pangrova.worker.jni.write.WriteDescriptor(
-                "test_catalog", "test_schema", "test_table",
-                org.pangrova.worker.jni.write.WriteDescriptor.DmlOperation.INSERT,
-                List.of(new org.pangrova.worker.jni.write.WriteDescriptor.ColumnSchema("id", "INTEGER"),
-                        new org.pangrova.worker.jni.write.WriteDescriptor.ColumnSchema("name", "VARCHAR")),
-                java.util.Map.of());
+        var descriptor = new org.pangrova.worker.write.WriteDescriptor(
+                org.pangrova.worker.enums.DmlOperation.INSERT,
+                List.of(new org.pangrova.worker.write.WriteDescriptor.ColumnSchema("id", "INTEGER"),
+                        new org.pangrova.worker.write.WriteDescriptor.ColumnSchema("name", "VARCHAR")),
+                java.util.Map.of("taskId", "native-registration-test"));
 
         long handle = writer.beginWrite(descriptor);
         assertThat(handle).isPositive();
@@ -89,12 +107,14 @@ class NativeWriterRegistrationTest {
     }
 
     private static CatalogResourceResolver buildStubResolver() {
-        return catalogName -> {
+        return new org.pangrova.worker.write.TestCatalogResourceResolver((taskId) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) -> new StubPageSink();
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        };
+            return new CatalogResourceResolver.CatalogResources(metadata, provider, session,
+                    org.pangrova.worker.write.TestOutputHandles.outputHandle(),
+                    java.util.List.of("id", "name"));
+        });
     }
 
     private static final class StubPageSink implements ConnectorPageSink {
@@ -131,13 +151,13 @@ class NativeWriterRegistrationTest {
         }
 
         @Override
-        public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(
+        public org.pangrova.connector.api.metadata.table.ConnectorTableMetadata getTableMetadata(
                 ConnectorSession session, ConnectorTableHandle table) {
             return null;
         }
 
         @Override
-        public java.util.Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
+        public java.util.Map<String, org.pangrova.connector.api.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle table) {
             return java.util.Map.of();
         }
@@ -164,6 +184,11 @@ class NativeWriterRegistrationTest {
     }
 
     private static final class StubSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-user"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("test-catalog"); }
         @Override public java.util.Optional<String> getSchema() { return java.util.Optional.of("test-schema"); }

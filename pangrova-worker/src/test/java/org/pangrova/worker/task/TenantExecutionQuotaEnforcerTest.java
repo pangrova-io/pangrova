@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.resource.tenant.TenantResourceQuota;
-import org.pangrova.resource.tenant.TenantResourceTracker;
+import org.pangrova.worker.resource.tenant.TenantResourceQuota;
+import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,14 +28,12 @@ class TenantExecutionQuotaEnforcerTest {
         tracker.setQuota(tenantId, new TenantResourceQuota(Long.MAX_VALUE, 2));
 
         // First two tasks admitted
-        assertThat(enforcer.canAdmitTask(tenantId)).isTrue();
-        enforcer.registerTask("task-1", tenantId);
+        assertThat(enforcer.tryReserveTask("task-1", tenantId)).isTrue();
 
-        assertThat(enforcer.canAdmitTask(tenantId)).isTrue();
-        enforcer.registerTask("task-2", tenantId);
+        assertThat(enforcer.tryReserveTask("task-2", tenantId)).isTrue();
 
         // Third task rejected — concurrency quota (2) exceeded
-        assertThat(enforcer.canAdmitTask(tenantId)).isFalse();
+        assertThat(enforcer.tryReserveTask("task-3", tenantId)).isFalse();
     }
 
     @Test
@@ -48,7 +46,7 @@ class TenantExecutionQuotaEnforcerTest {
         assertThat(tracker.tryAllocateMemory(tenantId, 800)).isTrue();
         assertThat(tracker.tryAllocateMemory(tenantId, 300)).isFalse();
 
-        enforcer.registerTask("task-mem-1", tenantId);
+        assertThat(enforcer.tryReserveTask("task-mem-1", tenantId)).isTrue();
 
         // At 800/1000 — not over quota
         assertThat(enforcer.isQuotaExceeded("task-mem-1")).isFalse();
@@ -66,30 +64,29 @@ class TenantExecutionQuotaEnforcerTest {
         tracker.setQuota(tenantId, new TenantResourceQuota(Long.MAX_VALUE, 1));
 
         // Admit one task
-        assertThat(enforcer.canAdmitTask(tenantId)).isTrue();
-        enforcer.registerTask("task-1", tenantId);
+        assertThat(enforcer.tryReserveTask("task-1", tenantId)).isTrue();
 
         // Second task rejected
-        assertThat(enforcer.canAdmitTask(tenantId)).isFalse();
+        assertThat(enforcer.tryReserveTask("task-2", tenantId)).isFalse();
 
         // Release first task
         enforcer.releaseTask("task-1");
 
         // Now a new task can be admitted
-        assertThat(enforcer.canAdmitTask(tenantId)).isTrue();
+        assertThat(enforcer.tryReserveTask("task-2", tenantId)).isTrue();
     }
 
     @Test
     void nullTenantId_alwaysAdmitted() {
-        assertThat(enforcer.canAdmitTask(null)).isTrue();
-        assertThat(enforcer.canAdmitTask("")).isTrue();
+        assertThat(enforcer.tryReserveTask("no-tenant", null)).isTrue();
+        assertThat(enforcer.tryReserveTask("blank-tenant", "")).isTrue();
     }
 
     @Test
     void unregisteredTenant_unlimitedQuota() {
         String tenantId = "unknown-tenant";
         // No quota set — defaults to UNLIMITED
-        assertThat(enforcer.canAdmitTask(tenantId)).isTrue();
+        assertThat(enforcer.tryReserveTask("unknown-tenant-task", tenantId)).isTrue();
         assertThat(enforcer.isQuotaExceeded("nonexistent-task")).isFalse();
     }
 
@@ -101,14 +98,34 @@ class TenantExecutionQuotaEnforcerTest {
         tracker.setQuota(tenantB, new TenantResourceQuota(Long.MAX_VALUE, 1));
 
         // Tenant A uses its slot
-        assertThat(enforcer.canAdmitTask(tenantA)).isTrue();
-        enforcer.registerTask("task-A1", tenantA);
+        assertThat(enforcer.tryReserveTask("task-A1", tenantA)).isTrue();
 
         // Tenant A is full
-        assertThat(enforcer.canAdmitTask(tenantA)).isFalse();
+        assertThat(enforcer.tryReserveTask("task-A2", tenantA)).isFalse();
 
         // Tenant B still has capacity — isolation works
-        assertThat(enforcer.canAdmitTask(tenantB)).isTrue();
-        enforcer.registerTask("task-B1", tenantB);
+        assertThat(enforcer.tryReserveTask("task-B1", tenantB)).isTrue();
+    }
+
+    @Test
+    void duplicateReservationOwnsOnlyOneSlotAndReleaseIsIdempotent() {
+        tracker.setQuota("tenant", new TenantResourceQuota(Long.MAX_VALUE, 2));
+        assertThat(enforcer.tryReserveTask("same-task", "tenant")).isTrue();
+        assertThat(enforcer.tryReserveTask("same-task", "tenant")).isTrue();
+        assertThat(enforcer.getTenantActiveQueryCount("tenant")).isEqualTo(1);
+        assertThat(enforcer.tryReserveTask("other-task", "tenant")).isTrue();
+        enforcer.releaseTask("same-task");
+        enforcer.releaseTask("same-task");
+        assertThat(enforcer.getTenantActiveQueryCount("tenant")).isEqualTo(1);
+    }
+
+    @Test
+    void taskIdentityCannotTransferItsQuotaToAnotherTenant() {
+        assertThat(enforcer.tryReserveTask("same-task", "tenant-A")).isTrue();
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> enforcer.tryReserveTask("same-task", "tenant-B"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("tenant cannot change");
+        assertThat(enforcer.getTenantActiveQueryCount("tenant-A")).isEqualTo(1);
+        assertThat(enforcer.getTenantActiveQueryCount("tenant-B")).isZero();
     }
 }

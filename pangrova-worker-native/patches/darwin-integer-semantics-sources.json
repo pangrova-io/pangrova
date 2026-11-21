@@ -1,0 +1,34 @@
+{
+  "folly-2026.01.05-integer-semantics.patch": {
+    "folly/hash/Hash.h": {
+      "upstream": "6dcc6ea5d714cc376922b0222702bad23fec7658099b0a6ab325fe9d272d463d",
+      "patched": "c7e43885c99afd8c4c1e9a133ccc088ffbb4cdf973d43b23afa50955c0558f33"
+    },
+    "folly/hash/SpookyHashV2.h": {
+      "upstream": "46de845288a6d5810c515ca97f19ed0b2fabb59ea204ca0fad6b2b8c2ca4bf13",
+      "patched": "ab9492e55f16f1d457a3dd61b588984951fe4d5996f17125a2bc5b2a5b738126"
+    },
+    "folly/detail/Futex.h": {
+      "upstream": "8b11f425b193e67f6af86882ce06383892e8ca5bc85d5a2884a78d86cf44790e",
+      "patched": "8eed6094981543a6873a924f74eff28e273a4ff43af64c171ffbe6c4147aa3ab"
+    },
+    "folly/detail/MemoryIdler.h": {
+      "upstream": "49db7ebd0f143eb98a24f538af8571b1780fd82f212cb13b08ab85edc5d72304",
+      "patched": "717d7e57f47491875ddce64d9aacff8f8132670ced71baac4f15523b49299026"
+    },
+    "folly/synchronization/DistributedMutex-inl.h": {
+      "upstream": "31e6303e403f17913d0896b6dc825b4a66948d7e7d0cab743dd7f834d4a68c9d",
+      "patched": "ba93fb906e6f19e9d431e099e44478a4cdfc663f7dc37a919867e15669777b8a"
+    },
+    "folly/container/detail/F14Table.cpp": {
+      "upstream": "a2e4dbb9ff195769f6e12161a1cbe1a1f2027f622bf4c7ed2920d6d6a196f8ff",
+      "patched": "8b03f6cd1cd262c7eba3d1beae3468d85542bb68d386ec8528fba4ead40e1f9c"
+    }
+  },
+  "libcxx-17.0.6-seed-seq-word.patch": {
+    "__random/seed_seq.h": {
+      "upstream": "e655be6e572a10fb99387b1bb94fb18d976c490e0b8926ad0115f24760956301",
+      "patched": "484aac2305b0042fc84ef24db13c7203906c2e77221660f8b190351ce75399e0"
+    }
+  }
+}

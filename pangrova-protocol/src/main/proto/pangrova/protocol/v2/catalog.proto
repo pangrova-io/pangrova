@@ -1,0 +1,30 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/capability.proto";
+import "pangrova/protocol/v2/common.proto";
+
+// Catalog definition of a column materialized by a generic capability. This is
+// intentionally not an embedding- or vector-specific protocol: the capability
+// and output logical type define the operation while the runtime pins an exact
+// model deployment through OperatorBinding.
+message GeneratedColumnDefinition {
+  string target_column = 1;
+  CapabilityRef capability = 2;
+  string logical_model_name = 3;
+  repeated string source_columns = 4;
+  ExecutionMode execution_mode = 5;
+  LogicalType output_type = 6;
+  repeated NamedValue options = 7;
+}
+
+// One versioned, deterministic catalog payload for all generated columns on a
+// table. Connector table properties carry the serialized bytes plus a SHA-256
+// digest so every Coordinator observes the same definition after failover.
+message GeneratedColumnSet {
+  uint32 schema_version = 1;
+  repeated GeneratedColumnDefinition definitions = 2;
+}

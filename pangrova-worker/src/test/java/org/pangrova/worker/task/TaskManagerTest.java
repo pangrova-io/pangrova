@@ -1,14 +1,15 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskState;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-
-import org.pangrova.spi.execution.TaskDescriptor;
+import org.pangrova.protocol.execution.PlanFragment;
+import org.pangrova.protocol.execution.PlanNodeId;
+import org.pangrova.execution.api.identity.QueryId;
+import org.pangrova.protocol.execution.TaskDescriptor;
 
 import java.util.Collections;
 import java.util.List;
@@ -107,7 +108,7 @@ class TaskManagerTest {
         for (String taskId : taskIds) {
             assertThat(manager.getTaskState(taskId))
                     .isPresent()
-                    .hasValue(TaskManager.TaskState.INITIALIZING);
+                    .hasValue(TaskState.INITIALIZING);
         }
     }
 
@@ -116,7 +117,7 @@ class TaskManagerTest {
                 new QueryId("test-query"),
                 new TestPlanFragment(),
                 List.of(),
-                Map.of());
+                Map.of(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 
     /**

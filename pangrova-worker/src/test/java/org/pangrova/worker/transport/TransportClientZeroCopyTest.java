@@ -1,10 +1,13 @@
 package org.pangrova.worker.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+import org.pangrova.transport.flight.TransportServer;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.spi.transport.DataProducer;
-import org.pangrova.spi.transport.TransportServerConfig;
-import org.pangrova.spi.transport.DataTicket;
+import org.pangrova.protocol.transport.DataProducer;
+import org.pangrova.protocol.transport.TransportServerConfig;
+import org.pangrova.protocol.transport.DataTicket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -46,7 +49,7 @@ class TransportClientZeroCopyTest {
         dataRegistry.clear();
         // remove() ensures first call returns data, subsequent calls return EOF (empty byte[]).
         // This matches the DataProducer SPI contract: non-empty = data, empty = stream ended.
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             byte[] data = dataRegistry.remove(ticket.queryId());
             return data != null ? data : new byte[0];
         };
@@ -74,7 +77,7 @@ class TransportClientZeroCopyTest {
         byte[] ipc = buildBatchData(rowCount);
         dataRegistry.put("zc-1", ipc);
 
-        DataTicket ticket = new DataTicket("zc-1", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-1", "t1", 0, DataTicketType.SHUFFLE);
         List<Integer> rowCounts = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));
@@ -89,7 +92,7 @@ class TransportClientZeroCopyTest {
         byte[] ipc = buildBatchData(rowCount);
         dataRegistry.put("zc-2", ipc);
 
-        DataTicket ticket = new DataTicket("zc-2", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-2", "t1", 0, DataTicketType.SHUFFLE);
         List<String> names = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> {
@@ -111,7 +114,7 @@ class TransportClientZeroCopyTest {
         dataRegistry.put("zc-3", ipc);
 
         client.resetBytesTransferred();
-        DataTicket ticket = new DataTicket("zc-3", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-3", "t1", 0, DataTicketType.SHUFFLE);
 
         client.doGetStreamZeroCopy(ticket, batch -> { /* consume */ });
 
@@ -121,7 +124,7 @@ class TransportClientZeroCopyTest {
     @Test
     void zeroCopyStreamHandlesEmptyData() {
         dataRegistry.put("zc-empty", new byte[0]);
-        DataTicket ticket = new DataTicket("zc-empty", "t1", 0, DataTicket.TicketType.SHUFFLE);
+        DataTicket ticket = new DataTicket("zc-empty", "t1", 0, DataTicketType.SHUFFLE);
         List<Integer> rowCounts = new ArrayList<>();
 
         client.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));
@@ -136,7 +139,7 @@ class TransportClientZeroCopyTest {
         try {
             byte[] ipc = buildBatchData(5);
             dataRegistry.put("zc-ext", ipc);
-            DataTicket ticket = new DataTicket("zc-ext", "t1", 0, DataTicket.TicketType.SHUFFLE);
+            DataTicket ticket = new DataTicket("zc-ext", "t1", 0, DataTicketType.SHUFFLE);
             List<Integer> rowCounts = new ArrayList<>();
 
             extClient.doGetStreamZeroCopy(ticket, batch -> rowCounts.add(batch.getRowCount()));

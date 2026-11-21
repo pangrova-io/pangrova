@@ -1,8 +1,10 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.exception.SubstraitConversionException;
+
 import io.substrait.expression.Expression;
-import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
+import io.substrait.expression.FunctionOption;
 import io.substrait.expression.ImmutableExpression;
 import io.substrait.expression.WindowBound;
 import io.substrait.extension.SimpleExtension;
@@ -10,12 +12,20 @@ import io.substrait.type.Type;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.core.Window;
 import org.apache.calcite.rel.logical.LogicalWindow;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexFieldCollation;
+import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexOver;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Function;
 
 /**
@@ -26,10 +36,15 @@ final class WindowFunctionConverter {
 
     private final TypeMapper typeMapper;
     private final FunctionMapper functionMapper;
+    private final LiteralConverter literalConverter;
+    private final RexBuilder rexBuilder;
 
-    WindowFunctionConverter(TypeMapper typeMapper, FunctionMapper functionMapper) {
+    WindowFunctionConverter(TypeMapper typeMapper, FunctionMapper functionMapper,
+                            LiteralConverter literalConverter, RexBuilder rexBuilder) {
         this.typeMapper = typeMapper;
         this.functionMapper = functionMapper;
+        this.literalConverter = literalConverter;
+        this.rexBuilder = rexBuilder;
     }
 
     List<Expression> buildWindowProjections(LogicalWindow window, int inputFieldCount,
@@ -61,64 +76,91 @@ final class WindowFunctionConverter {
         List<Expression.SortField> sortFields = group.orderKeys.getFieldCollations().stream()
                 .map(collationConverter)
                 .toList();
-        int inputFieldCount = window.getInput().getRowType().getFieldCount();
-        List<Expression> args = aggCall.getOperands().stream()
-                .map(op -> resolveWindowOperand(op, inputFieldCount, window, rexConverter))
+        List<RexNode> operands = aggCall.getOperands().stream()
+                .map(op -> resolveWindowOperand(op, window))
                 .toList();
-        args = coerceLeadLagArgs(fnName, args);
+        List<Expression> args = convertArguments(fnName, operands, rexConverter);
         return buildWindowFunctionInvocation(
-                variant, outputType, args, partitionBy, sortFields,
-                new WindowBoundsSpec(group.lowerBound, group.upperBound, window));
+                ref, variant, outputType, args, partitionBy, sortFields,
+                new WindowBoundsSpec(group.lowerBound, group.upperBound, window, group.isRows,
+                        aggCall.distinct, aggCall.ignoreNulls));
     }
 
     /**
      * Resolves a window function operand. LogicalWindow stores constants
      * (e.g. LEAD/LAG offset) as extra columns appended after input fields.
      * RexInputRef with index >= inputFieldCount refers to window.constants.
-     *
-     * <p>For numeric constants, produces native Substrait literals directly
-     * from the Calcite RexLiteral to avoid type mismatches. Native window
-     * functions require plain constants matching the expected signature types.
      */
-    private Expression resolveWindowOperand(RexNode operand, int inputFieldCount,
-                                             LogicalWindow window,
-                                             Function<RexNode, Expression> rexConverter) {
-        if (operand instanceof org.apache.calcite.rex.RexInputRef ref
-                && ref.getIndex() >= inputFieldCount) {
+    private RexNode resolveWindowOperand(RexNode operand, LogicalWindow window) {
+        int inputFieldCount = window.getInput().getRowType().getFieldCount();
+        if (operand instanceof RexInputRef ref && ref.getIndex() >= inputFieldCount) {
             int constIdx = ref.getIndex() - inputFieldCount;
             if (constIdx < window.constants.size()) {
-                return resolveWindowConstant(window.constants.get(constIdx), rexConverter);
+                return window.constants.get(constIdx);
             }
+            throw invalidConstant();
+        }
+        return operand;
+    }
+
+    private List<Expression> convertArguments(String functionName, List<RexNode> operands,
+                                               Function<RexNode, Expression> rexConverter) {
+        String name = functionName.toUpperCase(Locale.ROOT);
+        if ("NTILE".equals(name)) {
+            return convertNtileArguments(operands, rexConverter);
+        }
+        if (!("LEAD".equals(name) || "LAG".equals(name))) {
+            return operands.stream().map(rexConverter).toList();
+        }
+        List<Expression> arguments = new ArrayList<>();
+        for (int i = 0; i < operands.size(); i++) {
+            RexNode operand = operands.get(i);
+            if (i == 1) {
+                arguments.add(convertIntegralArgument(operand, rexConverter));
+            } else if (i == 2) {
+                RelDataType targetType = rexBuilder.getTypeFactory().createTypeWithNullability(
+                        operands.get(0).getType(), operand.getType().isNullable());
+                arguments.add(convertDefaultValue(operand, targetType, rexConverter));
+            } else {
+                arguments.add(rexConverter.apply(operand));
+            }
+        }
+        return List.copyOf(arguments);
+    }
+
+    private List<Expression> convertNtileArguments(List<RexNode> operands,
+                                                  Function<RexNode, Expression> rexConverter) {
+        return operands.stream().map(operand -> {
+            if (operand instanceof RexLiteral literal && LiteralConverter.exactLong(literal) <= 0) {
+                throw new SubstraitConversionException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "NTILE bucket count must be positive");
+            }
+            return convertIntegralArgument(operand, rexConverter);
+        }).toList();
+    }
+
+    private Expression convertIntegralArgument(RexNode operand,
+                                                Function<RexNode, Expression> rexConverter) {
+        if (operand instanceof RexLiteral literal) {
+            LiteralConverter.exactLong(literal);
+            RelDataType bigint = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.BIGINT);
+            return literalConverter.convert(literal, bigint);
+        }
+        if (operand.getType().getSqlTypeName() != SqlTypeName.BIGINT) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_UNSUPPORTED_PLAN_NODE,
+                    "Window integral argument requires a materialized BIGINT expression");
         }
         return rexConverter.apply(operand);
     }
 
-    private Expression resolveWindowConstant(RexNode constant,
-                                              Function<RexNode, Expression> rexConverter) {
-        if (constant instanceof org.apache.calcite.rex.RexLiteral lit) {
-            if (isIntegerValued(lit)) {
-                return ExpressionCreator.i64(false, lit.getValueAs(Long.class));
-            }
-            if (isDecimalType(lit)) {
-                return ExpressionCreator.fp64(false, lit.getValueAs(Double.class));
-            }
+    private Expression convertDefaultValue(RexNode operand, RelDataType targetType,
+                                             Function<RexNode, Expression> rexConverter) {
+        if (operand instanceof RexLiteral literal) {
+            return literalConverter.convert(literal, targetType);
         }
-        return rexConverter.apply(constant);
-    }
-
-    private static boolean isDecimalType(org.apache.calcite.rex.RexLiteral lit) {
-        return lit.getTypeName() == org.apache.calcite.sql.type.SqlTypeName.DECIMAL;
-    }
-
-    private static boolean isIntegerValued(org.apache.calcite.rex.RexLiteral lit) {
-        return switch (lit.getTypeName()) {
-            case INTEGER, BIGINT, SMALLINT, TINYINT -> true;
-            case DECIMAL -> {
-                java.math.BigDecimal val = lit.getValueAs(java.math.BigDecimal.class);
-                yield val != null && val.scale() == 0;
-            }
-            default -> false;
-        };
+        RexNode typedOperand = operand.getType().equals(targetType)
+                ? operand : rexBuilder.makeCast(targetType, operand);
+        return rexConverter.apply(typedOperand);
     }
 
     Expression convertOver(RexOver over, Function<RexNode, Expression> rexConverter) {
@@ -132,97 +174,52 @@ final class WindowFunctionConverter {
         List<Expression.SortField> sortFields = over.getWindow().orderKeys.stream()
                 .map(rfc -> convertRexFieldCollation(rfc, rexConverter))
                 .toList();
-        List<Expression> args = over.getOperands().stream()
-                .map(rexConverter)
-                .toList();
-        args = coerceLeadLagArgs(fnName, args);
+        List<Expression> args = convertArguments(fnName, over.getOperands(), rexConverter);
         return buildWindowFunctionInvocation(
-                variant, outputType, args, partitionBy, sortFields,
+                ref, variant, outputType, args, partitionBy, sortFields,
                 new WindowBoundsSpec(over.getWindow().getLowerBound(),
-                        over.getWindow().getUpperBound(), null));
-    }
-
-    /**
-     * Coerces LEAD/LAG arguments to match native engine expectations:
-     * - 2nd arg (offset): must be I64 literal
-     * - 3rd arg (default): must match 1st arg type (native signature: (T,bigint,T)->T)
-     */
-    private static List<Expression> coerceLeadLagArgs(String fnName, List<Expression> args) {
-        String upper = fnName.toUpperCase();
-        if ((!upper.equals("LEAD") && !upper.equals("LAG")) || args.size() < 2) {
-            return args;
-        }
-        List<Expression> coerced = new ArrayList<>(args);
-        // Coerce 2nd arg (offset) to I64
-        Expression offset = coerced.get(1);
-        if (!(offset instanceof Expression.I64Literal)) {
-            coerced.set(1, toLongLiteral(offset));
-        }
-        // Coerce 3rd arg (default value) to match 1st arg type.
-        // The native engine requires lag(T, bigint, T) — the default value must be the same
-        // type as the value column. Calcite may store -1.0 as DECIMAL(2,1) even
-        // when the value column is DOUBLE.
-        if (coerced.size() >= 3) {
-            coerced.set(2, coerceDefaultValue(coerced.get(0), coerced.get(2)));
-        }
-        return coerced;
-    }
-
-    /**
-     * Coerces a LEAD/LAG default value to match the value argument's type.
-     * Safety net for cases where resolveWindowOperand did not convert the constant.
-     */
-    private static Expression coerceDefaultValue(Expression valueArg, Expression defaultArg) {
-        if (defaultArg instanceof Expression.DecimalLiteral) {
-            // DecimalLiteral should have been converted in resolveWindowOperand.
-            // If it still appears here (e.g. from RexOver path), emit FP64 as fallback.
-            return ExpressionCreator.fp64(false, 0.0);
-        }
-        return defaultArg;
-    }
-
-    /**
-     * Converts a numeric literal expression to an I64Literal.
-     * Native window function arguments must be field references or constants;
-     * Cast expressions are rejected by exprToChannel.
-     */
-    private static Expression toLongLiteral(Expression expr) {
-        if (expr instanceof Expression.I64Literal) {
-            return expr;
-        }
-        if (expr instanceof Expression.I32Literal i32) {
-            return ExpressionCreator.i64(false, i32.value());
-        }
-        if (expr instanceof Expression.FP64Literal fp) {
-            return ExpressionCreator.i64(false, (long) fp.value());
-        }
-        // For DecimalLiteral or other types, fall back to 1 (safe default for offset)
-        return ExpressionCreator.i64(false, 1L);
+                        over.getWindow().getUpperBound(), null, over.getWindow().isRows(),
+                        over.isDistinct(), over.ignoreNulls()));
     }
 
     /** Bundles the frame bounds and owning window used to build a window invocation. */
     private record WindowBoundsSpec(
             org.apache.calcite.rex.RexWindowBound lower,
             org.apache.calcite.rex.RexWindowBound upper,
-            LogicalWindow window) {
+            LogicalWindow window, boolean rows, boolean distinct, boolean ignoreNulls) {
     }
 
     private Expression buildWindowFunctionInvocation(
-            SimpleExtension.WindowFunctionVariant variant, Type outputType, List<Expression> args,
+            FunctionReference reference, SimpleExtension.WindowFunctionVariant variant,
+            Type outputType, List<Expression> args,
             List<Expression> partitionBy, List<Expression.SortField> sortFields,
             WindowBoundsSpec bounds) {
         return ImmutableExpression.WindowFunctionInvocation.builder()
                 .declaration(variant)
                 .outputType(outputType)
                 .aggregationPhase(Expression.AggregationPhase.INITIAL_TO_RESULT)
-                .invocation(Expression.AggregationInvocation.ALL)
+                .invocation(bounds.distinct() ? Expression.AggregationInvocation.DISTINCT
+                        : Expression.AggregationInvocation.ALL)
+                .options(windowOptions(reference, bounds.ignoreNulls()))
                 .arguments(args)
                 .partitionBy(partitionBy)
                 .sort(sortFields)
-                .boundsType(Expression.WindowBoundsType.ROWS)
+                .boundsType(bounds.rows() ? Expression.WindowBoundsType.ROWS : Expression.WindowBoundsType.RANGE)
                 .lowerBound(convertWindowBound(bounds.lower(), bounds.window()))
                 .upperBound(convertWindowBound(bounds.upper(), bounds.window()))
                 .build();
+    }
+
+    private List<FunctionOption> windowOptions(FunctionReference reference, boolean ignoreNulls) {
+        if (!ignoreNulls) return List.of();
+        try {
+            var option = FunctionBindingDeclarations.option("WINDOW", reference.namespace(), reference.name(),
+                    "NULL_TREATMENT", true);
+            return List.of(FunctionOption.builder().name(option.getName()).values(option.getPreferenceList()).build());
+        } catch (IllegalArgumentException invalid) {
+            throw new SubstraitConversionException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Window function does not support IGNORE NULLS: " + reference.name(), invalid);
+        }
     }
 
     private List<Expression> buildPartitionExprs(Window.Group group, LogicalWindow window) {
@@ -247,14 +244,28 @@ final class WindowFunctionConverter {
                                     LogicalWindow window) {
         if (bound.isUnbounded()) return WindowBound.UNBOUNDED;
         if (bound.isCurrentRow()) return WindowBound.CURRENT_ROW;
-        long offset = resolveWindowBoundOffset(bound.getOffset(), window);
+        var offsetExpression = bound.getOffset();
+        if (offsetExpression == null) throw invalidConstant();
+        long offset = resolveWindowBoundOffset(offsetExpression, window);
+        if (offset < 0) {
+            throw new SubstraitConversionException(
+                    org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Window bound offset must be non-negative");
+        }
+        if (offset == 0) return WindowBound.CURRENT_ROW;
         if (bound.isPreceding()) return WindowBound.Preceding.of(offset);
         return WindowBound.Following.of(offset);
     }
 
+    private static SubstraitConversionException invalidConstant() {
+        return new SubstraitConversionException(
+                org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                "Window constant or bounded offset lacks a numeric value");
+    }
+
     private long resolveWindowBoundOffset(RexNode offsetNode, LogicalWindow window) {
-        if (offsetNode instanceof org.apache.calcite.rex.RexLiteral lit) {
-            return lit.getValueAs(Long.class);
+        if (offsetNode instanceof org.apache.calcite.rex.RexLiteral) {
+            return extractLong(offsetNode);
         }
         if (offsetNode instanceof org.apache.calcite.rex.RexInputRef ref && window != null) {
             return resolveConstantOffset(ref, window);
@@ -267,8 +278,8 @@ final class WindowFunctionConverter {
         int constIdx = ref.getIndex() - inputFieldCount;
         if (constIdx >= 0 && constIdx < window.constants.size()) {
             RexNode constant = window.constants.get(constIdx);
-            if (constant instanceof org.apache.calcite.rex.RexLiteral constLit) {
-                return constLit.getValueAs(Long.class);
+            if (constant instanceof org.apache.calcite.rex.RexLiteral) {
+                return extractLong(constant);
             }
         }
         return extractLong(ref);
@@ -277,9 +288,7 @@ final class WindowFunctionConverter {
     private Expression.SortField convertRexFieldCollation(
             RexFieldCollation rfc, Function<RexNode, Expression> rexConverter) {
         Expression fieldRef = rexConverter.apply(rfc.left);
-        Expression.SortDirection dir = rfc.getDirection()
-                == org.apache.calcite.rel.RelFieldCollation.Direction.DESCENDING
-                ? Expression.SortDirection.DESC_NULLS_LAST : Expression.SortDirection.ASC_NULLS_LAST;
+        Expression.SortDirection dir = SortDirectionMapper.map(rfc.getDirection(), rfc.getNullDirection());
         return ImmutableExpression.SortField.builder()
                 .expr(fieldRef)
                 .direction(dir)
@@ -287,11 +296,6 @@ final class WindowFunctionConverter {
     }
 
     static long extractLong(RexNode node) {
-        if (node instanceof org.apache.calcite.rex.RexLiteral lit) {
-            return lit.getValueAs(Long.class);
-        }
-        throw new SubstraitConversionException(
-                org.pangrova.common.exception.PangrovaErrorCode.SUBSTRAIT_UNSUPPORTED_PLAN_NODE,
-                "Unsupported non-literal in LIMIT/OFFSET: " + node.getClass().getSimpleName());
+        return LiteralConverter.exactLong(node);
     }
 }

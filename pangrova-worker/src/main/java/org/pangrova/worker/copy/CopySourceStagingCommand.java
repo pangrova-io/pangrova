@@ -1,0 +1,195 @@
+package org.pangrova.worker.copy;
+
+import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
+import org.pangrova.security.api.exception.AccessDeniedException;
+import org.pangrova.file.api.copy.CopySourceEndpointPolicy;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
+import org.pangrova.filesystem.s3.blob.CopyS3ClientPolicy;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/** Worker-owned exact S3 read and managed staging for one admitted COPY attempt. */
+public final class CopySourceStagingCommand {
+    private final CopySourceReadClient admissions;
+    private final Optional<AwsCredentialsProvider> sourceCredentials;
+    private final ManagedBlobStorage managedStorage;
+    private final Path stagingRoot;
+    private final long maxSourceBytes;
+    private final boolean allowLoopbackSourceTest;
+
+    /** Uses the Worker default credential chain and the admitted exact profile configuration. */
+    public CopySourceStagingCommand(CopySourceReadClient admissions,
+                                    ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+        this(admissions, Optional.empty(), managedStorage,
+                stagingRoot, maxSourceBytes, false);
+    }
+
+    /** Uses an explicitly configured Worker-local credential provider. */
+    public CopySourceStagingCommand(CopySourceReadClient admissions,
+                                    AwsCredentialsProvider sourceCredentials,
+                                    ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+        this(admissions, Optional.of(sourceCredentials), managedStorage, stagingRoot, maxSourceBytes, false);
+    }
+
+    /** Explicit local MinIO integration transport; cannot accept a remote HTTP source. */
+    public static CopySourceStagingCommand forLoopbackTest(
+            CopySourceReadClient admissions, AwsCredentialsProvider sourceCredentials,
+            ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+        return new CopySourceStagingCommand(admissions, Optional.of(sourceCredentials),
+                managedStorage, stagingRoot, maxSourceBytes, true);
+    }
+
+    private CopySourceStagingCommand(CopySourceReadClient admissions,
+                                     Optional<AwsCredentialsProvider> sourceCredentials,
+                                     ManagedBlobStorage managedStorage, Path stagingRoot,
+                                     long maxSourceBytes, boolean allowLoopbackSourceTest) {
+        this.admissions = Objects.requireNonNull(admissions, "admissions");
+        this.sourceCredentials = Objects.requireNonNull(sourceCredentials, "sourceCredentials");
+        this.managedStorage = Objects.requireNonNull(managedStorage, "managedStorage");
+        this.stagingRoot = Objects.requireNonNull(stagingRoot, "stagingRoot");
+        if (maxSourceBytes <= 0) {
+            throw new IllegalArgumentException("COPY source size limit must be positive");
+        }
+        this.maxSourceBytes = maxSourceBytes;
+        this.allowLoopbackSourceTest = allowLoopbackSourceTest;
+    }
+
+    /** Rechecks authority before and after I/O; a retry reads only immutable managed content. */
+    public CopySourceReadHttp.StagedSource execute(String nonce, CopySourceReadHttp.Scope scope,
+                                                   CopyPreparation budget) throws IOException {
+        Objects.requireNonNull(budget, "budget").checkpoint();
+        requireManagedStorage(scope);
+        var redeemed = admissions.redeem(nonce, scope);
+        StorageProfile sourceProfile = sourceProfile(redeemed.profile());
+        S3VersionedCopyStager.StagedSource staged;
+        S3Client source = sourceClient(sourceProfile);
+        try {
+            budget.ownSourceClient(source);
+        } catch (RuntimeException | Error failure) {
+            source.close();
+            throw failure;
+        }
+        try {
+            var stager = new S3VersionedCopyStager(source, managedStorage,
+                    stagingRoot, maxSourceBytes);
+            staged = redeemed.stagedSource() == null
+                    ? stager.stage(sourceProfile, scope.canonicalSourceUrl(), scope.tenantId(), budget)
+                    : stager.resume(sourceProfile, scope.canonicalSourceUrl(), scope.tenantId(),
+                            existing(sourceProfile.name(), scope, redeemed.stagedSource()), budget);
+        } finally {
+            budget.cleanupSourceClient();
+        }
+        var proof = new CopySourceReadHttp.StagedSource(staged.sourceVersionId(),
+                staged.managedObjectUri(), staged.contentSha256(), staged.contentSize(),
+                staged.tenantScope());
+        budget.checkpoint();
+        return admissions.record(nonce, scope, proof);
+    }
+
+    private void requireManagedStorage(CopySourceReadHttp.Scope scope) {
+        Objects.requireNonNull(scope, "scope");
+        if (!managedStorage.rootUri().equals(scope.managedStorageRootUri())
+                || !managedStorage.backendIdentitySha256()
+                        .equals(scope.managedBackendIdentitySha256())) {
+            throw new AccessDeniedException("COPY managed storage does not match admitted backend");
+        }
+    }
+
+    /** Rechecks current authority before returning a locally cached attempt proof. */
+    public CopySourceReadHttp.StagedSource verifyRecordedProof(String nonce, CopySourceReadHttp.Scope scope,
+                                    CopySourceReadHttp.StagedSource proof) {
+        var redeemed = admissions.redeem(nonce, scope);
+        if (proof != null && !proof.equals(redeemed.stagedSource())) {
+            throw new AccessDeniedException("COPY cached staged proof is no longer admitted");
+        }
+        return redeemed.stagedSource();
+    }
+
+    /** Produces a verified task-private Parquet file without trusting a network file path. */
+    public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope)
+            throws IOException {
+        return executeForNative(nonce, scope, CopyMaterialization.standalone());
+    }
+
+    /** Executing tasks must use their actual shared grant rather than standalone preparation. */
+    public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope,
+                                                   CopyMaterialization ownership) throws IOException {
+        Objects.requireNonNull(ownership, "ownership");
+        requireManagedStorage(scope);
+        var redeemed = admissions.redeem(nonce, scope);
+        var proof = redeemed.stagedSource();
+        if (proof == null) {
+            throw new IllegalStateException("COPY Native scan requires a previously staged source proof");
+        }
+        StorageProfile profile = sourceProfile(redeemed.profile());
+        VerifiedLocalCopySource local = null;
+        try (S3Client source = sourceClient(profile)) {
+            var stager = new S3VersionedCopyStager(source, managedStorage,
+                    stagingRoot, maxSourceBytes);
+            local = stager.materialize(profile, scope.canonicalSourceUrl(), scope.tenantId(),
+                    existing(profile.name(), scope, proof), ownership);
+        } catch (IOException | RuntimeException | Error failure) {
+            closeOnFailure(local, failure);
+            throw failure;
+        }
+        try {
+            if (!proof.equals(admissions.redeem(nonce, scope).stagedSource())) {
+                throw new AccessDeniedException("COPY staged proof changed after local scan materialization");
+            }
+            return local;
+        } catch (RuntimeException | Error failure) {
+            closeOnFailure(local, failure);
+            throw failure;
+        }
+    }
+
+    private static void closeOnFailure(VerifiedLocalCopySource local, Throwable failure) {
+        if (local == null) {
+            return;
+        }
+        try {
+            local.close();
+        } catch (IOException cleanup) {
+            failure.addSuppressed(cleanup);
+        }
+    }
+
+    private static StorageProfile sourceProfile(CopySourceReadHttp.Profile publicProfile) {
+        return new StorageProfile(publicProfile.name(), publicProfile.type(),
+                publicProfile.bucket(), publicProfile.prefix(), publicProfile.endpoint(),
+                publicProfile.region(), Map.of(), Map.of(
+                        "path-style-access", Boolean.toString(publicProfile.pathStyleAccess())));
+    }
+
+    private S3Client sourceClient(StorageProfile profile) {
+        if (profile.region().isBlank()) {
+            throw new IllegalArgumentException("COPY S3 source region is required");
+        }
+        var builder = S3Client.builder().region(Region.of(profile.region()))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(profile.isPathStyleAccess()).build());
+        // Each SDK client owns its default chain. An injected chain belongs to the caller.
+        sourceCredentials.ifPresent(credentials -> builder.credentialsProvider(credentials::resolveCredentials));
+        builder.endpointOverride(CopySourceEndpointPolicy.require(
+                profile.endpoint(), allowLoopbackSourceTest));
+        CopyS3ClientPolicy.configure(builder);
+        return builder.build();
+    }
+
+    private static S3VersionedCopyStager.StagedSource existing(
+            String profileName, CopySourceReadHttp.Scope scope,
+            CopySourceReadHttp.StagedSource proof) {
+        return new S3VersionedCopyStager.StagedSource(profileName,
+                scope.canonicalSourceUrl(), proof.sourceVersionId(), proof.managedObjectUri(),
+                proof.tenantScope(), proof.contentSha256(), proof.contentSize());
+    }
+}

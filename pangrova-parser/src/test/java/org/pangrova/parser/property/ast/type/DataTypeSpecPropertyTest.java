@@ -1,8 +1,11 @@
 package org.pangrova.parser.property.ast.type;
 
+import org.pangrova.parser.api.enums.BaseType;
+import org.pangrova.parser.api.enums.DistanceMetric;
+
 import net.jqwik.api.*;
 import net.jqwik.api.arbitraries.IntegerArbitrary;
-import org.pangrova.parser.ast.type.*;
+import org.pangrova.parser.api.ast.type.*;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -16,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 3.2</b></p>
  *
  * <p>For any valid DataTypeSpec instance (including nested MAP/STRUCT/ARRAY types),
- * {@code DataTypeSpec.fromRawTypeString(spec.toCanonicalString())} must produce
+ * {@code org.pangrova.parser.build.type.RawSqlTypeParser.parse(spec.toCanonicalString())} must produce
  * a structurally equal DataTypeSpec.</p>
  */
 @Tag("production-readiness-fixes")
@@ -28,7 +31,7 @@ class DataTypeSpecPropertyTest {
     @Property(tries = 200)
     void roundTripPreservesStructuralEquality(@ForAll("dataTypeSpecs") DataTypeSpec original) {
         String canonical = original.toCanonicalString();
-        DataTypeSpec reparsed = DataTypeSpec.fromRawTypeString(canonical);
+        DataTypeSpec reparsed = org.pangrova.parser.build.type.RawSqlTypeParser.parse(canonical);
 
         assertThat(reparsed)
                 .as("Round-trip for canonical string [%s]", canonical)
@@ -38,7 +41,7 @@ class DataTypeSpecPropertyTest {
     @Property(tries = 200)
     void canonicalStringIsIdempotent(@ForAll("dataTypeSpecs") DataTypeSpec original) {
         String first = original.toCanonicalString();
-        DataTypeSpec reparsed = DataTypeSpec.fromRawTypeString(first);
+        DataTypeSpec reparsed = org.pangrova.parser.build.type.RawSqlTypeParser.parse(first);
         String second = reparsed.toCanonicalString();
 
         assertThat(second)
@@ -83,7 +86,8 @@ class DataTypeSpecPropertyTest {
     private Arbitrary<DataTypeSpec> vectorTypes() {
         Arbitrary<Integer> dimensions = Arbitraries.integers().between(1, 4096);
         Arbitrary<DistanceMetric> metrics = Arbitraries.of(DistanceMetric.values());
-        return Combinators.combine(dimensions, metrics)
+        var elements = Arbitraries.of(org.pangrova.types.enums.VectorElementType.values());
+        return Combinators.combine(dimensions, metrics, elements)
                 .as(DataTypeSpec.VectorType::new);
     }
 

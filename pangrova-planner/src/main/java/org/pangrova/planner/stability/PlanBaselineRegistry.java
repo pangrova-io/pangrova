@@ -1,5 +1,7 @@
 package org.pangrova.planner.stability;
 
+import org.pangrova.planner.enums.PlanBaselineVerdict;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -71,37 +73,24 @@ public final class PlanBaselineRegistry {
     }
 
     /**
-     * Comparison verdict produced by
-     * {@link #compareAgainstBaseline(String, String)}.
-     *
-     * <ul>
-     *   <li>{@link #MATCH} — a baseline exists and the observed plan matches.</li>
-     *   <li>{@link #MISMATCH} — a baseline exists and the observed plan
-     *       differs (operator should triage).</li>
-     *   <li>{@link #NO_BASELINE} — no baseline registered for this query.</li>
-     * </ul>
-     */
-    public enum Verdict { MATCH, MISMATCH, NO_BASELINE }
-
-    /**
      * Compare an observed plan hash to the registered baseline. Updates the
      * internal match/mismatch counters as a side effect so registries can
      * report regression rates over time.
      */
-    public Verdict compareAgainstBaseline(String queryHash, String observedPlanHash) {
+    public PlanBaselineVerdict compareAgainstBaseline(String queryHash, String observedPlanHash) {
         Objects.requireNonNull(queryHash, "queryHash");
         Objects.requireNonNull(observedPlanHash, "observedPlanHash");
         String expected = baselines.get(queryHash);
         if (expected == null) {
             noBaseline.incrementAndGet();
-            return Verdict.NO_BASELINE;
+            return PlanBaselineVerdict.NO_BASELINE;
         }
         if (expected.equals(observedPlanHash)) {
             matches.incrementAndGet();
-            return Verdict.MATCH;
+            return PlanBaselineVerdict.MATCH;
         }
         mismatches.incrementAndGet();
-        return Verdict.MISMATCH;
+        return PlanBaselineVerdict.MISMATCH;
     }
 
     /** Snapshot of the current baseline map. */
