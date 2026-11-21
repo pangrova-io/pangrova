@@ -424,8 +424,8 @@ class RuntimeScopeTest(unittest.TestCase):
     def test_baseline_workflow_warms_the_same_layers(self):
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
         self.assertIn('schedule:', baseline)
-        self.assertIn('pangrova-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
-        self.assertIn('pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
 
     def test_dependency_baseline_consumers_are_opt_in(self):

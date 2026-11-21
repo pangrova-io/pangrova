@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pangrova/velox/archive-cache
-          key: pangrova-archives-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+          key: pangrova-v1-archives-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
         uses: actions/cache@v4
@@ -77,7 +77,7 @@ jobs:
           path: |
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
-          key: pangrova-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+          key: pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache Velox build layer
         uses: actions/cache@v4
@@ -86,7 +86,7 @@ jobs:
             ~/.pangrova/velox/_build/release/_deps
             ~/.pangrova/velox/_build/release/lib
             ~/.pangrova/velox/_build/release/CMakeCache.txt
-          key: pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
+          key: pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
@@ -556,7 +556,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pangrova/velox/archive-cache
-          key: pangrova-archives-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+          key: pangrova-v1-archives-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
         uses: actions/cache@v4
@@ -564,7 +564,7 @@ jobs:
           path: |
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
-          key: pangrova-deps-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+          key: pangrova-v1-deps-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache ASan Velox + ABI dependencies
         if: matrix.sanitizer.name == 'asan'
@@ -576,7 +576,7 @@ jobs:
             ~/.pangrova/velox/_build/asan-ci/lib/libvelox.a
             ~/.pangrova/velox/_build/asan-ci/_deps
             ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
-          key: pangrova-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-asan-env.sh', 'pangrova-worker-native/patches/*') }}
+          key: pangrova-v1-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-asan-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
