@@ -1,231 +1,116 @@
 package org.pangrova.worker.property.exchange;
 
-import org.pangrova.worker.exchange.ExchangeEndpoint;
-import org.pangrova.worker.exchange.source.ExchangeSourceConverter;
-import org.pangrova.worker.exchange.ExchangeType;
-
-import net.jqwik.api.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import com.google.protobuf.ByteString;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
-import org.pangrova.protocol.rest.task.ExchangeSourceDescriptor;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.Tag;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.DirectExchangeInput;
+import org.pangrova.protocol.v2.ExchangePartitionSource;
+import org.pangrova.protocol.v2.ExchangeReadMode;
+import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.exchange.DirectExchangeTransport;
+import org.pangrova.worker.exchange.source.ExchangeSourceConverter;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-/**
- * Property 24: Exchange source update propagation correctness.
- * Property 37: Exchange source update idempotency.
- *
- * <p>For any valid protocol ExchangeSourceDescriptor, ExchangeSourceConverter correctly
- * maps all fields to internal ExchangeEndpoint. Unknown exchange types default
- * to HASH_PARTITION. Stale sequence IDs are rejected by ExchangeClient.
- * Applying the same UpdateExchangeSourcesRequest twice yields the same
- * state as applying it once (idempotency: f(x) = f(f(x))).</p>
- */
-@Tag("Feature: full-pipeline-audit-fix")
+/** Properties for canonical task-scoped exchange source conversion. */
 @Tag("Feature: architecture-remediation")
-@Tag("Property 24: Exchange source update propagation")
-@Tag("Property 37: Exchange source update idempotency")
 class ExchangeSourceUpdatePropertyTest {
 
-    @Property(tries = 10)
-    void converterPreservesAllProtocolFields(
-            @ForAll("sourceTaskIds") String sourceTaskId,
-            @ForAll("hosts") String host,
-            @ForAll("ports") int port,
-            @ForAll("partitionIds") int partitionId,
-            @ForAll("exchangeTypes") String exchangeType,
-            @ForAll("sequenceIds") long sequenceId) {
-
-        var proto = new ExchangeSourceDescriptor(
-                sourceTaskId, host, port, partitionId, exchangeType, sequenceId);
-
-        List<ExchangeEndpoint> result = ExchangeSourceConverter.convert(List.of(proto));
-
-        assertThat(result).hasSize(1);
-        ExchangeEndpoint internal = result.get(0);
-        assertThat(internal.sourceTaskId()).isEqualTo(sourceTaskId);
-        assertThat(internal.host()).isEqualTo(host);
-        assertThat(internal.transportPort()).isEqualTo(port);
-        assertThat(internal.partitionId()).isEqualTo(partitionId);
-        assertThat(internal.sequenceId()).isEqualTo(sequenceId);
-    }
-
-    @Property(tries = 10)
-    void converterMapsKnownExchangeTypes(
-            @ForAll("knownExchangeTypes") String wireType) {
-
-        var proto = new ExchangeSourceDescriptor(
-                "src-1", "host-1", 9090, 0, wireType, 0L);
-
-        ExchangeEndpoint internal = ExchangeSourceConverter.convert(List.of(proto)).get(0);
-
-        assertThat(internal.exchangeType())
-                .as("Known wire type '%s' should map to matching enum", wireType)
-                .isEqualTo(ExchangeType.valueOf(wireType.toUpperCase()));
-    }
-
-    @Property(tries = 10)
-    void converterDefaultsUnknownExchangeType(
-            @ForAll("unknownExchangeTypes") String wireType) {
-
-        var proto = new ExchangeSourceDescriptor(
-                "src-1", "host-1", 9090, 0, wireType, 0L);
-
-        ExchangeEndpoint internal = ExchangeSourceConverter.convert(List.of(proto)).get(0);
-
-        assertThat(internal.exchangeType())
-                .as("Unknown wire type '%s' should default to HASH_PARTITION", wireType)
-                .isEqualTo(ExchangeType.HASH_PARTITION);
-    }
-
-    @Property(tries = 10)
-    void converterHandlesMultipleSources(
-            @ForAll("sourceCounts") int count) {
-
-        List<ExchangeSourceDescriptor> protos =
-                java.util.stream.IntStream.range(0, count)
-                        .mapToObj(i -> new ExchangeSourceDescriptor(
-                                "src-" + i, "host-" + i, 9090 + i, i,
-                                "HASH_PARTITION", (long) i))
-                        .toList();
-
-        List<ExchangeEndpoint> result = ExchangeSourceConverter.convert(protos);
-
-        assertThat(result).hasSize(count);
-        for (int i = 0; i < count; i++) {
-            assertThat(result.get(i).sourceTaskId()).isEqualTo("src-" + i);
-            assertThat(result.get(i).host()).isEqualTo("host-" + i);
-            assertThat(result.get(i).transportPort()).isEqualTo(9090 + i);
-        }
-    }
-
-    @Property(tries = 10)
-    void converterReturnsEmptyForNullOrEmpty(
-            @ForAll("emptyInputs") List<ExchangeSourceDescriptor> input) {
-
-        List<ExchangeEndpoint> result = ExchangeSourceConverter.convert(input);
-
-        assertThat(result).isEmpty();
-    }
-
-    @Property(tries = 10, maxDiscardRatio = 100)
-    void staleSequenceIdIsRejectedBeforeStateTransition(
-            @ForAll("sequenceIds") long firstSeq,
-            @ForAll("sequenceIds") long staleSeq) {
-
-        Assume.that(firstSeq > 0 && staleSeq <= firstSeq);
-
-        java.util.concurrent.atomic.AtomicLong lastSeqTracker =
-                new java.util.concurrent.atomic.AtomicLong(firstSeq);
-
-        boolean wouldAccept = staleSeq > lastSeqTracker.get();
-
-        assertThat(wouldAccept)
-                .as("Stale sequence %d (last=%d) should be rejected", staleSeq, firstSeq)
-                .isFalse();
-    }
-
-    @Property(tries = 10, maxDiscardRatio = 20)
-    void monotonicSequenceIdWouldBeAccepted(
-            @ForAll("sequenceIds") long firstSeq,
-            @ForAll("sequenceIds") long newSeq) {
-
-        Assume.that(newSeq > firstSeq);
-
-        java.util.concurrent.atomic.AtomicLong lastSeqTracker =
-                new java.util.concurrent.atomic.AtomicLong(firstSeq);
-
-        boolean wouldAccept = newSeq > lastSeqTracker.get();
-
-        assertThat(wouldAccept)
-                .as("Monotonic sequence %d (last=%d) should be accepted", newSeq, firstSeq)
-                .isTrue();
-    }
-
-    // ── Property 37: Exchange source update idempotency via ExchangeClient ──
-
-    @Property(tries = 10)
-    void applyingSameUpdateTwiceYieldsSameState(
+    @Property(tries = 50)
+    void conversionPreservesEveryLogicalProducerExactlyOnce(
             @ForAll("sourceCounts") int count,
-            @ForAll("sequenceIds") long sequenceId) {
+            @ForAll("planEpochs") long planEpoch) {
+        var inputs = ExchangeSourceConverter.toExchangeInputs(
+                List.of(binding(count, planEpoch, 0)), attempt(), deadline());
 
-        Assume.that(sequenceId > 0);
-
-        java.util.concurrent.atomic.AtomicLong lastSeq =
-                new java.util.concurrent.atomic.AtomicLong(0);
-        List<ExchangeEndpoint> currentSources = new java.util.ArrayList<>();
-
-        List<ExchangeEndpoint> sources = java.util.stream.IntStream.range(0, count)
-                .mapToObj(i -> new ExchangeEndpoint(
-                        "src-" + i, "host-" + i, 9090 + i, i,
-                        ExchangeType.HASH_PARTITION, sequenceId))
-                .toList();
-
-        // First application: accepted
-        boolean first = sequenceId > lastSeq.get();
-        if (first) {
-            currentSources = List.copyOf(sources);
-            lastSeq.set(sequenceId);
-        }
-        assertThat(first).isTrue();
-        List<ExchangeEndpoint> stateAfterFirst = List.copyOf(currentSources);
-
-        // Second application: rejected (idempotent)
-        boolean second = sequenceId > lastSeq.get();
-        assertThat(second)
-                .as("Duplicate update with seq=%d should be rejected (idempotent)", sequenceId)
-                .isFalse();
-
-        // State after second attempt is identical to state after first: f(x) = f(f(x))
-        assertThat(currentSources)
-                .as("Sources should remain unchanged after duplicate update")
-                .isEqualTo(stateAfterFirst);
-        assertThat(lastSeq.get())
-                .as("Sequence tracker should remain at %d after duplicate", sequenceId)
-                .isEqualTo(sequenceId);
+        assertThat(inputs).hasSize(1);
+        assertThat(inputs.get(0).expectedSourcePartitions()).isEqualTo(count);
+        var sources = ((DirectExchangeTransport) inputs.get(0).transport()).sources();
+        assertThat(sources).hasSize(count);
+        assertThat(sources)
+                .extracting(source -> source.sourceStageId() + "#" + source.sourcePartitionId())
+                .doesNotHaveDuplicates();
+        assertThat(sources)
+                .allSatisfy(source -> {
+                    assertThat(source.planEpoch()).isEqualTo(planEpoch);
+                    assertThat(source.fencingToken()).isEqualTo(fence(planEpoch, 0));
+                    assertThat(source.signedTicket()).containsExactly(1, 2, 3);
+                });
     }
 
-    @Provide
-    Arbitrary<String> sourceTaskIds() {
-        return Arbitraries.strings().alpha().ofMinLength(3).ofMaxLength(8)
-                .map(s -> "task-" + s);
+    @Property(tries = 25)
+    void newerAttemptCarriesStrictlyGreaterFence(
+            @ForAll("planEpochs") long planEpoch,
+            @ForAll("attempts") int attempt) {
+        var oldSource = ExchangeSourceConverter.toExchangeInputs(
+                List.of(binding(1, planEpoch, attempt)), attempt(), deadline());
+        var retry = ExchangeSourceConverter.toExchangeInputs(
+                List.of(binding(1, planEpoch, attempt + 1)), attempt(), deadline());
+        var oldEndpoint = ((DirectExchangeTransport)
+                oldSource.get(0).transport()).sources().get(0);
+        var retryEndpoint = ((DirectExchangeTransport)
+                retry.get(0).transport()).sources().get(0);
+
+        assertThat(retryEndpoint.sourceStageId()).isEqualTo(oldEndpoint.sourceStageId());
+        assertThat(retryEndpoint.sourcePartitionId()).isEqualTo(oldEndpoint.sourcePartitionId());
+        assertThat(retryEndpoint.attemptId()).isGreaterThan(oldEndpoint.attemptId());
+        assertThat(retryEndpoint.fencingToken()).isGreaterThan(oldEndpoint.fencingToken());
     }
 
-    @Provide
-    Arbitrary<String> hosts() {
-        return Arbitraries.strings().alpha().ofMinLength(3).ofMaxLength(8)
-                .map(s -> "host-" + s);
+    @Property(tries = 10)
+    void nullAndEmptyInputsProduceNoBindings(
+            @ForAll("emptyInputs") List<ExchangeInputBinding> input) {
+        assertThat(ExchangeSourceConverter.toExchangeInputs(
+                input, attempt(), deadline())).isEmpty();
     }
 
-    @Provide
-    Arbitrary<Integer> ports() {
-        return Arbitraries.integers().between(1, 65535);
+    private static ExchangeInputBinding binding(
+            int expectedSources, long planEpoch, int attempt) {
+        var sources = DirectExchangeInput.newBuilder();
+        var binding = ExchangeInputBinding.newBuilder()
+                .setPlanNodeId("exchange-node").setExchangeId("exchange-1")
+                .setExpectedSourcePartitions(expectedSources).setNoMoreSources(true)
+                .setReadMode(ExchangeReadMode.EXCHANGE_READ_MODE_BLOCKING);
+        IntStream.range(0, expectedSources).forEach(sourcePartition ->
+                sources.addSources(ExchangePartitionSource.newBuilder()
+                        .setSourceTaskId("task-" + sourcePartition + "-attempt-" + attempt)
+                        .setSourceStageId(7).setSourcePartitionId(sourcePartition)
+                        .setOutputPartitionId(sourcePartition)
+                        .setPlanEpoch(planEpoch).setAttemptId(attempt)
+                        .setFencingToken(fence(planEpoch, attempt))
+                        .setHost("host-" + sourcePartition).setPort(9_000 + sourcePartition)
+                        .setSignedTicket(ByteString.copyFrom(new byte[]{1, 2, 3}))
+                        .setTicketExpiresAtEpochMs(4_102_444_800_000L)));
+        return binding.setDirect(sources).build();
     }
 
-    @Provide
-    Arbitrary<Integer> partitionIds() {
-        return Arbitraries.integers().between(0, 100);
+    private static long fence(long planEpoch, int attempt) {
+        return (planEpoch << 32) + attempt + 1L;
     }
 
-    @Provide
-    Arbitrary<String> exchangeTypes() {
-        return Arbitraries.of("HASH_PARTITION", "BROADCAST", "ROUND_ROBIN", "SINGLE");
+    private static long deadline() {
+        return 4_102_444_800_000L;
     }
 
-    @Provide
-    Arbitrary<String> knownExchangeTypes() {
-        return Arbitraries.of("HASH_PARTITION", "BROADCAST", "ROUND_ROBIN", "SINGLE");
-    }
-
-    @Provide
-    Arbitrary<String> unknownExchangeTypes() {
-        return Arbitraries.of("UNKNOWN", "RANDOM", "CUSTOM", "");
-    }
-
-    @Provide
-    Arbitrary<Long> sequenceIds() {
-        return Arbitraries.longs().between(1, 10_000);
+    private static TaskAttemptId attempt() {
+        return TaskAttemptId.newBuilder()
+                .setQueryOrJobId("query-1").setStageId(8).setPartitionId(0)
+                .setPlanEpoch(1).setAttemptId(0).setFencingToken(fence(1, 0))
+                .setTaskId("consumer-8-0").setControlEpoch(3)
+                .setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
+                        .setOwnerId("coordinator-1")
+                        .setOwnerIncarnation("incarnation-1")
+                        .setFencingToken(5))
+                .build();
     }
 
     @Provide
@@ -234,7 +119,17 @@ class ExchangeSourceUpdatePropertyTest {
     }
 
     @Provide
-    Arbitrary<List<ExchangeSourceDescriptor>> emptyInputs() {
+    Arbitrary<Long> planEpochs() {
+        return Arbitraries.longs().between(1, 1_000_000);
+    }
+
+    @Provide
+    Arbitrary<Integer> attempts() {
+        return Arbitraries.integers().between(0, 1_000);
+    }
+
+    @Provide
+    Arbitrary<List<ExchangeInputBinding>> emptyInputs() {
         return Arbitraries.of(null, List.of());
     }
 }

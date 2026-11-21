@@ -1,7 +1,7 @@
 LogicalProject(customer_id=[$1], customer_first_name=[$2], customer_last_name=[$3], customer_preferred_cust_flag=[$4])
   LogicalProject(year_total_sales=[$1], customer_id0=[$2], customer_first_name0=[$3], customer_last_name0=[$4], customer_preferred_cust_flag0=[$5], year_total_sales0=[$6], year_total_sales1=[$7], year_total_sales2=[$9])
     LogicalSort(sort0=[$2], sort1=[$3], sort2=[$4], sort3=[$5], dir0=[ASC], dir1=[ASC], dir2=[ASC], dir3=[ASC], fetch=[100])
-      LogicalFilter(condition=[AND(>($1, 0), >($7, 0), >(/(CAST($9):DECIMAL(19, 3) NOT NULL, $7), /(CAST($6):DECIMAL(19, 3) NOT NULL, $1)))])
+      LogicalFilter(condition=[AND(>($1, 0.00), >($7, 0.00), >(/(CAST($9):DECIMAL(38, 3) NOT NULL, $7), /(CAST($6):DECIMAL(38, 3) NOT NULL, $1)))])
         LogicalJoin(condition=[=($0, $8)], joinType=[inner])
           LogicalProject(customer_id=[$0], year_total_sales=[$1], customer_id0=[$2], customer_first_name0=[$3], customer_last_name0=[$4], customer_preferred_cust_flag0=[$5], year_total_sales0=[$6], year_total_sales1=[$8])
             LogicalJoin(condition=[=($0, $7)], joinType=[inner])

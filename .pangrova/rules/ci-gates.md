@@ -1,92 +1,73 @@
 # CI Gates
 
-Gate scripts live in `.pangrova/scripts/`; CI wiring is defined in `.github/workflows/ci.yml`.
+`.github/workflows/ci.yml` owns execution and `.pangrova/scripts/ci_change_scope.py`
+owns PR classification and the Native platform matrix. Do not run every gate locally.
 
-## Gate Scripts
+## Selection
 
-| Gate | Script | Purpose | Frequency |
-|------|--------|---------|-----------|
-| SPI annotation | `check-spi-annotations.sh` | All public SPI types must have `@Stable`/`@Experimental`/`@Internal` | Every PR |
-| SPI stability | `check-spi-stability.sh` | `@Stable` types must have ≥1 production impl | Local |
-| Proto diff | `proto-descriptor-diff.sh` | Wire-format changes flagged; descriptors in `.pangrova/scripts/proto-descriptors` | Proto changes |
-| Diff coverage | `diff-coverage-check.sh` | PRs must hit ≥60% line coverage on changed lines | Every PR |
-| BOM usage | `check-bom-usage.sh` | Deps must use parent pom version properties | pom.xml changes |
-| Doc class refs | `check-doc-class-refs.sh` | Class references in docs must resolve | Doc changes |
-| Doc staleness | `check-doc-staleness.sh` | Docs must not be older than associated source | Every PR (warning) |
-| Dead stubs | `detect-dead-stubs.sh` | No unused forwarding stubs | Every PR |
-| ADR consistency | `adr-grep-check.sh` | Architecture Decision Records consistency | ADR changes |
-| Plan stability | `plan-stability-check.sh` | Golden query plan diffs flagged | Planner changes |
-| Distributed checklist | `distributed-checklist-check.sh` | Distributed correctness PR checklist enforced | Every PR |
+| Change or event | Checks |
+|---|---|
+| Docs, rules, website or ordinary gate tooling PR | Lightweight lint: layout, tooling tests and syntax, environment paths, module manifest, SPI annotations, E2E truthfulness, doc class references, dev artifacts |
+| Java runtime/test PR outside JNI, protocol and SPI owners | Above + Linux Native, JDK 17/21 daily tests, static analysis, same-source production full regression |
+| Native, Worker/JNI, protocol/SPI, packaging, build/config or unknown input PR | Above + all four Native platforms and ASan/UBSan |
+| Production, dependency or benchmark input PR | Above + TPC workload/evidence/transport contracts and JMH comparison |
+| Protected-branch push or release | Full correctness chain regardless of diff |
 
-## Running Locally
+Runtime and test resources take precedence over Markdown naming; deleted and renamed
+paths count; an invalid comparison base fails. Website build and deployment belong to
+`deploy-website.yml`.
 
-```bash
-# Run a specific gate
-.pangrova/scripts/check-spi-annotations.sh
+`Validation result` is the single required aggregate check: selected jobs must
+succeed, and failures, cancellations, missing scope or unexpected skips fail it. Branch
+protection references this check. Releases call the same workflow at the tag and use
+artifact names distinct from validation artifacts.
 
-# Run all shell gates locally
-for script in .pangrova/scripts/*.sh; do
-  echo "=== Running $script ==="
-  bash "$script" || echo "FAILED: $script"
-done
-```
+## Ownership
 
-## Static Analysis
+| Check | Owner | Runs |
+|---|---|---|
+| Module ownership and dependencies | `check-module-manifest.sh`, `ModuleDependencyPropertyTest`, `ModuleBoundaryReferenceTest` | Lint (JDK 17); Maven tests |
+| Package cycles | `PackageDependencyAcyclicityPropertyTest`, `PackageDependencyGraphTest` | Maven tests |
+| SPI annotations | `check-spi-annotations.sh`; baseline entries only shrink | Lint |
+| E2E pattern sanity | `check-e2e-truthfulness.sh` (heuristic) | Lint |
+| Documentation class references | `check-doc-class-refs.sh` (heuristic) | Lint |
+| Dev artifact hygiene | `check-dev-artifacts.sh`; rejects caches and a recreated `docs/internal/` | Lint |
+| Contributor paths | `check-environment-specific-info.sh` | Lint |
+| Instruction layout | `.pangrova/setup.sh --check` | Lint |
+| Proto descriptors | `proto-descriptor-diff.sh` (exact drift, not compatibility proof) | Runtime CI |
+| Stub patterns | `detect-dead-stubs.sh` (heuristic) | Runtime CI |
+| Wiring and reachability | `SpiWiringVerificationTest`, `BootstrapReachabilityTest` | Maven tests |
+| Golden plans | `TpchPlanStabilityTest`, `TpcdsPlanStabilityTest`; review changed goldens | Maven tests |
+| Java structure and bugs | One `verify -Pstatic-analysis` (Checkstyle, SpotBugs/FindSecBugs) | Static analysis job |
+| Native build and tests | Warnings as errors, CTest, `check-native-boundaries.sh`, `jni-symbol-symmetry.sh` | Native jobs |
+| Native memory and UB | ASan, UBSan | Native/boundary/build PRs, pushes, releases |
+| Production execution | Same-source image identity, staged JNI manifest, `native-runtime,full-regression verify`, isolated owner suites | Runtime CI |
 
-| Tool | Config Location | Profile |
-|------|----------------|---------|
-| Checkstyle | `config/checkstyle/` | `-Pstatic-analysis` |
-| SpotBugs | `config/spotbugs/` | `-Pstatic-analysis` |
-| JaCoCo (coverage) | Parent pom | `-Pcoverage` |
-| PIT (mutation) | Parent pom | `-Pmutation` |
+Thresholds: Checkstyle limits are in `code-standards.md`; errors fail and size
+warnings do not. SpotBugs blocks unsuppressed Medium-or-higher-confidence findings.
+Native compiler warnings and sanitizer findings must be zero. `check-spi-stability.sh`
+is an optional local diagnostic and does not replace wiring or loader tests.
 
-```bash
-# Run static analysis locally
-java -version && mvn -version
-mvn -q -pl <module> -am verify -Pstatic-analysis
+The production reactor already runs E2E and activation smoke; the pre-test install
+stays for independent-process consumers. Daily JDK 17/21 runs exclude the `e2e`
+group, which needs the AI model fixture and same-source image, and are not full
+regression. No coverage instrumentation runs in CI.
 
-# Generate coverage report
-mvn -q -pl <module> -am verify -Pcoverage
-```
+## Retired Checks
 
-## SPI Annotation Baseline
+Do not recreate removed gates, including fixed dependency-use lists, document-age
+alarms, ADR trailer and rename-ledger checks, package file quotas, regex structure
+scans, changed-line coverage thresholds (`diff-coverage-check.sh`), Codecov uploads,
+standalone ArchUnit jobs, PR checkbox enforcement, reference-only DuckDB fuzzing as a
+PR gate, and tracked Git hook samples. Setup installs no hooks and no commit-message
+gate.
 
-Pre-existing unannotated types are tracked in `.pangrova/scripts/.spi-annotation-baseline.txt`. Update the baseline only when you annotate or rename a previously-unannotated type.
+## Performance
 
-## Quality Thresholds
-
-| Metric | Threshold | Gate |
-|--------|-----------|------|
-| Diff line coverage | ≥60% | `diff-coverage-check.sh` |
-| SPI annotation | 100% new types | `check-spi-annotations.sh` |
-| Proto wire compat | No breaking changes | `proto-descriptor-diff.sh` |
-| Checkstyle | 0 violations | `-Pstatic-analysis` |
-| SpotBugs | 0 high/critical | `-Pstatic-analysis` |
-| C++ build warnings | 0 (PANGROVA_WERROR=ON) | `cmake --build` |
-| C++ gtests | 100% pass | `ctest` |
-| ASan findings | 0 leaks, 0 errors | `cmake --preset dev-asan + ctest` |
-| Dead stubs | 0 orphans | `detect-dead-stubs.sh` |
-| E2E tests | 100% pass | `pangrova-test-e2e` |
-| Smoke tests | 100% pass | `pangrova-test-smoke` |
-
-## C++ Quality Gates
-
-| Gate | Command | Threshold |
-|------|---------|-----------|
-| Build (warnings-as-errors) | `cmake --build build --parallel` | 0 errors, 0 warnings |
-| GTest suite | `ctest --test-dir build --output-on-failure` | 100% pass (92+ tests) |
-| AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan && ctest --test-dir build-asan` | 0 findings |
-| UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan && ctest --test-dir build-ubsan` | 0 findings |
-| Native lib package | `package-native-lib.sh` | Successfully staged to Java resources |
-| JNI integration | `mvn -q -pl pangrova-worker -am test` | 100% pass |
-| Symbol visibility | Only `Java_*` and `JNI_On*` in `.dylib` exports | `nm -gU` verification |
-
-## Connectivity Gates
-
-| Gate | What it checks | When |
-|------|---------------|------|
-| Dead stubs | No unused forwarding stubs or orphan implementations | Every PR |
-| SPI completeness | Every SPI interface has ≥1 non-stub implementation | Every PR |
-| JNI bridge symmetry | Every Java `native` decl has C++ counterpart | Native changes |
-| Proto symmetry | Proto changes regenerated on both Java + C++ sides | Proto changes |
-| Full-chain E2E | SQL → Plan → JNI → Native → Result works end-to-end | Every PR |
+The `tpch-performance` PR check verifies complete derived workloads, real Parquet
+conversion, evidence/comparison rejection paths and the production REST client over
+HTTP and Flight fixtures; fixture maxima are never P99. `nightly-tpc-benchmark.yml`
+owns exclusive-host SF100/SF1000 campaigns with reviewed baselines; missing
+configuration, capacity or cleanup is a failed outcome, and its unattended schedule
+is skipped until `TPC_BENCHMARK_CONFIG_DIR` provisions the dedicated fleet. See
+`docs/testing/tpc-benchmark-methodology.md`.

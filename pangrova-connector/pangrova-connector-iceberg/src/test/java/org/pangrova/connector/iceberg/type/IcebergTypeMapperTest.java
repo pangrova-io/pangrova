@@ -1,8 +1,10 @@
 package org.pangrova.connector.iceberg.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.types.NullOnlyType;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -23,6 +25,68 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * between Iceberg types and PangrovaType, plus schema-to-column conversion.
  */
 class IcebergTypeMapperTest {
+
+    @Test
+    void uuidSdkSchemasRetainScalarAndNestedTypeIdentity() {
+        var uuid = org.pangrova.types.primitive.UuidType.INSTANCE;
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.UUIDType.get()),
+                Types.NestedField.optional(2, "ids", Types.ListType.ofOptional(3, Types.UUIDType.get())),
+                Types.NestedField.optional(4, "lookup", Types.MapType.ofOptional(
+                        5, 6, Types.UUIDType.get(), Types.UUIDType.get())),
+                Types.NestedField.optional(7, "nested", Types.StructType.of(
+                        Types.NestedField.optional(8, "id", Types.UUIDType.get()))));
+        var columns = IcebergTypeMapper.toPangrovaColumns(schema);
+        assertThat(columns.get(0).type()).isEqualTo(PangrovaType.UUID);
+        assertThat(columns.get(0).parameterizedType()).isEqualTo(uuid);
+        assertThat(columns.get(1).parameterizedType())
+                .isEqualTo(new org.pangrova.types.ArrayType(uuid));
+        assertThat(columns.get(2).parameterizedType())
+                .isEqualTo(new org.pangrova.types.MapType(uuid, uuid));
+        assertThat(columns.get(3).parameterizedType())
+                .isEqualTo(new org.pangrova.types.RowType(List.of(
+                        new org.pangrova.types.RowField("id", uuid))));
+    }
+
+    @Test
+    void icebergV3UnknownHasAnExplicitNullOnlyDeclaration() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "future", Types.UnknownType.get()));
+        ConnectorTableMetadata.Column column = IcebergTypeMapper.toPangrovaColumns(schema).get(0);
+        assertThat(column.type()).isEqualTo(PangrovaType.UNKNOWN);
+        assertThat(column.parameterizedType()).isEqualTo(NullOnlyType.INSTANCE);
+    }
+
+    @Test
+    void nestedUnknownFailsClosedUntilNativeCanSynthesizeNestedNulls() {
+        Type nested = Types.StructType.of(
+                Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(nested))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("recursive null-only Native projection");
+    }
+
+    @Test
+    void timezoneNanoTimestampFailsClosedInsteadOfLosingTimezone() {
+        Type timestamp = Types.TimestampNanoType.withZone();
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaType(timestamp))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(timestamp))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        Schema schema = new Schema(Types.NestedField.optional(1, "event_time", timestamp));
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaColumns(schema))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+    }
+
+    @Test
+    void nestedTimezoneNanoTimestampAlsoFailsClosed() {
+        Type nested = Types.ListType.ofOptional(2, Types.TimestampNanoType.withZone());
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(nested))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        Schema schema = new Schema(Types.NestedField.optional(1, "events", nested));
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaColumns(schema))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+    }
 
     @ParameterizedTest(name = "Iceberg {0} -> PangrovaType.{1}")
     @MethodSource("primitiveTypeMappings")
@@ -154,7 +218,7 @@ class IcebergTypeMapperTest {
 
     @Test
     void toIcebergVectorType_float() {
-        VectorType vectorType = new VectorType(128, VectorType.ElementType.FLOAT);
+        VectorType vectorType = new VectorType(128, VectorElementType.FLOAT);
         Types.ListType result = IcebergTypeMapper.toIcebergVectorType(vectorType, 1);
 
         assertThat(result.typeId()).isEqualTo(Type.TypeID.LIST);
@@ -163,7 +227,7 @@ class IcebergTypeMapperTest {
 
     @Test
     void toIcebergVectorType_double() {
-        VectorType vectorType = new VectorType(384, VectorType.ElementType.DOUBLE);
+        VectorType vectorType = new VectorType(384, VectorElementType.DOUBLE);
         Types.ListType result = IcebergTypeMapper.toIcebergVectorType(vectorType, 2);
 
         assertThat(result.typeId()).isEqualTo(Type.TypeID.LIST);
@@ -211,13 +275,13 @@ class IcebergTypeMapperTest {
         Type listFloat = Types.ListType.ofRequired(1, Types.FloatType.get());
         Map<String, String> props = Map.of("pangrova.vector.dimension.embedding", "768");
 
-        org.pangrova.spi.connector.data.type.Type result =
+        org.pangrova.types.Type result =
                 IcebergTypeMapper.toParameterizedType(listFloat, "embedding", props);
 
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(768);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.FLOAT);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.FLOAT);
     }
 
     @Test
@@ -225,13 +289,13 @@ class IcebergTypeMapperTest {
         Type listDouble = Types.ListType.ofRequired(1, Types.DoubleType.get());
         Map<String, String> props = Map.of("pangrova.vector.dimension.emb", "384");
 
-        org.pangrova.spi.connector.data.type.Type result =
+        org.pangrova.types.Type result =
                 IcebergTypeMapper.toParameterizedType(listDouble, "emb", props);
 
         assertThat(result).isInstanceOf(VectorType.class);
         VectorType vt = (VectorType) result;
         assertThat(vt.dimension()).isEqualTo(384);
-        assertThat(vt.elementType()).isEqualTo(VectorType.ElementType.DOUBLE);
+        assertThat(vt.elementType()).isEqualTo(VectorElementType.DOUBLE);
     }
 
     @Test

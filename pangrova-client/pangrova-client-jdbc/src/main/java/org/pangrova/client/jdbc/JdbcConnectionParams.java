@@ -26,4 +26,9 @@ public record JdbcConnectionParams(
         }
         properties = properties == null ? Map.of() : Map.copyOf(properties);
     }
+
+    @Override public String toString() {
+        return "JdbcConnectionParams[host=" + host + ", port=" + port
+                + ", catalog=" + catalog + ", propertyKeys=" + properties.keySet() + "]";
+    }
 }

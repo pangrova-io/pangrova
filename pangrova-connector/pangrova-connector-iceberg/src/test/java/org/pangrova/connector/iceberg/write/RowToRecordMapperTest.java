@@ -1,12 +1,14 @@
 package org.pangrova.connector.iceberg.write;
 
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +25,42 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * columns.
  */
 class RowToRecordMapperTest {
+
+    @Test
+    void nativeAnonymousRowFieldsBindToTargetStructByOrdinal() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "info", Types.StructType.of(
+                        Types.NestedField.optional(3, "name", Types.StringType.get()),
+                        Types.NestedField.optional(4, "age", Types.IntegerType.get()))));
+        RowToRecordMapper mapper = new RowToRecordMapper(
+                schema, IcebergWriteOptions.DEFAULT, "db", "t");
+        mapper.validateColumns(List.of("id", "info"));
+
+        GenericRecord row = mapper.toRecord(TypedRow.builder()
+                .putLong("id", 1L)
+                .putRaw("info", Map.of(
+                        FunctionBindingDeclarations.anonymousComputedField(0), "Alice",
+                        FunctionBindingDeclarations.anonymousComputedField(1), 30))
+                .build());
+        GenericRecord info = (GenericRecord) row.getField("info");
+        assertThat(info.getField("name")).isEqualTo("Alice");
+        assertThat(info.getField("age")).isEqualTo(30);
+
+        assertThatThrownBy(() -> mapper.toRecord(TypedRow.builder()
+                .putLong("id", 2L)
+                .putRaw("info", Map.of("wrong_0", "Bob", "wrong_1", 25))
+                .build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("STRUCT source fields");
+
+        assertThatThrownBy(() -> mapper.toRecord(TypedRow.builder()
+                .putLong("id", 3L)
+                .putRaw("info", Map.of("name", "Carol", "age", 27, "unexpected", true))
+                .build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("STRUCT source fields");
+    }
 
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.LongType.get()),

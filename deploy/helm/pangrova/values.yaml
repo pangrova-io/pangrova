@@ -10,6 +10,13 @@
 
 # ---- Global ----
 namespace: pangrova
+# Helm --create-namespace or an operator owns the release namespace. Enable
+# this only when the release should own and delete that Namespace itself.
+manageNamespace: false
+# Fail closed: the embedded NOOP authenticator is usable only when an operator
+# explicitly opts into the development profile. Production values must supply
+# config.coordinator with OAUTH2 or LDAP authentication.
+developmentMode: false
 
 # ---- Image ----
 image:
@@ -19,6 +26,21 @@ image:
   # pullSecrets:
   #   - name: my-registry-secret
 
+# Create this Secret in the release namespace (and each tenant namespace).
+# The key must be internal-auth-secret; never put the value in chart values.
+internalAuth:
+  existingSecret: pangrova-internal-auth
+
+# External PostgreSQL is required. The service must resolve in the release
+# namespace and the existing Secret must contain username and password keys.
+# Create the database before installing the chart; the Coordinator migrates its
+# own schema at startup. Override these values for your PostgreSQL endpoint.
+metadata:
+  host: pangrova-postgresql
+  port: 5432
+  database: pangrova_meta
+  existingSecret: pangrova-metadata-catalog
+
 # ---- Service Account ----
 serviceAccount:
   create: true
@@ -27,7 +49,9 @@ serviceAccount:
 
 # ---- Coordinator ----
 coordinator:
-  replicas: 2
+  # A single Coordinator is the only supported default. Multiple replicas
+  # require a separately configured and verified HA topology.
+  replicas: 1
 
   resources:
     requests:
@@ -42,7 +66,8 @@ coordinator:
     port: 8080
     # annotations: {}
 
-  javaOpts: "-Xms2g -Xmx8g"
+  # Leave container memory for HTTP, Flight, JNI and other native allocations.
+  javaOpts: "-Xms1g -Xmx4g"
 
   # Pod-level settings
   nodeSelector: {}
@@ -50,6 +75,8 @@ coordinator:
   affinity: {}
   podAnnotations: {}
   podLabels: {}
+  # The image runs as uid/gid 999; mounted data and log volumes need write access.
+  fsGroup: 999
 
   # Readiness/liveness probe tuning
   readinessProbe:
@@ -64,6 +91,10 @@ coordinator:
 # ---- Worker ----
 worker:
   replicas: 3
+
+  # Worker drains in-flight tasks for up to 30s on SIGTERM, then deregisters and
+  # releases resources. The K8s default of 30s left no room for that tail.
+  terminationGracePeriodSeconds: 120
 
   resources:
     requests:
@@ -86,6 +117,7 @@ worker:
   affinity: {}
   podAnnotations: {}
   podLabels: {}
+  fsGroup: 999
 
   # Readiness/liveness probe tuning
   readinessProbe:
@@ -106,6 +138,7 @@ config:
       id: "coordinator-1"
       host: "0.0.0.0"
       port: 8080
+      internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
       ha:
         enabled: false
       query:
@@ -114,25 +147,37 @@ config:
       worker:
         heartbeat-timeout: "30s"
         max-retry: 3
-    state-store:
-      type: IN_MEMORY
     metadata:
       enabled: true
+      jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT}/${PANGROVA_DB_NAME}"
+      jdbc-username: "${PANGROVA_DB_USERNAME}"
+      jdbc-password: "${PANGROVA_DB_PASSWORD}"
     observability:
       enabled: true
     security:
-      enabled: false
+      # This embedded development profile requires developmentMode=true at Helm
+      # render time. The Worker-control auth filter still gets instantiated.
+      enabled: true
+      auth:
+        type: NOOP
   worker: |
     worker:
       host: "0.0.0.0"
       port: 8081
+      advertised-host: "${PANGROVA_ADVERTISED_HOST}"
+      coordinator-url: "${PANGROVA_COORDINATOR_URL}"
+      internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
       heartbeat-interval: "10s"
       shuffle:
         buffer-capacity: 100
         max-memory-bytes: 536870912
         spill-threshold: 0.8
+        service:
+          spill-directory: /opt/pangrova/data
       memory:
-        budget-bytes: 536870912
+        # Matches etc/worker.yml. A 512MB override here silently defeated the
+        # 16GB shipped default for every Helm deployment.
+        budget-bytes: 17179869184
         system-reserved-bytes: 67108864
         node-bytes: 1073741824
       threads:
@@ -143,10 +188,91 @@ config:
         max-attempts: 5
         initial-backoff: "1s"
         max-backoff: "30s"
+      native:
+        cache:
+          enabled: false
     observability:
       enabled: true
     security:
       enabled: false
+
+# ---- External durable shuffle service ----
+# The canonical v2 shuffle server persists batches in PostgreSQL and immutable
+# objects in S3-compatible storage. Enable it, pre-create the four referenced
+# Secrets, then set the Coordinator and Worker shuffle mode to REMOTE with the
+# advertised endpoints (coordinator.shuffle.mode / coordinator.shuffle.endpoints
+# and worker.shuffle.mode in config.coordinator / config.worker).
+shuffle:
+  enabled: false
+  image:
+    repository: pangrova/pangrova
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  # Partition ranges are split evenly across replicas; last replica absorbs the
+  # remainder. Must be >= replicas.
+  partitions: 16
+  port: 9090
+  fsGroup: 999
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+  database:
+    jdbcUrl: "jdbc:postgresql://pangrova-postgresql:5432/pangrova_meta"
+    username: pangrova
+    maximumPoolSize: 16
+    # Must contain keys: username, password
+    existingSecret: pangrova-shuffle-db
+    # Development only; never set these in production values.
+    password: ""
+  objectStorage:
+    bucket: pangrova-shuffle
+    prefix: shuffle
+    region: us-east-1
+    endpoint: ""
+    pathStyleAccess: false
+    replicationEnabled: false
+    # Optional keys: access-key, secret-key. Omit to use IRSA/instance roles.
+    existingSecret: pangrova-shuffle-object-storage
+    accessKey: ""
+    secretKey: ""
+  security:
+    # Must contain keys: tls.crt, tls.key, ca.crt
+    existingSecret: pangrova-shuffle-tls
+    # Must contain key: capability-secret
+    capabilityExistingSecret: pangrova-shuffle-capability
+    capabilityTtlSeconds: 3600
+    coordinatorTlsIdentities:
+      - "pangrova-coordinator.pangrova.svc"
+    certificateChainPem: ""
+    privateKeyPem: ""
+    rootCaPem: ""
+    capabilitySecret: ""
+  limits:
+    maxChunkBytes: 1048576
+    maxBatchBytes: 268435456
+    maxInflightBytes: 805306368
+    maxWriteStreams: 64
+    ioThreads: 32
+    maxQueuedOperations: 1024
+  secrets:
+    # Never enable in production.
+    create: false
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
 
 # ---- Persistence (Worker data volumes) ----
 persistence:
@@ -155,6 +281,11 @@ persistence:
   storageClass: ""
   # accessModes:
   #   - ReadWriteOnce
+
+# ---- Voluntary disruption (node drains, cluster upgrades) ----
+disruptionBudget:
+  enabled: true
+  maxUnavailable: 1
 
 # ---- Autoscaling (Worker HPA) ----
 autoscaling:

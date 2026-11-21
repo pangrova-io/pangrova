@@ -6,6 +6,7 @@ import java.security.MessageDigest;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link DigestUtils}.
@@ -15,6 +16,70 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Validates: Requirements 5.1-5.6
  */
 class DigestUtilsTest {
+
+    @Test
+    void keyedMacMatchesRfc4231TestCaseOneAcrossUpdates() {
+        byte[] key = new byte[20];
+        java.util.Arrays.fill(key, (byte) 0x0b);
+        var mac = DigestUtils.hmacSha256(key);
+        mac.update("Hi ".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        byte[] signature = mac.doFinal("There".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        assertThat(java.util.HexFormat.of().formatHex(signature))
+                .isEqualTo("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+    }
+
+    @Test
+    void matchesSha256ChecksKnownEmptyAndUtf8Digests() {
+        assertThat(DigestUtils.matchesSha256(new byte[0],
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")).isTrue();
+        assertThat(DigestUtils.matchesSha256("hello".getBytes(StandardCharsets.UTF_8),
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")).isTrue();
+    }
+
+    @Test
+    void matchesSha256RejectsFirstLastAndPayloadDifferences() {
+        byte[] data = {0, 1, -1, -128, 127};
+        String expected = DigestUtils.sha256Hex(data);
+        assertThat(DigestUtils.matchesSha256(data, expected)).isTrue();
+        char differentFirst = expected.charAt(0) == '0' ? '1' : '0';
+        char differentLast = expected.charAt(63) == '0' ? '1' : '0';
+        assertThat(DigestUtils.matchesSha256(data, differentFirst + expected.substring(1))).isFalse();
+        assertThat(DigestUtils.matchesSha256(data, expected.substring(0, 63) + differentLast)).isFalse();
+        data[2] ^= 1;
+        assertThat(DigestUtils.matchesSha256(data, expected)).isFalse();
+    }
+
+    @Test
+    void requireSha256AcceptsEitherCaseAndRejectsMalformedValues() {
+        DigestUtils.requireSha256("abcdef0123456789".repeat(4), "checksum");
+        DigestUtils.requireSha256("ABCDEF0123456789".repeat(4), "checksum");
+        for (String invalid : new String[]{null, "", "a".repeat(63), "a".repeat(65),
+                "a".repeat(63) + "g", "a".repeat(63) + "Ａ", "a".repeat(64) + "\n"}) {
+            assertThatThrownBy(() -> DigestUtils.requireSha256(invalid, "checksum"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("checksum must be a SHA-256 hex digest");
+        }
+    }
+
+    @Test
+    void matchesSha256RequiresExactlyLowercaseAsciiHexWithoutNormalization() {
+        byte[] data = "hello".getBytes(StandardCharsets.UTF_8);
+        String expected = DigestUtils.sha256Hex(data);
+        assertThat(DigestUtils.matchesSha256(data, null)).isFalse();
+        for (String malformed : new String[]{"", expected.substring(1), expected + "0",
+                expected.toUpperCase(java.util.Locale.ROOT), " " + expected, expected + "\n",
+                "g" + expected.substring(1), "\uff12" + expected.substring(1)}) {
+            assertThat(DigestUtils.matchesSha256(data, malformed)).as("expected digest %s", malformed).isFalse();
+        }
+    }
+
+    @Test
+    void matchesSha256AlwaysRejectsNullDataWithNullPointerException() {
+        for (String expected : new String[]{null, "invalid", DigestUtils.sha256Hex(new byte[0])}) {
+            assertThatThrownBy(() -> DigestUtils.matchesSha256(null, expected))
+                    .isInstanceOf(NullPointerException.class).hasMessageContaining("data");
+        }
+    }
 
     // ── Known SHA-256 hash verification (Requirements 5.2, 5.6) ──
 
@@ -36,7 +101,7 @@ class DigestUtilsTest {
     void sha256Hex_stringAndBytes_produceSameResult() {
         String input = "pangrova-common-digest-test";
         String fromString = DigestUtils.sha256Hex(input);
-        String fromBytes = DigestUtils.sha256Hex(input.getBytes(StandardCharsets.UTF_8));
+        String fromBytes = DigestUtils.sha256Hex(input);
         assertThat(fromString).isEqualTo(fromBytes);
     }
 

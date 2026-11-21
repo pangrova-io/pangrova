@@ -1,5 +1,7 @@
 package org.pangrova.config;
 
+import org.pangrova.config.exception.ConfigValidationException;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

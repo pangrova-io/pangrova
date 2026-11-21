@@ -1,9 +1,10 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.planner.stats.CardinalityFeedbackStore;
-import org.pangrova.planner.stats.ColumnStatistics;
-import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.planner.stats.PlannerTableStatistics;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.planner.statistics.CardinalityFeedbackStore;
+import org.pangrova.planner.api.statistics.ColumnStatistics;
+import org.pangrova.planner.statistics.StatisticsCollector;
+import org.pangrova.planner.statistics.PlannerTableStatistics;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,7 +77,7 @@ public class StatisticsBasedCostEstimator {
      * Checks index-derived statistics first (higher confidence from actual data),
      * then falls back to connector statistics. Ignores statistics with confidence
      * below threshold to avoid CBO decisions based on unreliable placeholder data. */
-    public double estimateRowCount(String tableName) {
+    public double estimateRowCount(QualifiedTableName tableName) {
         Optional<Double> indexRowCount = indexDerivedRowCount(tableName);
         if (indexRowCount.isPresent()) {
             LOG.debug("event=index_stats_used table={} rowCount={}", tableName, indexRowCount.get());
@@ -86,18 +87,18 @@ public class StatisticsBasedCostEstimator {
         return applyCorrectionFactor(tableName, raw);
     }
 
-    private double applyCorrectionFactor(String tableName, double rawEstimate) {
+    private double applyCorrectionFactor(QualifiedTableName tableName, double rawEstimate) {
         if (feedbackStore == null) {
             return rawEstimate;
         }
-        return feedbackStore.correctedEstimate(tableName, rawEstimate);
+        return feedbackStore.correctedEstimate(tableName.canonicalKey(), rawEstimate);
     }
 
     /**
      * Estimate selectivity for a predicate on a column.
      * Prefers index-derived NDV when available, falls back to connector statistics.
      */
-    public double estimateSelectivity(String tableName, String column) {
+    public double estimateSelectivity(QualifiedTableName tableName, String column) {
         Optional<ColumnStatistics> indexCol = indexColumnStats(tableName, column);
         if (indexCol.isPresent()) {
             ColumnStatistics cs = indexCol.get();
@@ -119,17 +120,17 @@ public class StatisticsBasedCostEstimator {
      * Finds the bucket containing the value and returns bucket.rowCount / totalRows.
      * Falls back to 1/NDV when no histogram is available.
      */
-    public double histogramEqualitySelectivity(String tableName, String column, Comparable<?> value) {
-        Optional<org.pangrova.planner.stats.Histogram> hist = getHistogram(tableName, column);
+    public double histogramEqualitySelectivity(QualifiedTableName tableName, String column, Comparable<?> value) {
+        Optional<org.pangrova.planner.api.statistics.Histogram> hist = getHistogram(tableName, column);
         if (hist.isEmpty() || value == null) {
             return estimateSelectivity(tableName, column);
         }
-        org.pangrova.planner.stats.Histogram histogram = hist.get();
+        org.pangrova.planner.api.statistics.Histogram histogram = hist.get();
         long totalRows = histogram.totalRows();
         if (totalRows <= 0) {
             return estimateSelectivity(tableName, column);
         }
-        for (org.pangrova.planner.stats.HistogramBucket bucket : histogram.buckets()) {
+        for (org.pangrova.planner.api.statistics.HistogramBucket bucket : histogram.buckets()) {
             if (valueInBucket(value, bucket)) {
                 return bucket.distinctCount() > 0
                         ? (double) bucket.rowCount() / totalRows / bucket.distinctCount()
@@ -144,19 +145,19 @@ public class StatisticsBasedCostEstimator {
      * Sums matching buckets with linear interpolation at boundaries.
      * Falls back to default selectivity when no histogram is available.
      */
-    public double histogramRangeSelectivity(String tableName, String column,
+    public double histogramRangeSelectivity(QualifiedTableName tableName, String column,
                                             Comparable<?> lower, Comparable<?> upper) {
-        Optional<org.pangrova.planner.stats.Histogram> hist = getHistogram(tableName, column);
+        Optional<org.pangrova.planner.api.statistics.Histogram> hist = getHistogram(tableName, column);
         if (hist.isEmpty()) {
             return DEFAULT_SELECTIVITY;
         }
-        org.pangrova.planner.stats.Histogram histogram = hist.get();
+        org.pangrova.planner.api.statistics.Histogram histogram = hist.get();
         long totalRows = histogram.totalRows();
         if (totalRows <= 0) {
             return DEFAULT_SELECTIVITY;
         }
         long matchingRows = 0;
-        for (org.pangrova.planner.stats.HistogramBucket bucket : histogram.buckets()) {
+        for (org.pangrova.planner.api.statistics.HistogramBucket bucket : histogram.buckets()) {
             double overlap = bucketRangeOverlap(bucket, lower, upper);
             matchingRows += (long) (bucket.rowCount() * overlap);
         }
@@ -167,7 +168,7 @@ public class StatisticsBasedCostEstimator {
      * Histogram-based IN list selectivity: sum of per-value equality selectivities.
      * Capped at 1.0.
      */
-    public double histogramInListSelectivity(String tableName, String column,
+    public double histogramInListSelectivity(QualifiedTableName tableName, String column,
                                              java.util.List<Comparable<?>> values) {
         if (values == null || values.isEmpty()) {
             return DEFAULT_SELECTIVITY;
@@ -179,7 +180,8 @@ public class StatisticsBasedCostEstimator {
         return Math.min(1.0, total);
     }
 
-    private Optional<org.pangrova.planner.stats.Histogram> getHistogram(String tableName, String column) {
+    private Optional<org.pangrova.planner.api.statistics.Histogram> getHistogram(QualifiedTableName tableName,
+            String column) {
         return columnStats(tableName, column)
                 .filter(cs -> cs.confidenceScore() >= MIN_CONFIDENCE_THRESHOLD)
                 .flatMap(ColumnStatistics::histogram);
@@ -187,7 +189,7 @@ public class StatisticsBasedCostEstimator {
 
     @SuppressWarnings("unchecked")
     private static boolean valueInBucket(Comparable<?> value,
-                                         org.pangrova.planner.stats.HistogramBucket bucket) {
+                                         org.pangrova.planner.api.statistics.HistogramBucket bucket) {
         if (value instanceof Number numVal) {
             // Fast path for numeric types
             try {
@@ -213,7 +215,7 @@ public class StatisticsBasedCostEstimator {
     }
 
     @SuppressWarnings("unchecked")
-    private static double bucketRangeOverlap(org.pangrova.planner.stats.HistogramBucket bucket,
+    private static double bucketRangeOverlap(org.pangrova.planner.api.statistics.HistogramBucket bucket,
                                               Comparable<?> lower, Comparable<?> upper) {
         try {
             double bLo = ((Number) bucket.lowerBound()).doubleValue();
@@ -253,7 +255,7 @@ public class StatisticsBasedCostEstimator {
      * Confidence-weighted cardinality: rowCount × confidenceScore.
      * Falls back to default row count with minimum confidence when no stats.
      */
-    public double confidenceWeightedCardinality(String tableName) {
+    public double confidenceWeightedCardinality(QualifiedTableName tableName) {
         return collector.getStatistics(tableName)
                 .flatMap(this::weightedCardinality)
                 .orElse(DEFAULT_ROW_COUNT * 0.1);
@@ -268,7 +270,7 @@ public class StatisticsBasedCostEstimator {
      * @param filterColumns columns used in WHERE predicates
      * @return estimated scan cost (row count × index cost multiplier)
      */
-    public double estimateScanCost(String tableName, java.util.Set<String> filterColumns) {
+    public double estimateScanCost(QualifiedTableName tableName, java.util.Set<String> filterColumns) {
         double rowCount = estimateRowCount(tableName);
         if (indexCostFactor == null) {
             return rowCount;
@@ -288,7 +290,7 @@ public class StatisticsBasedCostEstimator {
                 .max(Double::compareTo);
     }
 
-    private Optional<Double> firstConfidentColumnRowCount(String tableName) {
+    private Optional<Double> firstConfidentColumnRowCount(QualifiedTableName tableName) {
         return collector.getStatistics(tableName)
                 .flatMap(ts -> ts.columns().values().stream()
                         .filter(cs -> cs.confidenceScore() >= MIN_CONFIDENCE_THRESHOLD)
@@ -297,12 +299,12 @@ public class StatisticsBasedCostEstimator {
                         .stream().boxed().findFirst());
     }
 
-    private Optional<ColumnStatistics> columnStats(String tableName, String column) {
+    private Optional<ColumnStatistics> columnStats(QualifiedTableName tableName, String column) {
         return collector.getStatistics(tableName)
                 .map(ts -> ts.columns().get(column));
     }
 
-    private Optional<Double> indexDerivedRowCount(String tableName) {
+    private Optional<Double> indexDerivedRowCount(QualifiedTableName tableName) {
         if (indexStatisticsProvider == null) {
             return Optional.empty();
         }
@@ -320,7 +322,7 @@ public class StatisticsBasedCostEstimator {
         }
     }
 
-    private Optional<ColumnStatistics> indexColumnStats(String tableName, String column) {
+    private Optional<ColumnStatistics> indexColumnStats(QualifiedTableName tableName, String column) {
         if (indexStatisticsProvider == null) {
             return Optional.empty();
         }

@@ -136,6 +136,26 @@ class IcebergCompactionExecutorTest {
     }
 
     @Test
+    void compact_manySmallFilesWithoutDeletes_mergesIntoOneTargetSizedFile() {
+        Table table = createV3Table("small_files_merge_test");
+        for (int file = 0; file < 6; file++) {
+            writeDataFile(table, 5);
+        }
+        table.refresh();
+        assertThat(findAllDataFilePaths(table)).hasSize(6);
+
+        var summary = IcebergCompactionExecutor.compact(table);
+
+        assertThat(summary.filesCompacted()).isEqualTo(6);
+        assertThat(summary.filesProduced()).isEqualTo(1);
+        assertThat(summary.deleteFilesRemoved()).isZero();
+
+        table.refresh();
+        assertThat(findAllDataFilePaths(table)).hasSize(1);
+        assertThat(readAllRows(table)).hasSize(30);
+    }
+
+    @Test
     void compact_tableWithNoDeletes_skipsCompaction() {
         Table table = createV3Table("no_deletes_test");
         writeDataFile(table, 5);
@@ -248,9 +268,10 @@ class IcebergCompactionExecutorTest {
         // Run compaction
         var summary = IcebergCompactionExecutor.compact(table);
 
-        // Verify metrics
+        // Verify metrics: bin-pack merges both tiny files into one target-sized
+        // output, so two inputs still produce a single file.
         assertThat(summary.filesCompacted()).isEqualTo(2);
-        assertThat(summary.filesProduced()).isEqualTo(2);
+        assertThat(summary.filesProduced()).isEqualTo(1);
         assertThat(summary.bytesRewritten()).isGreaterThan(0L);
         assertThat(summary.bytesSaved()).isGreaterThan(0L);
         assertThat(summary.deleteFilesRemoved()).isEqualTo(2);

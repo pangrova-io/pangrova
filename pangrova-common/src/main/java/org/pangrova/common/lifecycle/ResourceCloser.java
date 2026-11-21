@@ -3,18 +3,15 @@ package org.pangrova.common.lifecycle;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Static utility methods for safely closing resources and shutting down executors.
  *
- * <p>All methods are null-safe: passing {@code null} is a no-op.
- * This class eliminates the duplicated {@code closeQuietly} and executor shutdown
- * boilerplate found across 8+ modules (15+ implementations).
- *
- * <p>Uses {@link java.util.logging.Logger} (JDK standard) because {@code pangrova-common}
- * is a leaf module with zero external dependencies.
+ * <p>Use {@link #closeAll(Throwable, Runnable...)} when callers must observe failures.
+ * Use {@link #present(Object, Consumer)} for partially initialized resources.
  *
  * @see java.lang.AutoCloseable
  * @see java.util.concurrent.ExecutorService
@@ -22,6 +19,41 @@ import java.util.logging.Logger;
 public final class ResourceCloser {
 
     private ResourceCloser() {}
+
+    /** Skips resources whose acquisition did not complete. */
+    public static <T> Runnable present(T resource, Consumer<? super T> release) {
+        return () -> {
+            if (resource != null) release.accept(resource);
+        };
+    }
+
+    /** Releases in caller-specified order and suppresses secondary failures onto the primary. */
+    public static void closeAll(Throwable primary, Runnable... releases) {
+        Throwable failure = primary;
+        for (Runnable release : releases) {
+            try {
+                release.run();
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (failure == null) {
+                    failure = cleanupFailure;
+                } else if (failure != cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+        }
+        if (primary != null) return;
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+    }
+
+    /** Releases an acquired resource when initialization fails, retaining both failures. */
+    public static void closeOnFailure(Throwable failure, AutoCloseable resource) {
+        try {
+            resource.close();
+        } catch (Exception | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+        }
+    }
 
     /**
      * Closes the given resource, silently swallowing any exception.

@@ -1,7 +1,8 @@
 package org.pangrova.worker.property.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
 import org.pangrova.worker.transport.TransportClient;
-import org.pangrova.worker.transport.TransportServer;
+import org.pangrova.transport.flight.TransportServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,9 +14,9 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import org.pangrova.spi.transport.DataProducer;
-import org.pangrova.spi.transport.TransportServerConfig;
-import org.pangrova.spi.transport.DataTicket;
+import org.pangrova.protocol.transport.DataProducer;
+import org.pangrova.protocol.transport.TransportServerConfig;
+import org.pangrova.protocol.transport.DataTicket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -61,7 +62,7 @@ class TransportPropertyTest {
         ticketCounter.set(0);
         // remove() ensures first call returns data, subsequent calls return EOF (empty byte[]).
         // This matches the DataProducer SPI contract: non-empty = data, empty = stream ended.
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             byte[] data = dataRegistry.remove(ticket.queryId());
             return data != null ? data : new byte[0];
         };
@@ -96,7 +97,7 @@ class TransportPropertyTest {
         String ticketId = "rt-" + ticketCounter.incrementAndGet();
         dataRegistry.put(ticketId, originalBatchData);
 
-        DataTicket ticket = new DataTicket(ticketId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(ticketId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
         assertRoundTripEquivalence(received, rowCount);
     }
@@ -113,7 +114,7 @@ class TransportPropertyTest {
         assertThat(server.isRunning()).isTrue();
 
         String probeId = "probe-" + ticketCounter.incrementAndGet();
-        DataTicket ticket = new DataTicket(probeId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(probeId, "t1", 0, DataTicketType.RESULT);
         byte[] response = client.doGet(ticket);
         assertThat(response).isNotNull();
     }

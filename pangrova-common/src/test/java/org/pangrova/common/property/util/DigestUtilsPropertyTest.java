@@ -20,6 +20,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DigestUtilsPropertyTest {
 
+    @Property(tries = 100)
+    void binaryDigestMatchesItsActualInput(@ForAll byte[] input) {
+        assertThat(DigestUtils.matchesSha256(input, DigestUtils.sha256Hex(input))).isTrue();
+    }
+
+    @Property(tries = 100)
+    void differentExpectedDigestIsRejectedAtEveryByte(@ForAll byte[] input) {
+        String expected = DigestUtils.sha256Hex(input);
+        for (int index = 0; index < expected.length(); index += 2) {
+            char different = expected.charAt(index) == '0' ? '1' : '0';
+            String changed = expected.substring(0, index) + different + expected.substring(index + 1);
+            assertThat(DigestUtils.matchesSha256(input, changed)).as("digest byte %s", index / 2).isFalse();
+        }
+    }
+
     /**
      * Property 1: sha256Hex output length is always 64 characters for any string input.
      *

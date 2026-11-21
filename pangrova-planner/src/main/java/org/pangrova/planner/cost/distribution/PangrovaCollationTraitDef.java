@@ -1,12 +1,11 @@
 package org.pangrova.planner.cost.distribution;
 
-import org.pangrova.planner.cost.sort.PangrovaSort;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.rel.RelCollationTraitDef;
 
 /**
  * Registers Calcite's {@link RelCollationTraitDef} in the Pangrova CBO pipeline
- * and automatically inserts {@link PangrovaSort} enforcers when a parent operator
+ * and automatically inserts {@code PangrovaSort} enforcers when a parent operator
  * requires a collation that the child does not provide.
  *
  * <p>This enables the Volcano planner to:

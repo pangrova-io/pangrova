@@ -1,6 +1,7 @@
 package org.pangrova.client.jdbc;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Time;
@@ -65,7 +66,7 @@ final class SqlParameterSubstitutor {
         return count;
     }
 
-    private static String toLiteral(Object value) {
+    private static String toLiteral(Object value) throws SQLException {
         if (value == null) {
             return "NULL";
         }
@@ -76,15 +77,12 @@ final class SqlParameterSubstitutor {
         return "'" + value.toString().replace("'", "''") + "'";
     }
 
-    private static String toTypedLiteral(Object value) {
+    private static String toTypedLiteral(Object value) throws SQLException {
         if (value instanceof Boolean b) {
             return b ? "TRUE" : "FALSE";
         }
-        if (value instanceof BigDecimal bd) {
-            return bd.toPlainString();
-        }
-        if (value instanceof Number) {
-            return value.toString();
+        if (value instanceof Number number) {
+            return toNumericLiteral(number);
         }
         if (value instanceof String s) {
             return "'" + s.replace("'", "''") + "'";
@@ -92,15 +90,39 @@ final class SqlParameterSubstitutor {
         return toTemporalLiteral(value);
     }
 
-    private static String toTemporalLiteral(Object value) {
-        if (value instanceof Date d) {
-            return "DATE '" + d + "'";
+    private static String toNumericLiteral(Number value) throws SQLException {
+        Class<?> type = value.getClass();
+        if (type == BigDecimal.class) {
+            return ((BigDecimal) value).toPlainString();
         }
-        if (value instanceof Timestamp ts) {
-            return "TIMESTAMP '" + ts + "'";
+        if (type == Byte.class || type == Short.class || type == Integer.class
+                || type == Long.class || type == BigInteger.class) {
+            return value.toString();
         }
-        if (value instanceof Time t) {
-            return "TIME '" + t + "'";
+        if (type == Float.class || type == Double.class) {
+            if (!Double.isFinite(value.doubleValue())) {
+                throw new SQLException("Non-finite numeric parameters have no SQL numeric literal", "22003");
+            }
+            return value.toString();
+        }
+        // Number (including BigDecimal/BigInteger) can be subclassed. Its virtual
+        // rendering methods must never be allowed to produce executable SQL.
+        throw new SQLException("Unsupported numeric parameter type: " + type.getName(), "07006");
+    }
+
+    private static String toTemporalLiteral(Object value) throws SQLException {
+        try {
+            if (value instanceof Date d) {
+                return "DATE '" + Date.valueOf(d.toLocalDate()) + "'";
+            }
+            if (value instanceof Timestamp ts) {
+                return "TIMESTAMP '" + Timestamp.valueOf(ts.toLocalDateTime()) + "'";
+            }
+            if (value instanceof Time t) {
+                return "TIME '" + Time.valueOf(t.toLocalTime()) + "'";
+            }
+        } catch (RuntimeException failure) {
+            throw new SQLException("Invalid temporal parameter", "07006", failure);
         }
         return null;
     }

@@ -1,32 +1,36 @@
 package org.pangrova.planner.parse;
 
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.WindowSpec;
-import org.pangrova.parser.ast.expression.ArrayConstructor;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.expression.CaseExpression;
-import org.pangrova.parser.ast.expression.CastExpression;
-import org.pangrova.parser.ast.expression.ExistsExpression;
-import org.pangrova.parser.ast.expression.ExtractExpression;
-import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.parser.ast.expression.InExpression;
-import org.pangrova.parser.ast.expression.IsNullExpression;
-import org.pangrova.parser.ast.expression.LikeExpression;
-import org.pangrova.parser.ast.expression.NotExpression;
-import org.pangrova.parser.ast.expression.NotInExpression;
-import org.pangrova.parser.ast.expression.NotInSubqueryExpression;
-import org.pangrova.parser.ast.expression.StructConstructor;
-import org.pangrova.parser.ast.expression.SubstringExpression;
-import org.pangrova.parser.ast.expression.SubscriptExpression;
-import org.pangrova.parser.ast.expression.UnaryMinusExpression;
-import org.pangrova.parser.ast.expression.WindowedFunctionCall;
-import org.pangrova.parser.ast.expression.StarFunctionCall;
-import org.pangrova.parser.ast.expression.BetweenExpression;
-import org.pangrova.parser.ast.expression.InSubqueryExpression;
-import org.pangrova.parser.ast.expression.SubqueryExpression;
+import org.pangrova.parser.api.enums.BinaryExpressionOperator;
+import org.pangrova.parser.api.enums.WindowFrameType;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.WindowSpec;
+import org.pangrova.parser.api.ast.expression.ArrayConstructor;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.expression.CaseExpression;
+import org.pangrova.parser.api.ast.expression.CastExpression;
+import org.pangrova.parser.api.ast.expression.ExistsExpression;
+import org.pangrova.parser.api.ast.expression.ExtractExpression;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
+import org.pangrova.parser.api.ast.expression.InExpression;
+import org.pangrova.parser.api.ast.expression.IsNullExpression;
+import org.pangrova.parser.api.ast.expression.TruthTestExpression;
+import org.pangrova.parser.api.ast.expression.LikeExpression;
+import org.pangrova.parser.api.ast.expression.MapConstructor;
+import org.pangrova.parser.api.ast.expression.NotExpression;
+import org.pangrova.parser.api.ast.expression.NotInExpression;
+import org.pangrova.parser.api.ast.expression.NotInSubqueryExpression;
+import org.pangrova.parser.api.ast.expression.StructConstructor;
+import org.pangrova.parser.api.ast.expression.SubstringExpression;
+import org.pangrova.parser.api.ast.expression.SubscriptExpression;
+import org.pangrova.parser.api.ast.expression.UnaryMinusExpression;
+import org.pangrova.parser.api.ast.expression.WindowedFunctionCall;
+import org.pangrova.parser.api.ast.expression.StarFunctionCall;
+import org.pangrova.parser.api.ast.expression.BetweenExpression;
+import org.pangrova.parser.api.ast.expression.InSubqueryExpression;
+import org.pangrova.parser.api.ast.expression.SubqueryExpression;
 import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlBasicTypeNameSpec;
 import org.apache.calcite.sql.SqlDataTypeSpec;
@@ -45,11 +49,11 @@ import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import org.apache.calcite.util.TimestampString;
 
 /**
  * Converts Pangrova AST expression nodes to Calcite SqlNode.
@@ -88,6 +92,7 @@ final class ExpressionToSqlNodeConverter {
                 entry(CastExpression.class, e -> convertCast((CastExpression) e)),
                 entry(UnaryMinusExpression.class, e -> convertUnaryMinus((UnaryMinusExpression) e)),
                 entry(IsNullExpression.class, e -> convertIsNull((IsNullExpression) e)),
+                entry(TruthTestExpression.class, e -> convertTruthTest((TruthTestExpression) e)),
                 entry(BetweenExpression.class, e -> convertBetween((BetweenExpression) e)),
                 entry(LikeExpression.class, e -> convertLike((LikeExpression) e)),
                 entry(ExistsExpression.class, e -> convertExists((ExistsExpression) e)),
@@ -95,6 +100,7 @@ final class ExpressionToSqlNodeConverter {
                 entry(ExtractExpression.class, e -> convertExtract((ExtractExpression) e)),
                 entry(SubstringExpression.class, e -> convertSubstring((SubstringExpression) e)),
                 entry(ArrayConstructor.class, e -> convertArrayConstructor((ArrayConstructor) e)),
+                entry(MapConstructor.class, e -> convertMapConstructor((MapConstructor) e)),
                 entry(StructConstructor.class, e -> convertStructConstructor((StructConstructor) e)),
                 entry(SubscriptExpression.class, e -> convertSubscript((SubscriptExpression) e))
         );
@@ -120,10 +126,10 @@ final class ExpressionToSqlNodeConverter {
                     SqlLiteral.createExactNumeric(((LiteralValue.DecimalValue) v).value().toPlainString(), POS),
             LiteralValue.StringValue.class,
                     v -> SqlLiteral.createCharString(((LiteralValue.StringValue) v).value(), POS),
-            LiteralValue.DateValue.class, v -> convertDateLiteral((LiteralValue.DateValue) v),
+            LiteralValue.DateValue.class, v -> TemporalLiteralSqlNodes.date((LiteralValue.DateValue) v),
+            LiteralValue.UuidValue.class, v -> SqlLiteral.createUuid(((LiteralValue.UuidValue) v).value(), POS),
             LiteralValue.TimestampValue.class, v ->
-                    SqlLiteral.createTimestamp(
-                            new TimestampString(((LiteralValue.TimestampValue) v).value()), 3, POS),
+                    TemporalLiteralSqlNodes.timestamp((LiteralValue.TimestampValue) v),
             LiteralValue.BooleanValue.class,
                     v -> SqlLiteral.createBoolean(((LiteralValue.BooleanValue) v).value(), POS),
             LiteralValue.IntervalValue.class, v -> convertIntervalLiteral((LiteralValue.IntervalValue) v),
@@ -135,15 +141,6 @@ final class ExpressionToSqlNodeConverter {
         var handler = literalDispatch.get(lit.value().getClass());
         if (handler != null) return handler.apply(lit.value());
         throw new IllegalArgumentException("Unknown literal type: " + lit.value().getClass());
-    }
-
-    private SqlNode convertDateLiteral(LiteralValue.DateValue v) {
-        String[] parts = v.value().split("-");
-        int year = Integer.parseInt(parts[0]);
-        int month = Integer.parseInt(parts[1]);
-        int day = Integer.parseInt(parts[2]);
-        return SqlLiteral.createDate(
-                new org.apache.calcite.util.DateString(year, month, day), POS);
     }
 
     // ── Binary / Unary ──
@@ -168,7 +165,7 @@ final class ExpressionToSqlNodeConverter {
     SqlNode convertFunctionCall(FunctionCall fn) {
         SqlIdentifier name = new SqlIdentifier(fn.name().parts(), POS);
         SqlNode[] operands = fn.arguments().stream().map(this::convert).toArray(SqlNode[]::new);
-        String fnName = String.join(".", fn.name().parts()).toUpperCase();
+        String fnName = String.join(".", fn.name().parts()).toUpperCase(Locale.ROOT);
         SqlOperator op = resolveAggOperator(fnName);
         if (op instanceof SqlUnresolvedFunction) {
             op = new SqlUnresolvedFunction(
@@ -204,7 +201,7 @@ final class ExpressionToSqlNodeConverter {
     }
 
     private SqlNode buildStarAggCall(Identifier name) {
-        String fnName = String.join(".", name.parts()).toUpperCase();
+        String fnName = String.join(".", name.parts()).toUpperCase(Locale.ROOT);
         return new SqlBasicCall(resolveAggOperator(fnName), new SqlNode[]{SqlIdentifier.star(POS)}, POS);
     }
 
@@ -272,7 +269,9 @@ final class ExpressionToSqlNodeConverter {
             upperBound = convertFrameBound(frame.upperBound());
         }
         SqlWindow sqlWindow = SqlWindow.create(
-                null, null, partitionList, orderList, SqlLiteral.createBoolean(false, POS),
+                null, null, partitionList, orderList, SqlLiteral.createBoolean(
+                        window.frame().map(frame -> frame.frameType() == WindowFrameType.ROWS)
+                                .orElse(false), POS),
                 lowerBound, upperBound, null, POS);
         return SqlStdOperatorTable.OVER.createCall(POS, agg, sqlWindow);
     }
@@ -332,6 +331,15 @@ final class ExpressionToSqlNodeConverter {
         return op.createCall(POS, convert(isn.operand()));
     }
 
+    private SqlNode convertTruthTest(TruthTestExpression truth) {
+        SqlOperator operator = switch (truth.value()) {
+            case TRUE -> truth.negated() ? SqlStdOperatorTable.IS_NOT_TRUE : SqlStdOperatorTable.IS_TRUE;
+            case FALSE -> truth.negated() ? SqlStdOperatorTable.IS_NOT_FALSE : SqlStdOperatorTable.IS_FALSE;
+            case UNKNOWN -> truth.negated() ? SqlStdOperatorTable.IS_NOT_UNKNOWN : SqlStdOperatorTable.IS_UNKNOWN;
+        };
+        return operator.createCall(POS, convert(truth.operand()));
+    }
+
     private SqlNode convertBetween(BetweenExpression bet) {
         return SqlStdOperatorTable.BETWEEN.createCall(POS,
                 convert(bet.value()), convert(bet.low()), convert(bet.high()));
@@ -356,7 +364,7 @@ final class ExpressionToSqlNodeConverter {
             thenNodes.add(convert(wc.result()));
         }
         SqlNode elseNode = ce.elseResult().map(this::convert).orElse(SqlLiteral.createNull(POS));
-        return new SqlCase(POS, value,
+        return SqlCase.createSwitched(POS, value,
                 new SqlNodeList(whenNodes, POS), new SqlNodeList(thenNodes, POS), elseNode);
     }
 
@@ -403,14 +411,40 @@ final class ExpressionToSqlNodeConverter {
         SqlNode[] operands = arr.elements().stream()
                 .map(this::convert)
                 .toArray(SqlNode[]::new);
-        return SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR.createCall(POS, operands);
+        SqlOperator constructor = operands.length == 0
+                ? EmptyArraySqlOperator.INSTANCE
+                : SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR;
+        return constructor.createCall(POS, operands);
+    }
+
+    private SqlNode convertMapConstructor(MapConstructor map) {
+        SqlNode[] operands = map.entries().stream()
+                .map(this::convertMapOperand)
+                .toArray(SqlNode[]::new);
+        return SqlStdOperatorTable.MAP_VALUE_CONSTRUCTOR.createCall(POS, operands);
+    }
+
+    private SqlNode convertMapOperand(Expression expression) {
+        SqlNode node = convert(expression);
+        if (expression instanceof Literal literal
+                && literal.value() instanceof LiteralValue.StringValue) {
+            SqlDataTypeSpec varchar = new SqlDataTypeSpec(
+                    new SqlBasicTypeNameSpec(SqlTypeName.VARCHAR, POS), POS);
+            return SqlStdOperatorTable.CAST.createCall(POS, node, varchar);
+        }
+        return node;
     }
 
     private SqlNode convertStructConstructor(StructConstructor struct) {
         SqlNode[] operands = struct.fields().stream()
                 .map(f -> convert(f.value()))
                 .toArray(SqlNode[]::new);
-        return SqlStdOperatorTable.ROW.createCall(POS, operands);
+        if (struct.fields().stream().noneMatch(field -> field.name().isPresent())) {
+            return SqlStdOperatorTable.ROW.createCall(POS, operands);
+        }
+        var names = java.util.stream.IntStream.range(0, struct.fields().size())
+                .mapToObj(i -> struct.fields().get(i).name().orElse("EXPR$" + i)).toList();
+        return new NamedStructSqlOperator(names).createCall(POS, operands);
     }
 
     private SqlNode convertSubscript(SubscriptExpression sub) {
@@ -422,18 +456,28 @@ final class ExpressionToSqlNodeConverter {
     // ── Type mapping ──
 
     private static SqlDataTypeSpec mapCastType(String typeName) {
+        if (typeName.startsWith("ARRAY(") && typeName.endsWith(")")) {
+            SqlDataTypeSpec element = mapCastType(typeName.substring(6, typeName.length() - 1));
+            return new SqlDataTypeSpec(new org.apache.calcite.sql.SqlCollectionTypeNameSpec(
+                    element.getTypeNameSpec(), SqlTypeName.ARRAY, POS), POS);
+        }
         // Parameterized types: DECIMAL(p,s), NUMERIC(p,s), VARCHAR(n)
         int parenIdx = typeName.indexOf('(');
         String baseName = parenIdx >= 0 ? typeName.substring(0, parenIdx) : typeName;
         int precision = -1;
         int scale = -1;
+        boolean scaleSpecified = false;
         if (parenIdx >= 0) {
             String params = typeName.substring(parenIdx + 1, typeName.length() - 1);
             String[] parts = params.split(",");
             precision = Integer.parseInt(parts[0].trim());
             if (parts.length > 1) {
                 scale = Integer.parseInt(parts[1].trim());
+                scaleSpecified = true;
             }
+        }
+        if (baseName.equals("TIMESTAMP_NS")) {
+            precision = 9;
         }
         SqlTypeName sqlType = switch (baseName) {
             case "BIGINT" -> SqlTypeName.BIGINT;
@@ -445,6 +489,7 @@ final class ExpressionToSqlNodeConverter {
             case "FLOAT" -> SqlTypeName.FLOAT;
             case "BOOLEAN" -> SqlTypeName.BOOLEAN;
             case "DATE" -> SqlTypeName.DATE;
+            case "UUID" -> SqlTypeName.UUID;
             case "TIMESTAMP" -> SqlTypeName.TIMESTAMP;
             case "DECIMAL", "NUMERIC" -> SqlTypeName.DECIMAL;
             case "BINARY", "VARBINARY", "VARIANT" -> SqlTypeName.VARBINARY;
@@ -453,15 +498,20 @@ final class ExpressionToSqlNodeConverter {
             case "TIME" -> SqlTypeName.TIME;
             default -> throw new IllegalArgumentException("Unsupported CAST type: " + typeName);
         };
-        SqlBasicTypeNameSpec spec = (precision >= 0)
-                ? new SqlBasicTypeNameSpec(sqlType, precision, scale, POS)
-                : new SqlBasicTypeNameSpec(sqlType, POS);
+        SqlBasicTypeNameSpec spec;
+        if (precision < 0) {
+            spec = new SqlBasicTypeNameSpec(sqlType, POS);
+        } else if (scaleSpecified) {
+            spec = new SqlBasicTypeNameSpec(sqlType, precision, scale, POS);
+        } else {
+            spec = new SqlBasicTypeNameSpec(sqlType, precision, POS);
+        }
         return new SqlDataTypeSpec(spec, POS);
     }
 
     // ── Operator mapping ──
 
-    static SqlOperator mapBinaryOperator(BinaryExpression.Operator op) {
+    static SqlOperator mapBinaryOperator(BinaryExpressionOperator op) {
         return switch (op) {
             case ADD -> SqlStdOperatorTable.PLUS;
             case SUBTRACT -> SqlStdOperatorTable.MINUS;

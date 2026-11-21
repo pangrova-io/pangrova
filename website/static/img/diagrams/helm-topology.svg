@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="960" viewBox="0 0 1200 960" role="img" aria-labelledby="t d">
+<title id="t">Kubernetes deployment topology</title>
+<desc id="d">Ingress, Coordinator and Worker workloads, and external state.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="960" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Kubernetes deployment topology</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Namespaces, Services, and persistent dependencies are deployment-owned.</text>
+<rect x="380" y="140" width="440" height="76" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="380" y="140" width="5" height="76" rx="2.5" fill="#2563EB"/>
+<text x="400" y="168" font-size="16.5" font-weight="700" fill="#111827">Ingress / load balancer</text>
+<text x="400" y="192" font-size="13.5" fill="#64748B">HTTPS :8080</text>
+<line x1="600" y1="216" x2="600" y2="256" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="256" width="1080" height="250" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="288" font-size="19" font-weight="700" fill="#7C3AED">CONTROL-PLANE NAMESPACE</text>
+<rect x="190" y="310" width="380" height="150" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="190" y="310" width="5" height="150" rx="2.5" fill="#7C3AED"/>
+<text x="210" y="338" font-size="16.5" font-weight="700" fill="#111827">Coordinator StatefulSet</text>
+<text x="210" y="362" font-size="13.5" fill="#64748B">Leader and follower replicas</text>
+<text x="210" y="383" font-size="13.5" fill="#64748B">Lease and fencing</text>
+<text x="210" y="404" font-size="13.5" fill="#64748B">Final catalog commit</text>
+<rect x="630" y="310" width="380" height="150" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="630" y="310" width="5" height="150" rx="2.5" fill="#0D9488"/>
+<text x="650" y="338" font-size="16.5" font-weight="700" fill="#111827">Coordinator Service</text>
+<text x="650" y="362" font-size="13.5" fill="#64748B">Stable client endpoint</text>
+<text x="650" y="383" font-size="13.5" fill="#64748B">Readiness-gated routing</text>
+<line x1="600" y1="506" x2="600" y2="546" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="546" width="1080" height="210" rx="18" fill="#FFFCF5" stroke="#D97706" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="578" font-size="19" font-weight="700" fill="#D97706">WORKER NAMESPACE</text>
+<rect x="120" y="600" width="300" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="600" width="5" height="120" rx="2.5" fill="#D97706"/>
+<text x="140" y="628" font-size="16.5" font-weight="700" fill="#111827">Worker pool</text>
+<text x="140" y="652" font-size="13.5" fill="#64748B">Autoscaled JVM + Native pods</text>
+<text x="140" y="673" font-size="13.5" fill="#64748B">Advertised Flight endpoints</text>
+<rect x="450" y="600" width="300" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="450" y="600" width="5" height="120" rx="2.5" fill="#0D9488"/>
+<text x="470" y="628" font-size="16.5" font-weight="700" fill="#111827">Shuffle / TLS</text>
+<text x="470" y="652" font-size="13.5" fill="#64748B">Mutual TLS transport</text>
+<text x="470" y="673" font-size="13.5" fill="#64748B">Object storage credentials</text>
+<rect x="780" y="600" width="300" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="780" y="600" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="800" y="628" font-size="16.5" font-weight="700" fill="#111827">Secrets / KMS</text>
+<text x="800" y="652" font-size="13.5" fill="#64748B">Mounted files</text>
+<text x="800" y="673" font-size="13.5" fill="#64748B">No plaintext credentials</text>
+<line x1="600" y1="756" x2="600" y2="796" stroke="#0D9488" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="190" y="796" width="820" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="190" y="796" width="5" height="84" rx="2.5" fill="#0D9488"/>
+<text x="210" y="824" font-size="16.5" font-weight="700" fill="#111827">External state</text>
+<text x="210" y="848" font-size="13.5" fill="#64748B">PostgreSQL · object storage · optional ZooKeeper · OTel backend</text>
+<line x1="60" y1="930" x2="100" y2="930" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="935" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="930" x2="280" y2="930" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="935" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

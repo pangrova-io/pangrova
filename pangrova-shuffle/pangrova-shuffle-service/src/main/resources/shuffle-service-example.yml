@@ -1,0 +1,34 @@
+server:
+  port: 7443
+  advertised-host: shuffle.internal
+  tls-identity: shuffle.internal
+database:
+  # Must be the Coordinator execution-anchor database; Shuffle uses its own schema.
+  jdbc-url: jdbc:postgresql://postgres.internal:5432/pangrova_metadata
+  username: pangrova_shuffle
+  password-file: /run/secrets/postgres-password
+object-storage:
+  bucket: pangrova-shuffle
+  prefix: production/shuffle
+  region: us-east-1
+  replication-enabled: true
+  api-call-timeout-seconds: 120
+  api-call-attempt-timeout-seconds: 45
+  # Ambiguous PUTs become recoverable after api-call-timeout + 60s.
+  # Their shuffle prefixes retain durable tombstones and are repeatedly swept;
+  # monitor tombstone count and provision object-storage expiration for cost control.
+security:
+  certificate-chain-path: /run/secrets/tls.crt
+  private-key-path: /run/secrets/tls.key
+  root-ca-path: /run/secrets/client-ca.crt
+  capability-secret-path: /run/secrets/capability-hmac
+  coordinator-tls-identities:
+    - spiffe://pangrova.internal/coordinator
+  capability-ttl-seconds: 86400
+limits:
+  max-chunk-bytes: 1048576
+  max-batch-bytes: 268435456
+  max-inflight-bytes: 805306368
+  max-write-streams: 64
+  io-threads: 32
+  max-queued-operations: 1024

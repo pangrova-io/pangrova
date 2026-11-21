@@ -1,0 +1,127 @@
+--- a/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java
++++ b/parquet-hadoop/src/main/java/org/apache/parquet/hadoop/ParquetFileWriter.java
+@@ -175,6 +175,8 @@
+   private ParquetMetadata footer = null;
+   private boolean aborted;
+   private boolean closed;
++  private boolean outputClosed;
++  private boolean checksumAllocatorClosed;
+ 
+   private final CRC32 crc;
+   private final ReusingByteBufferAllocator crcAllocator;
+@@ -498,12 +500,6 @@
+       this.alignment = NoAlignment.get(rowGroupSize);
+     }
+ 
+-    if (mode == Mode.OVERWRITE) {
+-      this.out = file.createOrOverwrite(blockSize);
+-    } else {
+-      this.out = file.create(blockSize);
+-    }
+-
+     this.encodingStatsBuilder = new EncodingStats.Builder();
+     this.columnIndexTruncateLength = columnIndexTruncateLength;
+     this.pageWriteChecksumEnabled = pageWriteChecksumEnabled;
+@@ -516,9 +512,7 @@
+ 
+     if (null == encryptionProperties && null == encryptor) {
+       this.fileEncryptor = null;
+-      return;
+-    }
+-
++    } else {
+     if (null == encryptionProperties) {
+       encryptionProperties = encryptor.getEncryptionProperties();
+     }
+@@ -550,6 +544,13 @@
+     } else {
+       this.fileEncryptor = encryptor;
+     }
++    }
++    // Acquire the stream only after all schema/encryption initialization that may fail.
++    if (mode == Mode.OVERWRITE) {
++      this.out = file.createOrOverwrite(blockSize);
++    } else {
++      this.out = file.create(blockSize);
++    }
+   }
+ 
+   /**
+@@ -1873,6 +1874,7 @@
+    */
+   public void end(Map<String, String> extraMetaData) throws IOException {
+     withAbortOnFailure(() -> {
++      Throwable failure = null;
+       try {
+         state = state.end();
+         serializeColumnIndexes(columnIndexes, blocks, out, fileEncryptor);
+@@ -1882,9 +1884,18 @@
+         this.footer =
+             new ParquetMetadata(new FileMetaData(schema, extraMetaData, Version.FULL_VERSION), blocks);
+         serializeFooter(footer, out, fileEncryptor, metadataConverter);
+-      } finally {
++      } catch (IOException | RuntimeException | Error error) {
++        aborted = true;
++        failure = error;
++      }
++      try {
+         close();
++      } catch (IOException | RuntimeException | Error error) {
++        failure = mergeCloseFailure(failure, error);
+       }
++      if (failure instanceof IOException) throw (IOException) failure;
++      if (failure instanceof RuntimeException) throw (RuntimeException) failure;
++      if (failure instanceof Error) throw (Error) failure;
+     });
+   }
+ 
+@@ -1899,18 +1910,43 @@
+       return;
+     }
+ 
+-    try {
++    Throwable failure = null;
++    if (!outputClosed) {
+       if (!aborted) {
+-        try (PositionOutputStream temp = out) {
+-          temp.flush();
++        try {
++          out.flush();
++        } catch (IOException | RuntimeException | Error error) {
++          aborted = true;
++          failure = error;
+         }
+       }
+-      if (crcAllocator != null) {
++      try {
++        out.close();
++        outputClosed = true;
++      } catch (IOException | RuntimeException | Error error) {
++        failure = mergeCloseFailure(failure, error);
++      }
++    }
++    if (!checksumAllocatorClosed) {
++      try {
++        if (crcAllocator != null) {
+         crcAllocator.close();
++        }
++        checksumAllocatorClosed = true;
++      } catch (RuntimeException | Error error) {
++        failure = mergeCloseFailure(failure, error);
+       }
+-    } finally {
+-      closed = true;
+     }
++    closed = outputClosed && checksumAllocatorClosed;
++    if (failure instanceof IOException) throw (IOException) failure;
++    if (failure instanceof RuntimeException) throw (RuntimeException) failure;
++    if (failure instanceof Error) throw (Error) failure;
++  }
++
++  private static Throwable mergeCloseFailure(Throwable first, Throwable next) {
++    if (first == null) return next;
++    if (first != next) first.addSuppressed(next);
++    return first;
+   }
+ 
+   private static void serializeColumnIndexes(

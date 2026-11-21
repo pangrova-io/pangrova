@@ -36,6 +36,14 @@ class ResourceCloserTest {
     // ── closeQuietly(AutoCloseable) ──
 
     @Test
+    void initializationFailureRetainsCheckedCleanupFailure() {
+        var initialization = new IllegalStateException("initialize");
+        var cleanup = new java.io.IOException("close");
+        ResourceCloser.closeOnFailure(initialization, () -> { throw cleanup; });
+        assertThat(initialization.getSuppressed()).containsExactly(cleanup);
+    }
+
+    @Test
     void closeQuietly_callsCloseOnResource() {
         var closed = new AtomicBoolean(false);
         AutoCloseable resource = () -> closed.set(true);

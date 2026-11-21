@@ -1,258 +1,151 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.task.memory.MemoryRefs;
-
-import java.util.List;
-import java.util.Map;
-
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.memory.NodeMemoryPool;
-import org.pangrova.resource.memory.RootMemoryPool;
-import org.pangrova.resource.spill.SpillManager;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.spi.execution.TaskResourceLimit;
-import org.pangrova.worker.execution.SimulatedTaskExecutor;
+import org.pangrova.worker.enums.TaskState;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.worker.resource.ResourceManager;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.memory.RootMemoryPool;
+import org.pangrova.worker.resource.spill.SpillManager;
+import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.worker.http.endpoint.TaskResource;
+import org.pangrova.worker.task.memory.MemoryRefs;
 
-/**
- * Verifies TaskManager memory allocation validation (REQ-O1):
- * - Warning logged when allocated < requested
- * - Task rejected when allocation ratio falls below configurable threshold
- */
+/** Exact pre-registration budget admission and actual Native result-owner release. */
+@Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskManagerMemoryAllocationTest {
-
-    private static final String WORKER_ID = "test-worker-mem";
+    private static final long MB = 1024L * 1024;
 
     @Test
     void taskProceedsWhenAllocationSufficient() {
-        // 4GB budget, 0 reserved — plenty of room for 100MB request
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        TaskManager fullManager = buildTaskManager(executor, 0.5, 4L * 1024 * 1024 * 1024);
-
-        String taskId = fullManager.submitTask(
-                buildDescriptorWithMemory(100L * 1024 * 1024),
-                buildRequestWithMemory(100L * 1024 * 1024));
-
-        awaitTerminalState(fullManager, taskId);
-        assertThat(fullManager.getTaskState(taskId))
-                .isPresent()
-                .hasValueSatisfying(s -> assertThat(s).isIn(
-                        TaskManager.TaskState.FINISHED,
-                        TaskManager.TaskState.FAILED));
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = admission(runtime, 4 * 1024 * MB, 4 * 1024 * MB)) {
+            var info = tasks.submit(runtime.bindWorker(request(100 * MB, 0)));
+            tasks.awaitState(info, TaskState.FINISHED);
+            assertThat(info.executorHandle()).isZero();
+            assertThat(tasks.terminalReport(info).error()).isNull();
+        }
     }
 
     @Test
-    void taskRejectedWhenAllocationBelowThreshold() {
-        // 1MB budget, 0 reserved — requesting 10MB will get partial allocation
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManager(executor, reporter, 0.5, 1L * 1024 * 1024);
-
-        String taskId = manager.submitTask(
-                buildDescriptorWithMemory(10L * 1024 * 1024),
-                buildRequestWithMemory(10L * 1024 * 1024));
-
-        // Task should transition to FAILED because allocation ratio < 0.5
-        awaitTerminalState(manager, taskId);
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValue(TaskManager.TaskState.FAILED);
-
-        // Verify FAILED status was reported
-        assertThat(reporter.reports())
-                .anyMatch(r -> "FAILED".equals(r.state()));
+    void nativeCapLargerThanFreeMemoryIsAcceptedAtAdmission() {
+        // This small budget verifies control-plane admission only. Actual Native allocations
+        // use the fixture's real process coordinator, not this separate admission arbitrator.
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = admission(runtime, MB, MB)) {
+            var info = tasks.submit(runtime.bindWorker(request(10 * MB, 0)));
+            tasks.awaitState(info, TaskState.FINISHED);
+            assertThat(info.executorHandle()).isZero();
+        }
     }
 
     @Test
-    void taskAcceptsAnyAllocationWhenRatioIsZero() {
-        // Default ratio 0.0 — accept any allocation, even partial
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManager(executor, reporter, 0.0, 1L * 1024 * 1024);
+    void taskRejectedWhenBufferCannotBeReserved() {
+        verifyRejectedBeforeRegistration(MB, 4 * 1024 * MB, 10 * MB, 2 * MB);
+    }
 
-        String taskId = manager.submitTask(
-                buildDescriptorWithMemory(10L * 1024 * 1024),
-                buildRequestWithMemory(10L * 1024 * 1024));
-
-        awaitTerminalState(manager, taskId);
-        // Should not be rejected — ratio 0.0 means accept any
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValueSatisfying(s -> assertThat(s).isIn(
-                        TaskManager.TaskState.FINISHED,
-                        TaskManager.TaskState.RUNNING));
+    @Test
+    void canonicalTaskRequiresCompleteBufferEvenWhenRatioIsZero() {
+        verifyRejectedBeforeRegistration(MB, 4 * 1024 * MB, 10 * MB, 2 * MB);
     }
 
     @Test
     void taskRejectedWhenNodePoolBudgetExceeded() {
-        // 50MB node pool budget — requesting 100MB exceeds the node pool limit
-        long nodePoolBudget = 50L * 1024 * 1024;
-        long arbitratorBudget = 4L * 1024 * 1024 * 1024; // large arbitrator so it's not the bottleneck
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManagerWithNodePool(executor, reporter, 0.0,
-                arbitratorBudget, nodePoolBudget);
-
-        String taskId = manager.submitTask(
-                buildDescriptorWithMemory(100L * 1024 * 1024),
-                buildRequestWithMemory(100L * 1024 * 1024));
-
-        // Task should fail because node pool budget is exceeded
-        awaitTerminalState(manager, taskId);
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValue(TaskManager.TaskState.FAILED);
+        verifyRejectedBeforeRegistration(4 * 1024 * MB, 50 * MB, 100 * MB, 60 * MB);
     }
 
     @Test
-    void nodePoolBudgetReleasedAfterTaskCompletion() {
-        // Verify that node pool budget is released after task completes,
-        // allowing subsequent tasks to use the same budget.
-        long nodePoolBudget = 100L * 1024 * 1024;
-        long arbitratorBudget = 4L * 1024 * 1024 * 1024;
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        RootMemoryPool rootPool = new RootMemoryPool("test-root", nodePoolBudget);
-        NodeMemoryPool nodePool = rootPool.createNodePool("test-node", nodePoolBudget);
-        TaskManager manager = buildTaskManagerWithNodePool(executor, reporter, 0.0,
-                arbitratorBudget, nodePool);
-
-        // Submit first task that uses 50MB
-        String taskId1 = manager.submitTask(
-                buildDescriptorWithMemory(50L * 1024 * 1024),
-                buildRequestWithMemory(50L * 1024 * 1024));
-        awaitTerminalState(manager, taskId1);
-
-        // After completion, node pool should have released the memory
-        // so a second 50MB task should also succeed
-        String taskId2 = manager.submitTask(
-                buildDescriptorWithMemory(50L * 1024 * 1024),
-                buildRequestWithMemory(50L * 1024 * 1024));
-        awaitTerminalState(manager, taskId2);
-
-        assertThat(manager.getTaskState(taskId2))
-                .isPresent()
-                .hasValueSatisfying(s -> assertThat(s).isIn(
-                        TaskManager.TaskState.FINISHED,
-                        TaskManager.TaskState.FAILED));
+    void httpAdmissionRejectsInsufficientBufferBeforeRegisteringTask() {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = admission(runtime, 4 * 1024 * MB, 50 * MB);
+                var resource =
+                        new TaskResource(
+                                tasks.manager(),
+                                runtime.transports().exchangeTransport(),
+                                new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
+                                "127.0.0.1",
+                                runtime.resultPort(),
+                                null,
+                                new TaskResource.ResultBinding("grpc", runtime.resultTickets()))) {
+            var response = resource.submitTask(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))));
+            assertThat(response.getStatus()).isEqualTo(503);
+            assertUnregistered(tasks);
+        }
     }
 
-    // --- helpers ---
-
-    private TaskManager buildTaskManager(SimulatedTaskExecutor executor,
-                                         double minRatio, long memoryBudget) {
-        return buildTaskManager(executor, new RecordingTaskStatusReporter(), minRatio, memoryBudget);
-    }
-
-    private TaskManager buildTaskManager(SimulatedTaskExecutor executor,
-                                         RecordingTaskStatusReporter reporter,
-                                         double minRatio, long memoryBudget) {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(memoryBudget, 0);
-        ThreadBudgetTracker tpm = new ThreadBudgetTracker(8, 4, 2);
-        SpillManager spillManager = new SpillManager();
-        ResourceManager rm = new ResourceManager(arbitrator, tpm, spillManager);
-        TaskManagerContext deps = new TaskManagerContext(
-                reporter, executor,
-                new MemoryRefs(rm),
-                TransportRefs.empty(),
-                java.util.concurrent.Executors.newCachedThreadPool(r -> {
-                    Thread t = new Thread(r, "test-completion-monitor");
-                    t.setDaemon(true);
-                    return t;
-                }));
-        return new TaskManager(deps, WORKER_ID, minRatio);
-    }
-
-    private TaskManager buildTaskManagerWithNodePool(SimulatedTaskExecutor executor,
-                                                     RecordingTaskStatusReporter reporter,
-                                                     double minRatio, long memoryBudget,
-                                                     long nodePoolBudget) {
-        RootMemoryPool rootPool = new RootMemoryPool("test-root", nodePoolBudget);
-        NodeMemoryPool nodePool = rootPool.createNodePool("test-node", nodePoolBudget);
-        return buildTaskManagerWithNodePool(executor, reporter, minRatio, memoryBudget, nodePool);
-    }
-
-    private TaskManager buildTaskManagerWithNodePool(SimulatedTaskExecutor executor,
-                                                     RecordingTaskStatusReporter reporter,
-                                                     double minRatio, long memoryBudget,
-                                                     NodeMemoryPool nodePool) {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(memoryBudget, 0);
-        ThreadBudgetTracker tpm = new ThreadBudgetTracker(8, 4, 2);
-        SpillManager spillManager = new SpillManager();
-        ResourceManager rm = new ResourceManager(arbitrator, tpm, spillManager);
-        TaskManagerContext deps = new TaskManagerContext(
-                reporter, executor,
-                new MemoryRefs(rm, nodePool, null),
-                TransportRefs.empty(),
-                java.util.concurrent.Executors.newCachedThreadPool(r -> {
-                    Thread t = new Thread(r, "test-completion-monitor");
-                    t.setDaemon(true);
-                    return t;
-                }));
-        return new TaskManager(deps, WORKER_ID, minRatio);
-    }
-
-    private TaskDescriptor buildDescriptorWithMemory(long memoryBytes) {
-        return new TaskDescriptor(
-                new QueryId("test-query"),
-                new TestPlanFragment(),
-                List.of(),
-                Map.of(),
-                0, 0, "COMPUTE",
-                new TaskResourceLimit(memoryBytes, 1, 0, ""));
-    }
-
-    private SubmitTaskRequest buildRequestWithMemory(long memoryBytes) {
-        return SubmitTaskRequest.builder()
-                .taskId("task-1")
-                .queryId("test-query")
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment("cGxhbg==")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(new ResourceLimitPayload(memoryBytes, 1, 0, ""))
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
-    }
-
-    private void awaitTerminalState(TaskManager manager, String taskId) {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            var state = manager.getTaskState(taskId);
-            if (state.isPresent() && isTerminal(state.get())) {
-                return;
-            }
-            try { Thread.sleep(50); } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+    @Test
+    void nodePoolBudgetReleasedAfterTaskCompletion() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = admission(runtime, 4 * 1024 * MB, 100 * MB)) {
+            for (int index = 0; index < 2; index++) {
+                var info = tasks.submit(runtime.bindWorker(request(50 * MB, 50 * MB)));
+                assertThat(info.allocatedBufferMemory()).isEqualTo(50 * MB);
+                assertThat(tasks.consume(info).values()).containsExactly(42L);
+                tasks.awaitState(info, TaskState.FINISHED);
+                assertThat(info.allocatedBufferMemory()).isZero();
+                assertThat(tasks.manager().getTaskState(info.taskId()))
+                        .hasValue(TaskState.FINISHED);
             }
         }
     }
 
-    private boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED
-                || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    private static void verifyRejectedBeforeRegistration(
+            long arbitratorBytes, long nodeBytes, long nativeBytes, long bufferBytes) {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = admission(runtime, arbitratorBytes, nodeBytes)) {
+            var tracker = new org.pangrova.worker.resource.tenant.TenantResourceTracker();
+            tasks.manager().setQuotaEnforcer(new TenantExecutionQuotaEnforcer(tracker));
+            var actualRequest = runtime.bindWorker(request(nativeBytes, bufferBytes));
+            String tenant = actualRequest.getSecurity().getTenantId();
+            assertThatThrownBy(() -> tasks.submit(actualRequest))
+                    .isInstanceOf(PangrovaException.class)
+                    .satisfies(
+                            error ->
+                                    assertThat(((PangrovaException) error).getErrorCode())
+                                            .isEqualTo(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED));
+            assertUnregistered(tasks);
+            assertThat(tracker.getActiveQueryCount(tenant)).isZero();
+        }
     }
 
-    private static final class TestPlanFragment implements PlanFragment {
-        @Override
-        public PlanNodeId getId() { return new PlanNodeId("test-node"); }
-        @Override
-        public java.util.List<PlanNodeId> getChildFragmentIds() { return List.of(); }
+    private static void assertUnregistered(ActualTaskManagerFixture tasks) {
+        assertThat(tasks.manager().tasks.values()).isEmpty();
+        assertThat(tasks.manager().taskAdmissions.size()).isZero();
+        assertThat(tasks.reports().reports()).isEmpty();
+    }
+
+    private static ActualTaskManagerFixture admission(
+            ActualNativeTaskFixture runtime, long budget, long nodeBytes) {
+        var arbitrator = new MemoryArbitrator(budget, 0);
+        var node =
+                new RootMemoryPool("actual-admission-root", nodeBytes)
+                        .createNodePool("actual-admission-node", nodeBytes);
+        var resources =
+                new ResourceManager(
+                        arbitrator, new ThreadBudgetTracker(8, 4, 2), new SpillManager());
+        return new ActualTaskManagerFixture(
+                runtime,
+                "actual-memory-admission",
+                new RecordingTaskStatusReporter(),
+                new MemoryRefs(resources, node, null));
+    }
+
+    private static TaskRequest request(long nativeBytes, long bufferBytes) {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(bufferBytes > 0).toBuilder();
+        request.getResourceGrantBuilder()
+                .setNativeMemoryBytes(nativeBytes)
+                .setShuffleBufferBytes(bufferBytes);
+        return request.build();
     }
 }

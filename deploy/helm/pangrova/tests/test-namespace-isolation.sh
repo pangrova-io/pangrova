@@ -149,6 +149,7 @@ EOF
 
 helm install "${RELEASE_NAME}" "${CHART_DIR}" \
     -n "${CONTROL_NS}" --create-namespace \
+    --set developmentMode=true \
     -f /tmp/pangrova-test-values.yaml \
     --wait --timeout "${TIMEOUT}" 2>&1 || {
     # If --wait fails (pods not ready due to missing image), that's OK for

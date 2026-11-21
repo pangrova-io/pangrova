@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+    <artifactId>pangrova-shuffle-native</artifactId>
+    <name>Pangrova Shuffle Native Wire</name>
+    <description>Canonical Native shuffle task admission, attempt identity and encoded chunk streams</description>
+    <properties><module.name>org.pangrova.shuffle.nativewire</module.name></properties>
+    <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+    </dependencies>
+</project>

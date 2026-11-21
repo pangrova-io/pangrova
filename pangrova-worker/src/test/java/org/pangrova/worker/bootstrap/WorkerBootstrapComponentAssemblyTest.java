@@ -1,5 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -16,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p>Audits that WorkerBootstrap correctly wires NativeRuntime (with NoOp fallback),
  * TaskManager, HeartbeatSender, DataProducer, ExchangeManager, and
- * pangrova-resource governance (MemoryArbitrator + ThreadBudgetTracker + SpillManager).</p>
+ * worker resource governance (MemoryArbitrator + ThreadBudgetTracker + SpillManager).</p>
  *
  * <p>Also verifies shutdown order is reverse of startup (LIFO).</p>
  *
@@ -87,33 +90,38 @@ class WorkerBootstrapComponentAssemblyTest {
         assertThat(bootstrap.getTaskManager().getRunningTaskCount()).isZero();
     }
 
-    // -- Resource governance (pangrova-resource) --
+    // -- Resource governance (worker.resource) --
 
     @Test
     void resourceManagerIsAssembled() throws Exception {
         startDefaultWorker("comp-rm");
         Object resourceManager = getRefField(bootstrap, "resourceManager");
         assertThat(resourceManager).isNotNull();
-        assertThat(resourceManager).isInstanceOf(org.pangrova.resource.ResourceManager.class);
+        assertThat(resourceManager).isInstanceOf(org.pangrova.worker.resource.ResourceManager.class);
     }
 
     @Test
     void memoryArbitratorIsConfigured() throws Exception {
         WorkerBootstrapConfig.ResourceConfig rc = new WorkerBootstrapConfig.ResourceConfig(
                 256L * 1024 * 1024, 32L * 1024 * 1024, 2, 1, 1, null, 0,
-                50.0, 70.0, 85.0, 95.0);
+                50.0, 70.0, 85.0, 95.0,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_RETENTION,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_TRANSIT,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL_FILES, null,
+                WorkerBootstrapConfig.ResourceConfig.defaults().shuffleChannelLimits());
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "comp-mem", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, rc, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        bootstrap = configuredBootstrap(config);
         bootstrap.start();
 
-        org.pangrova.resource.ResourceManager rm =
-                (org.pangrova.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
+        org.pangrova.worker.resource.ResourceManager rm =
+                (org.pangrova.worker.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
         assertThat(rm.getMemoryArbitrator()).isNotNull();
         assertThat(rm.getMemoryArbitrator().getAvailableMemory()).isGreaterThan(0);
     }
@@ -121,16 +129,16 @@ class WorkerBootstrapComponentAssemblyTest {
     @Test
     void threadPoolManagerIsConfigured() throws Exception {
         startDefaultWorker("comp-tp");
-        org.pangrova.resource.ResourceManager rm =
-                (org.pangrova.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
+        org.pangrova.worker.resource.ResourceManager rm =
+                (org.pangrova.worker.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
         assertThat(rm.getThreadPoolManager()).isNotNull();
     }
 
     @Test
     void spillManagerIsConfigured() throws Exception {
         startDefaultWorker("comp-spill");
-        org.pangrova.resource.ResourceManager rm =
-                (org.pangrova.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
+        org.pangrova.worker.resource.ResourceManager rm =
+                (org.pangrova.worker.resource.ResourceManager) getRefField(bootstrap, "resourceManager");
         assertThat(rm.getSpillManager()).isNotNull();
     }
 
@@ -157,8 +165,8 @@ class WorkerBootstrapComponentAssemblyTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, null, 0, false, null, null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        bootstrap = configuredBootstrap(config);
         bootstrap.start();
         Object heartbeatSender = getRefField(bootstrap, "heartbeatSender");
         assertThat(heartbeatSender).isNotNull();
@@ -187,7 +195,7 @@ class WorkerBootstrapComponentAssemblyTest {
 
     @Test
     void shutdownWithoutStartIsNoOp() {
-        bootstrap = new WorkerBootstrap(testConfig("comp-no-start"));
+        bootstrap = configuredBootstrap(testConfig("comp-no-start"));
         assertThatCode(() -> bootstrap.shutdown()).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();
         bootstrap = null;
@@ -215,8 +223,12 @@ class WorkerBootstrapComponentAssemblyTest {
     // -- Helpers --
 
     private void startDefaultWorker(String workerId) {
-        bootstrap = new WorkerBootstrap(testConfig(workerId));
+        bootstrap = configuredBootstrap(testConfig(workerId));
         bootstrap.start();
+    }
+
+    private static WorkerBootstrap configuredBootstrap(WorkerBootstrapConfig config) {
+        return TestWorkerBootstrap.create(config);
     }
 
     private static WorkerBootstrapConfig testConfig(String workerId) {
@@ -226,7 +238,7 @@ class WorkerBootstrapComponentAssemblyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 
     private static Object getField(Object target, String fieldName) throws Exception {

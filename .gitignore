@@ -1,6 +1,5 @@
 # AI tool local config
 .aone_copilot/
-.qoder/repowiki/
 # IDE
 .idea/
 *.iml
@@ -21,6 +20,11 @@ hs_err_pid*
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 dependency-reduced-pom.xml
+javac.*.args
+
+# Python
+__pycache__/
+*.py[cod]
 
 # jqwik property-based testing
 .jqwik-database
@@ -58,5 +62,27 @@ Thumbs.db
 
 # Env
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
+.secrets/
+secrets/
+
+# Local runtime state and release staging
+/logs/
+/native-output/
+/native-lib/
+/output/
+
+# Local agent configuration
+.claude/
+.qoder/
+.codex/
 *.local
+
+# Persistent local Worker incarnation authority (retain across restarts, never commit)
+/data/worker-admission/
+/pangrova-testing/pangrova-testing-integration-tests/data/worker-admission/
+
+# Local Qoder Sites publication staging
+site-publish/

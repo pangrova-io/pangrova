@@ -2,11 +2,11 @@ package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -68,6 +68,13 @@ public class IcebergPageSinkProvider implements ConnectorPageSinkProvider {
      */
     private Table resolveTable(IcebergOutputTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        return catalog.loadTable(id);
+        Table table = catalog.loadTable(id);
+        table.refresh();
+        java.util.UUID uuid = table.uuid();
+        if (uuid == null || !handle.tableUuid().equals(uuid.toString())) {
+            throw new IllegalStateException(
+                    "Iceberg table UUID changed since the distributed write was planned");
+        }
+        return table;
     }
 }

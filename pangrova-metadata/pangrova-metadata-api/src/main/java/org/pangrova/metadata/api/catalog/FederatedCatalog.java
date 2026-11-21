@@ -1,0 +1,44 @@
+package org.pangrova.metadata.api.catalog;
+
+import org.pangrova.common.api.annotation.Experimental;
+
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * SPI for external catalog federation. Adapts an external catalog system
+ * into the Pangrova metadata model.
+ */
+@Experimental
+public interface FederatedCatalog extends AutoCloseable {
+
+    List<String> listSchemas();
+
+    List<String> listTables(String schema);
+
+    TableMetadata getTable(String schema, String table);
+
+    /**
+     * Read the source authority directly, bypassing query/projection caches. Empty certifies
+     * absence of this exact object. Timeouts, access failures and unavailable authority must
+     * throw. Providers without authoritative point reads cannot repair the local projection.
+     */
+    default java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+        throw new UnsupportedOperationException("Catalog has no authoritative point lookup");
+    }
+
+    TableStatistics getTableStatistics(String schema, String table);
+
+    org.pangrova.metadata.api.catalog.MetadataChangeBatch readChangesSince(Instant since);
+
+    /** Registers push notifications when the provider supports them. Pull-only catalogs reject the request. */
+    default void subscribeToChanges(ChangeListener listener) {
+        throw new UnsupportedOperationException("Catalog does not support push change notifications");
+    }
+
+    @Override
+    void close();
+}

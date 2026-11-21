@@ -16,6 +16,15 @@ class AdaptiveQueryConfigTest {
     private static final long EXPECTED_256MB = 256L * 1024 * 1024;
 
     @Test
+    void rejectsNonFiniteAndNonSkewRatios() {
+        for (double ratio : new double[] {Double.NaN, Double.POSITIVE_INFINITY,
+                Double.NEGATIVE_INFINITY, 0.5, 1.0}) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AdaptiveQueryConfig(true, 100, ratio, 0, 2))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
     void singleArgConstructor_usesDefaults() {
         AdaptiveQueryConfig config = new AdaptiveQueryConfig(true);
 

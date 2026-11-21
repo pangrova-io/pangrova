@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>org.pangrova</groupId><artifactId>pangrova-server</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+    <artifactId>pangrova-server-worker</artifactId>
+    <name>Pangrova Server Worker</name>
+    <description>Process and embedded entry points for the execution worker</description>
+    <properties><module.name>org.pangrova.server.worker</module.name></properties>
+    <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-access</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-env</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-filesystem-local</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-filesystem-s3</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-filesystem-oss</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-worker</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-qwen</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-openai</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-iceberg</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-paimon</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-bootstrap</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-worker</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-worker</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-source-kafka</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-formats-builtin</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-pipeline</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-sdk</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-config</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId><scope>runtime</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+        <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope></dependency>
+    </dependencies>
+    <build><plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions><execution>
+                    <id>role-runtime-classpath</id>
+                    <phase>package</phase>
+                    <goals><goal>build-classpath</goal></goals>
+                    <configuration>
+                        <includeScope>runtime</includeScope>
+                        <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+                    </configuration>
+                </execution></executions>
+            </plugin>
+    </plugins></build>
+</project>

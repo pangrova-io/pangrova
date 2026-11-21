@@ -1,0 +1,19 @@
+# Docker Compose development profile. Production uses etc/worker.yml.
+worker:
+  id: "${HOSTNAME:-worker-0}"
+  host: 0.0.0.0
+  port: 8081
+  advertised-host: "${PANGROVA_ADVERTISED_HOST}"
+  coordinator-url: "${PANGROVA_COORDINATOR_URL}"
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+  transport:
+    port: 9090
+  memory:
+    budget-bytes: 536870912
+    node-bytes: 1073741824
+  shuffle:
+    service:
+      spill-directory: /opt/pangrova/data
+  native:
+    cache:
+      enabled: false

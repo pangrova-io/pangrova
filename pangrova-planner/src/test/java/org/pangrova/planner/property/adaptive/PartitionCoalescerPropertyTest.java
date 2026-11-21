@@ -1,16 +1,16 @@
 package org.pangrova.planner.property.adaptive;
 
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.CoalesceResult;
 import org.pangrova.planner.adaptive.PartitionCoalescer;
-import org.pangrova.planner.adaptive.PartitionGroup;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.planner.adaptive.ShuffleStageStats;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;

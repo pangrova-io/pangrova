@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.Domain;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.Domain;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;

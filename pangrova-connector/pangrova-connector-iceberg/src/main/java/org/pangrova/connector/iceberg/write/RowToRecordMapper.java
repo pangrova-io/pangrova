@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg.write;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.types.Types;
@@ -175,7 +175,10 @@ final class RowToRecordMapper {
                 cv = new ColumnValue.NullValue();
             }
             Object value = ColumnValue.toRaw(cv);
-            record.setField(field.name(), IcebergValueCoercion.coerceValue(value, field.type()));
+            Object coerced = IcebergValueCoercion.coerceValue(value, field.type());
+            if (field.type().typeId() != org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                record.setField(field.name(), coerced);
+            }
         }
         return record;
     }

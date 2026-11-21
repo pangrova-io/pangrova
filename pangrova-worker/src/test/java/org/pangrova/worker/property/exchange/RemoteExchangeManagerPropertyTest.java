@@ -15,11 +15,15 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.batch.api.enums.BatchFormat;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.exchange.ExchangeChannelManager;
-import org.pangrova.shuffle.exchange.ExchangeSource;
 import org.pangrova.shuffle.exchange.ExchangeSink;
+import org.pangrova.shuffle.exchange.ExchangeSource;
 
 /**
  * Property-based tests for Exchange abstraction layer (columnar ArrowPage path).
@@ -41,8 +45,8 @@ class RemoteExchangeManagerPropertyTest {
         ExchangeChannelManager manager = new InMemoryTestExchangeManager();
         String queryId = "prop-q-" + partitionId;
 
-        ExchangeSink sink = manager.createSink(queryId, partitionId);
-        ExchangeSource source = manager.createSource(queryId, partitionId);
+        ExchangeSink sink = manager.createSink(context(queryId, partitionId));
+        ExchangeSource source = manager.createSource(context(queryId, partitionId));
 
         List<byte[]> written = writePages(sink, pageCount);
         sink.finish();
@@ -69,8 +73,8 @@ class RemoteExchangeManagerPropertyTest {
             @ForAll @IntRange(min = 1, max = 10) int pageCount) throws IOException {
 
         ExchangeChannelManager manager = new InMemoryTestExchangeManager();
-        ExchangeSink sink = manager.createSink("abort-q", 0);
-        ExchangeSource source = manager.createSource("abort-q", 0);
+        ExchangeSink sink = manager.createSink(context("abort-q", 0));
+        ExchangeSource source = manager.createSource(context("abort-q", 0));
 
         writePages(sink, pageCount);
         sink.abort();
@@ -93,7 +97,7 @@ class RemoteExchangeManagerPropertyTest {
             @ForAll @IntRange(min = 0, max = 5) int preFinishPages) throws IOException {
 
         ExchangeChannelManager manager = new InMemoryTestExchangeManager();
-        ExchangeSink sink = manager.createSink("sealed-q", 0);
+        ExchangeSink sink = manager.createSink(context("sealed-q", 0));
 
         writePages(sink, preFinishPages);
         sink.finish();
@@ -123,6 +127,18 @@ class RemoteExchangeManagerPropertyTest {
                 ("batch_" + index).getBytes(StandardCharsets.UTF_8), -1, -1, BatchFormat.ARROW_IPC);
     }
 
+    private static ExchangeChannelContext context(String queryId, int partitionId) {
+        return new ExchangeChannelContext(
+                new ExchangeTaskAttempt(
+                        queryId, 0, 0, "task-0", 1L,
+                        new ExchangeAttemptFence(1L, 0, 1L),
+                        new ShuffleExecutionOwner("owner", "incarnation", 1L),
+                        "00000000-0000-0000-0000-000000000001",
+                        "00000000-0000-0000-0000-000000000002"),
+                partitionId,
+                Long.MAX_VALUE);
+    }
+
     private static List<NativePage> drainSource(ExchangeSource source) {
         List<NativePage> result = new ArrayList<>();
         NativePage page;
@@ -138,15 +154,21 @@ class RemoteExchangeManagerPropertyTest {
         private final ConcurrentHashMap<String, InMemoryChannel> channels = new ConcurrentHashMap<>();
 
         @Override
-        public ExchangeSink createSink(String queryId, int partitionId) {
+        public ExchangeSink createSink(ExchangeChannelContext context) {
             return new InMemoryTestSink(
-                    channels.computeIfAbsent(queryId + ":" + partitionId, k -> new InMemoryChannel()));
+                    channels.computeIfAbsent(
+                            context.queryId() + ":" + context.exchangePartitionId(),
+                            k -> new InMemoryChannel()));
         }
 
         @Override
-        public ExchangeSource createSource(String queryId, int partitionId, org.pangrova.shuffle.exchange.ExchangeReadMode readMode) {
+        public ExchangeSource createSource(
+                ExchangeChannelContext context,
+                org.pangrova.shuffle.exchange.enums.ExchangeReadMode readMode) {
             return new InMemoryTestSource(
-                    channels.computeIfAbsent(queryId + ":" + partitionId, k -> new InMemoryChannel()));
+                    channels.computeIfAbsent(
+                            context.queryId() + ":" + context.exchangePartitionId(),
+                            k -> new InMemoryChannel()));
         }
 
         @Override

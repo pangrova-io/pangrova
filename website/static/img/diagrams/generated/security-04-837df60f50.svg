@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1102" height="1330" viewBox="0 0 1102 1330" role="img">
+<rect width="1102" height="1330" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1100.5" height="1328.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * Privilege types</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">public enum Privilege {</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">    // Table-level privileges</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    SELECT, INSERT, UPDATE, DELETE, TRUNCATE, DROP, ALTER,</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">    // Schema-level privileges</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    CREATE_TABLE, CREATE_VIEW, DROP_SCHEMA,</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">    // Catalog-level privileges</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    CREATE_SCHEMA, DROP_CATALOG,</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    // System-level privileges</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    EXECUTE_QUERY, KILL_QUERY, VIEW_QUERY, SET_SESSION</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve"> * Permission checker</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve"> * Unified interception point design:</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve"> * AccessControl has a single call entry point in the query lifecycle: MetadataService.resolveTable().</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve"> * Call chain:</text>
+<path d="M193.0 437.0 L193.0 448.0 L204.0 442.5 z" fill="#D97706"/>
+<path d="M381.0 437.0 L381.0 448.0 L392.0 442.5 z" fill="#D97706"/>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve"> *   Query Parse   Semantic Analysis   MetadataService.resolveTable()</text>
+<path d="M99.0 456.0 L99.0 467.0 L110.0 461.5 z" fill="#D97706"/>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve"> *       AccessControl.checkCanAccessCatalog()</text>
+<path d="M99.0 475.0 L99.0 486.0 L110.0 480.5 z" fill="#D97706"/>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve"> *       AccessControl.checkCanSelectFromTable() / checkCanSelectFromColumns()</text>
+<path d="M99.0 494.0 L99.0 505.0 L110.0 499.5 z" fill="#D97706"/>
+<path d="M390.4 494.0 L390.4 505.0 L401.4 499.5 z" fill="#D97706"/>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve"> *       AccessControl.getRowFilter()   injected into Calcite RelNode</text>
+<path d="M99.0 513.0 L99.0 524.0 L110.0 518.5 z" fill="#D97706"/>
+<path d="M399.8 513.0 L399.8 524.0 L410.8 518.5 z" fill="#D97706"/>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve"> *       AccessControl.getColumnMask()   injected into Calcite RelNode</text>
+<path d="M80.2 532.0 L80.2 543.0 L91.2 537.5 z" fill="#D97706"/>
+<path d="M277.59999999999997 532.0 L277.59999999999997 543.0 L288.59999999999997 537.5 z" fill="#D97706"/>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve"> *     Query Optimization   Execution (AccessControl no longer called)</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve"> * AccessControl MUST NOT be re-invoked on the Worker side during Query Execution (query-execution.md).</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve"> * Reason: Workers only execute the Substrait Plan dispatched by the Coordinator, and the Plan already</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve"> * contains the RLS filter conditions and Column Mask expressions. Re-checking on the Worker side would cause:</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve"> *   1. Performance overhead (every Task querying the PostgreSQL permission tables)</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve"> *   2. Consistency risk (permission changes during query execution causing some Tasks to fail)</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve"> *   3. Responsibility confusion (Workers should focus only on data processing, not permissions)</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve"> * Exception: The Coordinator's DDL operations (CREATE/DROP/ALTER) call AccessControl directly,</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve"> * without going through MetadataService.resolveTable().</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve"> * See also: metadata.md §3.1 MetadataService</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">public interface AccessControl {</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">    /** Check Catalog access permission */</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">    void checkCanAccessCatalog(UserIdentity user, String catalog);</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">    /** Check Schema access permission */</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">    void checkCanAccessSchema(UserIdentity user, CatalogSchemaName schema);</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">    /** Check table permissions */</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">    void checkCanSelectFromTable(UserIdentity user, CatalogSchemaTableName table);</text>
+<text x="34.0" y="1016.7" fill="#1F2937" xml:space="preserve">    void checkCanInsertIntoTable(UserIdentity user, CatalogSchemaTableName table);</text>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">    void checkCanDeleteFromTable(UserIdentity user, CatalogSchemaTableName table);</text>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve">    void checkCanDropTable(UserIdentity user, CatalogSchemaTableName table);</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">    /** Check column permissions */</text>
+<text x="34.0" y="1111.7" fill="#1F2937" xml:space="preserve">    void checkCanSelectFromColumns(UserIdentity user, CatalogSchemaTableName table,</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">                                   Set&lt;String&gt; columns);</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">    /** Get row-level filter condition */</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">    Optional&lt;Expression&gt; getRowFilter(UserIdentity user, CatalogSchemaTableName table);</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">    /** Get column masking rule */</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">    Optional&lt;Expression&gt; getColumnMask(UserIdentity user, CatalogSchemaTableName table,</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">                                       String column);</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

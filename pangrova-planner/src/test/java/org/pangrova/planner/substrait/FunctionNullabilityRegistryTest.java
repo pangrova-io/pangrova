@@ -1,5 +1,7 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.enums.FunctionNullability;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

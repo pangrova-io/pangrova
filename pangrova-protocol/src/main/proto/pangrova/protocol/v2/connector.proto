@@ -1,0 +1,398 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/common.proto";
+
+// Connector-specific details carried by DataSplit.connector_detail. The
+// generic task envelope owns identity, snapshot, location, range and partition
+// values; this file owns only file/connector semantics.
+enum FileFormat {
+  FILE_FORMAT_UNSPECIFIED = 0;
+  FILE_FORMAT_PARQUET = 1;
+  FILE_FORMAT_ORC = 2;
+  FILE_FORMAT_LANCE = 3;
+  FILE_FORMAT_METADATA_JSON = 4;
+  // A local directory metadata read unit; no file byte range is implied.
+  FILE_FORMAT_METADATA_DIRECTORY = 5;
+  // One immutable Iceberg manifest-list Avro object-container file.
+  FILE_FORMAT_METADATA_AVRO = 6;
+}
+
+message ColumnMapping {
+  int32 source_field_id = 1;
+  int32 target_field_id = 2;
+  string source_name = 3;
+  string target_name = 4;
+  string default_value = 5;
+}
+
+message TypePromotion {
+  int32 field_id = 1;
+  string source_type = 2;
+  string target_type = 3;
+  string column_name = 4;
+}
+
+message SchemaEvolution {
+  repeated ColumnMapping column_mappings = 1;
+  repeated TypePromotion type_promotions = 2;
+}
+
+message ComparableValue {
+  oneof value {
+    string string_value = 1;
+    int64 int64_value = 2;
+    int32 int32_value = 3;
+    double double_value = 4;
+    float float_value = 5;
+    bool bool_value = 6;
+  }
+}
+
+message EqualToPredicate { ComparableValue value = 1; }
+message RangeQueryPredicate {
+  ComparableValue lower = 1;
+  ComparableValue upper = 2;
+  bool lower_inclusive = 3;
+  bool upper_inclusive = 4;
+}
+message InListPredicate { repeated ComparableValue values = 1; }
+message TextMatchPredicate {
+  string mode = 1;
+  repeated string tokens = 2;
+}
+message LikePatternPredicate { string pattern = 1; }
+message IsNullPredicate {}
+message IsNotNullPredicate {}
+message SpatialQueryPredicate {
+  double min_x = 1;
+  double min_y = 2;
+  double max_x = 3;
+  double max_y = 4;
+  string op = 5;
+}
+message ContainsElementPredicate {
+  repeated ComparableValue elements = 1;
+  string mode = 2;
+}
+
+message IndexPredicate {
+  string column = 1;
+  oneof predicate {
+    EqualToPredicate equal_to = 2;
+    RangeQueryPredicate range_query = 3;
+    InListPredicate in_list = 4;
+    TextMatchPredicate text_match = 5;
+    LikePatternPredicate like_pattern = 6;
+    IsNullPredicate is_null = 7;
+    IsNotNullPredicate is_not_null = 8;
+    SpatialQueryPredicate spatial_query = 9;
+    ContainsElementPredicate contains_element = 10;
+  }
+}
+
+message IndexEvalHintDetail {
+  string index_id = 1;
+  string index_type = 2;
+  string index_file_path = 3;
+  int32 generation = 4;
+  string data_file_path = 5;
+  IndexPredicate predicate = 6;
+  uint64 index_size_bytes = 7;
+  bytes index_sha256 = 8; // 32 bytes, over the entire published index artifact.
+}
+
+message ColumnStatistics {
+  string column_name = 1;
+  string min_value = 2;
+  string max_value = 3;
+  int64 null_count = 4;
+}
+
+message SplitConstraint {
+  repeated ColumnStatistics column_statistics = 1;
+  bytes predicate = 2;
+}
+
+enum DeleteFileType {
+  DELETE_FILE_TYPE_UNSPECIFIED = 0;
+  DELETE_FILE_TYPE_POSITION = 1;
+  DELETE_FILE_TYPE_EQUALITY = 2;
+  DELETE_FILE_TYPE_DELETION_VECTOR = 3;
+}
+
+message DeleteFileDetail {
+  string opaque_location = 1;
+  DeleteFileType delete_type = 2;
+  repeated string equality_fields = 3;
+  int64 record_count = 4;
+  int64 data_sequence_number = 5;
+  int64 file_size = 6;
+  string deletion_vector_location = 7;
+}
+
+enum IcebergReadMode {
+  ICEBERG_READ_MODE_UNSPECIFIED = 0;
+  ICEBERG_READ_MODE_SNAPSHOT = 1;
+  ICEBERG_READ_MODE_TIME_TRAVEL = 2;
+  ICEBERG_READ_MODE_INCREMENTAL = 3;
+}
+
+message IcebergSplitDetail {
+  IcebergReadMode read_mode = 1;
+  int64 snapshot_id = 2;
+  repeated DeleteFileDetail delete_files = 3;
+  int64 from_snapshot_id = 4;
+  int64 to_snapshot_id = 5;
+  int64 data_sequence_number = 6;
+  int32 spec_id = 7;
+  int32 content = 8;
+}
+
+enum PaimonReadMode {
+  PAIMON_READ_MODE_UNSPECIFIED = 0;
+  PAIMON_READ_MODE_APPEND = 1;
+  PAIMON_READ_MODE_PRIMARY_KEY = 2;
+  PAIMON_READ_MODE_CHANGELOG = 3;
+  PAIMON_READ_MODE_INCREMENTAL = 4;
+}
+
+enum PaimonMergeEngine {
+  PAIMON_MERGE_ENGINE_UNSPECIFIED = 0;
+  PAIMON_MERGE_ENGINE_DEDUPLICATE = 1;
+  PAIMON_MERGE_ENGINE_PARTIAL_UPDATE = 2;
+  PAIMON_MERGE_ENGINE_AGGREGATION = 3;
+  PAIMON_MERGE_ENGINE_FIRST_ROW = 4;
+}
+
+enum PaimonChangelogProducer {
+  PAIMON_CHANGELOG_PRODUCER_UNSPECIFIED = 0;
+  PAIMON_CHANGELOG_PRODUCER_NONE = 1;
+  PAIMON_CHANGELOG_PRODUCER_INPUT = 2;
+  PAIMON_CHANGELOG_PRODUCER_LOOKUP = 3;
+  PAIMON_CHANGELOG_PRODUCER_FULL_COMPACTION = 4;
+}
+
+message LsmLevelDetail {
+  int32 level = 1;
+  reserved 2;
+  repeated bytes key_ranges = 3;
+  int64 total_record_count = 4;
+  repeated PhysicalFileReference files = 5;
+}
+
+message PhysicalFileReference {
+  string opaque_location = 1;
+  FileFormat file_format = 2;
+  uint64 file_size = 3;
+  PhysicalFileScanDetail scan = 4;
+  uint64 min_sequence_number = 5;
+  uint64 max_sequence_number = 6;
+}
+
+message PaimonSplitDetail {
+  PaimonReadMode read_mode = 1;
+  int32 bucket_id = 2;
+  repeated string primary_keys = 3;
+  repeated LsmLevelDetail lsm_levels = 4;
+  int64 snapshot_id = 5;
+  int64 from_snapshot_id = 6;
+  int64 to_snapshot_id = 7;
+  PaimonMergeEngine merge_engine = 8;
+  PaimonChangelogProducer changelog_producer = 9;
+  bool deletion_vectors_enabled = 10;
+  reserved 11;
+  bool needs_merge = 12;
+  string sequence_column = 13;
+  map<string, string> aggregation_specs = 14;
+  bool changelog_mode = 15;
+  PaimonMergePolicy merge_policy = 16;
+}
+
+// Snapshot-owned table options controlling retract and delete semantics.
+message PaimonMergePolicy {
+  bool ignore_delete = 1;
+  bool remove_record_on_delete = 2;
+}
+
+message RequiredSubfields {
+  repeated string paths = 1;
+}
+
+message FileSplitDetail {
+  FileFormat file_format = 1;
+  SchemaEvolution schema_evolution = 2;
+  repeated IndexEvalHintDetail index_eval_hints = 3;
+  SplitConstraint split_constraint = 4;
+  map<string, RequiredSubfields> required_subfields = 5;
+  // A physical manifest partition, not a byte interval. Numeric IDs are
+  // format-owned and meaningful only within the exact generic source snapshot.
+  oneof read_unit {
+    ScanPartitionDetail scan_partition = 6;
+    // One immutable physical file, not a Dataset URI or byte-based row range.
+    PhysicalFileScanDetail physical_file_scan = 7;
+  }
+  oneof connector {
+    IcebergSplitDetail iceberg = 10;
+    PaimonSplitDetail paimon = 11;
+    SystemTableSplitDetail system_table = 12;
+  }
+  // Index into TaskRequest.schema_descriptors. Mutually exclusive with an
+  // inline schema_evolution; generation persistence keeps the inline form.
+  optional uint32 schema_descriptor_ref = 8;
+}
+
+message ScanPartitionDetail {
+  AcceptedSourceSnapshotRef accepted_snapshot = 5;
+  uint64 partition_id = 1;
+  uint64 physical_rows = 2;
+  Checksum manifest_sha256 = 3;
+  Checksum physical_schema_sha256 = 4;
+}
+
+message PhysicalFileScanDetail {
+  uint64 physical_rows = 1;
+  // Half-open physical row interval. Both bounds remain original file positions.
+  uint64 row_start = 2;
+  uint64 row_end = 3;
+  // Schema revision owned by the table format, not a Dataset manifest version.
+  uint64 file_schema_id = 4;
+  DeletionVectorReference deletion_vector = 5;
+  // Mapping from this immutable file's schema revision to the query schema.
+  SchemaEvolution schema_evolution = 6;
+}
+
+// The table snapshot owns this exact range in a shared deletion-vector object.
+// Encoding magic is validated by the Native decoder, never inferred from extension.
+message DeletionVectorReference {
+  string opaque_location = 1;
+  uint64 byte_offset = 2;
+  uint64 byte_length = 3;
+  optional uint64 cardinality = 4;
+  uint64 physical_rows = 5;
+}
+
+// A partition-result type and transform frozen at the selected Iceberg snapshot.
+message IcebergManifestPartitionField {
+  string transform = 1;
+  string result_type = 2;
+  // Stable partition field identity and the name in the table's unified
+  // partition type. An empty name marks a field excluded from that type.
+  // Avro writer names may differ after a spec field rename.
+  int32 field_id = 3;
+  string name = 4;
+}
+
+message IcebergManifestPartitionSpec {
+  int32 spec_id = 1;
+  repeated IcebergManifestPartitionField fields = 2;
+}
+
+// A read-only metadata table is a scan source in the same DataSplit envelope
+// as every other connector source. The opaque_location identifies the pinned
+// metadata source (object or directory); no rows are carried through the Coordinator.
+message PinnedMetadataObject {
+  string uri = 1;
+  uint64 length = 2;
+  bytes sha256 = 3;
+}
+
+// Planning descriptors only. Native reads all result values from the manifest.
+message PaimonFilesReadContext {
+  message Schema {
+    uint64 schema_id = 1;
+    string schema_json = 2;
+  }
+  message FileSelection {
+    bytes identifier_sha256 = 1;
+    string file_uri = 2;
+  }
+  PinnedMetadataObject snapshot = 1;
+  uint64 read_schema_id = 2;
+  repeated Schema schemas = 3;
+  repeated FileSelection files = 4;
+}
+
+message SystemTableSplitDetail {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    ICEBERG_SNAPSHOTS = 1;
+    ICEBERG_HISTORY = 2;
+    PAIMON_SNAPSHOTS = 3;
+    PAIMON_TAGS = 4;
+    PAIMON_OPTIONS = 5;
+    PAIMON_SCHEMAS = 6;
+    PAIMON_BRANCHES = 7;
+    ICEBERG_MANIFESTS = 8;
+    ICEBERG_FILES = 9;
+    ICEBERG_ENTRIES = 10;
+    ICEBERG_REFS = 11;
+    PAIMON_FILES = 12;
+  }
+  Kind kind = 1;
+  // Positive for a Paimon snapshot object or selected Iceberg manifest-list
+  // snapshot; the Native reader verifies it before emitting rows.
+  uint64 snapshot_id = 2;
+  // SHA-256 of exact pinned Paimon metadata JSON or Iceberg Avro bytes.
+  bytes object_sha256 = 3;
+  // Tag name pinned by the Paimon connector; nonempty only for PAIMON_TAGS.
+  string tag_name = 4;
+  // Exact schema ID pinned for PAIMON_OPTIONS or PAIMON_SCHEMAS;
+  // zero is a valid first schema.
+  uint64 schema_id = 5;
+  // Directory-backed Paimon branch identity. Native stat must verify these
+  // local filesystem values before deriving create_time from the directory.
+  string branch_name = 6;
+  int64 directory_mtime_ms = 7;
+  uint64 directory_device = 8;
+  uint64 directory_inode = 9;
+  // Zone offset at this exact mtime, frozen from the Paimon SDK JVM default zone.
+  // Native applies it only after stat verification to reproduce TIMESTAMP(3).
+  int32 directory_zone_offset_seconds = 10;
+  // Frozen Iceberg partition spec result types for $manifests bound rendering.
+  repeated IcebergManifestPartitionSpec iceberg_partition_specs = 11;
+  // Iceberg v2/v3 only. v1 without a list and v4 are rejected at binding.
+  int32 iceberg_format_version = 12;
+  uint64 iceberg_snapshot_sequence_number = 13;
+  // ICEBERG_FILES pins both the parent list and one child manifest object.
+  string iceberg_manifest_list_uri = 14;
+  uint64 iceberg_manifest_list_length = 15;
+  bytes iceberg_manifest_list_sha256 = 16;
+  int32 iceberg_child_spec_id = 17;
+  int32 iceberg_child_content = 18;
+  PaimonFilesReadContext paimon_files = 19;
+}
+
+// Immutable identity of the exact catalog deployment authorized by the
+// Coordinator. Catalog properties and resolved secrets are deliberately not
+// carried in TaskRequest; Workers fetch the exact revision over the trusted
+// internal control channel and resolve secrets locally.
+message CatalogExecutionBinding {
+  string catalog_name = 1;
+  string connector_provider = 2;
+  string catalog_incarnation_id = 3;
+  uint64 catalog_revision = 4;
+  Checksum configuration_fingerprint = 5;
+}
+
+// Frozen accepted membership issued by the single metadata source catalog.
+message AcceptedSourceSnapshotRef {
+  // Current execution deployment, reauthorized by the actual PG catalog.
+  CatalogExecutionBinding catalog = 1;
+  string table_id = 2;
+  uint64 table_generation = 3;
+  string dataset_uri = 4;
+  uint64 version = 5;
+  string manifest_relative_path = 6;
+  Checksum manifest_sha256 = 7;
+  Checksum physical_schema_sha256 = 8;
+  uint64 size_bytes = 9;
+  string naming_scheme = 10;
+  string membership_id = 11;
+  string tenant_id = 12;
+  // Immutable accepting revision; reauthorization never rewrites this audit identity.
+  uint64 accepted_origin_catalog_revision = 13;
+}

@@ -30,10 +30,14 @@ class RerankerPlanNodeTest {
     }
 
     @Test
-    void linearCombinationValidatesNonNegativeWeights() {
+    void linearCombinationValidatesFinitePositiveWeights() {
         assertThatThrownBy(() -> new LinearCombinationStrategy(-0.1, 0.5))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("non-negative");
+                .hasMessageContaining("finite and positive");
+        assertThatThrownBy(() -> new LinearCombinationStrategy(0.0, 0.5))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinearCombinationStrategy(Double.NaN, 0.5))
+                .isInstanceOf(IllegalArgumentException.class);
 
         var strategy = new LinearCombinationStrategy(0.7, 0.3);
         assertThat(strategy.weight1()).isEqualTo(0.7);
@@ -73,6 +77,7 @@ class RerankerPlanNodeTest {
         var source = new VectorSource("embedding", original, "cosine_distance");
 
         original[0] = 99.0f;
+        source.queryVector()[0] = 88.0f;
         assertThat(source.queryVector()[0]).isEqualTo(1.0f);
     }
 

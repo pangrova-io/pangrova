@@ -4,13 +4,15 @@ import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.IcebergReadMode;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -39,6 +41,50 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class IcebergSplitManagerTest {
 
+    @Test
+    void nullOnlyColumnOverridesPhysicalColumnEvenAfterRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+        var mappings = IcebergTaskToSplit.withNullOnlyColumns(schema,
+                List.of(new org.pangrova.connector.api.metadata.table.ColumnMapping(
+                        2, 2, "old_future", "future")));
+        assertThat(mappings).hasSize(2);
+        assertThat(mappings.get(1).sourceFieldId()).isEqualTo(-1);
+        assertThat(mappings.get(1).targetName()).isEqualTo("future");
+    }
+
+    /**
+     * This runs once per file. With no UNKNOWN columns the table-level list is
+     * already complete, so every split must share one instance rather than each
+     * allocating a copy — at 8.4M files that was ~2.3GB of duplicate list headers.
+     */
+    @Test
+    void splitsShareTheTableLevelMappingListWhenNoUnknownColumns() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        List<org.pangrova.connector.api.metadata.table.ColumnMapping> tableLevel =
+                List.of(new org.pangrova.connector.api.metadata.table.ColumnMapping(1, 1, "id", "id"));
+
+        var first = IcebergTaskToSplit.withNullOnlyColumns(schema, tableLevel);
+        var second = IcebergTaskToSplit.withNullOnlyColumns(schema, tableLevel);
+        assertThat(first).isSameAs(tableLevel);
+        assertThat(second).isSameAs(first);
+    }
+
+    /** A mutable input must still be snapshotted so later mutation cannot leak in. */
+    @Test
+    void mutableMappingInputIsStillCopied() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
+        var mutable = new java.util.ArrayList<org.pangrova.connector.api.metadata.table.ColumnMapping>();
+        mutable.add(new org.pangrova.connector.api.metadata.table.ColumnMapping(1, 1, "id", "id"));
+
+        var snapshot = IcebergTaskToSplit.withNullOnlyColumns(schema, mutable);
+        mutable.clear();
+        assertThat(snapshot).hasSize(1);
+    }
+
     @TempDir
     Path warehouse;
 
@@ -50,6 +96,11 @@ class IcebergSplitManagerTest {
     private static final Constraint NO_CONSTRAINT = Constraint.EMPTY;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test_catalog"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
@@ -104,6 +155,26 @@ class IcebergSplitManagerTest {
         assertThat(split.fileFormat()).isEqualTo("PARQUET");
         assertThat(split.fileLength()).isEqualTo(512L);
         assertThat(split.fileOffset()).isEqualTo(0L);
+    }
+
+    @Test
+    void getSplitsRejectsUnqualifiedEqualityDeletesBeforeNativeDispatch() {
+        Table table = createTable("db", "equality_delete", TEST_SCHEMA);
+        appendDataFile(table, "/data/equality-data.parquet", 512L);
+        var keySchema = new Schema(TEST_SCHEMA.findField("id"));
+        var key = org.apache.iceberg.data.GenericRecord.create(keySchema);
+        key.setField("id", 41L);
+        var delete = org.pangrova.connector.iceberg.write.IcebergDeleteWriter.buildEqualityDeleteFile(
+                table, new int[] {1}, keySchema, List.of(key));
+        table.newRowDelta().addDeletes(delete).commit();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> drainSplits(handleFor("db", "equality_delete", table)))
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
+                .hasMessageContaining("equality deletes are not supported")
+                .hasMessageContaining("db.equality_delete")
+                .hasMessageContaining(Long.toString(table.currentSnapshot().snapshotId()))
+                .hasMessageContaining(delete.path().toString());
     }
 
     @Test
@@ -255,9 +326,10 @@ class IcebergSplitManagerTest {
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.getPartitionValuesMap()).containsEntry("region", "us-east");
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
+                .containsEntry("region", "us-east");
     }
 
     // -- incremental + time-travel tests (R7.1, R7.2, R7.3, R7.4, R7.5) --
@@ -333,12 +405,16 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getIcebergInfo().getReadMode())
-                .isEqualTo(org.pangrova.protocol.v1.IcebergReadMode.ICEBERG_READ_INCREMENTAL);
-        assertThat(info.getIcebergInfo().getFromSnapshotId()).isEqualTo(snapshot1);
-        assertThat(info.getIcebergInfo().getToSnapshotId()).isEqualTo(snapshot2);
+        var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
+        assertThat(detail.getReadMode())
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_INCREMENTAL);
+        assertThat(detail.getFromSnapshotId()).isEqualTo(snapshot1);
+        assertThat(detail.getToSnapshotId()).isEqualTo(snapshot2);
+        assertThat(info.getSourceSnapshot()).isEqualTo(Long.toString(snapshot2));
+        assertThat(info.getSourceId()).isEqualTo("test_catalog.db.incr_proto");
+        assertThat(detail.getSnapshotId()).isEqualTo(snapshot2);
     }
 
     /**
@@ -366,7 +442,7 @@ class IcebergSplitManagerTest {
 
     /**
      * Validates: Requirements R7.3, R7.4
-     * Time-travel split serializes read_mode and snapshot_id to proto.
+     * Time-travel selection serializes a physical snapshot scan with its exact historical snapshot.
      */
     @Test
     void getSplits_timeTravelSplitSerializesToProto() throws Exception {
@@ -381,11 +457,36 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getIcebergInfo().getReadMode())
-                .isEqualTo(org.pangrova.protocol.v1.IcebergReadMode.ICEBERG_READ_TIME_TRAVEL);
-        assertThat(info.getIcebergInfo().getSnapshotId()).isGreaterThan(0);
+        var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
+        assertThat(detail.getReadMode())
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT);
+        assertThat(detail.getSnapshotId()).isEqualTo(snapshot1);
+        assertThat(info.getSourceSnapshot()).isEqualTo(Long.toString(snapshot1));
+        assertThat(info.getSourceId()).isEqualTo("test_catalog.db.tt_proto");
+    }
+
+    @Test
+    void getSplits_fullSnapshotIdentifiesReadSnapshotForOlderFiles() throws Exception {
+        Table table = createTable("db", "full_snapshot_identity", TEST_SCHEMA);
+        appendDataFile(table, "/data/old.parquet", 512L);
+        long firstSnapshot = table.currentSnapshot().snapshotId();
+        appendDataFile(table, "/data/new.parquet", 1024L);
+        long readSnapshot = table.currentSnapshot().snapshotId();
+
+        List<ConnectorSplit> splits = drainSplits(handleFor("db", "full_snapshot_identity", table));
+
+        assertThat(readSnapshot).isNotEqualTo(firstSnapshot);
+        assertThat(splits).hasSize(2);
+        for (ConnectorSplit split : splits) {
+            DataSplit proto = DataSplit.parseFrom(split.toSplitInfoProto());
+            assertThat(proto.getSourceId())
+                    .isEqualTo("test_catalog.db.full_snapshot_identity");
+            assertThat(proto.getSourceSnapshot()).isEqualTo(Long.toString(readSnapshot));
+            assertThat(DataSplitProtoCodec.fileDetail(proto).getIceberg().getSnapshotId())
+                    .isEqualTo(readSnapshot);
+        }
     }
 
     // -- split constraint tests (H.5) --
@@ -422,9 +523,8 @@ class IcebergSplitManagerTest {
 
         // Verify proto-level split_constraint carries partition values
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
-        assertThat(info.getSplitConstraint().getPartitionValuesCount()).isGreaterThan(0);
-        assertThat(info.getSplitConstraint().getPartitionValuesMap())
+        DataSplit info = DataSplit.parseFrom(protoBytes);
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .containsEntry("country", "US");
     }
 

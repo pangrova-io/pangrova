@@ -15,14 +15,24 @@ public final class NumberConversions {
      * Converts a value to double. Returns 0.0 if value is null or not a Number.
      */
     public static double toDouble(Object value) {
-        return value instanceof Number n ? n.doubleValue() : 0.0;
+        return toDouble(value, 0.0);
+    }
+
+    /** Converts numbers using Number.doubleValue(), returning the supplied default for other values. */
+    public static double toDouble(Object value, double defaultValue) {
+        return value instanceof Number n ? n.doubleValue() : defaultValue;
     }
 
     /**
      * Converts a value to long. Returns 0 if value is null or not a Number.
      */
     public static long toLong(Object value) {
-        return value instanceof Number n ? n.longValue() : 0L;
+        return toLong(value, 0L);
+    }
+
+    /** Converts numbers using Number.longValue(), returning the supplied default for other values. */
+    public static long toLong(Object value, long defaultValue) {
+        return value instanceof Number n ? n.longValue() : defaultValue;
     }
 
     /**

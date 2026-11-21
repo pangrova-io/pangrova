@@ -1,7 +1,9 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +68,30 @@ final class IdempotentCommitController {
         }
         String attemptId = props.getOrDefault("attemptId", "0");
         return queryId + ":" + attemptId;
+    }
+
+    /**
+     * Returns the deterministic token for a durable distributed commit. The commit
+     * fingerprint already identifies the immutable write payload, so it doubles as
+     * the idempotency token stored in the snapshot summary.
+     *
+     * @param context the durable commit context, or null for a non-distributed commit
+     * @return the commit token, or null when no context is available
+     */
+    static String tokenFor(DistributedWriteCommitContext context) {
+        return context != null ? context.commitFingerprint() : null;
+    }
+
+    /**
+     * Stamps the commit token onto an Iceberg snapshot update so a replay can detect
+     * that this exact commit already landed.
+     */
+    static <T> void apply(SnapshotUpdate<T> update, DistributedWriteCommitContext context) {
+        String token = tokenFor(context);
+        if (token == null || token.isEmpty()) {
+            return;
+        }
+        update.set(COMMIT_TOKEN_KEY, token);
     }
 
     /**

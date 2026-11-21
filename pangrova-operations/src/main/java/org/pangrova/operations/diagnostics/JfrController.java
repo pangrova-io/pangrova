@@ -1,9 +1,11 @@
 package org.pangrova.operations.diagnostics;
 
+import org.pangrova.operations.exception.DiagnosticException;
+
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -20,8 +22,8 @@ import jdk.jfr.RecordingState;
  */
 final class JfrController implements AutoCloseable {
 
-    private final Map<Long, RecordingEntry> activeRecordings = new ConcurrentHashMap<>();
-    private volatile boolean closed = false;
+    private final Map<Long, RecordingEntry> activeRecordings = new HashMap<>();
+    private boolean closed = false;
     private final ScheduledExecutorService scavenger;
     private final ScheduledFuture<?> scavengerFuture;
 
@@ -40,20 +42,28 @@ final class JfrController implements AutoCloseable {
      *
      * @return the recording ID assigned by JFR
      */
-    long start(Duration duration, String settings, Path outputPath) throws Exception {
+    synchronized long start(Duration duration, String settings, Path outputPath) throws Exception {
         if (closed) {
             throw new DiagnosticException("JfrController is closed");
         }
         Configuration config = Configuration.getConfiguration(settings);
         Recording recording = new Recording(config);
-        recording.setMaxAge(duration);
-        recording.setDuration(duration);
-        recording.setDestination(outputPath);
-        recording.start();
-
-        long id = recording.getId();
-        activeRecordings.put(id, new RecordingEntry(recording, outputPath));
-        return id;
+        try {
+            recording.setMaxAge(duration);
+            recording.setDuration(duration);
+            recording.setDestination(outputPath);
+            recording.start();
+            long id = recording.getId();
+            activeRecordings.put(id, new RecordingEntry(recording, outputPath));
+            return id;
+        } catch (Exception | Error failure) {
+            try {
+                recording.close();
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -61,20 +71,23 @@ final class JfrController implements AutoCloseable {
      *
      * @return the output path where the recording was written
      */
-    Path stop(long recordingId) throws DiagnosticException {
+    synchronized Path stop(long recordingId) throws DiagnosticException {
         RecordingEntry entry = activeRecordings.remove(recordingId);
         if (entry == null) {
             throw new DiagnosticException("No active recording with id=" + recordingId);
         }
-        entry.recording().stop();
-        entry.recording().close();
+        try (var recording = entry.recording()) {
+            if (recording.getState() == RecordingState.RUNNING) {
+                recording.stop();
+            }
+        }
         return entry.outputPath();
     }
 
     /**
      * Returns the number of currently active (tracked) recordings.
      */
-    int activeRecordingCount() {
+    synchronized int activeRecordingCount() {
         return activeRecordings.size();
     }
 
@@ -83,17 +96,15 @@ final class JfrController implements AutoCloseable {
      * Idempotent: calling close() multiple times is safe.
      */
     @Override
-    public void close() {
+    public synchronized void close() {
         closed = true;
         scavengerFuture.cancel(false);
         scavenger.shutdownNow();
         for (var entry : activeRecordings.values()) {
-            try {
-                Recording rec = entry.recording();
+            try (var rec = entry.recording()) {
                 if (rec.getState() == RecordingState.RUNNING) {
                     rec.stop();
                 }
-                rec.close();
             } catch (Exception ignored) {
                 // best-effort cleanup
             }
@@ -101,7 +112,7 @@ final class JfrController implements AutoCloseable {
         activeRecordings.clear();
     }
 
-    private void scavengeStoppedRecordings() {
+    private synchronized void scavengeStoppedRecordings() {
         activeRecordings.entrySet().removeIf(e -> {
             RecordingState state = e.getValue().recording().getState();
             if (state == RecordingState.STOPPED || state == RecordingState.CLOSED) {

@@ -1,8 +1,13 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.enums.JoinStrategy;
+import org.pangrova.planner.api.adaptive.ReOptimizationResult;
+
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+
 import java.util.Optional;
 
-import org.pangrova.planner.stats.StatisticsCollector;
+import org.pangrova.planner.statistics.StatisticsCollector;
 
 /**
  * Adaptive Query Execution framework that adjusts the physical plan at runtime
@@ -114,7 +119,7 @@ public class AdaptiveQueryExecutor {
      */
     public ReOptimizationResult processStageCompletion(
             ShuffleStageStats stats, JoinStrategy currentJoinStrategy,
-            long broadcastThreshold, String tableName) {
+            long broadcastThreshold, QualifiedTableName tableName) {
 
         ReOptimizationResult result = processStageCompletion(
                 stats, currentJoinStrategy, broadcastThreshold);

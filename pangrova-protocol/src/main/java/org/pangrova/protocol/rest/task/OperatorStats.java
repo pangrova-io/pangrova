@@ -3,8 +3,7 @@ package org.pangrova.protocol.rest.task;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Per-operator execution statistics aligned with Protobuf OperatorStats
- * in pangrova_native_protocol.proto and common.proto.
+ * Per-operator execution statistics mapped from the canonical Protobuf contract.
  *
  * <p>Tracks input/output rows and bytes, CPU and wall time, memory usage,
  * and spill at the individual operator level (TableScan, Project, Filter, etc.).</p>
@@ -26,12 +25,4 @@ public record OperatorStats(
     @JsonProperty("peak_memory_bytes") long peakMemoryBytes,
     @JsonProperty("spill_bytes") long spillBytes
 ) {
-    /**
-     * Backward-compatible constructor without memory/spill fields.
-     */
-    public OperatorStats(String operatorType, long inputRows, long outputRows,
-                         long inputBytes, long outputBytes, long cpuNanos, long wallNanos) {
-        this(operatorType, inputRows, outputRows, inputBytes, outputBytes,
-             cpuNanos, wallNanos, "", 0, 0, 0);
-    }
 }

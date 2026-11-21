@@ -1,5 +1,6 @@
 ---
 title: "Production Checklist"
+description: "Infrastructure, security, storage, observability, and acceptance checks before production"
 sidebar_position: 3
 ---
 
@@ -71,7 +72,7 @@ Work through each section in order. Check off each item before proceeding to the
 
 ### 1.3 JDK
 
-- [ ] JDK 17 installed on all nodes (exact version, not 11 or 21)
+- [ ] JDK 17 installed on all nodes (the qualified baseline; the launcher requires >= 17)
   ```bash
   java -version   # must show 17.x.x
   ```
@@ -88,16 +89,13 @@ Work through each section in order. Check off each item before proceeding to the
 - [ ] PostgreSQL ≥ 14 running and accessible from all Coordinator nodes
 - [ ] Dedicated databases created:
   ```sql
-  CREATE DATABASE pangrova_ha;
   CREATE DATABASE pangrova_meta;
   ```
 - [ ] `pangrova` database user created with limited privileges:
   ```sql
   CREATE USER pangrova WITH PASSWORD '...';
-  GRANT CONNECT ON DATABASE pangrova_ha TO pangrova;
   GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
   -- Grant DDL rights for schema creation on first startup:
-  GRANT CREATE ON DATABASE pangrova_ha TO pangrova;
   GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
   ```
 - [ ] Database connection string verified from each Coordinator:
@@ -112,9 +110,10 @@ Work through each section in order. Check off each item before proceeding to the
 
 ## Phase 3 — TLS at the Load Balancer
 
-Pangrova nodes do not terminate TLS themselves — TLS is terminated at the load
-balancer / ingress in front of the Coordinators. Coordinator and Worker HTTP
-endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
+The public client HTTP endpoint does not terminate TLS itself — terminate public
+TLS at the load balancer / ingress. Internal Worker control, transport, and COPY
+channels may require the configured mTLS material; this does not turn the public
+Coordinator port into a TLS endpoint.
 
 - [ ] Server certificate installed on the load balancer / ingress
   - Subject Alternative Names (SANs) include the public FQDN
@@ -156,6 +155,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] Coordinator nodes reachable from clients on port 8080 (HTTP) or 443 (HTTPS behind load balancer)
 - [ ] Coordinator nodes reachable from Worker nodes on port 8080
 - [ ] Worker nodes reachable from Coordinator on port 8081 (management) and 9090 (transport/shuffle)
+- [ ] If private COPY task transport is configured, set a fixed `worker.copy.task-tls-port`, expose that port only to Coordinator nodes, and verify the Worker certificate SAN covers `worker.advertised-host`
 - [ ] Worker-to-Worker ports open: 9090 (Arrow Flight shuffle)
 - [ ] All inter-node communication BLOCKED from public internet (firewall rules or security groups)
 - [ ] Load balancer health check configured:
@@ -175,7 +175,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 
 - [ ] Pangrova registered as an application/client in the IdP
 - [ ] Client ID and Client Secret obtained and stored in secrets manager
-- [ ] `security.enabled: true` and `security.auth.type: OAUTH2` (or `LDAP`) set in `coordinator.yml` — startup fails with `CONFIG_MISSING_KEY` if `security.auth.type` is missing
+- [ ] `security.enabled: true` and `security.auth.type: OAUTH2` (or `LDAP`) set in `coordinator.yml` — startup fails with `CONFIG_INVALID_VALUE` if `security.auth.type` is missing
 - [ ] Test token obtained and validated:
   ```bash
   # Obtain a test token (example with client_credentials):
@@ -187,7 +187,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] Admin role group (`pangrova-admin`) provisioned in the IdP with at least one member
 - [ ] Authenticated request succeeds against the REST API:
   ```bash
-  curl -H "Authorization: Bearer <token>" https://pangrova.example.com/v1/namespaces
+  curl -H "Authorization: Bearer <token>" https://pangrova.example.com/v1/server/info
   ```
 - [ ] Unauthenticated request correctly returns `HTTP 401`
 
@@ -215,6 +215,12 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] For MinIO: verify `path-style-access: true` is set in catalog config
 - [ ] Storage credentials are injected via environment variables (not hardcoded in config files)
 - [ ] Catalog YAML file placed at `/etc/pangrova/catalog/<name>.yml` on all Coordinator nodes
+- [ ] Iceberg external writers conform to the
+  [deletion-file compatibility limits](../getting-started/catalogs/storage-backends.md#iceberg-deletion-file-compatibility):
+  DV Puffin footers are uncompressed, DV blobs have no compression codec, and
+  equality-delete inputs are rejected while their read capability is false.
+  Record the actual writer/artifact acceptance results before sign-off; a
+  documented format limit is not a passing external-writer qualification.
 - [ ] Test write and read from Pangrova CLI:
   ```bash
   # Quick connectivity test (interactive CLI):
@@ -226,6 +232,10 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 
 ## Phase 8 — First Deployment
 
+- [ ] If deploying the optional Shuffle service, build its image with the
+  `pangrova-shuffle-service-<version>-exec.jar` standalone executable. The ordinary
+  Maven JAR contains only the service classes and is used by Java consumers;
+  keep the executable's bundled dependencies off those consumers' classpaths.
 - [ ] Configuration files installed on all nodes (under `PANGROVA_CONF_DIR`, e.g. `/etc/pangrova`):
   - `/etc/pangrova/coordinator.yml` (Coordinator nodes)
   - `/etc/pangrova/worker.yml` (Worker nodes — security keys also live here, e.g. `worker.internal-auth-secret`)
@@ -235,17 +245,17 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   - `/etc/pangrova/catalog/` (catalog configuration files)
 - [ ] Startup smoke check passes on each Coordinator (no `--validate` mode exists — start, then probe health):
   ```bash
-  systemctl start pangrova-coordinator
+  /opt/pangrova/bin/pangrova-coordinator.sh --daemon
   curl -sf http://localhost:8080/v1/health && echo OK
   ```
 - [ ] Startup smoke check passes on each Worker:
   ```bash
-  systemctl start pangrova-worker
-  curl -sf http://localhost:8081/v1/health || journalctl -u pangrova-worker --no-pager | tail -20
+  /opt/pangrova/bin/pangrova-worker.sh --daemon
+  curl -sf http://localhost:8081/v1/health || tail -n 50 /var/log/pangrova/worker.log
   ```
 - [ ] **Start Coordinators first** (in order; wait for each to reach LEADER/STANDBY state before starting the next):
   ```bash
-  systemctl start pangrova-coordinator
+  /opt/pangrova/bin/pangrova-coordinator.sh --daemon
   # Wait for log line: "event=ha_started ... role=LEADER" or "role=STANDBY"
   journalctl -u pangrova-coordinator -f | grep -m1 "role="
   ```
@@ -255,12 +265,12 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```
 - [ ] **Start Workers** (all can start in parallel):
   ```bash
-  systemctl start pangrova-worker
+  /opt/pangrova/bin/pangrova-worker.sh --daemon
   ```
-- [ ] All Workers registered and HEALTHY:
+- [ ] All Workers registered and ACTIVE:
   ```bash
   curl -s http://coordinator:8080/api/workers | python3 -m json.tool
-  # All workers should show healthState: "HEALTHY"
+  # All workers should show healthState: "ACTIVE"
   ```
 
 ---
@@ -285,12 +295,12 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```
 - [ ] Application logs being written to rolling files:
   ```bash
-  ls -la /var/log/pangrova/pangrova-coordinator.log
-  ls -la /var/log/pangrova/pangrova-worker.log
+  ls -la /var/log/pangrova/coordinator.log
+  ls -la /var/log/pangrova/worker.log
   ```
 - [ ] Error log file is empty on a clean startup (no errors on start):
   ```bash
-  wc -l /var/log/pangrova/pangrova-coordinator-error.log   # should be 0
+  wc -l /var/log/pangrova/coordinator-error.log   # should be 0
   ```
 - [ ] Alert rules configured for: Coordinator leader loss, Worker DEAD, heap OOM, query timeout rate spike
 
@@ -331,7 +341,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```bash
   /opt/pangrova/bin/pangrova-cli.sh --host coordinator --port 8080 \
       --catalog <catalog> --schema <schema>
-  # paste each query from pangrova-testing/pangrova-test-benchmark/queries/tpch/ and record runtimes
+  # paste each query from pangrova-testing/pangrova-testing-benchmark/queries/tpch/ and record runtimes
   ```
 - [ ] Coordinator heap usage under sustained load stays below 80% of `-Xmx`
 - [ ] Worker heap usage stays below 80% of `-Xmx`; GC pause P99 < 500 ms
@@ -356,6 +366,40 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   - [ ] What to do when coordinator log shows `OOM`, `LEADER_LOST`, `WORKER_DEAD`
 - [ ] Escalation path documented (who to page, with contact info)
 - [ ] Monitoring dashboards linked in the runbook (Grafana URLs, alert manager links)
+
+---
+
+## Appendix — Industry-grade qualification gates
+
+These gates are release conditions, not current results. Any failed gate makes the
+release verdict `NO-GO`; do not change the verdict by editing reports, dropping failed
+samples, raising limits, extending timeouts, or disabling tests.
+
+| Gate | Required result |
+|---|---|
+| Build provenance | Clean, reproducible, signed digest; manifest + build logs |
+| Native/JNI | Release/ASan/UBSan green; CTest XML + sanitizer logs |
+| Java/E2E | 0 failed/error/skipped; suite counts match |
+| TPC-H | SF100/SF1000 22/22 correct; raw samples + digest |
+| TPC-DS | SF100/SF1000 99/99 correct; raw samples + digest |
+| Comparator | Four engines, three rounds, fairness review |
+| Scale | 32 Workers >= 70% scale efficiency, or an approved saturation boundary |
+| Split | 100k/1m splits correct with bounded memory |
+| Skew/backpressure | Bounded queues, no head-of-line deadlock |
+| Failover | No silent partial result, no duplicate commit |
+| Soak | 72h without leak/deadlock/OOM |
+| Production | 7d shadow + canary SLO |
+| Upgrade/rollback | N-1 -> N -> N-1 drill |
+| Security/compliance | No secrets/PII; TPC claims compliant |
+
+Correctness uses TPC-H 22/22 and TPC-DS 99/99 with 0 missing/skip; unordered results
+compare as a multiset digest and ordered results by sequence digest. Performance
+regression fails when P50 increases >10% or P99 >15% with non-overlapping confidence
+intervals, or throughput drops >10%. Failure recovery: a single Worker SIGKILL either
+retries within the configured deadline or returns an explicit failure; a Coordinator
+active SIGKILL lets a new leader accept queries within 30 seconds; late attempts
+cannot overwrite a winner; cancellation reclaims tasks, buffers, spill, temporary
+files, and handles within 30 seconds.
 
 ---
 

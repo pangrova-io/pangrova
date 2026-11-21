@@ -1,0 +1,33 @@
+[package]
+name = "pangrova-lance-sdk-writer-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+lance = "0.20"
+lance-core = "0.20"
+lance-encoding = "0.20"
+lance-file = "0.20"
+lance-io = "0.20"
+arrow-array = "53"
+arrow-buffer = "53"
+arrow-schema = "53"
+object_store = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+futures = "0.3"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+reqwest = { version = "0.12", default-features = false }
+url = "2"
+
+[patch.crates-io]
+lance = { path = "../../deps-download/lance-sdk-owned/lance-0.20.0" }
+lance-file = { path = "../../deps-download/lance-sdk-owned/lance-file-0.20.0" }
+lance-io = { path = "../../deps-download/lance-sdk-owned/lance-io-0.20.0" }
+lance-encoding = { path = "../../deps-download/lance-sdk-owned/lance-encoding-0.20.0" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4

@@ -5,12 +5,13 @@ import java.util.Map;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Extracts partition values from Base64-encoded SplitInfo protobuf bytes.
+ * Extracts partition values from Base64-encoded canonical v2 DataSplit bytes.
  *
  * <p>Used by {@link DynamicFilterApplicator} to evaluate dynamic filters
  * against split partition metadata before passing splits to native execution.</p>
@@ -35,8 +36,7 @@ final class SplitPartitionExtractor {
         }
         try {
             byte[] bytes = Base64.getDecoder().decode(encodedSplit);
-            SplitInfo splitInfo = SplitInfo.parseFrom(bytes);
-            return splitInfo.getPartitionValuesMap();
+            return DataSplitProtoCodec.stringPartitionValues(DataSplit.parseFrom(bytes));
         } catch (IllegalArgumentException e) {
             LOG.warn("event=split_decode_failed error={}", e.getMessage());
             return Map.of();

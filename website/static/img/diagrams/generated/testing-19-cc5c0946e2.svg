@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="791" height="551" viewBox="0 0 791 551" role="img">
+<rect width="791" height="551" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="789.5" height="549.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">1. Environment Setup</text>
+<path d="M61.400000000000006 57.0 L61.400000000000006 68.0 L72.4 62.5 z" fill="#D97706"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">     Provision cluster (Terraform / K8s)</text>
+<path d="M61.400000000000006 76.0 L61.400000000000006 87.0 L72.4 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">     Generate data: dbgen SF=100 / dsdgen SF=1000</text>
+<path d="M61.400000000000006 95.0 L61.400000000000006 106.0 L72.4 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">     Load into Iceberg tables</text>
+<path d="M61.400000000000006 114.0 L61.400000000000006 125.0 L72.4 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">     Run ANALYZE TABLE on all tables</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">2. Warm-up Phase</text>
+<path d="M61.400000000000006 171.0 L61.400000000000006 182.0 L72.4 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">     Execute each query once (results discarded)</text>
+<path d="M61.400000000000006 190.0 L61.400000000000006 201.0 L72.4 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">     Ensure data cache is populated</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">3. Power Run (single-stream)</text>
+<path d="M61.400000000000006 247.0 L61.400000000000006 258.0 L72.4 252.5 z" fill="#D97706"/>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">     Execute all queries sequentially (Q1..Q22 for TPC-H, Q1..Q99 for TPC-DS)</text>
+<path d="M61.400000000000006 266.0 L61.400000000000006 277.0 L72.4 271.5 z" fill="#D97706"/>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">     Record wall-clock time per query</text>
+<path d="M61.400000000000006 285.0 L61.400000000000006 296.0 L72.4 290.5 z" fill="#D97706"/>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">     Record peak memory per query</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">4. Throughput Run (multi-stream, optional)</text>
+<path d="M61.400000000000006 342.0 L61.400000000000006 353.0 L72.4 347.5 z" fill="#D97706"/>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">     TPC-H: 4 concurrent streams</text>
+<path d="M61.400000000000006 361.0 L61.400000000000006 372.0 L72.4 366.5 z" fill="#D97706"/>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">     TPC-DS: 8 concurrent streams</text>
+<path d="M61.400000000000006 380.0 L61.400000000000006 391.0 L72.4 385.5 z" fill="#D97706"/>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">     Record total elapsed time</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">5. Collect Results</text>
+<path d="M61.400000000000006 437.0 L61.400000000000006 448.0 L72.4 442.5 z" fill="#D97706"/>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">     Per-query latency (p50, p95, p99 over 3 runs)</text>
+<path d="M61.400000000000006 456.0 L61.400000000000006 467.0 L72.4 461.5 z" fill="#D97706"/>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">     Peak memory usage</text>
+<path d="M61.400000000000006 475.0 L61.400000000000006 486.0 L72.4 480.5 z" fill="#D97706"/>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">     Spill bytes (if any)</text>
+<path d="M61.400000000000006 494.0 L61.400000000000006 505.0 L72.4 499.5 z" fill="#D97706"/>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">     Total Power Run time</text>
+</g>
+</svg>

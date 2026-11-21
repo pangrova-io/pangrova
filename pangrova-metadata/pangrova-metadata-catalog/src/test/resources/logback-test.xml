@@ -1,0 +1,15 @@
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -- %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Container and file-space tests must not emit connection-level DEBUG to the build log. -->
+  <logger name="org.eclipse.jetty" level="INFO" />
+  <logger name="org.testcontainers" level="INFO" />
+  <logger name="com.github.dockerjava" level="WARN" />
+  <root level="INFO">
+    <appender-ref ref="CONSOLE" />
+  </root>
+</configuration>

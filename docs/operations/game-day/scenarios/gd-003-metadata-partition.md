@@ -18,11 +18,14 @@ description: "Game-day scenario for metadata-store isolation"
 
 ## Objective
 
-Validate that the Pangrova cluster handles metadata store unavailability gracefully. Verify that queries using cached metadata continue to work, new DDL operations fail with clear errors, and full functionality resumes when the partition heals.
+Validate that metadata-authority unavailability fails closed. New authorization,
+admission, and mutations must not use a cache hit as a substitute for the shared
+authority. Observe already admitted queries separately, and verify that normal
+operation resumes only after the authority is reachable and state is reconciled.
 
 ## Prerequisites
 
-- Staging cluster with external metadata store (e.g., PostgreSQL or etcd)
+- Staging cluster with the shared PostgreSQL metadata authority
 - Network control capability on coordinator nodes (iptables or tc)
 - Active workload with mix of DDL and DML queries
 - Metadata cache warm (recent queries have populated cache)
@@ -33,7 +36,7 @@ Validate that the Pangrova cluster handles metadata store unavailability gracefu
 
 ```bash
 # Verify metadata store connectivity
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint http://coordinator:8080 \
   --query "SHOW TABLES IN benchmark" \
   --interval 2s \
@@ -48,7 +51,7 @@ ssh coordinator "iptables -A OUTPUT -d metadata-store -j DROP"
 ssh coordinator "iptables -A INPUT -s metadata-store -j DROP"
 
 # Start recovery measurement
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint http://coordinator:8080 \
   --probe-query "SHOW TABLES IN benchmark" \
   --timeout 180s \
@@ -61,7 +64,7 @@ Test and record behavior for each query type:
 
 | Query Type | Expected Behavior | Actual |
 |-----------|-------------------|--------|
-| SELECT (cached table) | Succeeds (uses cached metadata) | |
+| SELECT (cached table) | Rejects when required live authority is unavailable; a cache hit cannot bypass authorization | |
 | SELECT (uncached table) | Fails with clear error | |
 | CREATE TABLE | Fails with metadata unavailable error | |
 | INSERT INTO (cached) | Succeeds or fails gracefully | |

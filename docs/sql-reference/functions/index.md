@@ -25,7 +25,7 @@ Pangrova provides a comprehensive set of built-in functions organized by categor
 | [Array](array.md) | Array construction and predicates | `ARRAY[...]`, `ARRAY_CONTAINS`, `ARRAY_CONTAINS_ALL` |
 | [Map](map.md) | Map construction and access | `MAP[...]`, `map_column['key']` |
 | [Struct](struct.md) | Composite value construction and access | `STRUCT(...)`, `ROW(...)`, dot notation |
-| [Table Functions](table-functions.md) | Row-producing functions for `LATERAL TABLE` | `EXPLODE`, `POSEXPLODE`, `GENERATE_SERIES` |
+| [Table Functions](table-functions.md) | Row-producing functions in `FROM` | `UNNEST`, `EXPLODE`, `POSEXPLODE`, `GENERATE_SERIES` |
 | [Spatial](spatial.md) | Geospatial operations | `ST_INTERSECTS`, `ST_WITHIN`, `ST_CONTAINS` |
 | [Vector](vector.md) | Embedding similarity | `L2_DISTANCE`, `COSINE_DISTANCE`, `INNER_PRODUCT` |
 | [Vector Search](vector-search.md) | ANN search end-to-end | distance functions in `ORDER BY ... LIMIT`, `RERANK BY`, hybrid search |

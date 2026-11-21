@@ -1,0 +1,17 @@
+diff --git a/folly/net/NetOps.cpp b/folly/net/NetOps.cpp
+--- a/folly/net/NetOps.cpp
++++ b/folly/net/NetOps.cpp
+@@ -26,2 +26,3 @@
+ #include <cstddef>
++#include <type_traits>
+ #include <stdexcept>
+@@ -38,7 +39,7 @@
+ #if (defined(__linux__) && !defined(__ANDROID__)) ||                       \
+     (defined(__ANDROID__) && __ANDROID_API__ >= 21 /* released 2014 */) || \
+     defined(__FreeBSD__) || defined(__SGX__) || defined(__EMSCRIPTEN__)
+-static_assert(folly::to_bool(::recvmmsg));
+-static_assert(folly::to_bool(::sendmmsg));
++static_assert(std::is_function_v<decltype(::recvmmsg)>);
++static_assert(std::is_function_v<decltype(::sendmmsg)>);
+ #else
+ static int (*recvmmsg)(...) = nullptr;

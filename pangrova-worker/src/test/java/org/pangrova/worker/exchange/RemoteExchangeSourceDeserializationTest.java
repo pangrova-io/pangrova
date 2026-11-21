@@ -1,8 +1,8 @@
 package org.pangrova.worker.exchange;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
 import org.pangrova.worker.exchange.transport.PageDecoder;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;

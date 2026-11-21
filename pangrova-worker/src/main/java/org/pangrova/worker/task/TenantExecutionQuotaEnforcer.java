@@ -1,8 +1,9 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.exception.TenantQuotaExceededException;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.resource.tenant.TenantResourceTracker;
-import org.pangrova.resource.tenant.TenantResourceQuota;
+import org.pangrova.worker.resource.tenant.TenantResourceTracker;
+import org.pangrova.worker.resource.tenant.TenantResourceQuota;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,8 +18,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * to check whether a tenant has exceeded its memory or CPU time budget.
  * When a quota is exceeded, the task is cancelled.</p>
  *
- * <p>Concurrency strategy: all mutable state uses atomic types with CAS,
- * ensuring thread-safe accounting without locks.</p>
+ * <p>Each pre-registered task owns its slot and counters. Per-owner synchronization
+ * covers only in-memory quota accounting, never execution or external I/O.</p>
  */
 @ThreadSafe
 public final class TenantExecutionQuotaEnforcer {
@@ -27,32 +28,55 @@ public final class TenantExecutionQuotaEnforcer {
 
     private final TenantResourceTracker resourceTracker;
 
-    /** Per-task CPU time tracking: taskId → accumulated CPU time in milliseconds. */
-    private final Map<String, AtomicLong> taskCpuTime = new ConcurrentHashMap<>();
-
-    /** Per-task scan bytes tracking: taskId → accumulated scan bytes. */
-    private final Map<String, AtomicLong> taskScanBytes = new ConcurrentHashMap<>();
-
-    /** Per-task tenant mapping: taskId → tenantId. */
-    private final Map<String, String> taskTenantMap = new ConcurrentHashMap<>();
+    private final Map<String, TaskQuota> taskQuotas = new ConcurrentHashMap<>();
 
     public TenantExecutionQuotaEnforcer(TenantResourceTracker resourceTracker) {
         this.resourceTracker = resourceTracker;
     }
 
     /**
-     * Registers a task for quota tracking.
+     * Atomically reserves and registers a task's tenant concurrency slot.
      *
      * @param taskId   the worker-assigned task identifier
      * @param tenantId the tenant owning this task (null means no enforcement)
+     * @return whether this exact task owns a concurrency slot
      */
-    public void registerTask(String taskId, String tenantId) {
+    public boolean tryReserveTask(String taskId, String tenantId) {
+        return tryReserveTask(taskId, tenantId, 0);
+    }
+
+    /** Reserves a control operation's known JVM allowance together with its tenant slot. */
+    public boolean tryReserveTask(String taskId, String tenantId, long memoryBytes) {
+        java.util.Objects.requireNonNull(taskId, "taskId");
+        if (memoryBytes < 0) throw new IllegalArgumentException("Tenant memory reservation must be nonnegative");
         if (tenantId == null || tenantId.isBlank()) {
-            return;
+            return true;
         }
-        taskTenantMap.put(taskId, tenantId);
-        taskCpuTime.put(taskId, new AtomicLong(0));
-        taskScanBytes.put(taskId, new AtomicLong(0));
+        TaskQuota added = new TaskQuota(tenantId, memoryBytes);
+        TaskQuota existing = taskQuotas.putIfAbsent(taskId, added);
+        TaskQuota quota = existing == null ? added : existing;
+        synchronized (quota) {
+            if (!quota.tenantId.equals(tenantId)) {
+                throw new IllegalArgumentException("Task quota tenant cannot change: " + taskId);
+            }
+            if (quota.memoryBytes != memoryBytes) {
+                throw new IllegalArgumentException("Task quota memory reservation cannot change: " + taskId);
+            }
+            if (quota.released) return false;
+            if (quota.acquired) return true;
+            try {
+                quota.acquired = resourceTracker.tryAcquireQuery(tenantId);
+                if (quota.acquired && !resourceTracker.tryAllocateMemory(tenantId, memoryBytes)) {
+                    resourceTracker.releaseQuery(tenantId);
+                    quota.acquired = false;
+                }
+                if (!quota.acquired) taskQuotas.remove(taskId, quota);
+                return quota.acquired;
+            } catch (RuntimeException | Error failure) {
+                taskQuotas.remove(taskId, quota);
+                throw failure;
+            }
+        }
     }
 
     /**
@@ -62,14 +86,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @param cpuTimeDeltaMs incremental CPU time in milliseconds
      */
     public void recordCpuTime(String taskId, long cpuTimeDeltaMs) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
-        AtomicLong counter = taskCpuTime.get(taskId);
-        if (counter != null && cpuTimeDeltaMs > 0) {
-            counter.addAndGet(cpuTimeDeltaMs);
-        }
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota != null && cpuTimeDeltaMs > 0) quota.cpuTime.addAndGet(cpuTimeDeltaMs);
     }
 
     /**
@@ -79,14 +97,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @param scanBytesDelta incremental scan bytes
      */
     public void recordScanBytes(String taskId, long scanBytesDelta) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
-        AtomicLong counter = taskScanBytes.get(taskId);
-        if (counter != null && scanBytesDelta > 0) {
-            counter.addAndGet(scanBytesDelta);
-        }
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota != null && scanBytesDelta > 0) quota.scanBytes.addAndGet(scanBytesDelta);
     }
 
     /**
@@ -97,11 +109,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @return true if the task should be rejected/cancelled due to quota violation
      */
     public boolean isQuotaExceeded(String taskId) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return false;
-        }
-        return resourceTracker.isOverMemoryQuota(tenantId);
+        TaskQuota quota = taskQuotas.get(taskId);
+        return quota != null && resourceTracker.isOverMemoryQuota(quota.tenantId);
     }
 
     /**
@@ -111,53 +120,38 @@ public final class TenantExecutionQuotaEnforcer {
      * {@link TenantResourceTracker} as the quota source.
      *
      * <p>Called at task start and on each completion monitor poll cycle (stage boundary).
-     * Throws {@link TenantQuotaViolation} if any runtime quota is exceeded.</p>
+     * Throws {@link TenantQuotaExceededException} if any runtime quota is exceeded.</p>
      *
      * @param taskId the task identifier
-     * @throws TenantQuotaViolation if CPU time or scan bytes exceed tenant quota
+     * @throws TenantQuotaExceededException if CPU time or scan bytes exceed tenant quota
      */
     public void checkDuringExecution(String taskId) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
+        TaskQuota tracked = taskQuotas.get(taskId);
+        if (tracked == null) return;
+        String tenantId = tracked.tenantId;
         TenantResourceQuota quota = resourceTracker.getQuota(tenantId);
 
-        AtomicLong cpuCounter = taskCpuTime.get(taskId);
+        AtomicLong cpuCounter = tracked.cpuTime;
         if (cpuCounter != null && quota.hasCpuTimeLimit()) {
             long cpuTimeMs = cpuCounter.get();
             if (cpuTimeMs > quota.maxCpuTimePerQueryMs()) {
                 LOG.warn("event=quota_cpu_time_exceeded taskId={} tenantId={} cpuTimeMs={} limitMs={}",
                         taskId, tenantId, cpuTimeMs, quota.maxCpuTimePerQueryMs());
-                throw new TenantQuotaViolation(tenantId, "CPU_TIME",
+                throw new TenantQuotaExceededException(tenantId, "CPU_TIME",
                         "CPU time exceeded: " + cpuTimeMs + "ms > " + quota.maxCpuTimePerQueryMs() + "ms");
             }
         }
 
-        AtomicLong scanCounter = taskScanBytes.get(taskId);
+        AtomicLong scanCounter = tracked.scanBytes;
         if (scanCounter != null && quota.hasScanBytesLimit()) {
             long scanBytes = scanCounter.get();
             if (scanBytes > quota.maxScanBytesPerQuery()) {
                 LOG.warn("event=quota_scan_bytes_exceeded taskId={} tenantId={} scanBytes={} limitBytes={}",
                         taskId, tenantId, scanBytes, quota.maxScanBytesPerQuery());
-                throw new TenantQuotaViolation(tenantId, "SCAN_BYTES",
+                throw new TenantQuotaExceededException(tenantId, "SCAN_BYTES",
                         "Scan bytes exceeded: " + scanBytes + " > " + quota.maxScanBytesPerQuery());
             }
         }
-    }
-
-    /**
-     * Checks whether a new task can be admitted for the given tenant.
-     * Verifies both memory and concurrency quotas.
-     *
-     * @param tenantId the tenant identifier
-     * @return true if the task is admitted, false if quota is exceeded
-     */
-    public boolean canAdmitTask(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            return true;
-        }
-        return resourceTracker.tryAcquireQuery(tenantId);
     }
 
     /**
@@ -166,12 +160,16 @@ public final class TenantExecutionQuotaEnforcer {
      * @param taskId the task identifier
      */
     public void releaseTask(String taskId) {
-        String tenantId = taskTenantMap.remove(taskId);
-        if (tenantId != null) {
-            resourceTracker.releaseQuery(tenantId);
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota == null) return;
+        synchronized (quota) {
+            if (quota.acquired && !quota.released) {
+                resourceTracker.releaseMemory(quota.tenantId, quota.memoryBytes);
+                resourceTracker.releaseQuery(quota.tenantId);
+            }
+            quota.released = true;
+            taskQuotas.remove(taskId, quota);
         }
-        taskCpuTime.remove(taskId);
-        taskScanBytes.remove(taskId);
     }
 
     /**
@@ -195,20 +193,18 @@ public final class TenantExecutionQuotaEnforcer {
         return resourceTracker.getQuota(tenantId);
     }
 
-    /**
-     * Exception indicating a tenant quota violation during execution.
-     */
-    public static final class TenantQuotaViolation extends RuntimeException {
+    private static final class TaskQuota {
         private final String tenantId;
-        private final String violationType;
+        private final long memoryBytes;
+        private final AtomicLong cpuTime = new AtomicLong();
+        private final AtomicLong scanBytes = new AtomicLong();
+        private boolean acquired;
+        private boolean released;
 
-        public TenantQuotaViolation(String tenantId, String violationType, String message) {
-            super(message);
+        private TaskQuota(String tenantId, long memoryBytes) {
             this.tenantId = tenantId;
-            this.violationType = violationType;
+            this.memoryBytes = memoryBytes;
         }
-
-        public String tenantId() { return tenantId; }
-        public String violationType() { return violationType; }
     }
+
 }

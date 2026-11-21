@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="594" height="190" viewBox="0 0 594 190" role="img">
+<rect width="594" height="190" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="592.5" height="188.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">Native task / output buffers</text>
+<path d="M52.0 57.0 L52.0 68.0 L63.0 62.5 z" fill="#D97706"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">    Native FlightResultServer</text>
+<path d="M70.8 76.0 L70.8 87.0 L81.8 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">      Arrow RecordBatch / IPC stream</text>
+<path d="M89.60000000000001 95.0 L89.60000000000001 106.0 L100.60000000000001 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">        authenticated result endpoint</text>
+<path d="M108.4 114.0 L108.4 125.0 L119.4 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">          client consumes stream to EOF</text>
+<path d="M127.19999999999999 133.0 L127.19999999999999 144.0 L138.2 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">            output acknowledgement / Native task release</text>
+</g>
+</svg>

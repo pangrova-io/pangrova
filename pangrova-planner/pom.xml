@@ -14,26 +14,53 @@
     <name>Pangrova Planner</name>
     <description>Calcite-based query planner with custom optimization rules</description>
 
+    <properties>
+        <module.name>org.pangrova.planner</module.name>
+    </properties>
+
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-governance-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-exchange</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-api</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-policy-builtin</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
-        </dependency>        <!-- Internal module dependencies (versions inherited from parent) -->
+            <artifactId>pangrova-ai-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-function-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+        <!-- Internal module dependencies (versions inherited from parent) -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-parser</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
+            <artifactId>pangrova-security-access</artifactId><scope>test</scope></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-protocol</artifactId>
         </dependency>
 
         <!-- Calcite core -->
@@ -56,8 +83,12 @@
 
         <!-- PERF-T7: Caffeine cache for lock-free PlanCache (version managed by parent BOM) -->
         <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-testing-kit</artifactId><scope>test</scope></dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <!-- Test dependencies (versions inherited from parent) -->

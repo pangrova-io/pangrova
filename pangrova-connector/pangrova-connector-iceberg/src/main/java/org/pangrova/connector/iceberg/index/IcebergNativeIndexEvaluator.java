@@ -1,12 +1,12 @@
 package org.pangrova.connector.iceberg.index;
 
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.index.IndexEvalResult;
-import org.pangrova.spi.index.predicate.EqualTo;
-import org.pangrova.spi.index.predicate.IndexPredicate;
-import org.pangrova.spi.index.predicate.RangeQuery;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.enums.NativeIndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Conversions;

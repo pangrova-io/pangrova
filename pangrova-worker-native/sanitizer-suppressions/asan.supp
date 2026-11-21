@@ -14,6 +14,10 @@ leak:re2::RE2::DoMatch
 
 # Protobuf arena allocations are intentionally leaked at process exit
 leak:google::protobuf::Arena
+# The generated descriptor pool is a single process-global allocation made
+# before main; it is still reported with zero test cases after explicit
+# ShutdownProtobufLibrary(). Do not suppress per-query DescriptorPool creation.
+leak:NewGeneratedPool
 
 # folly internals (used by Velox)
 leak:folly::SingletonVault

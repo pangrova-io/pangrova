@@ -14,14 +14,9 @@
 #include <vector>
 
 #include "vector/VectorTopKHeap.h"
+#include "vector/VectorDistance.h"
 
 namespace pangrova::vector {
-
-enum class DistanceMetric : uint8_t {
-  L2 = 0,
-  COSINE = 1,
-  INNER_PRODUCT = 2,
-};
 
 struct VectorScanResult {
   std::vector<ScoredRow> rows;

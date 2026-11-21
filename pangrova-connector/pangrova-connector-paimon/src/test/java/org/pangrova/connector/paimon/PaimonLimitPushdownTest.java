@@ -1,9 +1,9 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -33,6 +33,11 @@ class PaimonLimitPushdownTest {
     private PaimonMetadata metadata;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test_catalog"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
@@ -50,7 +55,7 @@ class PaimonLimitPushdownTest {
                 .column("name", DataTypes.STRING())
                 .build();
         catalog.createTable(Identifier.create("db", "orders"), schema, false);
-        metadata = new PaimonMetadata(catalog, "test_catalog");
+        metadata = new PaimonMetadata(catalog, "test_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
     }
 
     @Test
@@ -91,7 +96,7 @@ class PaimonLimitPushdownTest {
     void applyFilter_emptyConstraintReturnsEmpty() {
         ConnectorTableHandle handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
         Optional<ConnectorTableHandle> result = metadata.applyFilter(
-                SESSION, handle, org.pangrova.spi.connector.metadata.Constraint.EMPTY);
+                SESSION, handle, org.pangrova.connector.api.metadata.Constraint.EMPTY);
 
         assertThat(result).isEmpty();
     }
@@ -104,9 +109,9 @@ class PaimonLimitPushdownTest {
         var columnHandles = metadata.getColumnHandles(SESSION, handle);
         var idColumn = columnHandles.get("id");
 
-        var topN = new org.pangrova.spi.connector.metadata.TopNInfo(
-                java.util.List.of(new org.pangrova.spi.connector.metadata.TopNInfo.SortColumn(
-                        idColumn, org.pangrova.spi.connector.metadata.TopNInfo.SortOrder.ASC_NULLS_LAST)),
+        var topN = new org.pangrova.connector.api.metadata.TopNInfo(
+                java.util.List.of(new org.pangrova.connector.api.metadata.TopNInfo.SortColumn(
+                        idColumn, org.pangrova.connector.api.enums.ConnectorSortOrder.ASC_NULLS_LAST)),
                 5);
 
         Optional<ConnectorTableHandle> result = metadata.applyTopN(SESSION, handle, topN);

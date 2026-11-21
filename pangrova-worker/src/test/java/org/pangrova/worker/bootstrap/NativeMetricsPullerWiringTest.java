@@ -1,11 +1,13 @@
 package org.pangrova.worker.bootstrap;
 
-import org.pangrova.observability.metrics.NativeMetricsPuller;
-import org.pangrova.observability.metrics.NativeMetricsPublisher;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
-import org.pangrova.testing.TestObservability;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.testing.testkit.constants.TestObservability;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -58,7 +60,11 @@ class NativeMetricsPullerWiringTest {
                 r -> new Thread(r, "test-native-metrics"));
         try {
             executor.scheduleAtFixedRate(publisher::pullAndPublish, 0, 50, TimeUnit.MILLISECONDS);
-            Thread.sleep(200);
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(2))
+                    .untilAsserted(() -> {
+                        assertThat(pullCount.get()).isGreaterThanOrEqualTo(2);
+                        assertThat(publisher.getMemoryUsedBytes()).isEqualTo(512L);
+                    });
             assertThat(pullCount.get()).isGreaterThanOrEqualTo(2);
             assertThat(publisher.getMemoryUsedBytes()).isEqualTo(512L);
         } finally {
@@ -93,7 +99,7 @@ class NativeMetricsPullerWiringTest {
     }
 
     @Test
-    void workerBootstrapStartsAndStopsWithoutNative() {
+    void workerBootstrapStartsAndStopsWithPackagedNative() {
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "wiring-test-worker", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -101,8 +107,8 @@ class NativeMetricsPullerWiringTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
 
         try {
             bootstrap.start();

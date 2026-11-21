@@ -1,5 +1,7 @@
 package org.pangrova.worker.property.transport;
 
+import org.pangrova.protocol.enums.DataTicketType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import net.jqwik.api.Arbitraries;
@@ -9,10 +11,10 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import org.pangrova.spi.transport.DataTicket;
-import org.pangrova.spi.transport.TransportServerConfig;
+import org.pangrova.protocol.transport.DataTicket;
+import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.worker.transport.TransportClient;
-import org.pangrova.worker.transport.TransportServer;
+import org.pangrova.transport.flight.TransportServer;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -64,7 +66,7 @@ class BatchStreamSlowProducerPropertyTest {
         registry.clear();
         ticketCounter.set(0);
         server = new TransportServer(
-                ticket -> {
+                ticket -> () -> {
                     SlowProducerState state = registry.get(ticket.queryId());
                     if (state == null) {
                         return new byte[0]; // unknown ticket → EOF
@@ -107,7 +109,7 @@ class BatchStreamSlowProducerPropertyTest {
         byte[] batchData = buildIpc(rowCount);
         registry.put(queryId, new SlowProducerState(nullsBefore, batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
 
         assertThat(received).isNotNull();
@@ -129,7 +131,7 @@ class BatchStreamSlowProducerPropertyTest {
         // Zero nulls before data — immediate delivery, then EOF
         registry.put(queryId, new SlowProducerState(0, batchData));
 
-        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicket.TicketType.RESULT);
+        DataTicket ticket = new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
         byte[] received = client.doGet(ticket);
 
         assertThat(received).isNotNull();

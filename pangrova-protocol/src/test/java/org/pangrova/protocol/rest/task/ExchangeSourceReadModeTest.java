@@ -1,10 +1,13 @@
 package org.pangrova.protocol.rest.task;
 
+import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.pangrova.protocol.rest.task.ProtocolTestFixtures.exchangeSource;
 
 /**
  * Validates ExchangeSourceDescriptor readMode field serialization and backward compatibility.
@@ -15,26 +18,26 @@ class ExchangeSourceReadModeTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    @DisplayName("7-arg constructor sets readMode")
+    @DisplayName("canonical descriptor sets readMode")
     void fullConstructorSetsReadMode() {
-        ExchangeSourceDescriptor src = new ExchangeSourceDescriptor(
-                "task-1", "host-1", 9090, 0, "SHUFFLE", 1L, "BLOCKING");
+        ExchangeSourceDescriptor src = exchangeSource(
+                "task-1", "host-1", 9090, 0, "BLOCKING", 1L);
         assertEquals("BLOCKING", src.readMode());
     }
 
     @Test
-    @DisplayName("6-arg backward-compatible constructor defaults to BLOCKING")
-    void backwardCompatibleConstructorDefaultsToBlocking() {
-        ExchangeSourceDescriptor src = new ExchangeSourceDescriptor(
-                "task-1", "host-1", 9090, 0, "SHUFFLE", 1L);
+    @DisplayName("null readMode defaults to BLOCKING")
+    void nullReadModeDefaultsToBlocking() {
+        ExchangeSourceDescriptor src = exchangeSource(
+                "task-1", "host-1", 9090, 0, null, 1L);
         assertEquals("BLOCKING", src.readMode());
     }
 
     @Test
     @DisplayName("STREAMING readMode preserved through serialization")
     void streamingReadModeRoundTrip() throws Exception {
-        ExchangeSourceDescriptor original = new ExchangeSourceDescriptor(
-                "task-1", "host-1", 9090, 0, "BROADCAST", 1L, "STREAMING");
+        ExchangeSourceDescriptor original = exchangeSource(
+                "task-1", "host-1", 9090, 0, "STREAMING", 1L);
         byte[] bytes = mapper.writeValueAsBytes(original);
         ExchangeSourceDescriptor deserialized = mapper.readValue(bytes, ExchangeSourceDescriptor.class);
         assertEquals("STREAMING", deserialized.readMode());
@@ -43,21 +46,21 @@ class ExchangeSourceReadModeTest {
     @Test
     @DisplayName("BLOCKING readMode preserved through serialization")
     void blockingReadModeRoundTrip() throws Exception {
-        ExchangeSourceDescriptor original = new ExchangeSourceDescriptor(
-                "task-1", "host-1", 9090, 0, "HASH", 1L, "BLOCKING");
+        ExchangeSourceDescriptor original = exchangeSource(
+                "task-1", "host-1", 9090, 0, "BLOCKING", 1L);
         byte[] bytes = mapper.writeValueAsBytes(original);
         ExchangeSourceDescriptor deserialized = mapper.readValue(bytes, ExchangeSourceDescriptor.class);
         assertEquals("BLOCKING", deserialized.readMode());
     }
 
     @Test
-    @DisplayName("Null readMode in JSON deserialized as null")
-    void nullReadModeDeserializedAsNull() throws Exception {
-        String json = """
-                {"source_task_id":"t1","host":"h1","transport_port":9090,
-                 "partition_id":0,"exchange_type":"SHUFFLE","sequence_id":1}
-                """;
-        ExchangeSourceDescriptor src = mapper.readValue(json, ExchangeSourceDescriptor.class);
-        assertNull(src.readMode());
+    @DisplayName("missing readMode in otherwise complete JSON defaults to BLOCKING")
+    void missingReadModeDeserializedAsBlocking() throws Exception {
+        String json = mapper.writeValueAsString(exchangeSource(
+                "task-1", "host-1", 9090, 0, "BLOCKING", 1L));
+        String withoutReadMode = json.replace(",\"read_mode\":\"BLOCKING\"", "");
+        ExchangeSourceDescriptor src = mapper.readValue(
+                withoutReadMode, ExchangeSourceDescriptor.class);
+        assertEquals("BLOCKING", src.readMode());
     }
 }

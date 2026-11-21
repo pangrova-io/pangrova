@@ -13,11 +13,12 @@
  */
 package org.pangrova.planner.security;
 
+import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.planner.security.expression.FilterExpressionParser;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AuthenticationRequiredException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.exception.AuthenticationRequiredException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.logical.LogicalFilter;
@@ -44,12 +45,30 @@ public final class RowFilterApplier {
     private static final Logger LOG = LoggerFactory.getLogger(RowFilterApplier.class);
 
     private final AccessControl accessControl;
-    private final SecurityExpressionCache expressionCache;
+    private final PolicyObservationSink observations;
+    private final java.util.Map<QualifiedTableName, QualifiedTableName> physicalToLogical;
 
-    public RowFilterApplier(AccessControl accessControl,
-                             SecurityExpressionCache expressionCache) {
-        this.accessControl = accessControl;
-        this.expressionCache = expressionCache;
+    public RowFilterApplier(AccessControl accessControl) {
+        this(accessControl, null, java.util.Map.of());
+    }
+
+    private RowFilterApplier(AccessControl accessControl, PolicyObservationSink observations,
+            java.util.Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
+        this.accessControl = java.util.Objects.requireNonNull(accessControl, "accessControl");
+        this.observations = observations;
+        this.physicalToLogical = java.util.Map.copyOf(physicalToLogical);
+    }
+
+    /** Binds observations to this query without changing the policy authority. */
+    public RowFilterApplier observing(PolicyObservationSink sink) {
+        return new RowFilterApplier(accessControl, java.util.Objects.requireNonNull(sink, "sink"),
+                physicalToLogical);
+    }
+
+    /** Uses logical Dynamic Table policy identity for this query's physical scans. */
+    public RowFilterApplier withAuthorityMapping(
+            java.util.Map<QualifiedTableName, QualifiedTableName> mapping) {
+        return new RowFilterApplier(accessControl, observations, mapping);
     }
 
     /**
@@ -67,6 +86,12 @@ public final class RowFilterApplier {
     }
 
     private RelNode applyFiltersRecursive(RelNode node, UserIdentity identity) {
+        if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
+                && MutationPolicyInputs.modifiesExistingRows(modify)) {
+            return MutationPolicyInputs.rowFilters(modify,
+                    input -> applyFiltersRecursive(input, identity),
+                    scan -> applyFilterToScan(scan, identity));
+        }
         if (node instanceof TableScan scan) {
             return applyFilterToScan(scan, identity);
         }
@@ -76,16 +101,17 @@ public final class RowFilterApplier {
 
     private RelNode applyFilterToScan(TableScan scan, UserIdentity identity) {
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
-        String cacheKey = ref.catalog() + "." + ref.schema() + "." + ref.table();
-        Optional<String> filter = expressionCache.getOrCompute(
-                cacheKey, identity,
-                () -> accessControl.getRowFilter(
-                        identity, ref.catalog(), ref.schema(), ref.table()));
+        QualifiedTableName authority = physicalToLogical.getOrDefault(ref, ref);
+        Optional<String> filter = accessControl.getRowFilter(
+                identity, authority.catalog(), authority.schema(), authority.table());
+        if (observations != null) {
+            observations.rowFilter(ref, filter);
+        }
         if (filter.isEmpty()) {
             return scan;
         }
         String filterExpr = filter.get();
-        RelDataType fullTableRowType = scan.getTable().getRowType();
+        RelDataType fullTableRowType = PlanTable.require(scan).getRowType();
         RelDataType scanRowType = scan.getRowType();
         RexNode condition = FilterExpressionParser.parse(
                 filterExpr, fullTableRowType, scan.getCluster());

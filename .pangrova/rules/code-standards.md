@@ -1,168 +1,170 @@
 # Code Standards
 
-## Naming constraints
+Naming rules are enforced in review; SPI annotations, Checkstyle and SpotBugs are
+enforced by CI.
 
-These are design conventions. SPI annotation checks are enforced in CI; naming rules are enforced via code review.
+## Naming
 
-### P0 — Framework name isolation (C1)
-Class, package, and proto names must not leak framework names into modules that should be framework-agnostic:
-- **`Velox`**: banned in ALL Java source. C++ allowed only for direct Velox SPI implementations (`VeloxTaskRunner`, `VeloxPlanConverter`, `VeloxMemoryGovernor`, `PangrovaVeloxConnector`, `PangrovaVeloxDataSource`, `VeloxBatchReader`).
-- **`Arrow`**: banned in `spi`, `common`, `resource`, `observability`, `client-*`, `worker` (Java), `coordinator`, `planner`, `parser`, `metadata`, `governance`, `security`, `resilience`, `streaming`, `operations`. Allowed in `worker-native` (C++), `protocol`, `shuffle`.
-- **`Calcite`/`RelNode`/`RexNode`/`SqlNode`**: banned in `coordinator`, `worker`, `spi`, `protocol`. Allowed only in `planner`.
-- **`Flight`**: banned in `spi`, `common`, `protocol`, `client-*`, `coordinator`.
-- **`Iceberg`/`Paimon`**: banned in all except their own connector module.
-- **`Presto`**: banned everywhere. **`RSS`/`Rss`**: banned everywhere.
+### P0
 
-### P0 — Other naming rules
-- **C2**: No shared simple class name across modules. SPI keeps the name; collision side renames.
-- **C9**: Proto/JSON field names must not contain banned framework names.
-- **C10**: Banned package segments: `jaxrs/`, `rss/`, `dpp/`, `aqe/`, `sop/`, `rls/`, `dt/`.
+- Framework names appear in Java type, package and protobuf names only inside the
+  artifact that integrates that framework: Arrow/Flight in Batch, Transport, Shuffle,
+  Protocol and the observability SDK; Calcite (`RelNode`, `RexNode`, `SqlNode`) in
+  Planner; Iceberg/Paimon/Lance in their connector. `Velox` never appears in Java
+  names; in C++ only direct Velox integrations use it. `Presto` and `Rss` are banned
+  everywhere.
+- Fully qualified class names are unique across modules. Simple names may repeat in
+  distinct owner packages; add a capability qualifier when imports would be ambiguous.
+- Banned package segments: `jaxrs`, `rss`, `dpp`, `aqe`, `sop`, `rls`, `dt`.
 
-### P1 — Naming precision
-- **C3 abbreviation ban**: `Rss`, `Dpp`, `Aqe`, `MV`/`Mv` (prefix), `Dt` (prefix/pkg), `HA`/`ha` (prefix/pkg), `Sop`, `Repl`, `rls` (pkg), `Ipc` (class/method/field — use `Batch`/`Page`/`Stream`). Allowed: `DAG`, `CTE`, `RBAC`, `CDC`, `SQL`, `HTTP`, `gRPC`, `IPC` (comments only), `JNI`, `UDF`, `TLS`, `JDBC`, `LDAP`, `OAuth2`, `DTO`, `SPI`, `API`, `REST`, `ACL`.
-- **C4**: No `Impl` suffix — use descriptive names.
-- **C5**: Implementation class must not reuse the SPI interface's simple name.
-- **C11**: No GoF pattern suffixes (`*Adapter`, `*Bridge`, `*Proxy`, `*Decorator`, `*Facade`, `*Mediator`, `*Visitor`, `*Observer`). `*Strategy` allowed when the class genuinely is one.
-- **C12**: Functional interface names must not contain multiple verbs joined by `And`/`Or`/`Then`.
-- **C13**: Names must not expose internal delegation targets to callers (`PageSink*` in a class whose callers don't know about PageSink).
-- **C14**: `*Lookup` = key→single-value; `*Fetcher` = remote I/O; `*Resolver` = key→complex-result; `*Provider` = lazy/factory. Use the suffix matching actual behavior.
+### P1
 
-### P2
-- **C6**: `*Manager`/`*Helper`/`*Util` only if one-sentence responsibility.
-- **C7**: No `Simple*`/`Legacy*` in SPI.
-- **C8**: No `NoOp*` in SPI — belongs in impl modules.
+- Packages and types are nouns; methods are verbs. SQL AST types may be named by
+  statement keyword (`GrantPrivilegeStatement`). Keep SDK/protocol spelling at an
+  interoperability boundary.
+- Banned abbreviations: `Rss`, `Dpp`, `Aqe`, `Mv`/`MV` and `Dt` prefixes, `HA`/`ha`
+  prefixes or packages, `Sop`, `Repl`, `rls`, and `Ipc` in identifiers (use `Batch`,
+  `Page` or `Stream`). Allowed: `DAG`, `CTE`, `RBAC`, `CDC`, `SQL`, `HTTP`, `gRPC`,
+  `JNI`, `UDF`, `TLS`, `JDBC`, `LDAP`, `OAuth2`, `DTO`, `SPI`, `API`, `REST`, `ACL`.
+- No `Impl` suffix, and an implementation never reuses its interface's simple name.
+  Name a class for the contract it implements or the resource it owns; Pangrova-owned
+  types avoid `Adapter` and `Bridge` suffixes.
+- Functional interface names contain one verb (no `And`/`Or`/`Then` chains) and do not
+  expose internal delegation targets.
+- Suffixes match behavior: `*Lookup` key→value, `*Fetcher` remote I/O, `*Resolver`
+  key→complex result, `*Provider` lazy factory. `*Manager`/`*Helper`/`*Util` need a
+  one-sentence responsibility.
+- SPI packages contain no `Simple*`, `Legacy*` or `NoOp*` types.
 
-## Quality gates
+## Packages and Artifacts
 
-- Class ≤ 500 lines. Method ≤ 50 lines, ≤ 8 branches, ≤ 4 indent levels.
-- Constructor deps ≤ 6 (beyond that → `Dependencies` object). Method params ≤ 7 (beyond that → param object).
-- Interface methods ≤ 7 (consider splitting per ISP). Enum/constant class ≤ 30 values.
-- 3rd duplicate occurrence → extract.
-- No spec/design process references in code comments: ban task IDs, design section refs, phase labels.
+New or moved code follows these rules immediately; existing violations may only
+decrease. Ownership details are in `architecture.md` and `.pangrova/modules.yaml`.
 
-## Git & PR conventions
+- Each code-bearing leaf owns explicit package roots that never equal or
+  prefix-overlap another leaf's; a multi-leaf family root (`org.pangrova.worker`,
+  `.shuffle`, `.connector`, `.testing`) is claimed by one leaf at most.
+- Split packages are forbidden across main, test-fixture, generated, shaded and plugin
+  artifacts. Every code-bearing JAR has a unique `Automatic-Module-Name`.
+- Create an artifact only for a real boundary: a published contract, replaceable
+  implementation, SDK or classloader isolation, resource lifecycle, process or JNI
+  packaging, or reused codec/test infrastructure. No empty modules, aggregators
+  without children, or symmetry-only splits.
+- Contract artifacts compile, link and load on their declared minimal classpath. JDBC
+  pools and drivers, Flyway, Curator, cloud/provider SDKs and JWT libraries never reach
+  an API-only consumer transitively.
+- Cross-context code depends only on shared primitives, APIs, SPIs, Protocol or
+  producer-owned event packages, never another context's `.internal`, `.store`,
+  `.bootstrap`, `.endpoint` or `.server` packages. The same direction applies between
+  packages inside a merged artifact. `org.pangrova.common.event` holds only envelope,
+  identity, timestamp, version and publication primitives; there is no `event-api`.
+- Capability leaves never depend on a process artifact's assembly, server or bootstrap
+  packages; a same-family host port is a `provided` friend export.
+- Organize by business capability, then technical role (`metadata.api.catalog`,
+  `persistence.catalog.postgresql.dependency`). No horizontal `service`, `manager`,
+  `util`, `impl`, `model` or `store` packages; `model` only below a named capability.
+  Collapse intermediate `core`/`impl`/`adapter`/`provider` packages without own types.
+- Technology names belong only in adapter packages (`connector.iceberg`,
+  `coordination.zookeeper`, `planner.substrait`).
+- No `package-info.java`, placeholder packages or empty directories after moves.
+- Tests may mirror their leaf's package. Reusable test utilities live under an
+  exclusive root such as `org.pangrova.testing.testkit`.
+- `pangrova-common` stays dependency-minimal: no Jetty/Jersey, YAML, JDBC/Flyway,
+  Curator, cloud, table-format or provider SDKs. Its JSON helpers use optional Jackson
+  databind and JSR-310; modules calling them declare both.
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-```
-<type>(<scope>): <description>
-```
-- **Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`
-- **Scope**: module name (`parser`, `worker`, `coordinator`, `native`, etc.)
-- **Branch naming**: `feature/{desc}`, `fix/{desc}`, `docs/{desc}`, `refactor/{desc}`
-- **Commit message language**: English only
-- **PR checklist**: see `.github/PULL_REQUEST_TEMPLATE.md`
+## Structure
 
-## Dependency management
+Checkstyle reports file length 800, effective method length 100, cyclomatic
+complexity 15 and parameter count 10 as warnings; nesting depth (if 3, for 3, try 2)
+is an error. The same limits guide C++ review. Review constructors with more than 6
+dependencies and interfaces with more than 12 methods for mixed responsibilities.
+Thresholds are review signals: extract coherent operations, never forwarding classes,
+generic context bags or compressed statements to satisfy a metric. Share logic only
+when it has the same meaning and change lifecycle.
 
-- **Version properties**: All dependencies MUST use version properties from the parent pom (`${arrow.version}`, `${calcite.version}`, etc.). Hardcoded versions are rejected.
-- **Core dependency conflicts** — special care required when upgrading: Calcite, Arrow, Iceberg, Substrait, Protobuf, Netty, Jackson, SLF4J, gRPC, Guava.
-- **Scope rules**:
-  - Test-only deps: `<scope>test</scope>`
-  - Runtime-only deps: `<scope>runtime</scope>`
-  - Provided by container: `<scope>provided</scope>`
-- **No duplicate functionality**: before adding a dep, verify it doesn't overlap with existing libs.
-- **BOM alignment**: use `<dependencyManagement>` import for multi-artifact libs (Arrow, Netty, Jackson).
+## Java
 
-## Logging
+- Identifiers, comments and logs are English. Comments explain behavior, invariants
+  and tradeoffs.
+- Constructor injection only; no `@Autowired`/`@Inject`. Configuration is YAML-backed
+  and immutable; DTO, protocol and config types are records or final-field builders.
+- Contracts use domain types or DTOs, never `Object` or `Map<String, Object>`.
+- Off-heap and Arrow resources use try-with-resources; pointers cross threads only
+  with ownership transfer.
+- Shared mutable state is immutable, volatile or synchronized and annotated with
+  `@ThreadSafe`, `@NotThreadSafe` or `@GuardedBy`. Thread pools are named with an owner
+  and a shutdown path; `ScheduledThreadPoolExecutor` sets
+  `setRemoveOnCancelPolicy(true)`. No locks held during I/O.
+- Never swallow exceptions; cross-module errors carry an `ErrorCode` and context, and
+  async failures surface.
+- One canonical path: no `try A → catch → try B` fallback chains unless each branch
+  handles a distinct failure mode, and no compatibility shims, `@Deprecated`
+  forwarders, version sniffing or flags for dead paths. Migrate callers of a replaced
+  owned API; suppress third-party deprecations narrowly with the reason.
+- Delete dead code: commented-out code, unreachable methods, unused imports, fields
+  and includes. `UnsupportedOperationException` stubs need a tracking issue on the
+  method or its `@ExperimentalImplementation` owner. When deleting a feature, remove
+  its registrations, callers, tests, configuration and documentation.
 
-- **Format**: structured `key=value` pairs (not free-form sentences)
-- **Required context** on critical paths: `traceId`, `queryId`, `taskId`
-- **Level strategy**:
-  - `ERROR` — requires human intervention, non-recoverable in current request
-  - `WARN` — auto-recovered but unexpected; may need future attention
-  - `INFO` — state transitions, lifecycle events, request boundaries
-  - `DEBUG` — diagnostic detail for development/troubleshooting
-- **Banned**: `e.printStackTrace()`, `System.out.println()`, `System.err.println()`
-- **Logger creation**: `private static final Logger LOG = LoggerFactory.getLogger(ClassName.class);`
-- **Exception logging**: `LOG.error("action failed", e)` — never swallow the exception object
+### Logging
 
-## Code standards
+- Use `private static final Logger LOG = LoggerFactory.getLogger(Owner.class);` with
+  structured `key=value` messages; critical paths carry `traceId`, `queryId`, `taskId`.
+- `ERROR` needs human action; `WARN` is recovered but unexpected; `INFO` marks state
+  transitions and request boundaries; `DEBUG` is diagnostic detail.
+- Pass the exception object (`LOG.error("action failed", e)`). Production code never
+  uses `printStackTrace()` or `System.out/err`.
 
-- **Language**: all identifiers, comments, commit messages, and log messages in English.
-- **Constructor injection only** — no Spring DI annotations (`@Autowired`, `@Inject`).
-- **YAML config only** — config classes must be immutable.
-- **Arrow/off-heap**: always `try-with-resources`. No cross-thread pointer passing without ownership transfer.
-- **Contract-first**: params/returns must be domain model or DTO, not `Object`/`Map<String,Object>`.
-- **DTO/protocol/config**: immutable (final fields, no setters, builder or record).
-- **Thread safety**: cross-thread data must be immutable, volatile, or properly synchronized. Shared mutable state requires `@ThreadSafe`/`@NotThreadSafe`/`@GuardedBy` annotations. Named thread pools with explicit owner and shutdown path. `ScheduledExecutorService` → `setRemoveOnCancelPolicy(true)`. No locks during I/O.
-- **Error handling**: no exception swallowing; cross-module errors need `ErrorCode` + context; async exceptions must surface. Structured logging (`key=value`); critical paths include `traceId`/`queryId`/`taskId`.
-- **No fallback chains**: `try A; catch → try B; catch → try C` is banned unless each branch handles a genuinely distinct failure mode. One canonical path, no silent degradation.
-- **No backward compatibility shims**: if a new API replaces an old one, remove the old one. No `@Deprecated` forwarding stubs, no version-sniffing branches, no feature flags for dead code paths.
-- **Deprecated code cleanup**: `@Deprecated` methods/classes MUST be deleted, not left behind. Migrate all callers to the replacement API first. `@SuppressWarnings("deprecation")` = migration debt that must be resolved immediately. This is a new project — there are ZERO backward compatibility requirements.
-- **Dead code policy**: commented-out code, unreachable methods, unused imports, unused fields → DELETE immediately. Version control preserves history. "Keeping for future use" is banned.
+### Dependencies
 
-## JNI bridge rules
+- Versions come from parent POM properties; BOMs align Arrow, Netty and Jackson.
+- Use `test`, `runtime` and `provided` scopes precisely, and do not add a library that
+  duplicates existing functionality.
+- Treat Calcite, Arrow, Iceberg, Substrait, Protobuf, Netty, Jackson, SLF4J, gRPC and
+  Guava upgrades as compatibility changes.
 
-- **Bidirectional**: Java→Native (pull) and Native→Java (callback/upcall) are both allowed.
-- Native→Java upcall rules: cache `JavaVM*` in `JNI_OnLoad`; cache `jclass` (GlobalRef) and `jmethodID` at init time; native threads must `AttachCurrentThread`/`DetachCurrentThread` (or RAII guard); all `jobject`/`jclass` held beyond a single JNI call must be GlobalRef with explicit `DeleteGlobalRef`; always check `ExceptionCheck()` after `CallXxxMethod`.
-- Native may perform network I/O to other native workers via Arrow Flight for shuffle/exchange.
+## JNI
 
-### Native library loading
-- Single loading path via classpath resource: `META-INF/native/{os}/{arch}/lib{name}.{dylib|so|dll}`.
-- `NativeLibraryLoader.load()`: idempotent, thread-safe, extract from classpath → temp file → `System.load()`.
-- **Forbidden in production code**: `System.loadLibrary()`, `DYLD_LIBRARY_PATH`/`LD_LIBRARY_PATH`, fallback chains. Dev-time `-Djava.library.path` is acceptable for local test runs before packaging.
-- Production dylib: statically link all shared deps. Dev dylib: dynamic deps via CMake `BUILD_RPATH`.
+- Load the library only through `NativeLibraryLoader.load()` from
+  `META-INF/native/{os}/{arch}/`. Production code never uses `System.loadLibrary()`,
+  library-path environment variables or loader fallbacks; `-Djava.library.path` is
+  acceptable only for local tests before packaging.
+- Production libraries link dependencies statically; development builds use CMake
+  `BUILD_RPATH`.
+- Upcalls cache `JavaVM*` in `JNI_OnLoad` and `jclass` (GlobalRef) and `jmethodID` at
+  initialization, attach native threads with an RAII guard, release every GlobalRef
+  explicitly, and check `ExceptionCheck()` after each `Call*Method`.
+- C++ exceptions never cross JNI: entry points catch and convert to Java exceptions.
+- Data crosses through the Arrow C Data Interface; Java and C++ agree on column types,
+  names and nullability, and every copy is justified.
 
-## C++ conventions (worker-native)
+## C++
 
-### Naming
-- Files: `PascalCase.h/.cpp`. Namespaces: `pangrova::*`.
-- Classes: `PascalCase`. Functions/methods: `camelCase`. Constants: `kPascalCase`.
-- Test files: `<Component>Test.cpp`. Test suites: `<Component>Test`.
-- Private member variables: `snake_case_` (trailing underscore).
+- Files and classes `PascalCase`, functions `camelCase`, constants `kPascalCase`,
+  private members `snake_case_`, namespaces `pangrova::*`, tests `<Component>Test.cpp`
+  with GoogleTest (`TEST_P` for data-driven cases).
+- RAII only: no raw `new`/`delete` or `malloc`/`free`; `unique_ptr` for ownership,
+  `shared_ptr` without cycles, and a raw `.get()` pointer never outlives its owner.
+  Move large values instead of copying.
+- Shared state uses `std::mutex`, `std::shared_mutex` or `std::atomic` with a
+  documented lock order; never hold a lock during I/O.
+- Report failures with exceptions or `VELOX_CHECK*`/`VELOX_USER_CHECK*`/
+  `ARROW_RETURN_NOT_OK`; never ignore a status. Empty `catch (...)` is allowed only at
+  JNI entry points that convert the error. Prefer the strong exception guarantee.
+- Headers start with `#pragma once`, forward-declare where possible and order includes
+  own → project → third-party → system. JNI-facing headers do not pull in Velox.
+- Apply `const` to non-mutating methods, read-only parameters and unchanged locals.
 
-### Quality gates
-- File ≤ 800 lines. Function ≤ 100 lines, ≤ 10 branches.
-- Constructor params ≤ 6. No functions with > 4 indent levels.
-- No God files (>5 unrelated responsibilities).
+## Protobuf
 
-### Memory safety (P0 — violations are correctness bugs)
-- **RAII everywhere**: no raw `new`/`delete`, no `malloc`/`free`.
-- **Smart pointers**: `std::unique_ptr` for ownership, `std::shared_ptr` for shared ownership. No `shared_ptr` cycles (use `weak_ptr`).
-- **No raw `.get()` ownership transfer**: if you call `.get()`, the smart pointer must outlive the raw pointer's usage.
-- **Arrow buffers**: always in scoped guards. No cross-thread buffer passing without explicit ownership transfer.
-- **GlobalRef lifecycle**: `NewGlobalRef`/`DeleteGlobalRef` in matching scope (constructor/destructor or RAII wrapper).
-- **Move semantics**: move large objects instead of copying. No unnecessary copies of vectors, strings, or buffers.
+- `snake_case.proto` files, `PascalCase` messages, `snake_case` fields; the execution
+  package is `pangrova.protocol.v2`.
+- Regenerate Java and C++ in the same change; never renumber existing fields or
+  hand-edit generated sources.
 
-### Thread safety (P0)
-- Shared mutable state must use `std::mutex` or `std::atomic`.
-- No lock-during-I/O: never hold a mutex while doing network or disk I/O.
-- Lock ordering: document if multiple mutexes are needed; always acquire in consistent order.
-- `std::shared_mutex` for read-heavy shared state.
+## Commits and PRs
 
-### Exception safety (P0)
-- C++ exceptions MUST NOT cross the JNI boundary. All JNI entry points must `catch (...)` and convert to Java exceptions.
-- Use strong exception guarantee where possible: either complete successfully or leave state unchanged.
-- Resource cleanup on exceptions: rely on RAII destructors, not manual cleanup in catch blocks.
-
-### Error handling
-- Use `Status`/`Result<T>` pattern for operations that can fail. No error codes silently ignored.
-- `PANGROVA_CHECK` / `PANGROVA_RETURN_NOT_OK` macros for status propagation.
-- No empty catch blocks. No `catch (...) {}` except at JNI boundary (where it converts to Java exception).
-
-### Include hygiene
-- `#pragma once` as the first directive in every header.
-- Minimal includes: forward-declare where possible.
-- Include order: own header → project headers → third-party headers → system headers.
-- No transitive dependency on Velox headers in JNI-facing headers (keep JNI layer thin).
-
-### Const correctness
-- `const` on methods that don't modify state.
-- `const&` for parameters that are not modified.
-- `const` on local variables that are not reassigned.
-
-### Protobuf conventions
-- Files: `snake_case.proto`. Messages: `PascalCase`. Fields: `snake_case`. Package: `pangrova.native.protocol`.
-- Changes to `.proto` files MUST regenerate code on BOTH sides (Java + C++).
-- Wire format stability: no renumbering of existing fields.
-
-### Arrow C Data Interface
-- Use Arrow C Data Interface for cross-boundary (JNI) transfer.
-- Zero-copy when possible; document any copy with justification.
-- Schema alignment: Java and C++ sides must agree on column types, names, and nullability.
-
-## See also
-
-- **CI gates**: see `ci-gates.md` for CI enforcement scripts and quality thresholds
-- **Architecture**: see `architecture.md` for dependency and execution boundaries
-- **Development**: see `development.md` for build, test, and workflow guidance
+Prefer Conventional Commits, `<type>(<scope>): <description>` with types `feat`,
+`fix`, `docs`, `refactor`, `test`, `chore`, `perf` and a module scope. No branch
+prefix or message-language gate applies. PRs use `.github/PULL_REQUEST_TEMPLATE.md`.

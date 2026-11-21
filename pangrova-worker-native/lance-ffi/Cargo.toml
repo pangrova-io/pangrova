@@ -13,12 +13,32 @@ crate-type = ["staticlib"]
 lance = "0.20"
 lance-io = "0.20"
 lance-core = "0.20"
+lance-table = "0.20"
+lance-file = "0.20"
+lance-encoding = "0.20"
 arrow = { version = "53", features = ["ffi"] }
 arrow-array = "53"
 arrow-schema = "53"
 tokio = { version = "1", features = ["rt-multi-thread"] }
-once_cell = "1"
 futures = "0.3"
+prost = "0.13"
+prost-types = "0.13"
+sha2 = "0.10"
+object_store = "0.10"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+percent-encoding = "2"
+bytes = "1"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[patch.crates-io]
+lance = { path = "../deps-download/lance-sdk-owned/lance-0.20.0" }
+lance-io = { path = "../deps-download/lance-sdk-owned/lance-io-0.20.0" }
+lance-file = { path = "../deps-download/lance-sdk-owned/lance-file-0.20.0" }
+lance-encoding = { path = "../deps-download/lance-sdk-owned/lance-encoding-0.20.0" }
 
 [profile.release]
 # MEM-R5: thin LTO instead of fat LTO. Fat LTO (lto = true) loads bitcode for

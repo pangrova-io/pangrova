@@ -5,9 +5,7 @@ description: "Condensed reference of all verified configuration keys, system pro
 
 # Configuration Key Reference
 
-Every configuration surface of Pangrova in one place. All keys are defined in
-`CoordinatorOptions` / `WorkerOptions` (`pangrova-config` module); full
-descriptions live in the per-component pages.
+Role and shared options are declared in `org.pangrova.config.constants`. Domain-specific options such as OTLP sampling are validated by their owners. Boolean configuration options accept `true` and `false` case-insensitively. An invalid value fails with the option name.
 
 ## YAML Keys — Coordinator (`coordinator.yml`)
 
@@ -17,14 +15,16 @@ descriptions live in the per-component pages.
 | `coordinator.host` | `"0.0.0.0"` | HTTP bind address |
 | `coordinator.port` | `8080` | HTTP listen port |
 | `coordinator.role` | `"COMBINED"` | `QUERY` / `MAINTENANCE` / `COMBINED` |
-| `coordinator.ha.enabled` | `false` | Enable HA leader election |
-| `coordinator.ha.jdbc-url` | — | HA coordination JDBC store (required when HA enabled) |
+| `coordinator.ha.enabled` | `false` | Declared in `CoordinatorOptions`; not read by the current bootstrap |
 | `coordinator.ha.ddl-leader-routing` | `false` | Route DDL only to the leader |
 | `coordinator.query.timeout` | `"5m"` | Query execution timeout |
+| `coordinator.query.placement-provider` | `load-balanced` | Installed worker placement strategy ID |
 | `coordinator.query.max-concurrent` | `100` | Max concurrent queries |
+| `coordinator.task.spill.max-bytes` | `8589934592` | Per-task spill byte ceiling; requires `worker.spill.directory`; zero disables task spilling |
+| `coordinator.shuffle.mode` | `NATIVE` | `REMOTE` uses the external shuffle service |
+| `coordinator.shuffle.endpoints` | `""` | Comma-separated `host:port`; required for `REMOTE` |
 | `coordinator.worker.heartbeat-timeout` | `"30s"` | Worker liveness timeout |
 | `coordinator.worker.max-retry` | `3` | Task dispatch retries per worker |
-| `state-store.type` | `IN_MEMORY` | State store backend: `IN_MEMORY` / `JDBC` |
 | `metadata.enabled` | `true` | Enable the metadata module |
 | `metadata.jdbc-url` | — | Metadata catalog JDBC store |
 | `metadata.cache.l1-max-size` | `10000` | L1 metadata cache entries |
@@ -41,7 +41,13 @@ descriptions live in the per-component pages.
 | `worker.coordinator-url` | — | Coordinator URL to register with |
 | `worker.heartbeat-interval` | `"10s"` | Heartbeat interval |
 | `worker.transport.port` | `0` | Arrow Flight port (`0` = auto-assign) |
-| `worker.task.result-retention-seconds` | `300` | Result retention window |
+| `worker.transport.tls.enabled` | `false` | Require mutual TLS for Native data transport; required in distributed production |
+| `worker.transport.tls.certificate-chain-path` | `""` | Worker PEM certificate chain |
+| `worker.transport.tls.private-key-path` | `""` | Worker PEM private key |
+| `worker.transport.tls.root-ca-path` | `""` | Peer-verification PEM root CA |
+| `worker.transport.tls.identity` | `""` | Advertised certificate DNS identity |
+| `worker.copy.task-tls-port` | `0` | Dedicated mTLS COPY task-control port; `0` disables it, and a fixed port enables it for distributed deployment |
+| `worker.task.result-retention-seconds` | `300` | Terminal task retention; earlier result authority expiry or resource drain still applies |
 | `worker.shuffle.buffer-capacity` | `100` | Batches per shuffle partition buffer |
 | `worker.shuffle.max-memory-bytes` | 512 MB | Total shuffle memory budget |
 | `worker.shuffle.spill-threshold` | `0.8` | Shuffle spill trigger ratio |
@@ -50,7 +56,8 @@ descriptions live in the per-component pages.
 | `worker.memory.node-bytes` | 1 GB | Node memory pool capacity |
 | `worker.memory.pressure-threshold-{low,medium,high,critical}` | 50 / 70 / 85 / 95 | Memory pressure levels (%) |
 | `worker.threads.query` / `io` / `scheduler` | 4 / 2 / 1 | Thread pool sizes |
-| `worker.spill.directory` | — | Spill directory (unset = spill disabled) |
+| `worker.spill.directory` | `data/worker-spill` | Spill directory; empty disables spill |
+| `worker.shuffle.mode` | `NATIVE` | `NATIVE` or `REMOTE`; must match the Coordinator |
 | `worker.native.path` | — | Explicit native library path |
 | `worker.native.workdir` | — | Native library extraction directory |
 | `worker.native.delete-after-load` | `true` | Delete extracted library after load |
@@ -63,7 +70,12 @@ descriptions live in the per-component pages.
 | `worker.registration.max-attempts` | `5` | Registration attempts |
 | `worker.registration.initial-backoff` / `max-backoff` | `"1s"` / `"30s"` | Registration retry backoff |
 | `worker.cdc.enabled` | `true` | Enable CDC processing |
+| `worker.cdc.kafka.bootstrap-servers` | — | Kafka bootstrap servers for Worker-JVM CDC ingestion; absent leaves the JVM CDC backend unconfigured |
+| `worker.cdc.kafka.properties.*` | — | Additional Kafka consumer properties; topic/group/auto-commit remain Worker-pinned |
 | `worker.internal-auth-secret` | — | Shared `X-Internal-Auth` secret |
+| `worker.ai.authorization.*` | fail closed | AI model/capability/permission allowlists and invocation ceilings; see [Worker configuration](worker.md#workerai) |
+| `worker.ai.models.<id>.*` | — | Exact versioned provider/model descriptor; no implicit model or credential fallback |
+| `worker.ai.file.*` | — | Optional governed FILE storage (`s3`, `local`, or `oss`), external capability secret, limits and HTTPS-import policy; required for FILE and blob-backed multimodal paths, not ordinary text-only AI |
 
 ## Feature Flags (shared)
 
@@ -72,7 +84,7 @@ descriptions live in the per-component pages.
 | `governance.enabled` | `true` | Governance module |
 | `resilience.enabled` | `true` | Resilience module |
 | `streaming.enabled` | `true` | Streaming module |
-| `tenant.enabled` | `true` | Multi-tenant module |
+| `tenant.enabled` | `false` | Multi-tenant module; requires authenticated security (not NOOP) |
 | `indexing.enabled` | `true` | Indexing module |
 | `operations.enabled` | `true` | Operations module |
 | `observability.enabled` | `true` | Observability module |
@@ -89,19 +101,15 @@ Coordinator:
 | `pangrova.coordination.lease.zookeeper.connectString` | — | ZK ensemble (zookeeper backend) |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | ZK lease parent znode |
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
-| `pangrova.shuffle.manager` | (auto) | Shuffle provider (`native`, `celeborn`, …); unset = highest-durability provider |
-| `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Index artifact directory |
-| `pangrova.cache.result.redis-url` | — | External result cache Redis URL |
-| `pangrova.cache.result.ttl-seconds` | `3600` | Result cache TTL |
-| `pangrova.cache.result.max-entry-bytes` | `10485760` | Max cached result size |
+| `pangrova.index.basePath` | — (required when indexing is enabled) | Index artifact directory; no default |
 
-Worker:
+## External Shuffle Service
 
-| Property | Default | Description |
-|----------|---------|-------------|
-| `pangrova.ai.inference.endpoint` | `http://localhost:11434/v1` | AI_* function inference endpoint |
-| `pangrova.ai.inference.api-key` | _(empty)_ | Bearer token for the endpoint |
-| `pangrova.ai.inference.model` | `llama3` | Default inference model |
+`bin/pangrova-shuffle.sh` reads a separate strict YAML file (default
+`$PANGROVA_CONF_DIR/shuffle.yml`) with `server`, `database`, `object-storage`, `security`,
+and optional `limits` sections. It does not merge `coordinator.yml` or `worker.yml` and does
+not accept the `PANGROVA_*` dot-path overrides. Unknown keys fail startup. See
+[External Shuffle Service](shuffle-service.md) for every key, default, and validation rule.
 
 ## Environment Variables
 
@@ -112,12 +120,13 @@ Launch scripts (`bin/`):
 | `PANGROVA_HOME` | Installation root |
 | `PANGROVA_CONF_DIR` | Config directory (default: `$PANGROVA_HOME/etc`) |
 | `PANGROVA_LOG_DIR` | Log directory |
-| `PANGROVA_JAVA_OPTS` | Extra JVM options |
-| `PANGROVA_ROLE` | Coordinator role override |
+| `PANGROVA_JAVA_OPTS` | Replaces configured JVM options; Coordinator/Worker launchers still append required module-access and logging properties |
+| `PANGROVA_ROLE` | Logback log role and filename override; it does not select the process role |
 | `PANGROVA_COORDINATOR_URL` | Coordinator URL for worker scripts |
 
-Config overrides: any YAML key can be overridden by a `PANGROVA_*` environment
-variable (e.g. `PANGROVA_COORDINATOR_PORT=9090` → `coordinator.port`). See
+Config overrides: `PANGROVA_*` variables map to dot-separated keys
+(e.g. `PANGROVA_COORDINATOR_PORT=9090` → `coordinator.port`). Hyphenated keys
+require explicit YAML environment placeholders. See
 [Configuration model](index.md) for the full mapping rules and priority order.
 
 **See Also:** [Configuration model](index.md), [Coordinator](coordinator.md),
