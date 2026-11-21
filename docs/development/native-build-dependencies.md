@@ -63,6 +63,9 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
+The same check requires the Homebrew Bison executable to satisfy Velox's
+minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
+keg when its executable is missing.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
@@ -162,9 +165,10 @@ baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
 Native test runs build the Java fixture with the project reactor, which
-resolves the locally published Iceberg candidate. CI installs that candidate
-through the shared Iceberg SDK composite action before the native suite, as the
-Java jobs already do.
+resolves the locally published Iceberg candidate. Native and sanitizer jobs
+restore the Maven dependency cache with their fixture JDK setup, before the
+Iceberg SDK action publishes the pinned candidate locally. The reactor still
+builds the fixture from the checked-out source.
 
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
