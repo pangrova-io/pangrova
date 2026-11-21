@@ -19,7 +19,22 @@ public interface ClusteringMaintenance {
     String revision();
 
     /** Returns publication proof or an empty snapshot for a confirmed no-op. */
-    OptionalLong rewrite(UUID runId, String expectedRevision, Runnable requireAuthority);
+    OptionalLong rewrite(UUID runId, String expectedRevision, StageDispatcher dispatcher, Runnable requireAuthority);
+
+    /** Stages replacement files for an exact revision without updating catalog state. */
+    List<String> stage(String expectedRevision, UUID attemptId, Runnable requireActive);
+
+    @FunctionalInterface
+    interface StageDispatcher {
+        StagedRewrite stage(String revision, Runnable requireAuthority);
+    }
+
+    record StagedRewrite(UUID attemptId, List<String> files) {
+        public StagedRewrite {
+            java.util.Objects.requireNonNull(attemptId, "attemptId");
+            files = List.copyOf(files);
+        }
+    }
 
     /** Confirms publication or fences an uncommitted rewrite at the exact revision. */
     Recovery reconcile(UUID runId, String expectedRevision, Runnable requireAuthority);

@@ -1080,6 +1080,7 @@ artifacts:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
+      - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.enums
@@ -3538,6 +3539,7 @@ artifacts:
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.filter
+      - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert
@@ -3595,6 +3597,7 @@ artifacts:
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.filter
+      - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert

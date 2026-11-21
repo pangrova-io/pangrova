@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.write;
 
+import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
@@ -10,6 +11,7 @@ import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.util.JsonUtil;
 import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.BinPackRewriteFilePlanner;
@@ -70,26 +72,72 @@ public final class IcebergCompactionExecutor {
 
     private IcebergCompactionExecutor() {}
 
-    /** Sorts all admitted rows for each partition and publishes one replacement snapshot. */
-    public static boolean recluster(Table table, SortOrder order, UUID runId,
-            String generation, Consumer<List<Record>> arrange) {
+    /** Writes one disjoint set of replacement files without publishing a snapshot. */
+    public static List<String> stageRecluster(Table table, SortOrder order, UUID attemptId,
+            Consumer<List<Record>> arrange, Runnable requireActive) {
         Snapshot base = table.currentSnapshot();
-        if (base == null) return false;
+        if (base == null) return List.of();
         var groups = planClustering(table, base);
-        Set<DataFile> previous = new HashSet<>();
-        Set<DataFile> replacement = new HashSet<>();
+        List<String> fragments = new ArrayList<>();
         for (List<FileScanTask> group : groups.values()) {
             List<Record> rows = new ArrayList<>();
             for (FileScanTask task : group) {
+                requireActive.run();
                 rows.addAll(readSurvivingRows(table, table.schema(), task, Set.of()));
-                previous.add(task.file());
             }
             if (!rows.isEmpty()) {
+                requireActive.run();
                 arrange.accept(rows);
                 FileScanTask sample = group.get(0);
-                replacement.addAll(writeDataFiles(table, table.schema(), sample.spec(),
-                        sample.file().partition(), rows, DEFAULT_TARGET_FILE_SIZE_BYTES, order));
+                writeDataFiles(table, table.schema(), sample.spec(), sample.file().partition(), rows,
+                        DEFAULT_TARGET_FILE_SIZE_BYTES, order, "recluster-" + attemptId + "-")
+                        .forEach(file -> fragments.add(ContentFileParser.toJson(file, table.spec())));
             }
+        }
+        requireActive.run();
+        return List.copyOf(fragments);
+    }
+
+    /** Publishes only the replacement files produced for the winning attempt and exact base. */
+    public static boolean publishRecluster(Table table, SortOrder order, UUID runId, String generation,
+            UUID attemptId, List<String> fragments) {
+        Snapshot base = table.currentSnapshot();
+        var groups = base == null ? Map.<StructLikeWrapper, List<FileScanTask>>of() : planClustering(table, base);
+        Set<DataFile> previous = new HashSet<>();
+        Map<StructLikeWrapper, Long> remaining = new LinkedHashMap<>();
+        var partitionType = table.spec().partitionType();
+        groups.forEach((partition, tasks) -> {
+            long rows = 0;
+            for (FileScanTask task : tasks) {
+                previous.add(task.file());
+                rows = Math.addExact(rows, task.file().recordCount());
+            }
+            if (rows != 0) remaining.put(partition, rows);
+        });
+        if (fragments.size() > MAX_RECLUSTER_FILES) {
+            throw new IllegalArgumentException("RECLUSTER received too many replacement files");
+        }
+        Set<DataFile> replacement = new HashSet<>();
+        Set<String> paths = new HashSet<>();
+        String prefix = table.location() + "/data/recluster-" + attemptId + "-";
+        for (String fragment : fragments) {
+            DataFile file = parseReclusterFile(fragment, table.spec(), order, prefix);
+            if (!paths.add(file.path().toString())) {
+                throw new IllegalArgumentException("RECLUSTER replacement repeats a data file");
+            }
+            var partition = StructLikeWrapper.forType(partitionType).set(file.partition());
+            long rowsLeft = remaining.getOrDefault(partition, 0L) - file.recordCount();
+            if (rowsLeft < 0) {
+                throw new IllegalArgumentException("RECLUSTER replacement exceeds the admitted partition row count");
+            }
+            if (table.io().newInputFile(file.path().toString()).getLength() != file.fileSizeInBytes()) {
+                throw new IllegalArgumentException("RECLUSTER replacement size differs from the staged object");
+            }
+            remaining.put(partition, rowsLeft);
+            replacement.add(file);
+        }
+        if (remaining.values().stream().anyMatch(rows -> rows != 0)) {
+            throw new IllegalArgumentException("RECLUSTER replacement does not cover the admitted files");
         }
         if (previous.isEmpty()) return false;
         table.newRewrite()
@@ -99,6 +147,21 @@ public final class IcebergCompactionExecutor {
                 .rewriteFiles(previous, replacement)
                 .commit();
         return true;
+    }
+
+    private static DataFile parseReclusterFile(String fragment, PartitionSpec spec, SortOrder order, String prefix) {
+        var content = JsonUtil.parse(fragment, node -> ContentFileParser.fromJson(node, spec));
+        if (!(content instanceof DataFile file)) {
+            throw new IllegalArgumentException("RECLUSTER requires data-file fragments");
+        }
+        String path = file.path().toString();
+        if (!path.startsWith(prefix) || !path.substring(prefix.length()).matches("[0-9a-f-]{36}\\.parquet")
+                || file.format() != FileFormat.PARQUET || file.specId() != spec.specId()
+                || !Integer.valueOf(order.orderId()).equals(file.sortOrderId())
+                || file.recordCount() <= 0 || file.fileSizeInBytes() <= 0) {
+            throw new IllegalArgumentException("RECLUSTER replacement differs from the winning attempt");
+        }
+        return file;
     }
 
     private static Map<StructLikeWrapper, List<FileScanTask>> planClustering(Table table, Snapshot snapshot) {
@@ -457,19 +520,19 @@ public final class IcebergCompactionExecutor {
             Table table, Schema schema, PartitionSpec spec,
             org.apache.iceberg.StructLike partition, List<Record> rows,
             long targetFileSizeBytes) {
-        return writeDataFiles(table, schema, spec, partition, rows, targetFileSizeBytes, SortOrder.unsorted());
+        return writeDataFiles(table, schema, spec, partition, rows, targetFileSizeBytes, SortOrder.unsorted(), "");
     }
 
     private static List<DataFile> writeDataFiles(
             Table table, Schema schema, PartitionSpec spec,
             org.apache.iceberg.StructLike partition, List<Record> rows,
-            long targetFileSizeBytes, SortOrder order) {
+            long targetFileSizeBytes, SortOrder order, String filePrefix) {
         List<DataFile> files = new ArrayList<>();
         DataWriter<Record> writer = null;
         try {
             for (Record row : rows) {
                 if (writer == null) {
-                    writer = newWriter(table, schema, spec, partition, order);
+                    writer = newWriter(table, schema, spec, partition, order, filePrefix);
                 }
                 writer.write(row);
                 if (writer.length() >= targetFileSizeBytes) {
@@ -496,8 +559,9 @@ public final class IcebergCompactionExecutor {
     }
 
     private static DataWriter<Record> newWriter(Table table, Schema schema,
-            PartitionSpec spec, org.apache.iceberg.StructLike partition, SortOrder order) throws IOException {
-        String path = table.location() + "/data/" + UUID.randomUUID() + ".parquet";
+            PartitionSpec spec, org.apache.iceberg.StructLike partition, SortOrder order, String filePrefix)
+            throws IOException {
+        String path = table.location() + "/data/" + filePrefix + UUID.randomUUID() + ".parquet";
         OutputFile outputFile = table.io().newOutputFile(path);
         return Parquet.writeData(outputFile)
                 .schema(schema)

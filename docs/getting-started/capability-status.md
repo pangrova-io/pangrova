@@ -14,7 +14,6 @@ production evidence. The [SQL reference](../sql-reference/index.md) and
 
 | Capability | Remaining work | Current verification |
 |---|---|---|
-| Clustering DDL and `RECLUSTER` | Dispatch rewrite work to Workers and qualify recovery after Worker loss. The current bounded rewrite runs in the Coordinator process | On macOS, `IndependentClusteringE2ETest` passed both Iceberg clustering modes and recovered the exact published snapshot after the Coordinator restarted with an unfinished journal entry. The PostgreSQL CAS test also fenced an unpublished attempt at its original metadata revision. [Maintenance SQL](../sql-reference/maintenance.md#clustering) |
 | `AI_COMPLETE` | Qualify the Linux production image | On macOS, `IndependentAiProcessesE2ETest` passed with real model calls across two Worker processes and a restart. All 13 `OllamaAiSqlE2ETest` cases passed with the production Flight idle budget. [AI functions](../sql-reference/functions/ai-functions.md) |
 
 ## Production evidence

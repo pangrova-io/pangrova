@@ -101,22 +101,17 @@ final class IcebergClusteringMaintenance implements ClusteringMaintenance {
     }
 
     @Override
-    public OptionalLong rewrite(UUID runId, String expectedRevision, Runnable requireAuthority) {
+    public OptionalLong rewrite(UUID runId, String expectedRevision, StageDispatcher dispatcher,
+            Runnable requireAuthority) {
         Table bound = IcebergDeclarationCommit.bindExact(catalog, table, requireAuthority);
-        if (!expectedRevision.equals(revision(bound))) {
-            throw new IllegalStateException("Iceberg clustering metadata changed after admission");
-        }
-        var declaration = IcebergClusteringOrder.read(bound).orElseThrow(() ->
-                new IllegalArgumentException("Configure a clustering order before running RECLUSTER"));
-        if (IcebergFormatVersions.extract(bound) != 2) {
-            throw new UnsupportedOperationException("RECLUSTER requires Iceberg format version 2");
-        }
-        boolean linear = declaration.mode() == ClusteringMode.LINEAR;
-        SortOrder order = linear ? bound.sortOrder() : SortOrder.unsorted();
+        var declaration = requireRewriteRevision(bound, expectedRevision);
         try {
-            boolean published = IcebergCompactionExecutor.recluster(bound, order, runId,
-                    declaration.generation(), linear ? declaration::linear : declaration::interleave);
-            if (!published) return OptionalLong.empty();
+            var staged = dispatcher.stage(expectedRevision, requireAuthority);
+            requireAuthority.run();
+            if (!IcebergCompactionExecutor.publishRecluster(bound, sortOrder(bound, declaration), runId,
+                    declaration.generation(), staged.attemptId(), staged.files())) {
+                return OptionalLong.empty();
+            }
         } catch (CommitStateUnknownException failure) {
             throw new ClusteringPublicationException("Iceberg clustering publication is unconfirmed", failure);
         }
@@ -126,6 +121,29 @@ final class IcebergClusteringMaintenance implements ClusteringMaintenance {
         } catch (RuntimeException failure) {
             throw new ClusteringPublicationException("Iceberg clustering requires publication confirmation", failure);
         }
+    }
+
+    @Override
+    public List<String> stage(String expectedRevision, UUID attemptId, Runnable requireActive) {
+        var declaration = requireRewriteRevision(table, expectedRevision);
+        return IcebergCompactionExecutor.stageRecluster(table, sortOrder(table, declaration), attemptId,
+                declaration.mode() == ClusteringMode.LINEAR ? declaration::linear : declaration::interleave,
+                requireActive);
+    }
+
+    private static IcebergClusteringOrder requireRewriteRevision(Table table, String expectedRevision) {
+        if (!expectedRevision.equals(revision(table))) {
+            throw new IllegalStateException("Iceberg clustering metadata changed after admission");
+        }
+        if (IcebergFormatVersions.extract(table) != 2) {
+            throw new UnsupportedOperationException("RECLUSTER requires Iceberg format version 2");
+        }
+        return IcebergClusteringOrder.read(table).orElseThrow(() ->
+                new IllegalArgumentException("Configure a clustering order before running RECLUSTER"));
+    }
+
+    private static SortOrder sortOrder(Table table, IcebergClusteringOrder declaration) {
+        return declaration.mode() == ClusteringMode.LINEAR ? table.sortOrder() : SortOrder.unsorted();
     }
 
     @Override

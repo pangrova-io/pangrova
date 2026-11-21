@@ -169,11 +169,16 @@ MODE LINEAR;
 
 ### RECLUSTER TABLE
 
-The SQL call waits for the bounded rewrite in the Coordinator process and
-returns the durable task ID and snapshot identifier. One table maintenance
-lease covers the attempt, including staging and catalog publication. The
-rewritten files become visible in one snapshot. An empty table records a
-successful run without publishing a snapshot.
+The SQL call waits for an authenticated Worker to stage replacement files and
+for the Coordinator to publish the result under the table maintenance lease.
+The Worker uses the exact admitted catalog and table metadata revisions. The
+catalog and data paths must be accessible from the Coordinator and Workers.
+If a Worker is unavailable before returning its staging receipt, another
+eligible Worker can stage the same revision under a fresh attempt in the same
+durable run. The Coordinator publishes only the winning files in one snapshot.
+Files from interrupted attempts remain eligible for ordinary Iceberg orphan cleanup.
+The response includes the durable task ID and snapshot identifier. An empty
+table records a successful run without publishing a snapshot.
 
 ```sql
 RECLUSTER TABLE prod.analytics.events;

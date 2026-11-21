@@ -193,6 +193,43 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
         return catalogs.size();
     }
 
+    /** Resolves and stages the exact table revision in the trusted tenant-local catalog. */
+    public List<String> stageRecluster(org.pangrova.protocol.rest.maintenance.ReclusterStageRequest work)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        java.util.Objects.requireNonNull(work.runId(), "runId");
+        java.util.Objects.requireNonNull(work.attemptId(), "attemptId");
+        long now = System.currentTimeMillis();
+        long deadline = Math.min(work.deadlineEpochMs(),
+                now + org.pangrova.protocol.rest.maintenance.ReclusterStageRequest.TIMEOUT_MS);
+        if (deadline <= now) {
+            throw new IllegalArgumentException("Expired RECLUSTER staging deadline");
+        }
+        var catalog = CatalogExecutionBinding.parseFrom(java.util.Base64.getDecoder().decode(work.catalogBinding()));
+        var attempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                .setQueryOrJobId(work.runId().toString()).setTaskId(work.attemptId().toString()).build();
+        var session = new TaskConnectorSession(work.tenant(), work.principal(), java.util.Set.of(), attempt,
+                catalog.getCatalogName(), java.util.Map.of());
+        var name = new org.pangrova.connector.api.metadata.table.SchemaTableName(work.schema(), work.table());
+        var entry = catalogs.acquireCatalog(catalog, work.tenant());
+        try {
+            var metadata = WorkerCatalogRegistry.awaitCatalog(entry).connector().getMetadata(session);
+            var table = metadata.getTableHandle(session, name);
+            if (table == null) {
+                throw new IllegalArgumentException("RECLUSTER table is no longer available");
+            }
+            return metadata.clusteringMaintenance(session, table).orElseThrow(
+                    () -> new UnsupportedOperationException("Connector does not stage RECLUSTER"))
+                    .stage(work.revision(), work.attemptId(), () -> {
+                        if (Thread.currentThread().isInterrupted()
+                                || System.currentTimeMillis() >= deadline) {
+                            throw new IllegalStateException("RECLUSTER staging deadline exceeded");
+                        }
+                    });
+        } finally {
+            catalogs.releaseCatalog(entry);
+        }
+    }
+
     /** Leases an exact tenant deployment for metadata control, without acquiring a PageSink. */
     public CatalogControlLease leaseControl(
             CatalogExecutionBinding binding,

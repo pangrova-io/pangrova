@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
+import org.pangrova.coordinator.clustering.WorkerReclusterDispatcher;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.metadata.resolution.ConnectorTableLookup;
@@ -81,6 +82,7 @@ public final class ControlledTableMaintenance {
     private final String holderId;
     private final Duration leaseTtl;
     private final Clock clock;
+    private volatile WorkerReclusterDispatcher reclusterDispatcher;
     private volatile org.pangrova.coordinator.query.audit.TableControlAuditEmitter audit;
 
     public ControlledTableMaintenance(CatalogRegistry catalogs,
@@ -106,6 +108,11 @@ public final class ControlledTableMaintenance {
     public void setTableControlAudit(
             org.pangrova.coordinator.query.audit.TableControlAuditEmitter emitter) {
         this.audit = emitter;
+    }
+
+    /** Provides staging for SQL RECLUSTER on a process with authenticated Workers. */
+    public void setReclusterDispatcher(WorkerReclusterDispatcher dispatcher) {
+        reclusterDispatcher = java.util.Objects.requireNonNull(dispatcher, "dispatcher");
     }
 
     /** Runs the operation, returning the connector's result rows. */
@@ -135,6 +142,10 @@ public final class ControlledTableMaintenance {
                     "RECLUSTER WHERE requires a partition-scoped connector rewrite");
         }
         var target = clusteringTarget(statement.tableName(), context, true);
+        var dispatcher = reclusterDispatcher;
+        if (dispatcher == null) {
+            throw new IllegalStateException("RECLUSTER requires authenticated Worker staging");
+        }
         return withClusteringLease(target, authority -> {
             requireConfirmedClustering(target, context, authority);
             String actor = context.userIdentity() == null ? "" : context.userIdentity().principal();
@@ -144,7 +155,16 @@ public final class ControlledTableMaintenance {
                     Map.of(CLUSTERING_REVISION, revision));
             OptionalLong snapshot;
             try {
-                snapshot = target.connector().rewrite(run.runId(), revision, authority);
+                var catalog = catalogs.getCatalog(target.name().catalog()).getDescriptor();
+                var stage = dispatcher.bind(catalog, target.name(),
+                        target.session().getProperties().get("tenant_id"), target.session().getUser(), run.runId());
+                snapshot = target.connector().rewrite(run.runId(), revision, stage, () -> {
+                    authority.run();
+                    var current = catalogs.getCatalog(target.name().catalog()).getDescriptor();
+                    if (!catalog.identity().equals(current.identity())) {
+                        throw new IllegalStateException("RECLUSTER catalog deployment changed after admission");
+                    }
+                });
             } catch (ClusteringPublicationException unconfirmed) {
                 throw unconfirmed;
             } catch (RuntimeException failure) {

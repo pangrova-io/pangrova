@@ -76,8 +76,16 @@ class IcebergCompactionExecutorTest {
         var prior = table.currentSnapshot().snapshotId();
         UUID runId = UUID.randomUUID();
 
-        assertThat(IcebergCompactionExecutor.recluster(table, table.sortOrder(), runId, "test-order",
-                rows -> IcebergCompactionExecutor.sortBySortOrder(rows, table.sortOrder(), table.schema()))).isTrue();
+        UUID attempt = UUID.randomUUID();
+        var staged = IcebergCompactionExecutor.stageRecluster(table, table.sortOrder(), attempt,
+                rows -> IcebergCompactionExecutor.sortBySortOrder(rows, table.sortOrder(), table.schema()), () -> {});
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(prior);
+        assertThatThrownBy(() -> IcebergCompactionExecutor.publishRecluster(
+                table, table.sortOrder(), runId, "test-order", UUID.randomUUID(), staged))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(IcebergCompactionExecutor.publishRecluster(
+                table, table.sortOrder(), runId, "test-order", attempt, staged)).isTrue();
 
         table.refresh();
         assertThat(table.currentSnapshot().parentId()).isEqualTo(prior);

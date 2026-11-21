@@ -96,7 +96,11 @@ the linear rewrite, a PostgreSQL trigger rejects journal completion after
 the Iceberg replacement snapshot is already visible. After restarting the
 Coordinator and Worker, the test verifies that `SHOW CLUSTERING STATUS`
 recovers the same task and snapshot and that the catalog still contains only
-one replacement snapshot for that run.
+one replacement snapshot for that run. The Worker-loss case holds the first
+Worker's completed staging receipt, then terminates that process. The
+surviving Worker stages a new attempt under the same durable run ID. The
+Iceberg catalog shows one replacement snapshot with the surviving attempt's
+files and the original rows.
 
 ## Independent CDC and Cross-Encoder acceptance
 
