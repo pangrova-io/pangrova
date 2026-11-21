@@ -617,6 +617,11 @@ build_velox() {
     else
       install_velox_deps
     fi
+    # Velox's configure requires a Snappy CMake package; Pangrova suppresses
+    # Velox's blanket Homebrew install, so build the pinned snappy here.
+    if [[ ! -f "$INSTALL_PREFIX/lib/cmake/Snappy/snappyConfig.cmake" ]]; then
+      run_and_time install_snappy
+    fi
   elif [[ "$OS" == "Linux" ]]; then
     local archive_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-codeload-archives.patch"
     if ! git apply --reverse --check "$archive_patch" >/dev/null 2>&1; then

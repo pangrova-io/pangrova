@@ -421,6 +421,15 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn(f'xxHash/archive/refs/tags/v{lock["XXHASH_VERSION"]}.tar.gz',
                       bootstrap)
 
+    def test_sanitizer_suppressions_are_scoped_and_wired(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        self.assertIn('UBSAN_OPTIONS: suppressions=${{ github.workspace }}/'
+                      'pangrova-worker-native/ubsan-suppressions.txt', workflow)
+        suppressions = (ROOT / 'pangrova-worker-native/'
+                        'ubsan-suppressions.txt').read_text()
+        for symbol in ('*SpookyHashV2*', '*BaseBinaryArray*value_offset*'):
+            self.assertIn(symbol, suppressions)
+
     def test_baseline_workflow_warms_the_same_layers(self):
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
         self.assertIn('schedule:', baseline)

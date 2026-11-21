@@ -92,8 +92,17 @@ Three dependency contracts are enforced at configure time:
 - Fizz and Folly developer examples are disabled during their dependency
   builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
   Velox consumes the libraries, not those tools.
+- Velox's configure needs a Snappy CMake package; because Pangrova suppresses
+  Velox's blanket Homebrew install, the bootstrap builds the pinned snappy
+  into the dependency prefix (installing it when a restored cache predates it).
 
 ## Sanitizer Dependency Chain
+
+UBSan suppresses alignment reports only for pinned third-party symbols
+(`pangrova-worker-native/ubsan-suppressions.txt`: Folly's SpookyHash and
+Arrow's binary-array offset accessors, which read packed buffers by design).
+Pangrova translation units keep the full alignment check; the list is
+re-audited on dependency bumps.
 
 AddressSanitizer needs matching instrumentation across the runtime and the
 libraries whose headers participate in its memory access. The
