@@ -16,6 +16,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
 HOST = "127.0.0.1"
+TOKEN_ENV = "PANGROVA_ICEBERG_TRIAL_TOKEN"
 EXPECTED = [("event_type", "cnt"), ("click", "2"), ("purchase", "1")]
 CREATE_PREFIXES = ("CREATE CATALOG ", "CREATE SCHEMA ", "CREATE TABLE ")
 
@@ -65,7 +66,7 @@ def fixture_statements(root, work, catalog):
     return statements
 
 
-def execute(root, work, port, step, statement):
+def execute(root, work, port, step, statement, token):
     sql = work / f"{step}.sql"
     output = work / f"{step}.out"
     receipt = work / f"{step}.json"
@@ -74,10 +75,14 @@ def execute(root, work, port, step, statement):
            if key in os.environ}
     # The launcher must not source user-wide connection or credential overrides.
     env.update(PANGROVA_HOME=str(root), PANGROVA_CONF_DIR=str(work))
+    auth_args = []
+    if token:
+        env[TOKEN_ENV] = token
+        auth_args = ["--token-env", TOKEN_ENV]
     completed = subprocess.run(
         [str(root / "bin/pangrova-cli.sh"), "--host", HOST, "--port", str(port),
          "--query-timeout", "30s", "--file", str(sql), "--output", str(output),
-         "--execution-receipt", str(receipt)],
+         "--execution-receipt", str(receipt), *auth_args],
         cwd=work, env=env, capture_output=True, text=True, timeout=45,
     )
     if completed.returncode != 0:
@@ -99,10 +104,13 @@ def verify_result(output):
         raise RuntimeError(f"Unexpected Iceberg result: {rows!r}")
 
 
-def run(root, port):
+def run(root, port, catalog):
+    token = os.environ.get(TOKEN_ENV)
+    if token is not None and not token.strip():
+        raise ValueError(f"{TOKEN_ENV} is blank")
     require_clean_local_coordinator(port)
     work = Path(tempfile.mkdtemp(prefix="pangrova-iceberg-")).resolve()
-    catalog = f"iceberg_trial_{uuid.uuid4().hex}"
+    catalog = catalog or f"iceberg_trial_{uuid.uuid4().hex}"
     confirmed_creates = 0
     ambiguous_create = False
     can_remove_work = True
@@ -110,7 +118,7 @@ def run(root, port):
         try:
             for index, statement in enumerate(fixture_statements(root, work, catalog)):
                 ambiguous_create = index < len(CREATE_PREFIXES)
-                output = execute(root, work, port, f"statement-{index + 1}", statement)
+                output = execute(root, work, port, f"statement-{index + 1}", statement, token)
                 if ambiguous_create:
                     confirmed_creates += 1
                     ambiguous_create = False
@@ -120,10 +128,10 @@ def run(root, port):
             # scoped evidence instead of guessing and issuing destructive cleanup.
             can_remove_work = False
             if not ambiguous_create:
-                items = (f"CATALOG {catalog}", f"SCHEMA {catalog}.demo",
-                         f"TABLE {catalog}.demo.events")
-                for index in range(confirmed_creates - 1, -1, -1):
-                    execute(root, work, port, f"cleanup-{index + 1}", f"DROP {items[index]}\n")
+                if confirmed_creates == len(CREATE_PREFIXES):
+                    execute(root, work, port, "drop-table", f"DROP TABLE {catalog}.demo.events\n", token)
+                if confirmed_creates:
+                    execute(root, work, port, "drop-catalog", f"DROP CATALOG {catalog}\n", token)
                 can_remove_work = True
     finally:
         if can_remove_work:
@@ -141,13 +149,20 @@ def local_port(value):
     return port
 
 
+def trial_catalog(value):
+    if not re.fullmatch(r"iceberg_trial_[a-z0-9_]{1,49}", value):
+        raise argparse.ArgumentTypeError("catalog must start with iceberg_trial_ and use lowercase letters, digits or underscores")
+    return value
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--local-standalone-port", type=local_port, required=True,
                         help="confirm the selected port belongs to a disposable local standalone")
+    parser.add_argument("--catalog", type=trial_catalog, help="use a catalog name with pre-provisioned trial grants")
     args = parser.parse_args()
     try:
-        run(ROOT, args.local_standalone_port)
+        run(ROOT, args.local_standalone_port, args.catalog)
     except (OSError, RuntimeError, ValueError, http.client.HTTPException, subprocess.SubprocessError) as exc:
         sys.exit(f"Iceberg trial failed: {exc}")
     except KeyboardInterrupt:

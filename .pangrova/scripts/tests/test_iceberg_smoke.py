@@ -27,6 +27,10 @@ assert sys.argv[sys.argv.index("--port") + 1] == (where / "port").read_text()
 with (where / "queries").open("ab") as out:
     out.write(sql + b"\\n")
 mode = (where / "mode").read_text()
+if mode == "authenticated":
+    assert sys.argv[sys.argv.index("--token-env") + 1] == "PANGROVA_ICEBERG_TRIAL_TOKEN"
+    assert os.environ["PANGROVA_ICEBERG_TRIAL_TOKEN"] == "fixture-token"
+    assert "fixture-token" not in sys.argv
 if mode == "insert failure" and sql.startswith(b"INSERT"):
     sys.exit("injected insert error")
 if mode == "ambiguous create" and sql.startswith(b"CREATE SCHEMA"):
@@ -83,15 +87,20 @@ class IcebergSmokeTest(unittest.TestCase):
         launcher.write_text(f"#!{sys.executable}\n" + CLI, encoding="utf-8")
         launcher.chmod(0o755)
 
-    def run_trial(self, mode, *, has_catalogs=False):
+    def run_trial(self, mode, *, has_catalogs=False, catalog=None, token=None):
         (self.root / "bin/mode").write_text(mode, encoding="utf-8")
+        env = {**os.environ, "TMPDIR": str(self.root / "tmp"),
+               "PANGROVA_COORDINATOR_URL": "http://do-not-use.invalid"}
+        env.pop("PANGROVA_ICEBERG_TRIAL_TOKEN", None)
+        if token is not None:
+            env["PANGROVA_ICEBERG_TRIAL_TOKEN"] = token
+        catalog_args = ["--catalog", catalog] if catalog is not None else []
         with coordinator(has_catalogs) as port:
             (self.root / "bin/port").write_text(str(port), encoding="utf-8")
             return subprocess.run(
                 [sys.executable, str(self.root / "examples/iceberg-smoke.py"),
-                 "--local-standalone-port", str(port)], capture_output=True, text=True,
-                env={**os.environ, "TMPDIR": str(self.root / "tmp"),
-                     "PANGROVA_COORDINATOR_URL": "http://do-not-use.invalid"}, timeout=10)
+                 "--local-standalone-port", str(port), *catalog_args], capture_output=True, text=True,
+                env=env, timeout=10)
 
     def queries(self):
         return (self.root / "bin/queries").read_text()
@@ -103,13 +112,25 @@ class IcebergSmokeTest(unittest.TestCase):
         sql = self.queries()
         self.assertNotIn("file:///tmp/iceberg-warehouse", sql)
         self.assertRegex(sql, r"CREATE CATALOG iceberg_trial_[0-9a-f]{32}")
-        self.assertRegex(sql, r"(?s)DROP TABLE .+?\n\nDROP SCHEMA .+?\n\nDROP CATALOG")
+        self.assertRegex(sql, r"(?s)DROP TABLE .+?\n\nDROP CATALOG")
+        self.assertNotIn("DROP SCHEMA", sql)
         self.assertEqual(list((self.root / "tmp").iterdir()), [])
 
     def test_nonempty_coordinator_is_rejected_before_any_sql(self):
         result = self.run_trial("success", has_catalogs=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fresh Coordinator", result.stderr)
+        self.assertFalse((self.root / "bin/queries").exists())
+
+    def test_authenticated_trial_uses_preprovisioned_catalog_for_sql_and_cleanup(self):
+        result = self.run_trial("authenticated", catalog="iceberg_trial_grant", token="fixture-token")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CREATE CATALOG iceberg_trial_grant\n", self.queries())
+        self.assertIn("DROP CATALOG iceberg_trial_grant\n", self.queries())
+
+    def test_catalog_rejects_sql_punctuation_before_running_any_sql(self):
+        result = self.run_trial("success", catalog="iceberg_trial_invalid;")
+        self.assertEqual(2, result.returncode, result.stderr)
         self.assertFalse((self.root / "bin/queries").exists())
 
     def test_insert_error_stops_queries_and_cleans_confirmed_objects(self):
@@ -139,9 +160,9 @@ class IcebergSmokeTest(unittest.TestCase):
     def test_cleanup_failure_prevents_success_and_preserves_evidence(self):
         result = self.run_trial("cleanup failure")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("cleanup-3 failed", result.stderr)
+        self.assertIn("drop-table failed", result.stderr)
         self.assertIn("files retained", result.stderr)
-        self.assertNotIn("DROP SCHEMA", self.queries())
+        self.assertNotIn("DROP CATALOG", self.queries())
         self.assertNotIn("passed", result.stdout)
 
     def test_wrong_aggregate_is_rejected_even_when_cleanup_succeeds(self):
