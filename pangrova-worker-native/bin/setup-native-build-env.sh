@@ -401,10 +401,14 @@ build_velox() {
   # pinned sources instead of re-downloading them on non-interactive CI.
   export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
   export PANGROVA_FOLLY_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"
+  export PANGROVA_FOLLY_ALIGNMENT_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch"
   local folly_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-common-build.patch"
-  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
-    git -C "$VELOX_DIR" apply --check "$folly_setup_patch"
-    git -C "$VELOX_DIR" apply "$folly_setup_patch"
+  local folly_alignment_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-alignment-build.patch"
+  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_alignment_setup_patch" >/dev/null 2>&1; then
+    if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
+      git -C "$VELOX_DIR" apply "$folly_setup_patch"
+    fi
+    git -C "$VELOX_DIR" apply "$folly_alignment_setup_patch"
   fi
   # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
   # on platforms that do require the separate library.
@@ -428,7 +432,8 @@ build_velox() {
       local folly_patch
       for folly_patch in \
         "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
-        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch" \
+        "$PANGROVA_FOLLY_PATCH" \
+        "$PANGROVA_FOLLY_ALIGNMENT_PATCH" \
         "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-libcxx-exception-path.patch"; do
         if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
             -i "$folly_patch" >/dev/null 2>&1; then
@@ -508,7 +513,7 @@ build_velox() {
         -DARROW_SIMD_LEVEL=NONE \
         -DARROW_RUNTIME_SIMD_LEVEL=NONE \
         -DARROW_WITH_UTF8PROC=OFF \
-        -DARROW_TESTING=ON \
+        -DARROW_TESTING=OFF \
         -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
         -DCMAKE_BUILD_TYPE=Release \
         -DARROW_BUILD_STATIC=ON \
