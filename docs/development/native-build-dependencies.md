@@ -63,6 +63,9 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
+The same check requires the Homebrew Bison executable to satisfy Velox's
+minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
+keg when its executable is missing.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have

@@ -104,10 +104,14 @@ exit 1
                                 env=env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def macos_tooling(self, llvm_formula="llvm@17"):
+    def macos_tooling(self, llvm_formula="llvm@17", bison_installed=True):
         for name in ("cmake", "ninja", "autoconf", "automake", "glibtoolize",
-                     "pkg-config", "bison", "flex", "rg"):
+                     "pkg-config", "flex", "rg"):
             self.executable(self.bin / name, "exit 0")
+        self.executable(self.bin / "bison", 'echo "bison (GNU Bison) 2.3"')
+        bison = self.root / "bison/bin/bison"
+        if bison_installed:
+            self.executable(bison, 'echo "bison (GNU Bison) 3.8.2"')
         prefix = self.root / llvm_formula.replace("@", "")
         self.executable(prefix / "bin/clang++",
                         'echo "Homebrew clang version 17.0.6"')
@@ -120,6 +124,15 @@ if [ "$1" = "--prefix" ]; then
     bison|flex) printf '%s/%s\\n' "$HOME" "$2" ;;
     *) exit 1 ;;
   esac
+fi
+if [ "$1" = "list" ] && [ "$3" = "bison" ]; then
+  [ -x "$HOME/bison/bin/bison" ]
+  exit $?
+fi
+if [ "$1" = "install" ] && [ "$2" = "bison" ]; then
+  mkdir -p "$HOME/bison/bin"
+  printf '%s\\n' '#!/bin/sh' 'echo "bison (GNU Bison) 3.8.2"' > "$HOME/bison/bin/bison"
+  chmod +x "$HOME/bison/bin/bison"
 fi
 """)
         sdk_root = self.root / "macos sdk"
@@ -136,6 +149,14 @@ fi
         self.assertNotIn("update --quiet", trace)
         self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\nSDKROOT={sdk_root}\n")
         self.assertIn(f"{prefix / 'bin'}\n", path)
+        self.assertIn(f"{self.root / 'bison/bin'}\n", path)
+        self.assertNotIn("install bison\n", trace)
+
+    def test_macos_action_installs_bison_when_only_the_system_version_exists(self):
+        self.macos_tooling(bison_installed=False)
+        _, path, trace = self.run_action("Install build tools (macOS)")
+        self.assertIn("install bison\n", trace)
+        self.assertIn(f"{self.root / 'bison/bin'}\n", path)
 
     def test_macos_action_prefers_an_installed_newer_llvm_without_installing(self):
         _, prefix = self.macos_tooling(llvm_formula="llvm@18")
