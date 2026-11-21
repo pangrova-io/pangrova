@@ -322,7 +322,7 @@ public final class WorkerResource {
                 0.0, 0, 0L, Instant.now(), 0.0, null,
                 req.protocolVersion(),
                 req.rackId(), req.dataLocality(), null, capabilityInventory,
-                req.copyTaskTlsPort(), req.workerExecutionIdentity(), deployment);
+                req.copyTaskTlsPort(), req.workerExecutionIdentity(), deployment, req.cdcIngestSupported());
     }
 
     private static final java.util.regex.Pattern VALID_HOST_PATTERN =
