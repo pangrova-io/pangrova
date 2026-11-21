@@ -84,7 +84,13 @@ class IcebergMetadataDeleteMergeTest {
     @Test
     void mergeFragment_commitsBothDataFileAndDeleteFile() {
         Table table = createV2TableWithData("merge_table");
-        IcebergOutputTableHandle handle = beginDelete("merge_table");
+        IcebergOutputTableHandle handle = beginMerge("merge_table");
+        assertThat(handle.tableIdentity()).hasValueSatisfying(identity -> {
+            assertThat(identity.format()).isEqualTo("ICEBERG");
+            assertThat(identity.formatTableUuid()).isEqualTo(handle.tableUuid());
+            assertThat(identity.location()).isEqualTo(handle.tableLocation());
+            assertThat(identity.schemaFingerprint()).isNotBlank();
+        });
         long snapshotBefore = table.currentSnapshot().snapshotId();
 
         String mergeFragment = buildMergeFragmentJson(table);
@@ -149,6 +155,12 @@ class IcebergMetadataDeleteMergeTest {
                 .build();
         table.newAppend().appendFile(dataFile).commit();
         return table;
+    }
+
+    private IcebergOutputTableHandle beginMerge(String tableName) {
+        var tableHandle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, tableName));
+        return (IcebergOutputTableHandle) metadata.beginMerge(SESSION, tableHandle);
     }
 
     private IcebergOutputTableHandle beginDelete(String tableName) {

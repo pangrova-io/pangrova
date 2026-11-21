@@ -8,8 +8,8 @@ import java.util.concurrent.ExecutorService;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
 import org.pangrova.query.audit.QueryAuditService;
@@ -87,15 +87,24 @@ final class QueryRuntimeWiring {
         ExecutorService asyncExecutor = createAsyncSubmitExecutor();
         QueryManager queryManager;
         try {
+            var admission = org.pangrova.coordinator.query.QueryManagerCollaborators.admission(
+                    dependencies.moduleWiring().getResilienceRegistry(),
+                    new org.pangrova.planner.throttle.QueryThrottlingService(
+                            1000, 100.0, DEFAULT_THROTTLE_BURST));
+            var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                    auditEmitter, dependencies.queryAuditService(),
+                    dependencies.moduleWiring().getLineageEmitter(),
+                    queryDispatcher, null);
             QueryManagerContext context = new QueryManagerContext(
                     queryDispatcher, dependencies.tracingProvider(), dependencies.metricsProvider(),
-                    dependencies.moduleWiring().getTenantResolver(),
-                    dependencies.moduleWiring().getQuotaChecker(),
-                    dependencies.moduleWiring().getLineageEmitter(), auditEmitter,
-                    dependencies.queryAuditService(),
-                    dependencies.moduleWiring().getResilienceRegistry(),
-                    new org.pangrova.planner.throttle.QueryThrottlingService(1000, 100.0, DEFAULT_THROTTLE_BURST),
-                    stateJournal, null, null, asyncConfig, asyncExecutor, new OtelExecutionTraceContextFactory());
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.tenant(
+                            dependencies.moduleWiring().getTenantResolver(),
+                            dependencies.moduleWiring().getQuotaChecker()),
+                    admission, audit,
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                            stateJournal, audit),
+                    null, asyncConfig, asyncExecutor,
+                    new OtelExecutionTraceContextFactory());
             LOG.info("event=async_submit_wired enabled={} submitTimeoutMs={}",
                     asyncConfig.enabled(), asyncConfig.submitTimeoutMs());
             queryManager = new QueryManager(context, readerPins);

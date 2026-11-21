@@ -33,17 +33,17 @@ class TaskReportPublicationTest {
     @Test
     void sameProgressIdentityRejectsEveryChangedRestPayloadField() {
         var error = new ErrorDetail("CODE", "TYPE", "message");
-        var write = new WriteResultDescriptor(List.of(), 1, 2, new byte[]{3});
+        var write = new WriteResultDescriptor(List.of(), 1, 2, new byte[]{3}, java.util.List.of());
         var original = report("RUNNING", stats(1), error, write, "CODE", Map.of("detail", "original"), null);
         var fact = new TaskReportPublication.Fact(request, original, false);
         assertThat(fact.matches(report("RUNNING", stats(1), new ErrorDetail("CODE", "TYPE", "message"),
-                new WriteResultDescriptor(List.of(), 1, 2, new byte[]{3}), "CODE", Map.of("detail", "original"), null)))
+                new WriteResultDescriptor(List.of(), 1, 2, new byte[]{3}, java.util.List.of()), "CODE", Map.of("detail", "original"), null)))
                 .isTrue();
         var mutations = List.of(
                 report("RUNNING", stats(2), error, write, "CODE", original.errorMetadata(), null),
                 report("RUNNING", stats(1), new ErrorDetail("CODE", "TYPE", "changed"), write,
                         "CODE", original.errorMetadata(), null),
-                report("RUNNING", stats(1), error, new WriteResultDescriptor(List.of(), 1, 2, new byte[]{4}),
+                report("RUNNING", stats(1), error, new WriteResultDescriptor(List.of(), 1, 2, new byte[]{4}, java.util.List.of()),
                         "CODE", original.errorMetadata(), null),
                 report("RUNNING", stats(1), error, write, "CHANGED", original.errorMetadata(), null),
                 report("RUNNING", stats(1), error, write, "CODE", Map.of("detail", "changed"), null));

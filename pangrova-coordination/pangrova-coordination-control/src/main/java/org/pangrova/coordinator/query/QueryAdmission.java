@@ -2,8 +2,6 @@ package org.pangrova.coordinator.query;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
-import org.pangrova.query.api.enums.QueryState;
-
 import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
@@ -17,7 +15,7 @@ import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
 /** Owns query admission reservations until dependent physical execution has drained. */
 @ThreadSafe
-final class QueryAdmission {
+final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissionPort {
     private final ResilienceRegistry resilience;
     private final QueryThrottlingService throttle;
     private final ConcurrentHashMap<String, ThrottlePermit> permits = new ConcurrentHashMap<>();
@@ -28,38 +26,25 @@ final class QueryAdmission {
         this.throttle = throttle;
     }
 
-    static org.pangrova.security.tenant.TenantQueryGuard tenantGuard(
-            QueryManagerContext context, java.util.Collection<QueryStateMachine> queries) {
-        if (context.tenantResolver() == null || context.quotaChecker() == null) return null;
-        return new org.pangrova.security.tenant.TenantQueryGuard(
-                context.tenantResolver(), context.quotaChecker(),
-                tenantId -> {
-                    int concurrent = 0;
-                    int queued = 0;
-                    for (var state : queries) {
-                        if (state.physicalCleanupApplied() || !tenantId.equals(state.getTenantId())) continue;
-                        concurrent++;
-                        if (state.getState() == QueryState.QUEUED) queued++;
-                    }
-                    return new org.pangrova.security.tenant.TenantUsage(concurrent, queued, 0L, 0L);
-                });
-    }
+    @Override
+    public void setClusterController(ClusterAdmissionController controller) { cluster = controller; }
 
-    void setClusterController(ClusterAdmissionController controller) { cluster = controller; }
-
-    void checkDegradation() {
+    @Override
+    public void checkDegradation() {
         if (resilience != null && !resilience.allowRequest("coordinator-query-admission")) {
             throw new QueryRejectedException("Query rejected: system overloaded — admission circuit breaker open");
         }
     }
 
-    void recordOutcome(boolean success) {
+    @Override
+    public void recordOutcome(boolean success) {
         if (resilience == null) return;
         if (success) resilience.recordSuccess("coordinator-query-admission");
         else resilience.recordFailure("coordinator-query-admission", new IllegalStateException("query failed"));
     }
 
-    void checkCluster(String queryId, String tenantId, QueryStateMachine state) {
+    @Override
+    public void checkCluster(String queryId, String tenantId, QueryStateMachine state) {
         ClusterAdmissionController controller = cluster;
         if (controller == null || tenantId == null || tenantId.isBlank()) return;
         // Retain the exact release obligation before admission can acquire a slot or queue entry.
@@ -77,7 +62,8 @@ final class QueryAdmission {
         }
     }
 
-    void checkThrottle(String queryId, QuerySession session) {
+    @Override
+    public void checkThrottle(String queryId, QuerySession session) {
         if (throttle == null) return;
         String tenantId = session.tenantId() != null ? session.tenantId() : "default";
         String userId = session.userIdentity() != null ? session.userIdentity().principal() : "anonymous";
@@ -86,7 +72,8 @@ final class QueryAdmission {
         permits.put(queryId, result.permit());
     }
 
-    void releaseThrottle(String queryId) {
+    @Override
+    public void releaseThrottle(String queryId) {
         ThrottlePermit permit = permits.get(queryId);
         if (permit == null) return;
         throttle.release(permit);

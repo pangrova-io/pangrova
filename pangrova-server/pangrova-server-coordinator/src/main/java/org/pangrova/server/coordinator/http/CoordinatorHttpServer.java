@@ -30,7 +30,7 @@ import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestOperatio
 import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResource;
 import org.pangrova.server.coordinator.http.endpoint.catalog.OAuth2TokenResource;
 import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;

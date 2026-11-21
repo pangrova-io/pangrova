@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.exception.UnregisteredWorkerException;

@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.lifecycle;
 import java.util.Set;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,6 +1,7 @@
 package org.pangrova.server.worker.embedding;
 
 import org.pangrova.config.ConfigValidator;
+import org.pangrova.server.worker.bootstrap.CdcWorkerRuntimeBootstrap;
 import org.pangrova.server.worker.bootstrap.WorkerConfiguration;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.constants.WorkerOptions;
@@ -33,7 +34,12 @@ public final class EmbeddedWorker implements AutoCloseable {
      */
     public static EmbeddedWorker start(PangrovaConfiguration configuration, int coordinatorHttpPort) {
         validator().validate(configuration);
-        return start(buildConfig(configuration, coordinatorHttpPort));
+        WorkerBootstrapConfig config = buildConfig(configuration, coordinatorHttpPort);
+        WorkerBootstrap bootstrap = new WorkerBootstrap(config, new LoggingAuditEventWriter());
+        bootstrap.installProductionCatalogRuntime();
+        CdcWorkerRuntimeBootstrap.install(configuration, bootstrap);
+        bootstrap.start();
+        return new EmbeddedWorker(config, bootstrap);
     }
 
     /** Starts a worker from an already-built bootstrap configuration. */

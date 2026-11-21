@@ -57,6 +57,12 @@ if [[ "$OS" == "Darwin" ]]; then
   fi
   HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
   OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  if [[ -z "$OPENSSL_PREFIX" ]]; then
+    # Arrow's bundled thrift still calls APIs removed in OpenSSL 4 (SSLv3_method,
+    # ASN1_STRING_data); build the whole dependency stack against OpenSSL 3.
+    HOMEBREW_NO_AUTO_UPDATE=1 "$PANGROVA_BREW" install openssl@3
+    OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3)"
+  fi
   BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
   FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
 fi
@@ -147,7 +153,7 @@ check_prerequisites() {
 
 verify_build_tools() {
   log "Verifying existing build tools (no package-manager mutation)"
-  for tool in cmake ninja autoconf automake pkg-config; do
+  for tool in cmake ninja autoconf automake pkg-config patch; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool not found. Install it first."
   done
   if [[ "$OS" == "Darwin" ]]; then
@@ -205,6 +211,7 @@ configure_compiler() {
 
 ensure_folly_compiler_abi() {
   [[ "$OS" == "Darwin" ]] || return 0
+  local libevent_prefix="$1"
   local folly_source="$VELOX_DIR/deps-download/folly"
   local folly_archive="$VELOX_DIR/deps-install/lib/libfolly.a"
   # Consume nm fully: grep -q closes the pipe early and pipefail turns a
@@ -223,11 +230,12 @@ ensure_folly_compiler_abi() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_CXX_STANDARD=20 \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
+    -DCMAKE_PREFIX_PATH="$VELOX_DIR/deps-install;$libevent_prefix${HOMEBREW_PREFIX:+;$HOMEBREW_PREFIX}" \
     -DCMAKE_INSTALL_PREFIX="$VELOX_DIR/deps-install" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTING=OFF \
-    -DBUILD_TESTS=OFF
+    -DBUILD_TESTS=OFF \
+    -DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0"
   cmake --build "$folly_source/_build-pangrova" --target install -j "$NPROC"
   nm -gU "$folly_archive" 2>/dev/null | \
     grep 'NSt3__13pmr15memory_resource' >/dev/null || \
@@ -355,6 +363,7 @@ build_velox() {
   local GRPC_VERSION="$GRPC_VERSION"
   local PROTOBUF_VERSION="$PROTOBUF_VERSION"
   local ABSEIL_VERSION="$ABSEIL_VERSION"
+  local libevent_prefix=""
   if [[ -d "$VELOX_DIR/.git" ]]; then
     step "Updating existing Velox source"
     cd "$VELOX_DIR"
@@ -385,6 +394,18 @@ build_velox() {
   fi
   cd "$VELOX_DIR"
   bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/apply-velox-patches.sh" apply "$VELOX_DIR"
+
+  # Velox's own dependency build downloads and compiles Folly. Apply the
+  # reviewed Folly source fix and skip its examples, which fail to link on
+  # Intel macOS, before that build runs. PROMPT_ALWAYS_RESPOND keeps the
+  # pinned sources instead of re-downloading them on non-interactive CI.
+  export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
+  export PANGROVA_FOLLY_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"
+  local folly_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-common-build.patch"
+  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
+    git -C "$VELOX_DIR" apply --check "$folly_setup_patch"
+    git -C "$VELOX_DIR" apply "$folly_setup_patch"
+  fi
   # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
   # on platforms that do require the separate library.
   local atomic_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-darwin-atomic-link.patch"
@@ -396,8 +417,50 @@ build_velox() {
     export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-Y}"
     export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"
     source ./scripts/setup-macos.sh
+    source "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/resolve-darwin-libevent.sh"
+    # Pangrova suppresses Velox's blanket Homebrew install below. Restore the
+    # existing Folly prerequisite even when the compiled dependencies are cached.
+    libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
 
     # Upstream stores archives inside source directories that it deletes on retry.
+    apply_folly_source_patches() {
+      local source="$1"
+      local folly_patch
+      for folly_patch in \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-libcxx-exception-path.patch"; do
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$folly_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$folly_patch"
+          patch --batch --forward -d "$source" -p1 -i "$folly_patch"
+        fi
+      done
+    }
+
+    dependency_source_patch() {
+      case "$1" in
+        wangle)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/wangle-2026.01.05-openssl-const.patch" ;;
+        fizz)
+          printf '%s\n' "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/fizz-2026.01.05-openssl-const.patch" ;;
+      esac
+    }
+
+    apply_dependency_source_patches() {
+      local dir="$1"
+      local source="$DEPENDENCY_DIR/$dir"
+      local dependency_patch
+      while IFS= read -r dependency_patch; do
+        [[ -n "$dependency_patch" ]] || continue
+        if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
+            -i "$dependency_patch" >/dev/null 2>&1; then
+          patch --dry-run --batch --forward -d "$source" -p1 -i "$dependency_patch"
+          patch --batch --forward -d "$source" -p1 -i "$dependency_patch"
+        fi
+      done < <(dependency_source_patch "$dir")
+    }
+
     wget_and_untar() {
       local url="$1"
       local dir="$2"
@@ -414,12 +477,66 @@ build_velox() {
       mkdir -p "$DEPENDENCY_DIR/$dir"
       tar -xz --strip-components=1 --no-same-owner \
         -f "$archive" -C "$DEPENDENCY_DIR/$dir"
+      apply_dependency_source_patches "$dir"
+    }
+
+    install_arrow() {
+      # Arrow only builds its bundled thrift when ARROW_WITH_THRIFT is on.
+      # Thrift's SSL transport no longer compiles against OpenSSL 3.5+ const
+      # return types and Parquet is off, so nothing in this install uses it.
+      wget_and_untar \
+        https://github.com/apache/arrow/archive/apache-arrow-"${ARROW_VERSION}".tar.gz arrow
+      (
+        if [[ -z "$VELOX_ARROW_CMAKE_PATCH" ]]; then
+          ABSOLUTE_SCRIPTDIR=$(realpath "$SCRIPT_DIR")
+          VELOX_ARROW_CMAKE_PATCH="$ABSOLUTE_SCRIPTDIR/../CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch"
+        fi
+        cd "$DEPENDENCY_DIR"/arrow || exit 1
+        git apply "$VELOX_ARROW_CMAKE_PATCH"
+        if [[ -n $EXTRA_ARROW_PATCH ]]; then
+          git apply "$EXTRA_ARROW_PATCH"
+        fi
+      ) || exit 1
+      cmake_install_dir arrow/cpp \
+        -DARROW_PARQUET=OFF \
+        -DARROW_WITH_THRIFT=OFF \
+        -DARROW_WITH_LZ4=ON \
+        -DARROW_WITH_SNAPPY=ON \
+        -DARROW_WITH_ZLIB=ON \
+        -DARROW_WITH_ZSTD=ON \
+        -DARROW_JEMALLOC=OFF \
+        -DARROW_SIMD_LEVEL=NONE \
+        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
+        -DARROW_WITH_UTF8PROC=OFF \
+        -DARROW_TESTING=ON \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DARROW_BUILD_STATIC=ON \
+        -DBOOST_ROOT="$INSTALL_PREFIX" \
+        $EXTRA_ARROW_OPTIONS
+    }
+
+    install_fizz() {
+      # The examples target (BogoShim) links libc++abi symbols that macOS 13
+      # does not provide; Velox needs the library, not the developer tools.
+      wget_and_untar \
+        "https://github.com/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
+        fizz
+      cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF
     }
 
     install_fbthrift() {
       wget_and_untar \
         "https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         fbthrift
+      # fbthrift's CMake requires an Xxhash package that Velox's dependency set
+      # does not install on macOS.
+      if [[ ! -f "$INSTALL_PREFIX/include/xxhash.h" ]]; then
+        wget_and_untar \
+          "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.2.tar.gz" xxHash
+        cmake_install_dir xxHash/cmake_unofficial \
+          -DBUILD_SHARED_LIBS=OFF -DXXHASH_BUILD_XXHSUM=OFF
+      fi
       local type_system_builder="$DEPENDENCY_DIR/fbthrift/thrift/lib/cpp2/dynamic/TypeSystemBuilder.cpp"
       grep -Fq 'std::invoke([&]() -> TSDefinition' "$type_system_builder" || \
         die "Unexpected fbthrift TypeSystemBuilder.cpp at $FB_OS_VERSION"
@@ -437,16 +554,30 @@ build_velox() {
       touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
     }
 
+    install_boost() {
+      # Velox and Folly do not use Boost.Log, and its ASIO backend fails to link
+      # against the SDK libc++ with Homebrew Clang on Intel. Install all other
+      # pinned Boost libraries.
+      wget_and_untar \
+        https://github.com/boostorg/boost/releases/download/"${BOOST_VERSION}"/"${BOOST_VERSION}".tar.gz boost
+      (
+        cd "$DEPENDENCY_DIR/boost" || exit 1
+        ./bootstrap.sh --prefix="$INSTALL_PREFIX"
+        ${SUDO:-} ./b2 "-j${NPROC}" -d0 install threading=multi --without-python \
+          --without-log
+      )
+    }
+
     install_folly() {
       wget_and_untar \
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
-      # Folly's libevent lookup searches /usr/local and $HOME, not Homebrew's
-      # /opt/homebrew prefix on Apple silicon.
+      apply_folly_source_patches "$DEPENDENCY_DIR/folly"
+      # Use the formula's opt prefix even if Homebrew leaves it unlinked.
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
-        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$HOMEBREW_PREFIX"
+        "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
     }
 
     install_aws_deps() {
@@ -500,7 +631,7 @@ build_velox() {
     fi
   fi
 
-  ensure_folly_compiler_abi
+  ensure_folly_compiler_abi "$libevent_prefix"
   export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
   if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "dependencies" ]]; then
     step "Velox dependency sources and installation are ready"
@@ -539,7 +670,14 @@ build_velox() {
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
-    [[ -n "$OPENSSL_PREFIX" ]] && velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    if [[ -n "$OPENSSL_PREFIX" ]]; then
+      velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+      velox_prefix_path+=";$OPENSSL_PREFIX"
+      # Arrow's ExternalProject sub-builds do not inherit -D flags; the
+      # environment is what keeps their find_package(OpenSSL) on openssl@3
+      # instead of Homebrew's default openssl@4.
+      export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
+    fi
     [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi

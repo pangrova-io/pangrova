@@ -32,8 +32,9 @@ CREATE TABLE configs (
 SELECT MAP['host', 'localhost', 'port', '8080'] AS config;
 ```
 
-Both keys and values are expressions. The literal must be assignable to the declared map
-type; mixing incompatible key or value types requires explicit casts.
+The current canonical MAP constructor requires non-null literal keys and literal
+values; runtime expressions are rejected. Keys must be unique, and the literal
+must be assignable to the declared map type. Use compatible key and value types.
 
 ## Access
 
@@ -61,7 +62,7 @@ Map construction, lookup, and membership helpers are listed in
 |-----------|---------------|--------------|
 | Apache Iceberg | Iceberg `MAP` with declared key/value types | `MAP` with preserved key/value types |
 | Apache Paimon | Paimon `MAP` | `MAP` with preserved key/value types |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow map schema, subject to Native validation | `MAP` with persisted key/value-type signatures |
 
 ## Example
 

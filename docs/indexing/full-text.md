@@ -14,7 +14,7 @@ score.
 - Keyword search over text columns (descriptions, messages, documents)
 - Relevance-ranked retrieval, including hybrid retrieval with
   [Vector Search](../sql-reference/functions/vector-search.md)
-- CJK text with the `cjk` analyzer
+- Text compatible with the bundled `standard-v1` analyzer; a dedicated CJK analyzer is not available
 
 ## Syntax
 
@@ -22,10 +22,7 @@ score.
 CREATE INDEX idx_products_desc
 ON prod.analytics.products (description)
 USING INVERTED
-WITH (
-  'inverted.analyzer' = 'standard',
-  'inverted.store_positions' = 'false'
-);
+WITH ('analyzer' = 'standard-v1');
 ```
 
 ## Options

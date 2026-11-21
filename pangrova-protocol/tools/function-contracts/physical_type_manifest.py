@@ -101,7 +101,7 @@ def slot_lines(template, kind, field, formula, variables, name):
 
 def render_manifest(value):
     lines = ["inline const google::protobuf::FieldDescriptor& bridgeField(",
-             "    const google::protobuf::Message& message, const std::string& name) {",
+             "    const google::protobuf::Message& message, std::string_view name) {",
              "  const auto* field = message.GetDescriptor()->FindFieldByName(name);",
              '  if (!field) throw std::runtime_error("Bridge field is absent from actual canonical descriptor");',
              "  return *field;", "}",

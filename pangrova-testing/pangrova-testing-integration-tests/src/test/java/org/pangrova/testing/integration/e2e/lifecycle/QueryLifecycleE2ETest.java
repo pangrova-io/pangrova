@@ -1,4 +1,5 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
+import org.pangrova.query.runtime.QueryManager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

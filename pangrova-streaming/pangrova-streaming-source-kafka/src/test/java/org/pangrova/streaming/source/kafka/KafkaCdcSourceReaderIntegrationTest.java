@@ -81,6 +81,13 @@ class KafkaCdcSourceReaderIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void exposesTheExactSubscribedPartitionInventory() {
+        assertThat(reader.partitions()).containsExactly(
+                new TopicPartitionOffset(topic, 0),
+                new TopicPartitionOffset(topic, 1));
+    }
+
+    @Test
     void truncatedRecordsAreNotLost() {
         assertThat(reader.currentLag()).isEmpty();
         int totalRecords = 10;

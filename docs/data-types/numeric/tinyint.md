@@ -35,7 +35,7 @@ when the domain is not strictly bounded.
 |-----------|---------------|--------------|
 | Apache Iceberg | 32-bit `INTEGER` | `INTEGER`; the original width is not preserved |
 | Apache Paimon | `TINYINT` | `TINYINT` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow signed 8-bit integer | `TINYINT` retained in managed catalog metadata |
 
 Creating a `TINYINT` column in Iceberg therefore widens it to `INTEGER`; a later read
 returns `INTEGER`, not `TINYINT`. Paimon preserves the declared width.

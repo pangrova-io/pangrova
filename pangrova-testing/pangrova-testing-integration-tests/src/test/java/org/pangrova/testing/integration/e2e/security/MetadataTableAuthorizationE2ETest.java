@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
