@@ -57,7 +57,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: matrix.platform.docker-build
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build native library via Docker (reproducible)
         if: matrix.platform.docker-build

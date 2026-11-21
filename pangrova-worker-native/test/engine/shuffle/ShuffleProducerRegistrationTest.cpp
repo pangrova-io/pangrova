@@ -7,6 +7,7 @@
 #include <arrow/array/array_binary.h>
 #include <arrow/flight/client.h>
 #include <arrow/table.h>
+#include <arrow/util/align_util.h>
 
 #include "engine/shuffle/ShuffleResourceTestSupport.h"
 #include "engine/shuffle/TicketSigner.h"
@@ -65,9 +66,13 @@ TEST(ShuffleProducerRegistrationTest, EveryIdentityConflictLeavesOriginalProduce
     EXPECT_EQ((*table)->num_rows(), partition == 0 ? 1 : 0);
     if (partition == 0) {
       ASSERT_EQ((*table)->column(0)->num_chunks(), 1);
-      const auto data = std::static_pointer_cast<arrow::BinaryArray>(
-          (*table)->column(0)->chunk(0));
-      EXPECT_EQ(data->GetString(0), std::string(32, 'a' + 17 % 26));
+      auto data = arrow::util::EnsureAlignment(
+          (*table)->column(0)->chunk(0), arrow::util::kValueAlignment,
+          arrow::default_memory_pool());
+      ASSERT_TRUE(data.ok()) << data.status().ToString();
+      EXPECT_EQ(
+          std::static_pointer_cast<arrow::BinaryArray>(*data)->GetString(0),
+          std::string(32, 'a' + 17 % 26));
     }
   }
   EXPECT_EQ(server.evictFullyConsumedLingering(), 1u);
