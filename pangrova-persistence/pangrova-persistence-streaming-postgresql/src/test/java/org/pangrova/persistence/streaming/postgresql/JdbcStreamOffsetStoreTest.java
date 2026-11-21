@@ -11,6 +11,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
 import org.pangrova.streaming.api.exception.StreamingStoreException;
+import org.pangrova.common.exception.StaleEpochException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 @Tag("integration")
@@ -70,6 +72,24 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
 
         Map<TopicPartitionOffset, Long> loaded = offsetStore.loadOffsets("stream-u");
         assertThat(loaded.get(tp)).isEqualTo(150L);
+    }
+
+    @Test
+    void journalAcknowledgementCannotRewindAnOffsetOrReachANewerRevision() {
+        StreamState before = insertParentStream("stream-fenced");
+        var partition = new TopicPartitionOffset("orders", 0);
+        offsetStore.acknowledge(before, Map.of(partition, 150L));
+        offsetStore.acknowledge(before, Map.of(partition, 50L));
+        assertThat(offsetStore.loadOffsets(before.streamName())).containsEntry(partition, 150L);
+
+        StreamState replacement = before.withReacquisition("new-owner");
+        stateStore.saveStateIfEpoch(replacement, before.epoch());
+        assertThatThrownBy(() -> offsetStore.acknowledge(before, Map.of(partition, 200L)))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(offsetStore.loadOffsets(before.streamName())).containsEntry(partition, 150L);
+
+        offsetStore.acknowledge(replacement, Map.of(partition, 200L));
+        assertThat(offsetStore.loadOffsets(before.streamName())).containsEntry(partition, 200L);
     }
 
     @Test
@@ -156,7 +176,7 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private void insertParentStream(String streamName) {
+    private StreamState insertParentStream(String streamName) {
         Instant now = Instant.now();
         StreamState state = new StreamState(
                 streamName, "tenant-test", "checkpoint-" + streamName,
@@ -169,5 +189,6 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
                 0L, 0L, 0L, null,
                 now, now);
         stateStore.createState(state);
+        return state;
     }
 }

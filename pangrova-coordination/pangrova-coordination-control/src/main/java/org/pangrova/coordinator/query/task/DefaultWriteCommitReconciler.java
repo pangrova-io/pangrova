@@ -86,8 +86,14 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             return WriteRecoveryOutcome.QUARANTINED;
         }
         try {
-            ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
             var metadata = catalog.getMetadata(session);
+            if (entry.cdcSource() != null && !"INSERT".equals(entry.writeMode())
+                    && !metadata.supportsCdcMutations()) {
+                LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
+                        + "reason=cdc_mutation_sink_unavailable", entry.queryId(), table);
+                return WriteRecoveryOutcome.QUARANTINED;
+            }
+            ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
             if (recorded.isPresent()) {
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
                 return WriteRecoveryOutcome.COMMITTED;

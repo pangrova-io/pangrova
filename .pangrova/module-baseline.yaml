@@ -4728,6 +4728,7 @@ artifacts:
         - pangrova-streaming-api
         - pangrova-types
       test:
+        - pangrova-batch
         - pangrova-common
         - pangrova-connector-api
         - pangrova-observability-api
@@ -4780,17 +4781,12 @@ artifacts:
       pangrova-worker: compile
     imports:
       main:
-        - pangrova-batch
         - pangrova-common
-        - pangrova-connector-api
         - pangrova-protocol
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
-        - pangrova-types
         - pangrova-worker
       test:
-        - pangrova-batch
-        - pangrova-connector-api
         - pangrova-protocol
         - pangrova-streaming-api
         - pangrova-streaming-pipeline

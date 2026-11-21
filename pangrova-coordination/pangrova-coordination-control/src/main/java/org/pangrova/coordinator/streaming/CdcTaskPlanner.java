@@ -27,7 +27,7 @@ public final class CdcTaskPlanner {
 
     private CdcTaskPlanner() {}
 
-    /** Builds tasks for one stream without committing offsets or publishing data. */
+    /** Plans the full observed source interval, split into bounded tasks. */
     public static CdcTaskPlan plan(
             StreamState stream,
             CdcSourceReader reader,
@@ -41,18 +41,56 @@ public final class CdcTaskPlanner {
             long deadlineEpochMs,
             String targetTableUuid,
             long baseSnapshotId) {
+        return plan(stream, reader, writePlan, committedOffsets, maxRecordsPerRange, Long.MAX_VALUE, rangesPerTask,
+                baseAttempt, security, baseGrant, deadlineEpochMs, targetTableUuid, baseSnapshotId);
+    }
+
+    /** Builds tasks for one stream without committing offsets or publishing data. */
+    public static CdcTaskPlan plan(
+            StreamState stream,
+            CdcSourceReader reader,
+            CdcWriteAuthority.CdcWritePlan writePlan,
+            Map<TopicPartitionOffset, Long> committedOffsets,
+            long maxRecordsPerRange,
+            long maxOffsetsPerPartitionPerBatch,
+            int rangesPerTask,
+            TaskAttemptId baseAttempt,
+            SecurityContext security,
+            StageResourceGrant baseGrant,
+            long deadlineEpochMs,
+            String targetTableUuid,
+            long baseSnapshotId) {
         Objects.requireNonNull(stream, "stream");
         Objects.requireNonNull(reader, "reader");
         Objects.requireNonNull(writePlan, "writePlan");
         Objects.requireNonNull(baseAttempt, "baseAttempt");
         Objects.requireNonNull(security, "security");
         List<TopicPartitionOffset> partitions = reader.partitions();
-        Map<TopicPartitionOffset, Long> ends = reader.endOffsets(partitions);
-        Map<TopicPartitionOffset, Long> starts = new HashMap<>();
-        for (TopicPartitionOffset partition : partitions) {
-            starts.put(partition, committedOffsets.getOrDefault(partition, 0L));
+        if (maxOffsetsPerPartitionPerBatch <= 0) {
+            throw new IllegalArgumentException("CDC batch offset bound must be positive");
         }
-        CdcRangeAllocator allocator = new CdcRangeAllocator(starts, ends, maxRecordsPerRange);
+        long batchLimit = maxOffsetsPerPartitionPerBatch;
+        if (writePlan.outputHandle().requiresSingleCdcRange()) {
+            if (partitions.size() != 1) {
+                throw new UnsupportedOperationException("CDC mutation target requires a single source partition");
+            }
+            batchLimit = Math.min(maxRecordsPerRange, batchLimit);
+        }
+        Map<TopicPartitionOffset, Long> logEnds = reader.endOffsets(partitions);
+        Map<TopicPartitionOffset, Long> starts = new HashMap<>();
+        Map<TopicPartitionOffset, Long> admittedEnds = new HashMap<>();
+        for (TopicPartitionOffset partition : partitions) {
+            long start = committedOffsets.getOrDefault(partition, 0L);
+            Long logEnd = logEnds.get(partition);
+            if (start < 0 || logEnd == null || logEnd < start) {
+                throw new IllegalArgumentException("Invalid CDC source interval for " + partition);
+            }
+            if (logEnd > start) {
+                starts.put(partition, start);
+                admittedEnds.put(partition, start + Math.min(logEnd - start, batchLimit));
+            }
+        }
+        CdcRangeAllocator allocator = new CdcRangeAllocator(starts, admittedEnds, maxRecordsPerRange);
         List<List<CdcTaskRange>> grouped = allocator.tasks(rangesPerTask);
         List<TaskRequest> tasks = new ArrayList<>(grouped.size());
         for (int index = 0; index < grouped.size(); index++) {
@@ -67,7 +105,7 @@ public final class CdcTaskPlanner {
                     deadlineEpochMs, stream, writePlan, grouped.get(index),
                     targetTableUuid, baseSnapshotId));
         }
-        return new CdcTaskPlan(List.copyOf(tasks), Map.copyOf(ends));
+        return new CdcTaskPlan(List.copyOf(tasks), Map.copyOf(admittedEnds));
     }
 
     /** Planned tasks plus the exact source boundary to acknowledge after publication. */

@@ -7,6 +7,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 
 /**
  * Lightweight JDK HttpServer that simulates Coordinator registration
@@ -18,9 +22,15 @@ import java.nio.charset.StandardCharsets;
 public final class StubCoordinatorServer implements AutoCloseable {
 
     private final HttpServer server;
+    private final AtomicReference<WorkerRegistrationRequest> registration;
 
-    private StubCoordinatorServer(HttpServer server) {
+    private StubCoordinatorServer(HttpServer server, AtomicReference<WorkerRegistrationRequest> registration) {
         this.server = server;
+        this.registration = registration;
+    }
+
+    WorkerRegistrationRequest registration() {
+        return registration.get();
     }
 
     /**
@@ -30,7 +40,12 @@ public final class StubCoordinatorServer implements AutoCloseable {
      */
     public static StubCoordinatorServer start() throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/workers/register", exchange -> respond(exchange, "registered"));
+        var registration = new AtomicReference<WorkerRegistrationRequest>();
+        server.createContext("/v1/workers/register", exchange -> {
+            registration.set(JsonMapperFactory.shared().readValue(
+                    exchange.getRequestBody().readAllBytes(), WorkerRegistrationRequest.class));
+            respond(exchange, "registered");
+        });
         server.createContext("/v1/worker/heartbeat", exchange -> respond(exchange, "ok"));
         server.createContext("/v1/task-status/report", exchange -> respond(exchange, "ok"));
         server.createContext("/v1/workers/", exchange -> {
@@ -44,7 +59,7 @@ public final class StubCoordinatorServer implements AutoCloseable {
         });
         server.setExecutor(null);
         server.start();
-        return new StubCoordinatorServer(server);
+        return new StubCoordinatorServer(server, registration);
     }
 
     private static void respond(HttpExchange exchange, String status) throws IOException {

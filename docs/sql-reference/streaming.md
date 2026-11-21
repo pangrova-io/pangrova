@@ -12,9 +12,9 @@ Stream syntax and dynamic-table syntax have different maturity boundaries.
 | Surface | Current wiring |
 |---|---|
 | Stream DDL | Registered when the streaming bootstrap supplies its executor |
-| CDC ingestion | A Coordinator hosting both streaming and query roles disables its local pipeline and runs a supervised Worker CDC runtime: it plans bounded ranges per admitted offset interval, dispatches `CDC_INGEST` tasks, and retains journal publication plus source-offset acknowledgement. A streaming-only Coordinator still uses the local connector page-sink writer |
+| CDC ingestion | COMBINED dispatches bounded `CDC_INGEST` tasks to Workers. MAINTENANCE stages the admitted ranges locally. Both roles journal the connector publication before acknowledging source offsets |
 | Continuous-query refresh | `CREATE CONTINUOUS QUERY ... REFRESH EVERY <interval>` creates a durable Dynamic Table whose full refresh is driven by the materialization schedule |
-| Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers are served by the unified materialization kernel when durable metadata publication is configured; refreshes execute Native CTAS and publish immutable generations. Continuous-query materialization remains unsupported |
+| Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers are served by the unified materialization kernel when durable metadata publication is configured; refreshes execute Native CTAS and publish immutable generations |
 | Materialized-view DDL and lifecycle | The same kernel serves create/alter/refresh/drop/show/describe; published views are eligible for transparent query rewrite |
 | Materialization observability | `SHOW MATERIALIZATIONS`, refresh history, dependencies, and GC history project the durable kernel read model per tenant |
 
@@ -44,10 +44,23 @@ WITH (
 );
 ```
 
-`cdc.write.privileges` is mandatory for a distributed CDC target. It must be an
+`cdc.write.privileges` is mandatory for a CDC target in either role. It must be an
 explicit comma-separated subset of `INSERT`, `UPDATE`, and `DELETE`; the
 Coordinator never infers write authority from the source format. Missing or
-invalid actions fail closed before connector allocation.
+invalid actions fail before connector allocation. A decoded event outside the declared
+operation set fails the batch without catalog publication or offset advancement.
+Paimon primary-key tables and a bounded subset of Iceberg tables support CDC
+`UPDATE` and `DELETE`. Iceberg mutations require an unpartitioned format v2 table
+with whole Parquet files, Parquet position deletes, and boolean, integer, bigint
+or string columns. Capture complete before and after images. Each before-image
+must identify exactly one visible row, including changes from earlier events in
+the same range. Use a single source partition to preserve that event order.
+The connector rejects a mutation scan above 1,024 files, 100,000 records, or
+64 MiB of file data. The ordered CDC range also has a 16 MiB payload limit.
+Append-only Iceberg streams continue to use the append sink.
+The Coordinator admits up to 1,000 source offsets per partition in each
+publication cycle. After a role upgrade, stream generations with unresolved
+legacy transactions require reconciliation before they can ingest new offsets.
 
 The identifier after `FROM` selects a source provider on the Coordinator. Kafka is
 the bundled source. Its `bootstrap.servers` and `topic` settings must be nonblank.

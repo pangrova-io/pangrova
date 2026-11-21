@@ -150,11 +150,9 @@ public final class WorkerHttpServer {
         // Jersey owns endpoint routing; the server retains only its destruction capability.
         this.fileSpaceClose = fileSpaceResource == null ? null : fileSpaceResource::close;
         if (copyStageLeases != null && copyStageLeases.supportsNativeInputs()) {
-            taskManager.getSharedNativeExecutor().ifPresent(executor -> {
-                if (executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor) {
-                    nativeExecutor.setCopyInputs(copyStageLeases);
-                }
-            });
+            taskManager.getSharedNativeExecutor()
+                    .flatMap(org.pangrova.worker.execution.NativeTaskExecutor::ownerOf)
+                    .ifPresent(nativeExecutor -> nativeExecutor.setCopyInputs(copyStageLeases));
         }
         this.taskResource = new TaskResource(
                 taskManager, exchangeTransport,

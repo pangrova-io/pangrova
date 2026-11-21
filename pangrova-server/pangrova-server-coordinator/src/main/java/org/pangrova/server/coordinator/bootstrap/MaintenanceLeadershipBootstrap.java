@@ -119,6 +119,11 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
         return activeEpoch.get();
     }
 
+    long verifiedActiveEpoch() {
+        long term = activeEpoch();
+        return term > 0 && election.holdsEpoch(term) ? term : 0;
+    }
+
     private void pollSafely() {
         try {
             poll();

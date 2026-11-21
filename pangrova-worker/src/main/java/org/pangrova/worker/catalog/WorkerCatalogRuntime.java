@@ -9,7 +9,9 @@ import org.pangrova.worker.connector.session.TaskConnectorSession;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
+import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.runtime.lifecycle.ConnectorPluginInventory;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -66,18 +68,19 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     @Override
     public void bindTask(String taskId, TaskRequest request) {
         requireTaskIdentity(taskId, request);
-        var write = request.getExecutionOptions().getWrite();
-        if (!write.hasOutputBinding()
-                || write.getOutputBinding().getBindingCase()
-                        == org.pangrova.protocol.v2.WriteOutputBinding.BindingCase
-                                .BINDING_NOT_SET) {
+        boolean cdc = request.getTaskKind() == TaskKind.TASK_KIND_CDC_INGEST;
+        WriteOutputBinding output = cdc
+                ? request.getCdcIngest().getWrite()
+                : request.getExecutionOptions().getWrite().getOutputBinding();
+        if (output.getBindingCase() == WriteOutputBinding.BindingCase.BINDING_NOT_SET) {
             throw new IllegalArgumentException(
                     "Write task requires a connector-owned output binding");
         }
-        boolean nativeSink =
-                write.getOutputBinding().hasLance() || write.getOutputBinding().hasPhysical();
-        CatalogExecutionBinding catalogBinding =
-                WorkerWriteOutputs.catalog(write.getOutputBinding());
+        boolean nativeSink = output.hasLance() || output.hasPhysical();
+        if (cdc && nativeSink) {
+            throw new IllegalArgumentException("CDC write task requires a connector PageSink output binding");
+        }
+        CatalogExecutionBinding catalogBinding = WorkerWriteOutputs.catalog(output);
         String tenantId = request.getSecurity().getTenantId();
         // Connector instances hold locally resolved credentials. A deployment
         // shared by tenants must never share the first tenant's connector.
@@ -91,8 +94,7 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
                             request.getAttempt(),
                             catalogBinding.getCatalogName(),
                             request.getExecutionOptions().getSessionPropertiesMap());
-            SerializedConnectorOutputHandle serialized =
-                    WorkerWriteOutputs.outputHandle(write.getOutputBinding());
+            SerializedConnectorOutputHandle serialized = WorkerWriteOutputs.outputHandle(output);
             ConnectorOutputTableHandle outputHandle = decodeHandle(runtime.codec(), serialized);
             if (!runtime.codec()
                     .writeColumnNames(outputHandle)

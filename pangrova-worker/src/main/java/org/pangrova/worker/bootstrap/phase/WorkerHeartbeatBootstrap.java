@@ -104,7 +104,8 @@ public final class WorkerHeartbeatBootstrap {
                         refs.httpServer() != null ? refs.httpServer().getCopyTaskTlsPort() : 0,
                         refs.taskManager().workerExecutionIdentity(),
                         config.shuffleMode() == org.pangrova.config.enums.ShuffleMode.REMOTE
-                                ? config.resourceConfig().shuffleProvider().id() : null);
+                                ? config.resourceConfig().shuffleProvider().id() : null,
+                        refs.taskManager().cdcIngestSupported());
         long coordinatorEpoch;
         try {
             coordinatorEpoch = attemptRegistration(client, request, config);
