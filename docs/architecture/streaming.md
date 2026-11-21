@@ -18,7 +18,7 @@ sidebar_label: "Streaming & CDC"
 > Coordinator. The source offset and Iceberg/Paimon catalog do not share an
 > atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
 > Paimon rejects the context-free CDC commit, and UPDATE phases are not one
-> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-proposed-not-implemented)
+> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending)
 > for the required durable Native design and its acceptance criteria. No
 > exactly-once/effectively-once production guarantee is currently claimed.
 
@@ -285,7 +285,7 @@ There is no production claim of exactly-once or effectively-once semantics.
 The required repair design must bind tenant, source offset range, table identity,
 snapshot, attempt, and fence to a durable Native batch and one observable catalog
 publication. It is a proposed acceptance contract, not implemented support. See the
-[CDC repair contract](distributed-writes.md#cdc-repair-contract-proposed-not-implemented).
+[CDC repair contract](distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending).
 
 ### 2.6 Retired Table Writer SPI (historical sketch)
 
