@@ -170,12 +170,10 @@ runners.
 The exception patch is a source change because libc++ redefines its own
 availability macro, so a `-D` override is ignored and the newer
 `__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
-macOS builds pin the Homebrew `openssl@3` prefix before dependency configure and
-export it through `OPENSSL_ROOT_DIR` to CMake subprocesses and the generated
-`env.sh`. Arrow 18's bundled Thrift build uses TLS APIs that OpenSSL 4 removed.
-The bootstrap keeps Arrow Thrift enabled because Arrow 18 resolves
-`Boost::process` through that option when building the ArrowTesting archive
-required by Velox.
+macOS builds pin Homebrew `openssl@3` because vendored code uses APIs removed
+in OpenSSL 4. The Arrow 18 bootstrap disables Thrift and the ArrowTesting
+targets. The production Velox build uses Arrow IPC and Flight without linking
+ArrowTesting, which requires a Boost.Process target from the Thrift path.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
