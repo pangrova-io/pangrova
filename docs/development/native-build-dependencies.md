@@ -96,7 +96,9 @@ The bootstrap enforces four dependency contracts.
   Velox consumes the libraries, not those tools.
 - The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
   the regular, production and instrumented builds. The byte order and hash
-  values stay compatible with the pinned upstream version.
+  values stay compatible with the pinned upstream version. The Darwin
+  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
+  is missing or differs from the reviewed patch.
 
 ## Sanitizer Dependency Chain
 

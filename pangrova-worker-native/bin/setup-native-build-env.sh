@@ -371,6 +371,13 @@ ensure_darwin_snappy() {
     || die "Pinned Snappy package is incomplete at $prefix"
 }
 
+darwin_folly_has_alignment_patch() {
+  local prefix="$1"
+  local digest="$2"
+  local stamp="$prefix/.pangrova-folly-alignment"
+  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "$digest" ]]
+}
+
 build_velox() {
   log "Building Velox $VELOX_REF"
   local GRPC_VERSION="$GRPC_VERSION"
@@ -438,6 +445,8 @@ build_velox() {
     # Pangrova suppresses Velox's blanket Homebrew install below. Restore the
     # existing Folly prerequisite even when the compiled dependencies are cached.
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
+    local folly_alignment_digest
+    folly_alignment_digest=$(shasum -a 256 "$PANGROVA_FOLLY_ALIGNMENT_PATCH" | awk '{print $1}')
 
     # Upstream stores archives inside source directories that it deletes on retry.
     apply_folly_source_patches() {
@@ -596,6 +605,13 @@ build_velox() {
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
+      if [[ "$VELOX_BUILD_SHARED" != "ON" ]]; then
+        [[ -f "$INSTALL_PREFIX/lib/libfolly.a" ]] || die "Darwin Folly archive was not installed"
+        local stamp
+        stamp=$(mktemp "$INSTALL_PREFIX/.pangrova-folly-alignment.XXXXXXXX")
+        printf '%s\n' "$folly_alignment_digest" > "$stamp"
+        mv "$stamp" "$INSTALL_PREFIX/.pangrova-folly-alignment"
+      fi
     }
 
     install_aws_deps() {
@@ -627,6 +643,9 @@ build_velox() {
       run_and_time install_aws_deps
     fi
     if [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" ]]; then
+      if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
+        run_and_time install_folly
+      fi
       run_and_time install_xsimd
       run_and_time install_stemmer
       run_and_time install_arrow
