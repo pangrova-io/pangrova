@@ -51,6 +51,7 @@ statement
     | updateStatement                #updateStmt
     | mergeInto                      #mergeIntoStatement
     | createDynamicTable             #createDynamicTableStatement
+    | createContinuousQuery          #createContinuousQueryStatement
     | alterDynamicTable              #alterDynamicTableStatement
     | dropDynamicTable               #dropDynamicTableStatement
     | showDynamicTables              #showDynamicTablesStatement
@@ -686,6 +687,11 @@ createDynamicTable
       (WAREHOUSE EQ STRING_LITERAL)?
       AS query
       (WITH LPAREN stringPropertyList RPAREN)?
+    ;
+
+// A continuous query is a dynamic table refreshed on a durable interval schedule.
+createContinuousQuery
+    : CREATE CONTINUOUS QUERY qualifiedName REFRESH EVERY STRING_LITERAL AS query
     ;
 
 dtRefreshMode
@@ -1400,6 +1406,9 @@ VERSION     : V E R S I O N;
 
 // Dynamic Table keywords
 DYNAMIC     : D Y N A M I C;
+CONTINUOUS  : C O N T I N U O U S;
+QUERY       : Q U E R Y;
+EVERY       : E V E R Y;
 TARGET_LAG  : T A R G E T '_' L A G;
 REFRESH_MODE: R E F R E S H '_' M O D E;
 WAREHOUSE   : W A R E H O U S E;
@@ -1720,7 +1729,7 @@ nonReservedKeyword
     | DATA | TYPE | LIKE | BETWEEN | CASE | ELSE | END | DEFAULT
     | ROWS | UNBOUNDED | PRECEDING | FOLLOWING | CURRENT | ROW_KW
     | INTERSECT | EXCEPT
-    | DYNAMIC | TARGET_LAG | REFRESH_MODE | WAREHOUSE | REDEFINE
+    | DYNAMIC | CONTINUOUS | QUERY | EVERY | TARGET_LAG | REFRESH_MODE | WAREHOUSE | REDEFINE
     | SUSPEND | RESUME | CASCADE | CDC | AUTO | SNAPSHOT
     | YEAR | MONTH | DAY | HOUR | MINUTE | SECOND
     | INTERVAL | EXTRACT | SUBSTRING

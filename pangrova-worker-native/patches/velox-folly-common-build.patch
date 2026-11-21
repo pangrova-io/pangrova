@@ -1,0 +1,28 @@
+--- a/scripts/setup-common.sh	2026-11-20 21:08:16
++++ b/scripts/setup-common.sh	2026-11-20 21:08:16
+@@ -48,13 +48,24 @@
+ 
+ function install_folly {
+   wget_and_untar https://github.com/facebook/folly/archive/refs/tags/"${FB_OS_VERSION}".tar.gz folly
+-  local FOLLY_FLAGS=(-DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF -DFOLLY_HAVE_INT128_T=ON)
++  if [[ -n "${PANGROVA_FOLLY_PATCH:-}" && -f "${PANGROVA_FOLLY_PATCH}" ]]; then
++    if ! patch -R --dry-run -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}" >/dev/null 2>&1; then
++      patch -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}"
++    fi
++  fi
++  local FOLLY_FLAGS=(-DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF -DFOLLY_HAVE_INT128_T=ON)
+   # When folly is static, use static gflags to avoid dual gflags flag
+   # registration when .so plugins are dlopen'd (both the binary and plugin
+   # would register the same flags in a shared gflags registry).
+   if [[ ${VELOX_BUILD_SHARED} != "ON" ]]; then
+     FOLLY_FLAGS+=(-DGFLAGS_SHARED=FALSE)
+   fi
++  # Homebrew LLVM ships newer libc++ headers than the macOS runner's
++  # libc++abi. Force Folly's documented pre-19 exception construction path so
++  # the pinned dependency never references a symbol the runner lacks.
++  if [[ "$(uname)" == "Darwin" ]]; then
++    FOLLY_FLAGS+=(-DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0")
++  fi
+   cmake_install_dir folly "${FOLLY_FLAGS[@]}"
+ }
+ 

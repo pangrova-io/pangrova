@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
@@ -13,7 +15,7 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
@@ -99,9 +101,16 @@ class QueryManagerLineageTest {
 
     private QueryManager buildQueryManagerWithLineage(LineageEventEmitter lineageEmitter) {
         orchestrator = buildOrchestrator();
+        var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                null, null, lineageEmitter, orchestrator, null);
         return new QueryManager(new QueryManagerContext(orchestrator, TestObservability.TRACING,
-                null, null, null, lineageEmitter, null, null, null, null,
-                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                audit,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), audit),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 
     private QueryManager buildQueryManagerWithoutLineage() {

@@ -7,7 +7,10 @@ description: "AI_COMPLETE, AI_CLASSIFY, AI_EMBED, multimodal functions, model DD
 
 Pangrova is an AI-native distributed SQL query engine. AI capabilities are exposed as standard SQL functions, enabling seamless integration of LLM inference, embedding generation, and multimodal processing directly within SQL queries.
 
-> **Design Philosophy**: Every AI function follows the `(model, input...) → output` calling convention. Models are referenced by name (registered via `CREATE EMBEDDING MODEL` or configured inference endpoints). All inference functions support batch execution for throughput optimization.
+> **Calling convention:** AI functions use `(model, input...) → output`. Model names
+> refer to explicitly configured deployments; embedding catalog registration alone
+> does not install a model service. Batching depends on the function and provider.
+> Generation settings do not guarantee deterministic, valid, or policy-compliant output.
 
 ---
 
@@ -51,7 +54,7 @@ SELECT AI_COMPLETE('llama3', 'List 3 colors as JSON array', 'true') AS json_resu
 **Notes:**
 - Supports batch execution for multiple rows
 - When the third parameter is a FILE, its MIME must match the model's advertised modality; an unsupported dialect fails before provider I/O
-- When the third parameter is the string `'true'`, output is constrained to valid JSON
+- The string `'true'` requests provider JSON mode; the function does not locally validate the returned JSON
 
 **See Also:** [AI_SUMMARIZE](#ai_summarize), [AI_EXTRACT](#ai_extract)
 
@@ -65,7 +68,9 @@ SELECT AI_COMPLETE('llama3', 'List 3 colors as JSON array', 'true') AS json_resu
 AI_CLASSIFY(model VARCHAR, text VARCHAR, labels VARCHAR) → VARCHAR
 ```
 
-**Description:** Classifies the input text into one of the provided labels. Returns the most appropriate label as determined by the model.
+**Description:** Prompts the model to choose one of the supplied labels and returns
+its stripped text. Membership in the label set is not locally enforced; validate
+the response before using it as a categorical value.
 
 **Parameters:**
 
@@ -175,7 +180,9 @@ WHERE AI_FILTER('llama3', content, 'contains hate speech or harassment');
 AI_EXTRACT(model VARCHAR, text VARCHAR, schema_json VARCHAR) → VARCHAR
 ```
 
-**Description:** Extracts structured information from text according to a JSON schema specification. Returns a JSON string conforming to the provided schema.
+**Description:** Prompts the model to extract fields using the supplied schema text
+and requests JSON output. The function returns the provider's text; it does not
+locally validate JSON syntax or schema conformance.
 
 **Parameters:**
 
@@ -201,9 +208,9 @@ FROM products;
 ```
 
 **Notes:**
-- Uses deterministic JSON generation parameters for reliable structured output
-- Output is always valid JSON conforming to the provided schema
-- Supports batch execution
+- Requests deterministic JSON generation parameters from the provider
+- Returned text is not locally parsed or checked against the supplied schema; validate it before use
+- The current function invokes its provider per row
 
 **See Also:** [AI_COMPLETE](#ai_complete), [AI_CLASSIFY](#ai_classify)
 
@@ -347,7 +354,7 @@ SELECT AI_EMBED('bge_m3', 'Introduction to machine learning') AS embedding;
 -- Embed document content for similarity search
 INSERT INTO articles (id, title, content, embedding)
 SELECT id, title, content,
-       CAST(AI_EMBED('bge_m3', content) AS VECTOR(1024))
+       AI_EMBED('bge_m3', content)
 FROM raw_articles;
 
 -- Binary embedding requires a provider that explicitly advertises IMAGE.
@@ -584,7 +591,7 @@ FILE_FROM_BYTES(content VARBINARY, mime_type VARCHAR) → FILE
 
 ```sql
 -- Create FILE from inline bytes
-SELECT FILE_FROM_BYTES(X'89504E47...', 'image/png') AS image;
+SELECT FILE_FROM_BYTES(X'68656C6C6F', 'text/plain') AS text_file;
 ```
 
 **Notes:**
@@ -684,7 +691,7 @@ are immutable; replace the model under a new name to change either.
 ```sql
 ALTER EMBEDDING MODEL bge_m3 SET (
     expected_version = 0,
-    endpoint = 'http://new-host:11434/api/embed',
+    endpoint = 'http://localhost:11435/v1/embeddings',
     max_batch_size = '128'
 );
 ```

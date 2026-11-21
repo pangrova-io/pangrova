@@ -244,7 +244,7 @@ public final class ImmutableFilterBoundary {
         String manager = "org.pangrova.indexing.storage.IndexStorageManager";
         String context = "org.pangrova.indexing.build.IndexBuildContext";
         String evaluation = "org.pangrova.indexing.evaluation.IndexEvaluationService";
-        String cached = "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData";
+        String cached = "org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");

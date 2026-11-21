@@ -196,7 +196,13 @@ def main():
                 if not stop_process_group(process, 30):
                     print("CTest process group required forced cleanup", file=sys.stderr)
     except subprocess.CalledProcessError as failure:
-        print(f"Java fixture build failed ({failure.returncode}); see {logs / 'java-build.log'}", file=sys.stderr)
+        log = logs / "java-build.log"
+        try:
+            tail = log.read_text(errors="replace").splitlines()[-40:]
+            print("Java fixture build failed; last lines of log:\n" + "\n".join(tail), file=sys.stderr)
+        except OSError:
+            pass
+        print(f"Java fixture build failed ({failure.returncode}); see {log}", file=sys.stderr)
         return failure.returncode
     except (OSError, RuntimeError) as failure:
         print(str(failure), file=sys.stderr)

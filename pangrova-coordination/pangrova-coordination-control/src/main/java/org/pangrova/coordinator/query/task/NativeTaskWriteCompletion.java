@@ -54,7 +54,24 @@ final class NativeTaskWriteCompletion {
             return;
         }
         WriteResultDescriptor writeResult = report.writeResult();
-        byte[] commitMetadata = writeResult != null ? writeResult.commitMetadata() : null;
+        if (writeResult == null) {
+            LOG.debug("event=write_task_no_commit_metadata queryId={} taskId={}",
+                    queryId, report.taskId());
+            return;
+        }
+        List<byte[]> fragments = writeResult.commitFragments();
+        if (!fragments.isEmpty()) {
+            if (!writeCommitTracker.hasWriteContext(queryId)) {
+                LOG.debug("event=write_commit_metadata_skipped queryId={} taskId={} reason=no_write_context",
+                        queryId, report.taskId());
+                return;
+            }
+            fragments.forEach(fragment -> writeCommitTracker.addCommitFragment(queryId, fragment));
+            LOG.info("event=write_commit_fragments_collected queryId={} taskId={} fragmentCount={}",
+                    queryId, report.taskId(), fragments.size());
+            return;
+        }
+        byte[] commitMetadata = writeResult.commitMetadata();
         if (commitMetadata == null || commitMetadata.length == 0) {
             LOG.debug("event=write_task_no_commit_metadata queryId={} taskId={}",
                     queryId, report.taskId());
@@ -244,7 +261,8 @@ final class NativeTaskWriteCompletion {
                         baseSnapshotId,
                         writeOutputBinding,
                         writeState.session().getUser(),
-                        writeState.authorizationReceipt(), writeState.copyFile()),
+                        writeState.authorizationReceipt(), writeState.copyFile(),
+                        writeState.cdcSource()),
                 fragments);
         return new WriteCommitEntry(
                 queryId,
@@ -264,7 +282,7 @@ final class NativeTaskWriteCompletion {
                 anchor != null ? anchor.ownerId() : null,
                 anchor != null ? anchor.ownerIncarnation() : null,
                 anchor != null ? anchor.fencingToken() : 0L,
-                null, writeState.copyFile());
+                null, writeState.copyFile(), writeState.cdcSource());
     }
 
     private static boolean isCurrentExecutionOwner(

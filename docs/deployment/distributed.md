@@ -16,7 +16,7 @@ failure-test evidence before accepting a deployment.
 
 ## Architecture Overview
 
-![Deployment topology: load balancer, leader and follower Coordinators, PostgreSQL leases, Workers, and object storage](/img/diagrams/distributed-topology.svg)
+![Deployment topology: load balancer, leader and follower Coordinators, PostgreSQL leases, Workers, and object storage](../../website/static/img/diagrams/distributed-topology.svg)
 
 **Example topology for evaluation**: 2 Coordinators + 3 Workers + PostgreSQL + object storage. A single database remains an availability dependency; this is not a qualified minimum production configuration.
 

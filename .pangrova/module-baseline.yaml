@@ -838,6 +838,7 @@ artifacts:
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
       - org.pangrova.coordinator.scheduler.placement
+      - org.pangrova.coordinator.streaming
       - org.pangrova.coordinator.task
       - org.pangrova.coordinator.transport
       - org.pangrova.coordinator.worker
@@ -960,7 +961,6 @@ artifacts:
         - pangrova-metadata-api
         - pangrova-metadata-catalog
         - pangrova-observability-api
-        - pangrova-observability-instrumentation
         - pangrova-observability-sdk
         - pangrova-parser
         - pangrova-persistence-catalog-api
@@ -1130,6 +1130,7 @@ artifacts:
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
       - org.pangrova.coordinator.scheduler.placement
+      - org.pangrova.coordinator.streaming
       - org.pangrova.coordinator.task
       - org.pangrova.coordinator.testinfra
       - org.pangrova.coordinator.transport
@@ -1793,27 +1794,27 @@ artifacts:
   pangrova-indexing-strategies-builtin:
     path: pangrova-indexing/pangrova-indexing-strategies-builtin
     mainPackages:
-      - org.pangrova.indexing.builtin.bitmap.provider
-      - org.pangrova.indexing.builtin.bitmap.serializer
-      - org.pangrova.indexing.builtin.bloom.data
-      - org.pangrova.indexing.builtin.bloom.provider
-      - org.pangrova.indexing.builtin.bloom.serializer
-      - org.pangrova.indexing.builtin.btree.evaluator
-      - org.pangrova.indexing.builtin.btree.provider
-      - org.pangrova.indexing.builtin.btree.serializer
-      - org.pangrova.indexing.builtin.gin.provider
-      - org.pangrova.indexing.builtin.gin.serializer
-      - org.pangrova.indexing.builtin.hash.provider
-      - org.pangrova.indexing.builtin.hash.serializer
-      - org.pangrova.indexing.builtin.ngram.provider
-      - org.pangrova.indexing.builtin.ngram.serializer
-      - org.pangrova.indexing.builtin.normalize
-      - org.pangrova.indexing.builtin.prefix.provider
-      - org.pangrova.indexing.builtin.prefix.serializer
-      - org.pangrova.indexing.builtin.rtree.provider
-      - org.pangrova.indexing.builtin.rtree.serializer
-      - org.pangrova.indexing.builtin.sparse.provider
-      - org.pangrova.indexing.builtin.sparse.serializer
+      - org.pangrova.indexing.strategies.bitmap.provider
+      - org.pangrova.indexing.strategies.bitmap.serializer
+      - org.pangrova.indexing.strategies.bloom.data
+      - org.pangrova.indexing.strategies.bloom.provider
+      - org.pangrova.indexing.strategies.bloom.serializer
+      - org.pangrova.indexing.strategies.btree.evaluator
+      - org.pangrova.indexing.strategies.btree.provider
+      - org.pangrova.indexing.strategies.btree.serializer
+      - org.pangrova.indexing.strategies.gin.provider
+      - org.pangrova.indexing.strategies.gin.serializer
+      - org.pangrova.indexing.strategies.hash.provider
+      - org.pangrova.indexing.strategies.hash.serializer
+      - org.pangrova.indexing.strategies.ngram.provider
+      - org.pangrova.indexing.strategies.ngram.serializer
+      - org.pangrova.indexing.strategies.normalize
+      - org.pangrova.indexing.strategies.prefix.provider
+      - org.pangrova.indexing.strategies.prefix.serializer
+      - org.pangrova.indexing.strategies.rtree.provider
+      - org.pangrova.indexing.strategies.rtree.serializer
+      - org.pangrova.indexing.strategies.sparse.provider
+      - org.pangrova.indexing.strategies.sparse.serializer
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-api: compile
@@ -1831,21 +1832,21 @@ artifacts:
         - pangrova-indexing-api
         - pangrova-indexing-codec
     exportedPackages:
-      - org.pangrova.indexing.builtin.bloom.data
-      - org.pangrova.indexing.builtin.bloom.provider
-      - org.pangrova.indexing.builtin.hash.provider
-      - org.pangrova.indexing.builtin.hash.serializer
+      - org.pangrova.indexing.strategies.bloom.data
+      - org.pangrova.indexing.strategies.bloom.provider
+      - org.pangrova.indexing.strategies.hash.provider
+      - org.pangrova.indexing.strategies.hash.serializer
     providers:
       "org.pangrova.indexing.api.strategy.IndexStrategyProvider":
-        - org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider
-        - org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider
-        - org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider
-        - org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider
-        - org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider
-        - org.pangrova.indexing.builtin.gin.provider.GinStrategyProvider
-        - org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider
-        - org.pangrova.indexing.builtin.prefix.provider.PrefixStrategyProvider
-        - org.pangrova.indexing.builtin.ngram.provider.NGramBloomStrategyProvider
+        - org.pangrova.indexing.strategies.bloom.provider.BloomFilterStrategyProvider
+        - org.pangrova.indexing.strategies.btree.provider.BTreeStrategyProvider
+        - org.pangrova.indexing.strategies.hash.provider.HashStrategyProvider
+        - org.pangrova.indexing.strategies.sparse.provider.SparseStrategyProvider
+        - org.pangrova.indexing.strategies.rtree.provider.RTreeStrategyProvider
+        - org.pangrova.indexing.strategies.gin.provider.GinStrategyProvider
+        - org.pangrova.indexing.strategies.bitmap.provider.BitmapStrategyProvider
+        - org.pangrova.indexing.strategies.prefix.provider.PrefixStrategyProvider
+        - org.pangrova.indexing.strategies.ngram.provider.NGramBloomStrategyProvider
   pangrova-materialization-api:
     path: pangrova-materialization/pangrova-materialization-api
     mainPackages:
@@ -2144,6 +2145,7 @@ artifacts:
       - org.pangrova.observability.api.metrics
       - org.pangrova.observability.api.profiling
       - org.pangrova.observability.api.tracing
+      - org.pangrova.observability.logging
     pomDependencies:
       pangrova-common: compile
     imports:
@@ -2152,19 +2154,18 @@ artifacts:
       test:
         - pangrova-common
     exportedPackages:
-      - org.pangrova.observability.api.context
       - org.pangrova.observability.api.enums
       - org.pangrova.observability.api.exception
       - org.pangrova.observability.api.logging
       - org.pangrova.observability.api.metrics
       - org.pangrova.observability.api.profiling
       - org.pangrova.observability.api.tracing
+      - org.pangrova.observability.logging
     providers:
       {}
   pangrova-observability-instrumentation:
     path: pangrova-observability/pangrova-observability-instrumentation
     mainPackages:
-      - org.pangrova.observability.logging
       - org.pangrova.observability.metrics
       - org.pangrova.observability.profiling
     pomDependencies:
@@ -2177,7 +2178,6 @@ artifacts:
       test:
         - pangrova-observability-api
     exportedPackages:
-      - org.pangrova.observability.logging
       - org.pangrova.observability.metrics
       - org.pangrova.observability.profiling
     providers:
@@ -3636,6 +3636,7 @@ artifacts:
       - org.pangrova.query.profiling
       - org.pangrova.query.recovery
       - org.pangrova.query.retention
+      - org.pangrova.query.runtime
       - org.pangrova.query.session
       - org.pangrova.query.stage
       - org.pangrova.query.statement
@@ -3691,7 +3692,7 @@ artifacts:
       - org.pangrova.query.lifecycle
       - org.pangrova.query.profiling
       - org.pangrova.query.recovery
-      - org.pangrova.query.retention
+      - org.pangrova.query.runtime
       - org.pangrova.query.session
       - org.pangrova.query.stage
       - org.pangrova.query.statement
@@ -3777,8 +3778,8 @@ artifacts:
   pangrova-scheduler-strategies-builtin:
     path: pangrova-scheduler/pangrova-scheduler-strategies-builtin
     mainPackages:
-      - org.pangrova.scheduler.builtin.placement
-      - org.pangrova.scheduler.builtin.scoring
+      - org.pangrova.scheduler.strategies.placement
+      - org.pangrova.scheduler.strategies.scoring
     pomDependencies:
       pangrova-scheduler-api: compile
     imports:
@@ -3787,10 +3788,10 @@ artifacts:
       test:
         - pangrova-scheduler-api
     exportedPackages:
-      - org.pangrova.scheduler.builtin.placement
+      - org.pangrova.scheduler.strategies.placement
     providers:
       "org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory":
-        - org.pangrova.scheduler.builtin.placement.LoadBalancedStrategyFactory
+        - org.pangrova.scheduler.strategies.placement.LoadBalancedStrategyFactory
   pangrova-schema-migrations:
     path: pangrova-schema-migrations
     mainPackages:
@@ -3910,7 +3911,7 @@ artifacts:
   pangrova-security-auth-builtin:
     path: pangrova-security/pangrova-security-auth-builtin
     mainPackages:
-      - org.pangrova.security.auth.builtin
+      - org.pangrova.security.auth
     pomDependencies:
       pangrova-security-api: compile
     imports:
@@ -3918,10 +3919,10 @@ artifacts:
         - pangrova-security-api
       test: []
     exportedPackages:
-      - org.pangrova.security.auth.builtin
+      - org.pangrova.security.auth
     providers:
       "org.pangrova.security.api.authentication.AuthenticatorFactory":
-        - org.pangrova.security.auth.builtin.BypassAuthenticatorFactory
+        - org.pangrova.security.auth.BypassAuthenticatorFactory
   pangrova-security-auth-ldap:
     path: pangrova-security/pangrova-security-auth-ldap
     mainPackages:
@@ -4001,7 +4002,7 @@ artifacts:
   pangrova-security-policy-builtin:
     path: pangrova-security/pangrova-security-policy-builtin
     mainPackages:
-      - org.pangrova.security.policy.builtin.authorization
+      - org.pangrova.security.policy.authorization
     pomDependencies:
       pangrova-common: compile
       pangrova-file: compile
@@ -4016,7 +4017,7 @@ artifacts:
         - pangrova-file
         - pangrova-security-api
     exportedPackages:
-      - org.pangrova.security.policy.builtin.authorization
+      - org.pangrova.security.policy.authorization
     providers:
       {}
   pangrova-security-secret-env:
@@ -4422,22 +4423,32 @@ artifacts:
       pangrova-filesystem-oss: runtime
       pangrova-filesystem-s3: runtime
       pangrova-observability-sdk: compile
+      pangrova-protocol: compile
       pangrova-security-access: compile
       pangrova-security-secret-env: runtime
       pangrova-server-bootstrap: compile
       pangrova-shuffle-api: compile
       pangrova-shuffle-pangrova: runtime
+      pangrova-streaming-api: compile
+      pangrova-streaming-formats-builtin: compile
+      pangrova-streaming-pipeline: compile
+      pangrova-streaming-source-kafka: compile
+      pangrova-streaming-worker: compile
       pangrova-worker: compile
     imports:
       main:
         - pangrova-config
         - pangrova-observability-sdk
+        - pangrova-protocol
         - pangrova-security-access
         - pangrova-server-bootstrap
         - pangrova-shuffle-api
+        - pangrova-streaming-pipeline
+        - pangrova-streaming-worker
         - pangrova-worker
       test:
         - pangrova-config
+        - pangrova-protocol
         - pangrova-server-bootstrap
         - pangrova-worker
     exportedPackages:
@@ -4696,7 +4707,6 @@ artifacts:
       - org.pangrova.streaming.exception
       - org.pangrova.streaming.maintenance
       - org.pangrova.streaming.pipeline
-      - org.pangrova.streaming.query
       - org.pangrova.streaming.watermark
     pomDependencies:
       pangrova-batch: compile
@@ -4730,6 +4740,7 @@ artifacts:
       - org.pangrova.streaming.commit
       - org.pangrova.streaming.coordinator
       - org.pangrova.streaming.enums
+      - org.pangrova.streaming.exception
       - org.pangrova.streaming.maintenance
       - org.pangrova.streaming.pipeline
       - org.pangrova.streaming.watermark
@@ -4754,6 +4765,39 @@ artifacts:
     providers:
       "org.pangrova.streaming.api.source.CdcSourceFactory":
         - org.pangrova.streaming.source.kafka.KafkaCdcSourceFactory
+  pangrova-streaming-worker:
+    path: pangrova-streaming/pangrova-streaming-worker
+    mainPackages:
+      - org.pangrova.streaming.worker
+    pomDependencies:
+      pangrova-batch: compile
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-protocol: compile
+      pangrova-streaming-api: compile
+      pangrova-streaming-pipeline: compile
+      pangrova-types: compile
+      pangrova-worker: compile
+    imports:
+      main:
+        - pangrova-batch
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-protocol
+        - pangrova-streaming-api
+        - pangrova-streaming-pipeline
+        - pangrova-types
+        - pangrova-worker
+      test:
+        - pangrova-batch
+        - pangrova-connector-api
+        - pangrova-protocol
+        - pangrova-streaming-api
+        - pangrova-streaming-pipeline
+    exportedPackages:
+      - org.pangrova.streaming.worker
+    providers:
+      {}
   pangrova-table:
     path: pangrova-table
     mainPackages:
@@ -4941,6 +4985,8 @@ artifacts:
       pangrova-shuffle-service: test
       pangrova-streaming-api: test
       pangrova-streaming-pipeline: test
+      pangrova-streaming-source-kafka: test
+      pangrova-streaming-worker: test
       pangrova-table: compile
       pangrova-testing-kit: compile
       pangrova-transport-client: test
@@ -4968,6 +5014,7 @@ artifacts:
         - pangrova-connector-api
         - pangrova-connector-iceberg
         - pangrova-connector-lance
+        - pangrova-connector-paimon
         - pangrova-connector-runtime
         - pangrova-coordination-api
         - pangrova-coordination-control
@@ -5042,6 +5089,7 @@ artifacts:
         - pangrova-shuffle-service
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
+        - pangrova-streaming-worker
         - pangrova-table
         - pangrova-testing-kit
         - pangrova-transport-client

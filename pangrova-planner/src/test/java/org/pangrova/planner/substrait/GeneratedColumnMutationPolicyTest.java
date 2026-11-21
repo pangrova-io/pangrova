@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.planner.embedding.GeneratedMutationFixture;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;

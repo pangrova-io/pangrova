@@ -24,7 +24,7 @@ import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

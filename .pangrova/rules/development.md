@@ -55,7 +55,9 @@ Validation is proportional to a change's blast radius. Commands are in
 
 - Review the diff for scope creep, dead code, secrets, machine paths and generated
   files.
-- Update `docs/` when APIs, behavior, configuration, architecture or build steps change.
+- For every new or changed feature, check the affected pages under `docs/` and add
+  or update user workflows, SQL/API contracts, configuration, architecture and
+  operational content in the same change. Undocumented behavior is incomplete.
 - Run `.pangrova/scripts/clean-dev-artifacts.sh` and confirm
   `.pangrova/scripts/check-dev-artifacts.sh` passes.
 - Report changed files, checks executed with results, and verified blockers, linking

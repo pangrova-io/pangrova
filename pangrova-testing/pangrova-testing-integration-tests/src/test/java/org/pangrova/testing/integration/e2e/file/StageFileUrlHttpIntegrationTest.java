@@ -45,7 +45,7 @@ import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
 import org.pangrova.security.api.authentication.Authenticator;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

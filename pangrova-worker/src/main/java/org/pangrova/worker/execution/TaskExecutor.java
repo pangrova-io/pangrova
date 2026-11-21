@@ -83,6 +83,29 @@ public interface TaskExecutor {
     boolean isFinished(long executorHandle);
 
     /**
+     * Identifies a handle owned by a Worker-JVM execution backend rather than
+     * the Native engine. Lifecycle callers must skip Native-only memory and
+     * drain commands for such handles.
+     *
+     * @param executorHandle handle returned by {@link #createTask}
+     * @return true when the handle belongs to a Worker-executed backend
+     */
+    default boolean isWorkerExecuted(long executorHandle) {
+        return false;
+    }
+
+    /**
+     * Returns every commit fragment staged by a Worker-executed task.
+     * Native tasks use their write-result metadata instead.
+     *
+     * @param executorHandle handle returned by {@link #createTask}
+     * @return owned fragment copies, empty when none were staged
+     */
+    default java.util.List<byte[]> getTaskCommitFragments(long executorHandle) {
+        return java.util.List.of();
+    }
+
+    /**
      * Returns the executor's canonical v2 TaskReport envelope.
      *
      * <p>The status is control-plane metadata only. Implementations must never

@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.constants.TestObservability;
@@ -11,7 +12,8 @@ class QueryManagerContextJournalTest {
     void missingJournalCannotSelectAnImplicitMemoryBackend() {
         assertThatThrownBy(() -> new QueryManagerContext(
                 null, TestObservability.TRACING,
-                null, null, null, null, null, null, null, null, null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()))
+                null, null, null, null, null, null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("stateJournal must be selected explicitly");
     }

@@ -23,7 +23,7 @@ description: "Diagnose and recover from coordinator failover"
 
 ## Decision Tree
 
-![Coordinator appears down?](/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
+![Coordinator appears down?](../../../../website/static/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
 
 ---
 
@@ -155,7 +155,7 @@ ssh "${FAILED_COORDINATOR}" "
   TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
   ARCHIVE=/tmp/coordinator-crash-\${TIMESTAMP}.tar.gz
   tar czf \"\${ARCHIVE}\" \
-    /var/log/pangrova/pangrova-coordinator*.log \
+    /var/log/pangrova/coordinator*.log \
     /var/log/pangrova/gc-coordinator.log \
     /var/log/pangrova/heapdump-coordinator*.hprof 2>/dev/null \
     /var/log/syslog 2>/dev/null || true

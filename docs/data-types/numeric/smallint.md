@@ -34,7 +34,7 @@ validate boundary values and choose `INTEGER` when the domain is not strictly bo
 |-----------|---------------|--------------|
 | Apache Iceberg | 32-bit `INTEGER` | `INTEGER`; the original width is not preserved |
 | Apache Paimon | `SMALLINT` | `SMALLINT` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow signed 16-bit integer | `SMALLINT` retained in managed catalog metadata |
 
 ## Example
 

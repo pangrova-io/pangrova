@@ -21,7 +21,7 @@ sidebar_label: "Native Execution Layer"
 
 ## 1. Overall Architecture
 
-![Coordinator JVM: SQL/planning → canonical v2 task binding → admission/scheduling](/img/diagrams/generated/native-execution-01-3b9f6c7978.svg)
+![Coordinator JVM: SQL/planning → canonical v2 task binding → admission/scheduling](../../website/static/img/diagrams/generated/native-execution-01-3b9f6c7978.svg)
 
 The main relational execution path places operators and vector Top-K merging on
 Native Workers. The separate Coordinator-local CDC sink remains a migration gap;
@@ -106,7 +106,7 @@ for retry and is reported to the caller.
 
 Building on the core ideas of Velox, Pangrova adopts an architecture that separates the "control plane" from the "data plane":
 
-![Control Plane (Java)](/img/diagrams/generated/native-execution-02-23981612cb.svg)
+![Control Plane (Java)](../../website/static/img/diagrams/generated/native-execution-02-23981612cb.svg)
 
 ## 3. Dual-Layer Connector Architecture
 
@@ -117,11 +117,11 @@ Building on the core ideas of Velox, Pangrova adopts an architecture that separa
 | Java Connector | Java | Metadata, Split planning, transactions | Deep integration with lakehouse format SDKs |
 | Native Connector | C++ | Data reading, vectorized processing | Extreme performance, SIMD optimization |
 
-![Dual-Layer Connector Architecture](/img/diagrams/generated/native-execution-03-58e3157669.svg)
+![Dual-Layer Connector Architecture](../../website/static/img/diagrams/generated/native-execution-03-58e3157669.svg)
 
 ## 4. Data Flow in Detail
 
-![Query Execution Data Flow](/img/diagrams/generated/native-execution-04-1ec0b14651.svg)
+![Query Execution Data Flow](../../website/static/img/diagrams/generated/native-execution-04-1ec0b14651.svg)
 
 ## 5. Native ↔ Java Interaction Protocol
 
@@ -141,7 +141,7 @@ Building on the core ideas of Velox, Pangrova adopts an architecture that separa
 
 ### 5.2 Current Native Data Flow
 
-![Coordinator (plan, task admission, scheduling)](/img/diagrams/generated/native-execution-05-f6bff67b90.svg)
+![Coordinator (plan, task admission, scheduling)](../../website/static/img/diagrams/generated/native-execution-05-f6bff67b90.svg)
 
 Java does not repeatedly pull shuffle or result batches through JNI. The
 producer queue and Flight demultiplexer provide bounded handoff; producer

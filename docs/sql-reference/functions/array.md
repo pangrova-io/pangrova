@@ -35,7 +35,7 @@ SELECT * FROM products WHERE ARRAY_CONTAINS(tags, 'sale');
 ARRAY_CONTAINS_ALL(array, value1, value2, ...) → BOOLEAN
 ```
 
-Returns TRUE if the array contains all elements in the values array.
+Returns TRUE if the array contains every supplied value.
 
 ```sql
 SELECT * FROM products WHERE ARRAY_CONTAINS_ALL(tags, 'premium', 'featured');

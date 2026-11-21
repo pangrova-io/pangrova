@@ -42,7 +42,7 @@ fractional part; the result must still be representable in the target width.
 |-----------|---------------|--------------|
 | Apache Iceberg | `DOUBLE` | `DOUBLE` |
 | Apache Paimon | `DOUBLE` | `DOUBLE` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Arrow double-precision floating point | `DOUBLE` |
 
 ## Example
 

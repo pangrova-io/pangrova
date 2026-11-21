@@ -11,6 +11,7 @@ rendered with a clean sans/mono mix. Run from the repository root:
 from __future__ import annotations
 
 import hashlib
+import os
 import pathlib
 import re
 
@@ -140,7 +141,8 @@ def main() -> None:
             first = next((re.sub(r"[│┌┐└┘─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]", " ", line).strip() for line in lines if re.sub(r"[│┌┐└┘─├┤┬┴┼╔╗╚╝║═╠╣╦╩╬]", " ", line).strip()), "Diagram")
             alt = re.sub(r"[\[\]]", "", first)[:110]
             output.append(text[cursor:match.start()])
-            output.append(f"![{alt}](/img/diagrams/generated/{filename})")
+            image_path = pathlib.Path(os.path.relpath(OUT / filename, path.parent)).as_posix()
+            output.append(f"![{alt}]({image_path})")
             cursor = match.end()
             changed = True
             replaced += 1

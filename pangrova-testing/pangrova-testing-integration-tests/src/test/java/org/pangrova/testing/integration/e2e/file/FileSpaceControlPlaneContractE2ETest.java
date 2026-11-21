@@ -111,7 +111,7 @@ class FileSpaceControlPlaneContractE2ETest {
             grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("file_contract", privilege,
                     "STAGE", "media", "raw", "landing", null));
         }
-        var authorization = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(grants, roles,
+        var authorization = new org.pangrova.security.policy.authorization.DynamicRbacAccessControl(grants, roles,
                 new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
                         new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(source)),
                 new org.pangrova.security.mask.ColumnMaskingProcessor(

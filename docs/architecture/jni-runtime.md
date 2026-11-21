@@ -37,7 +37,7 @@ they must not introduce feature-specific task envelopes or a second proto tree.
 
 The single serialization boundary between Java and Native is the JNI bridge in `pangrova-worker`:
 
-![JNI ownership boundary: Java task lifecycle, connector callbacks, and result transport cross a canonical Protobuf bridge into C++/Velox execution and Native shuffle](/img/diagrams/jni-ownership.svg)
+![JNI ownership boundary: Java task lifecycle, connector callbacks, and result transport cross a canonical Protobuf bridge into C++/Velox execution and Native shuffle](../../website/static/img/diagrams/jni-ownership.svg)
 
 **Critical rule:** the byte stream produced by generated Java classes must be
 parsed by C++ classes generated from the exact same canonical descriptor. There
@@ -109,7 +109,7 @@ messages and unknown enum values fail closed.
 
 ### 2.1 Result Data Flow
 
-![Native task / output buffers](/img/diagrams/generated/jni-runtime-01-79e6ac152c.svg)
+![Native task / output buffers](../../website/static/img/diagrams/generated/jni-runtime-01-79e6ac152c.svg)
 
 Java schedules and issues JNI control commands; `NativeRuntime` has no
 `nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
@@ -123,7 +123,7 @@ IPv4 service cannot receive its Flight traffic through an IPv6-only listener.
 
 ### 2.2 Memory Ownership Hierarchy
 
-![C++ side:](/img/diagrams/generated/jni-runtime-02-885ba8ec78.svg)
+![C++ side:](../../website/static/img/diagrams/generated/jni-runtime-02-885ba8ec78.svg)
 
 ### 2.3 Arrow C Data Interface Ownership Rules
 

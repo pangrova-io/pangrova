@@ -64,7 +64,7 @@ management, durable execution wiring or candidate-write validation.
 
 ## 1. Data Governance Architecture Overview
 
-![Data governance pipeline: query and table facts feed lineage, quality, and classification; durable records live in PostgreSQL, the lineage backend, and query audit](/img/diagrams/governance-pipeline.svg)
+![Data governance pipeline: query and table facts feed lineage, quality, and classification; durable records live in PostgreSQL, the lineage backend, and query audit](../../website/static/img/diagrams/governance-pipeline.svg)
 
 ---
 
@@ -72,7 +72,7 @@ management, durable execution wiring or candidate-write validation.
 
 ### 2.1 Supported Schema Changes
 
-![Schema Evolution Support](/img/diagrams/generated/data-governance-01-6a2c0f3b68.svg)
+![Schema Evolution Support](../../website/static/img/diagrams/generated/data-governance-01-6a2c0f3b68.svg)
 
 ### 2.2 Schema Evolution SQL
 
@@ -118,7 +118,7 @@ SELECT * FROM iceberg.db.orders$snapshots;
 
 ### 3.1 Lineage Architecture
 
-![Data Lineage Architecture](/img/diagrams/generated/data-governance-03-7b247bdda4.svg)
+![Data Lineage Architecture](../../website/static/img/diagrams/generated/data-governance-03-7b247bdda4.svg)
 
 ### 3.2 Lineage Event Model
 
@@ -235,7 +235,7 @@ SELECT * FROM system.lineage.path(
 
 ### 4.1 Data Quality Architecture
 
-![Data Quality Architecture](/img/diagrams/generated/data-governance-06-3f5ae9fe04.svg)
+![Data Quality Architecture](../../website/static/img/diagrams/generated/data-governance-06-3f5ae9fe04.svg)
 
 ### 4.2 Quality Rule Definition
 
@@ -456,7 +456,7 @@ interface AlertChannelRegistry {
 
 ### 5.1 Classification Tag System
 
-![Data Classification](/img/diagrams/generated/data-governance-10-7df05ba21e.svg)
+![Data Classification](../../website/static/img/diagrams/generated/data-governance-10-7df05ba21e.svg)
 
 ### 5.2 Tag Management SQL
 

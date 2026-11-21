@@ -134,6 +134,12 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
+    public ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        return IcebergOutputHandles.forMerge(handle, writeTable(handle));
+    }
+
+    @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
         return IcebergOutputHandles.forOverwrite(handle, writeTable(handle));
@@ -206,7 +212,18 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                         handle.baseSnapshotId(),
                         context.writeOutputBinding(),
                         context.principal(),
-                        context.authorizationReceipt(), context.copyFile()),
+                        context.authorizationReceipt(), context.copyFile(),
+                        context.cdcSource() == null ? null
+                                : new org.pangrova.persistence.query.api.commit.CdcSourceIdentity(
+                                        context.cdcSource().streamId(),
+                                        context.cdcSource().sourceEpoch(),
+                                        context.cdcSource().ranges().stream()
+                                                .map(range ->
+                                                        new org.pangrova.persistence.query.api.commit
+                                                                .CdcSourceIdentity.OffsetRange(
+                                                                range.topic(), range.partition(),
+                                                                range.startOffset(), range.endOffset()))
+                                                .toList())),
                 fragments);
             if (!expectedFingerprint.equals(context.commitFingerprint())) {
                 throw new IllegalArgumentException(

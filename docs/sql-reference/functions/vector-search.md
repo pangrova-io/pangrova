@@ -22,8 +22,12 @@ reranking are distinct execution paths.
   retrieval accepts the first page (`LIMIT K` or `LIMIT K OFFSET 0`).
 - Multi-vector source expressions require per-source bindings; the current collector
   rejects the ambiguous multi-vector form shown below.
-- Text-to-vector shorthand is not wired by default. Explicit model invocation,
-  artifacts, and provider dependencies must be verified for the query used.
+- Text-to-vector shorthand is wired for auto-embedding columns. A text literal
+  used as the second argument of `L2_DISTANCE`, `COSINE_DISTANCE`,
+  `INNER_PRODUCT`, or `COSINE_SIMILARITY` is planned as
+  `AI_EMBED('<model>', '<text>', 'QUERY')` using the column's generated-column
+  definition. ANN rewriting still requires a literal vector, so the shorthand
+  executes exact distance ordering; a configured model and provider are required.
 
 These examples are query shapes and syntax references, not measured recall/latency
 or a qualification of every combination. See
@@ -273,7 +277,7 @@ Combine vector similarity with full-text relevance scoring using `MATCH()`.
 **Implicit hybrid search** (auto-detected when both vector ORDER BY and MATCH are present):
 
 ```sql
--- Automatically applies RRF(k=60) fusion
+-- Eligible bound hybrid plans use RRF(k=60) fusion.
 SELECT id, title FROM documents
 WHERE MATCH(content, 'machine learning')
 ORDER BY l2_distance(embedding, ARRAY[0.5, 0.3, 0.2, 0.0]) ASC
@@ -385,10 +389,10 @@ RERANK BY rrf(60) ON (text_embedding, image_embedding);
 
 ## Auto-Embedding Pipeline
 
-Generated-column and embedding components exist, but model admission, materialization,
-publication, and asynchronous refresh/recovery need validation for the selected path.
-The following illustrates the intended lifecycle; it is not proof that SYNC, ASYNC,
-or BACKFILL modes are all complete. See
+Generated embedding columns use the asynchronous artifact lifecycle. `SYNC` is
+rejected; `ASYNC` requires an admitted model deployment, supported table-write
+path, and completed generation publication before values become visible.
+The following is a configuration-dependent example, not a readiness guarantee. See
 [AI Functions — Auto-Embedding](ai-functions.md#auto-embedding-generated-columns).
 
 ```sql
@@ -399,14 +403,14 @@ CREATE TABLE articles (
     content VARCHAR,
     embedding VECTOR(1024) GENERATED ALWAYS AS (
         ai_embed('bge_m3', title, content)
-    ) EMBEDDING MODE SYNC
+    ) EMBEDDING MODE ASYNC
 );
 
 -- Create vector index
 CREATE INDEX idx_articles_vec ON articles(embedding)
     USING VECTOR WITH ('algorithm'='HNSW', 'metric'='COSINE');
 
--- Insert triggers automatic embedding
+-- Insert schedules asynchronous embedding; wait for generation publication.
 INSERT INTO articles (id, title, content)
 VALUES (1, 'Introduction to ML', 'Machine learning is a subset of AI...');
 

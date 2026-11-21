@@ -1,9 +1,10 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.query.runtime.QueryManager;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.query.api.error.QueryFailure;

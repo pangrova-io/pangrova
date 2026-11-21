@@ -185,7 +185,7 @@ class TagImmutabilityPropertyTest {
         var grants = new org.pangrova.testing.testkit.security.policy.StaticGrantStore(java.util.List.of(
                 org.pangrova.security.api.policy.PrivilegeGrant.of("owner", privilege,
                         "TABLE", CATALOG, SCHEMA, TABLE, null)));
-        var authorization = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(
+        var authorization = new org.pangrova.security.policy.authorization.DynamicRbacAccessControl(
                 grants, roles, new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
                         new org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore()),
                 new org.pangrova.security.mask.ColumnMaskingProcessor(

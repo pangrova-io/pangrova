@@ -164,6 +164,8 @@ class AstTypeCompletenessTest {
         assertEquals(StatementType.UPDATE, parser.parse("UPDATE t SET x = 1 WHERE id = 1").type());
         assertEquals(StatementType.EXPLAIN, parser.parse("EXPLAIN SELECT 1").type());
         assertEquals(StatementType.SHOW_CATALOGS, parser.parse("SHOW CATALOGS").type());
+        assertEquals(StatementType.CREATE_CONTINUOUS_QUERY,
+                parser.parse("CREATE CONTINUOUS QUERY cq REFRESH EVERY 'PT5M' AS SELECT 1").type());
     }
 
     private static String switchOnStatementType(StatementType type) {
