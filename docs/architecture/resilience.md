@@ -876,6 +876,10 @@ path seals issuance, cancels outstanding tasks, verifies exact drain receipts, a
 releases ownership. Typed Pangrova errors retain their stable code in asynchronous
 query status, including authorization failures after a Native commit.
 
+If physical cleanup fails, the query stays pending. The cleanup owner releases
+its per-query execution flag before scheduling the retry so a concurrent retry
+sweep cannot consume the last cleanup attempt while that owner is still exiting.
+
 The lifecycle review also checked [Trino's failure transition](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/QueryStateMachine.java):
 it retains the original failure before notifying state listeners and protects failure
 publication from cleanup exceptions. Pangrova additionally requires its metadata

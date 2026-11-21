@@ -64,18 +64,28 @@ public final class QueryTerminalCleanup {
     public void complete(String queryId, QueryStateMachine state, String reason) {
         if (!state.isTerminal() || state.physicalCleanupApplied()) return;
         Completion owner = pending.computeIfAbsent(queryId,
-                ignored -> new Completion(new Context(queryId, state, reason)));
+                ignored -> state.physicalCleanupApplied() ? null : new Completion(new Context(queryId, state, reason)));
+        if (owner != null) attempt(owner);
+    }
+
+    private void attempt(Completion owner) {
         if (!owner.inProgress.compareAndSet(false, true)) return;
+        boolean retryNeeded = false;
+        String queryId = owner.context.queryId();
+        QueryStateMachine state = owner.context.state();
         try {
+            if (pending.get(queryId) != owner) return;
             publishLogicalTerminal(owner.context);
             cleanup(owner.context);
             pending.remove(queryId, owner);
         } catch (RuntimeException | Error failure) {
-            schedule(owner);
+            retryNeeded = true;
             LOG.warn("event=query_terminal_cleanup_pending queryId={} state={}", queryId, state.getState(), failure);
             if (!state.terminalEffectsApplied() || failure instanceof Error) throw failure;
         } finally {
             owner.inProgress.set(false);
+            // Publish after yielding so a dispatcher cannot drop this retry against the failed attempt.
+            if (retryNeeded) schedule(owner);
         }
     }
 
@@ -117,7 +127,7 @@ public final class QueryTerminalCleanup {
 
     private void schedule(Completion completion) {
         synchronized (completion) {
-            if (completion.queuedTicket != null) return;
+            if (completion.queuedTicket != null || pending.get(completion.context.queryId()) != completion) return;
             long delay = Math.min(TimeUnit.MILLISECONDS.toNanos(100) << completion.failures,
                     TimeUnit.SECONDS.toNanos(MAX_RETRY_DELAY_SECONDS));
             completion.failures = Math.min(completion.failures + 1, 8);
@@ -170,9 +180,8 @@ public final class QueryTerminalCleanup {
         synchronized (tickets) {
             tickets.remove(ticket);
         }
-        if (pending.get(completion.context.queryId()) != completion) return;
         try {
-            complete(completion.context.queryId(), completion.context.state(), completion.context.reason());
+            attempt(completion);
         } catch (RuntimeException failure) {
             LOG.warn("event=query_terminal_completion_retry_failed queryId={}", completion.context.queryId(), failure);
         }
