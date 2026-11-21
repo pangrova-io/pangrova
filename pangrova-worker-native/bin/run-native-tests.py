@@ -168,10 +168,10 @@ def main():
     print(f"Native fixture logs: {logs}", flush=True)
     try:
         classpath = prepare_java(native.parent, logs)
-        command = [str(java), "--add-opens=java.base/java.nio=ALL-UNNAMED",
+        # Use the same Docker API level as the Maven Testcontainers JVMs.
+        command = [str(java), "-Dapi.version=1.44", "--add-opens=java.base/java.nio=ALL-UNNAMED",
                    "-cp", classpath, BROKER]
-        # Honor Docker/Testcontainers settings and ASAN_OPTIONS from the caller.
-        # JAVA_TOOL_OPTIONS is the standard way to supply a required Docker API override.
+        # Honor the caller's Docker/Testcontainers endpoint and ASAN_OPTIONS.
         with fixture(command, native.parent, logs / "broker.log") as environment:
             options = arguments.ctest_args
             if options[:1] == ["--"]:
