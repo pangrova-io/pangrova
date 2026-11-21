@@ -854,6 +854,8 @@ The reference rolling-upgrade script stops the rollout before stopping a node if
 it cannot create a fresh library backup. If `lib.backup/` already exists, inspect
 and move it aside before retrying. A failed copy can leave a partial backup there
 for inspection.
+Stage the release at the `--new-version-dir` path on the invoking machine and
+on each node so its remote copy command can read the same release.
 
 ## 8. System Bootstrap Sequence
 
