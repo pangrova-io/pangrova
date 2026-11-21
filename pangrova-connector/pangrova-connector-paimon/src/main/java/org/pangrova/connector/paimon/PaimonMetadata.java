@@ -326,6 +326,11 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public ConnectorOutputTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle table) {
+        return writes.merge((PaimonTableHandle) table);
+    }
+
+    @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         return writes.overwrite((PaimonTableHandle) table);
     }

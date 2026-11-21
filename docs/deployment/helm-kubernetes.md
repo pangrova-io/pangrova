@@ -299,7 +299,7 @@ authenticated Coordinator configuration and related production overrides.
 
 ### Architecture
 
-![Kubernetes deployment topology: ingress, control-plane namespace with Coordinator workloads, Worker namespace, and external PostgreSQL, object storage, and observability dependencies](/img/diagrams/helm-topology.svg)
+![Kubernetes deployment topology: ingress, control-plane namespace with Coordinator workloads, Worker namespace, and external PostgreSQL, object storage, and observability dependencies](../../website/static/img/diagrams/helm-topology.svg)
 
 ### Enable Multi-Tenancy
 

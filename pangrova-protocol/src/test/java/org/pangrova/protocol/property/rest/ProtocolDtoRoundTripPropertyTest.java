@@ -254,7 +254,7 @@ class ProtocolDtoRoundTripPropertyTest {
                 dataFiles().list().ofMinSize(0).ofMaxSize(3),
                 Arbitraries.longs().between(0, 100_000_000),
                 Arbitraries.longs().between(0, 10L * 1024 * 1024 * 1024)
-        ).as((files, rows, bytes) -> new WriteResultDescriptor(files, rows, bytes, new byte[0]));
+        ).as((files, rows, bytes) -> new WriteResultDescriptor(files, rows, bytes, new byte[0], java.util.List.of()));
     }
 
     @Provide

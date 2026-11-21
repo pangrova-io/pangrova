@@ -17,7 +17,7 @@ import org.pangrova.scheduler.speculation.StragglerDetector;
 import java.time.Instant;
 import java.util.List;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
@@ -29,7 +29,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.analysis.SqlCompiler;

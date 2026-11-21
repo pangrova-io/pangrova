@@ -9,8 +9,8 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -18,7 +18,7 @@ import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.query.api.error.QueryFailure;
@@ -139,7 +139,14 @@ class JournalRecoveryServiceTest {
                     null, transport, new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                     null, null, null, 0L), null, null);
             manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
-                    null, null, null, null, null, null, null, null, journal, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                    null, null,
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                            null, null, null, dispatcher, null),
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                            journal, null),
+                    null,
+                    new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
             recovery = new JournalRecoveryService(journal, manager, tracker, checkWorkers ? workers : null);
         }
 

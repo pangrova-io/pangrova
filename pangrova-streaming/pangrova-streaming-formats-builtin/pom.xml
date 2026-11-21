@@ -15,7 +15,7 @@
     <description>Service-loaded CDC JSON decoders</description>
 
     <properties>
-        <module.name>org.pangrova.streaming.formats.builtin</module.name>
+        <module.name>org.pangrova.streaming.format</module.name>
     </properties>
 
     <dependencies>

@@ -43,7 +43,7 @@ import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

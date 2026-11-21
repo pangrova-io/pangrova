@@ -75,6 +75,17 @@ final class PaimonWriteLifecycle {
         return output;
     }
 
+    PaimonOutputTableHandle merge(PaimonTableHandle handle) {
+        Table table = load(handle.schemaName(), handle.tableName());
+        if (table.primaryKeys().isEmpty()) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "CDC MERGE requires a primary key table: "
+                            + handle.schemaName() + "." + handle.tableName());
+        }
+        return PaimonTableHandleFactory.outputFromTable(
+                handle.schemaName(), handle.tableName(), table, "MERGE");
+    }
+
     PaimonOutputTableHandle overwrite(PaimonTableHandle handle) {
         return PaimonTableHandleFactory.outputFromTable(handle.schemaName(), handle.tableName(),
                 load(handle.schemaName(), handle.tableName()), "OVERWRITE");
@@ -95,7 +106,7 @@ final class PaimonWriteLifecycle {
     }
 
     PaimonOutputTableHandle reconstruct(SchemaTableName tableName, String mode, long baseSnapshotId) {
-        if (!List.of("INSERT", "OVERWRITE", "DELETE").contains(mode)) {
+        if (!List.of("INSERT", "OVERWRITE", "DELETE", "MERGE").contains(mode)) {
             throw new UnsupportedOperationException("Paimon recovery cannot reconstruct write mode: " + mode);
         }
         return PaimonTableHandleFactory.outputFromTable(tableName.schema(), tableName.table(),
@@ -166,12 +177,23 @@ final class PaimonWriteLifecycle {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon commit context does not match the bound write handle");
         }
+        var cdcSource = context.cdcSource() == null ? null
+                : new org.pangrova.persistence.query.api.commit.CdcSourceIdentity(
+                        context.cdcSource().streamId(),
+                        context.cdcSource().sourceEpoch(),
+                        context.cdcSource().ranges().stream()
+                                .map(range ->
+                                        new org.pangrova.persistence.query.api.commit
+                                                .CdcSourceIdentity.OffsetRange(
+                                                range.topic(), range.partition(),
+                                                range.startOffset(), range.endOffset()))
+                                .toList());
         String expected = org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(context.executionId(),
                         context.tenantId(), catalogName,
                         new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
                         handle.writeMode(), handle.baseSnapshotId(), context.writeOutputBinding(),
-                        context.principal(), context.authorizationReceipt(), null), fragments);
+                        context.principal(), context.authorizationReceipt(), null, cdcSource), fragments);
         if (!expected.equals(context.commitFingerprint())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon write payload does not match durable commit fingerprint");

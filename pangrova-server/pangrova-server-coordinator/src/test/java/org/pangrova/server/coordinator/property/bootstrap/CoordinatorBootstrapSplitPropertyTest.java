@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.property.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
 
 
 

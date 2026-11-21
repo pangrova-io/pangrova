@@ -6,7 +6,7 @@ ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 ENV CMAKE_VERSION=3.28.3
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc-11 g++-11 ninja-build ccache git curl wget pkg-config \
+    build-essential gcc-11 g++-11 ninja-build ccache git curl wget pkg-config ripgrep \
     python3 python3-pip sudo autoconf automake libtool openjdk-17-jdk-headless \
     libssl-dev libcurl4-openssl-dev libxml2-dev liblz4-dev libzstd-dev \
     libsnappy-dev libevent-dev libdouble-conversion-dev libgflags-dev \
@@ -68,6 +68,7 @@ COPY pangrova-worker-native/patches/lance-writer-drain.patch /workspace/pangrova
 RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrova-native-build,sharing=locked \
     SKIP_VELOX=1 pangrova-worker-native/bin/setup-native-build-env.sh
 COPY pangrova-worker-native/patches/velox-codeload-archives.patch /workspace/pangrova-worker-native/patches/velox-codeload-archives.patch
+COPY pangrova-worker-native/patches/velox-darwin-atomic-link.patch /workspace/pangrova-worker-native/patches/velox-darwin-atomic-link.patch
 COPY pangrova-worker-native/bin/prepare-aws-sdk-source.sh /workspace/pangrova-worker-native/bin/prepare-aws-sdk-source.sh
 # Use one pinned binary distribution rather than Velox's unversioned installer.
 # Keep this layer after the native dependency archives so changing the bootstrap
@@ -147,8 +148,6 @@ COPY pangrova-protocol/src/main/proto/ /workspace/pangrova-protocol/src/main/pro
 COPY pangrova-protocol/src/main/proto-imports/ /workspace/pangrova-protocol/src/main/proto-imports/
 RUN awk -F '"' '/^channel = / { if ($2 == ENVIRON["RUSTUP_TOOLCHAIN"]) found=1 } END { exit !found }' \
     lance-ffi/rust-toolchain.toml
-RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
-    && rm -rf /var/lib/apt/lists/*
 RUN bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \

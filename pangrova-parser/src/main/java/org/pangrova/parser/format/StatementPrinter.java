@@ -7,6 +7,7 @@ import org.pangrova.parser.api.ast.statement.tenant.GrantTenantStatement;
 import org.pangrova.parser.api.ast.statement.tenant.RevokeTenantStatement;
 
 import org.pangrova.parser.api.ast.CreateCatalogStatement;
+import org.pangrova.parser.api.ast.CreateContinuousQueryStatement;
 import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
 import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
 import org.pangrova.parser.api.ast.Identifier;
@@ -130,6 +131,8 @@ final class StatementPrinter {
                 // Dynamic Table
                 Map.entry(CreateDynamicTableStatement.class, s -> printCreateDynamicTable((
                         CreateDynamicTableStatement) s)),
+                Map.entry(CreateContinuousQueryStatement.class, s -> printCreateContinuousQuery((
+                        CreateContinuousQueryStatement) s)),
                 Map.entry(AlterDynamicTableStatement.class, s -> printAlterDynamicTable((
                         AlterDynamicTableStatement) s)),
                 Map.entry(DropDynamicTableStatement.class, s -> printDropDynamicTable((DropDynamicTableStatement) s)),
@@ -277,6 +280,12 @@ final class StatementPrinter {
             sb.append(")");
         }
         return sb.toString();
+    }
+
+    private String printCreateContinuousQuery(CreateContinuousQueryStatement s) {
+        return "CREATE CONTINUOUS QUERY " + printer.printId(s.name())
+                + " REFRESH EVERY '" + s.refreshInterval() + "' AS "
+                + printer.printQuery(s.query());
     }
 
     private String printCreateMaterializedView(CreateMaterializedViewStatement s) {

@@ -15,7 +15,7 @@ sidebar_label: "Resilience"
 
 ## 1. Resilience Architecture Overview
 
-![Failure handling and recovery: classify the failure, contain it with circuit breakers and retry budgets, recover or degrade, and report the exact client outcome](/img/diagrams/resilience-flow.svg)
+![Failure handling and recovery: classify the failure, contain it with circuit breakers and retry budgets, recover or degrade, and report the exact client outcome](../../website/static/img/diagrams/resilience-flow.svg)
 
 ---
 
@@ -86,7 +86,7 @@ not by the exception itself.
 
 ### 3.1 Propagation Flow
 
-![Java ↔ Native Exception Propagation](/img/diagrams/generated/resilience-03-be25b46658.svg)
+![Java ↔ Native Exception Propagation](../../website/static/img/diagrams/generated/resilience-03-be25b46658.svg)
 
 ### 3.2 Native Error Protocol
 
@@ -166,7 +166,7 @@ mapping, not a second error-code taxonomy.
 
 ### 4.1 Circuit Breaker State Machine
 
-![Circuit Breaker State Machine](/img/diagrams/generated/resilience-05-15078b6f11.svg)
+![Circuit Breaker State Machine](../../website/static/img/diagrams/generated/resilience-05-15078b6f11.svg)
 
 ### 4.2 Circuit Breaker Implementation
 
@@ -247,7 +247,7 @@ public class CircuitBreakerConfig {
 
 ### 5.1 Degradation Scenarios
 
-![Degradation Strategy](/img/diagrams/generated/resilience-08-75fec7bb63.svg)
+![Degradation Strategy](../../website/static/img/diagrams/generated/resilience-08-75fec7bb63.svg)
 
 ### 5.2 Degradation Manager
 
@@ -652,7 +652,7 @@ This section adds a `RECOMPUTE` shuffle recovery mode that skips S3 persistence 
 
 ### 13.1 Architecture
 
-![Shuffle Recovery Mode Selection](/img/diagrams/generated/resilience-16-050798a329.svg)
+![Shuffle Recovery Mode Selection](../../website/static/img/diagrams/generated/resilience-16-050798a329.svg)
 
 **Problem**: All queries pay S3 upload overhead regardless of duration. For a 5-second query, async S3 write adds unnecessary I/O and latency. Without `MEMORY_AND_REMOTE`, there is no recovery for lost shuffle data other than query failure.
 
@@ -700,9 +700,9 @@ class StageLineageTracker:
 
 ### 13.3 Trade-offs
 
-| Aspect | S3 Persistence Only (Current) | With RECOMPUTE Mode |
+| Aspect | External persistence strategy | Recompute strategy (design comparison) |
 |--------|------------------------------|---------------------|
-| Performance | S3 upload overhead on all queries | Short queries skip S3; ~5–10% latency reduction for sub-30s queries |
+| Performance | Durable external exchange incurs storage and transport costs | Recompute can avoid external persistence but adds recovery work; no latency reduction is established |
 | Reliability | Durable S3 recovery | RECOMPUTE trades durability for speed; acceptable for short queries |
 | Complexity | Single recovery mode | Medium — mode selection, lineage tracking, stage re-execution |
 | Cost | S3 PUT costs for all shuffle data | Reduced S3 costs for short queries |
@@ -728,7 +728,7 @@ This section designs operator-level checkpointing for the two most expensive ope
 
 ### 14.1 Architecture
 
-![Operator-Level Checkpoint](/img/diagrams/generated/resilience-19-56a488ac1b.svg)
+![Operator-Level Checkpoint](../../website/static/img/diagrams/generated/resilience-19-56a488ac1b.svg)
 
 **Problem**: Query checkpoint (§7) captures stage/task state but not operator internal state (hash tables, sort buffers). On failure, the entire stage re-executes from scratch. For a 2-hour ETL query building a 50GB hash table, failure at 1h50m requires rebuilding the hash table from zero.
 

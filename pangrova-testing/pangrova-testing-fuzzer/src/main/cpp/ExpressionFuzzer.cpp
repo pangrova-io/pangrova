@@ -119,7 +119,15 @@ std::string ExpressionFuzzer::generateNullHandling(int depth) {
     int choice = randomInt(0, 3);
     std::string leaf = generateLeaf();
     switch (choice) {
-        case 0: return "COALESCE(" + leaf + ", " + generateLeaf() + ")";
+        case 0:
+            // COALESCE requires one common argument type; drawing both
+            // operands from the same family keeps the SQL bindable.
+            if (randomInt(0, 1) == 0) {
+                return "COALESCE(" + generateNumericLeaf() + ", "
+                    + generateNumericLeaf() + ")";
+            }
+            return "COALESCE(" + generateStringLeaf() + ", "
+                + generateStringLeaf() + ")";
         case 1: return leaf + " IS NULL";
         case 2: return leaf + " IS NOT NULL";
         default:

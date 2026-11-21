@@ -13,7 +13,7 @@ import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
 import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 import org.pangrova.scheduler.api.speculation.TaskDuration;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.execution.task.DispatchResult;
@@ -28,7 +28,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -194,7 +194,7 @@ class SpeculativeExecutionWiringTest {
                         "catalog", "default"),
                 new byte[]{42},
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null, null);
         CountDownLatch bothAtElection = new CountDownLatch(2);
         var concurrentResolver = new DuplicateTaskResolver() {
             @Override public boolean onTaskComplete(
@@ -576,7 +576,7 @@ class SpeculativeExecutionWiringTest {
                 status.taskId(), status.queryId(), status.stageId(), status.partitionId(),
                 status.taskType(), status.workerId(), status.state(), status.stats(),
                 status.error(), new WriteResultDescriptor(List.of(), 1, 1,
-                        new byte[]{fragment}), status.reportSequence(), status.timestampMs(),
+                        new byte[]{fragment}, java.util.List.of()), status.reportSequence(), status.timestampMs(),
                 status.errorCode(), status.errorMetadata(), status.attempt(),
                 status.canonicalTaskReport());
     }

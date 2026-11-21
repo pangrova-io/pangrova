@@ -688,7 +688,7 @@
         concrete service classes has a finalizer; the abstract store owns no resource itself.
     -->
     <Match>
-        <Class name="~org\.pangrova\.(security\.audit\.AuditEventEmitter|security\.authentication\.AuthenticationManager|security\.policy\.builtin\.authorization\.DynamicRbacAccessControl)"/>
+        <Class name="~org\.pangrova\.(security\.audit\.AuditEventEmitter|security\.authentication\.AuthenticationManager|security\.policy\.authorization\.DynamicRbacAccessControl)"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
 
@@ -703,7 +703,7 @@
 
     <!-- Service objects are injected collaborators whose identity and mutable state are intentional. -->
     <Match>
-        <Class name="~org\.pangrova\.security\.(audit\.AuditLogger|policy\.builtin\.authorization\.DynamicRbacAccessControl|rowfilter\.RowLevelSecurityFilter|tenant\.TenantResolver|tenant\.(TenantLifecycleManager|TenantStatementHandler))"/>
+        <Class name="~org\.pangrova\.security\.(audit\.AuditLogger|policy\.authorization\.DynamicRbacAccessControl|rowfilter\.RowLevelSecurityFilter|tenant\.TenantResolver|tenant\.(TenantLifecycleManager|TenantStatementHandler))"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
@@ -2296,13 +2296,13 @@
     <!-- SplitBlockBloomFilter is final, has a private constructor, and exposes only
          read-only probes and serialization; its builder cannot mutate a built filter. -->
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData" />
+        <Class name="org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData" />
         <Method name="filter" params="" returns="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData" />
+        <Class name="org.pangrova.indexing.strategies.bloom.data.CachedBloomFilterIndexData" />
         <Method name="&lt;init&gt;" params="org.pangrova.indexing.api.data.BloomFilterIndexData,org.pangrova.common.bloom.SplitBlockBloomFilter" returns="void" />
         <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
         <Bug pattern="EI_EXPOSE_REP2" />
@@ -2386,9 +2386,14 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.query.QueryManagerContext" />
-        <Field name="~(auditEmitter|lineageEmitter|queryDispatcher|stateJournal)" />
+        <Class name="org.pangrova.query.runtime.QueryManagerContext" />
+        <Field name="~(admission|journal|queryDispatcher)" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.query.runtime.QueryManager" />
+        <Field name="journalLifecycle" />
+        <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.execution.QueryDispatcherContext" />
@@ -2511,7 +2516,7 @@
     <!-- These fields borrow owner-managed live services, classloaders, allocators, or execution handles. Copying them would detach lifecycle and shared state; only the listed class/field/type pairs are excluded. -->
     <Match>
         <Class name="org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator" />
-        <Field name="queryManager" type="org.pangrova.coordinator.query.QueryManager" />
+        <Field name="queryManager" type="org.pangrova.query.runtime.QueryManager" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
@@ -2764,6 +2769,16 @@
         <Field name="outputHandle" type="org.pangrova.connector.api.metadata.ConnectorOutputTableHandle" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
+    <!-- The plan borrows the connector-owned output handle and immutable protobuf binding for the exact task. -->
+    <Match>
+        <Class name="org.pangrova.coordinator.streaming.CdcWriteAuthority$CdcWritePlan" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.query.task.TaskStatusReceiver" />
+        <Field name="cdcCompletions" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
     <Match>
         <Class name="org.pangrova.scheduler.speculation.SpeculativeStageHandler" />
         <Field name="launcher" type="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
@@ -2940,7 +2955,7 @@
          the internal bitmap to the serializer, after which the accumulator is dropped.
          Cloning would double bitmap memory for every distinct key during index build. -->
     <Match>
-        <Class name="org.pangrova.indexing.builtin.bitmap.serializer.ContainerAccumulator"/>
+        <Class name="org.pangrova.indexing.strategies.bitmap.serializer.ContainerAccumulator"/>
         <Method name="toBitmap"/>
         <Field name="bitmap"/>
         <Bug pattern="EI_EXPOSE_REP"/>

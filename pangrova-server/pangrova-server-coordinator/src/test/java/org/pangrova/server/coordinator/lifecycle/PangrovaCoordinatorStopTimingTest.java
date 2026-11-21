@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.lifecycle;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;

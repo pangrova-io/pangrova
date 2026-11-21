@@ -90,9 +90,17 @@ final class TaskStatusCollector {
         byte[] actual = info.executorReleaseReport();
         if (actual != null) {
             var report = TaskCompletionMonitor.requireCanonicalTaskReport(info.request().taskRequest(), actual);
-            if (report.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
-                    .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
-                throw new IllegalStateException("Released Native receipt lacks actual execution drain evidence");
+            var expectedDrain = !TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())
+                    ? org.pangrova.protocol.v2.ExecutionDrainState
+                            .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
+                    : report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                            ? org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED
+                            : org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER;
+            if (report.getExecutionDrainState() != expectedDrain) {
+                throw new IllegalStateException(
+                        "Released task receipt lacks its actual execution drain evidence");
             }
             return java.util.Optional.of(report);
         }
@@ -209,6 +217,10 @@ final class TaskStatusCollector {
             logCacheUsage(info.taskId(), captured);
             return captured;
         }
+        if ("FINISHED".equals(state) && info.request() != null
+                && TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())) {
+            return collectInProgressTaskStats(info);
+        }
         if (isReleasedTerminalWithoutStats(info, state)) {
             if (!"FINISHED".equals(state)) {
                 LOG.info("event=unsuccessful_terminal_native_stats_unavailable taskId={}", info.taskId());
@@ -258,14 +270,15 @@ final class TaskStatusCollector {
     }
 
     private WriteResultDescriptor collectWriteResult(TaskInfo info, String state) {
-        if (!info.isWriteTask()) {
+        if (!info.isWriteTask() && !info.isWorkerExecuted()) {
             return null;
         }
         long totalRows = info.outputBatches();
         long totalBytes = info.outputBytes();
         byte[] metadata = retainedCommitMetadata(info, state);
         return new WriteResultDescriptor(List.of(), totalRows, totalBytes,
-                metadata != null ? metadata : new byte[0]);
+                metadata != null ? metadata : new byte[0],
+                info.isWorkerExecuted() ? info.terminalCommitFragments() : List.of());
     }
 
     private byte[] retainedCommitMetadata(TaskInfo info, String state) {

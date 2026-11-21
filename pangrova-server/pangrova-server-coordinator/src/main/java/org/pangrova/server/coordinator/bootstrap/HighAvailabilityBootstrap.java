@@ -7,7 +7,7 @@ import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
@@ -16,7 +16,6 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -239,7 +238,8 @@ final class HighAvailabilityBootstrap {
         }
         java.util.List<ExecutionAnchor> claimed = java.util.List.of();
         try {
-            QueryStateJournal journal = queryManager.getStateJournal();
+            org.pangrova.query.lifecycle.QueryStateJournalPort journal =
+                    queryManager.getStateJournal();
             claimed = haService.claimExpiredExecutions(256);
             if (claimed.isEmpty()) {
                 return;

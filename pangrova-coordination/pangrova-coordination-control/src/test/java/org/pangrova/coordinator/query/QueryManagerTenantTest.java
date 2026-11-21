@@ -1,4 +1,6 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -11,7 +13,7 @@ import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.testing.testkit.constants.TestObservability;
@@ -81,8 +83,16 @@ class QueryManagerTenantTest {
                         report.state(), org.pangrova.coordinator.query.task.TaskReportCompletion.failure(report)));
 
         queryManager = new QueryManager(new QueryManagerContext(
-                orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker, null, null, null, null, null,
-                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                orchestrator, TestObservability.TRACING, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.tenant(
+                        tenantResolver, quotaChecker),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                        null, null, null, orchestrator, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 
     @AfterEach
@@ -188,10 +198,15 @@ class QueryManagerTenantTest {
             tenantStore.addUserToTenant(tenantId, tenantId + "-user", TenantRole.MEMBER);
         }
         QueryManager throttled = new QueryManager(new QueryManagerContext(
-                orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
-                null, null, null, null,
-                new QueryThrottlingService(2, 0.001, 100.0),
-                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(),
+                orchestrator, TestObservability.TRACING, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.tenant(
+                        tenantResolver, quotaChecker),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(
+                        null, new QueryThrottlingService(2, 0.001, 100.0)),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                        null, null, null, orchestrator, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null),
                 null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
 
         for (String tenantId : List.of("tenant-a", "tenant-b")) {

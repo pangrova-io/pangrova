@@ -18,7 +18,7 @@ import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.security.api.enums.AuditEventType;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;

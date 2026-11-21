@@ -87,6 +87,17 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
         throw new IllegalArgumentException("CDC staged write token was not created by this writer");
     }
 
+    /**
+     * Stages one batch without publishing it and returns the exact connector
+     * fragments for the Coordinator's journaled commit.
+     */
+    public List<byte[]> stageFragments(List<CdcEnvelope> envelopes) {
+        StagedBatch staged = stageLocal(envelopes);
+        return staged.phases.stream()
+                .map(phase -> phase.fragment().clone())
+                .toList();
+    }
+
     @Override
     public void discard(CdcWriteSink.StagedWrite staged) {
         if (staged instanceof StagedBatch batch && batch.owner == this) {

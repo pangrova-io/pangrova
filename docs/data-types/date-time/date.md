@@ -49,7 +49,7 @@ timezone.
 |-----------|---------------|--------------|
 | Apache Iceberg | `DATE` | `DATE` |
 | Apache Paimon | `DateType` | `DATE` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow date schema, subject to Native validation | `DATE` retained in managed catalog metadata |
 
 ## Example
 

@@ -24,7 +24,7 @@ description: "Diagnose and recover from cluster network partitions"
 
 ## Decision Tree
 
-![Network partition suspected?](/img/diagrams/generated/network-partition-runbook-01-d32804a3fd.svg)
+![Network partition suspected?](../../../../website/static/img/diagrams/generated/network-partition-runbook-01-d32804a3fd.svg)
 
 ---
 

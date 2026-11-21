@@ -39,8 +39,8 @@ security:
 YAML
 sed 's/^    enabled: true$/    enabled: false/' "$work/ha.yml" >"$work/no-ha.yml"
 for id in coordinator-1 explicit-site-node null; do
-  sed "/^coordinator:/a\\
-  id: $id" "$work/ha.yml" >"$work/$id.yml"
+  awk -v id="$id" '{print} /^coordinator:$/ {print "  id: " id}' \
+    "$work/ha.yml" >"$work/$id.yml"
 done
 
 # Single-replica customers keep their configured ID by default.

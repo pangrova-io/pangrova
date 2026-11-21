@@ -29,7 +29,7 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

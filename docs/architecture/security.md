@@ -119,7 +119,7 @@ to both structured logging and the JDBC audit store.
 
 ## 1. Security Architecture Overview
 
-![Security decision flow: request, authentication, authorization, policy evaluation, execution binding, audit, and PostgreSQL privilege administration](/img/diagrams/security-flow.svg)
+![Security decision flow: request, authentication, authorization, policy evaluation, execution binding, audit, and PostgreSQL privilege administration](../../website/static/img/diagrams/security-flow.svg)
 
 ---
 
@@ -127,7 +127,7 @@ to both structured logging and the JDBC audit store.
 
 ### 2.1 Authentication Architecture
 
-![Authentication Flow](/img/diagrams/generated/security-01-96202d5d21.svg)
+![Authentication Flow](../../website/static/img/diagrams/generated/security-01-96202d5d21.svg)
 
 ### 2.2 Authentication SPI
 
@@ -220,11 +220,11 @@ public class OAuth2Authenticator implements Authenticator {
 
 ### 3.1 RBAC + ABAC Hybrid Model
 
-![Authorization Model](/img/diagrams/generated/security-03-440113038e.svg)
+![Authorization Model](../../website/static/img/diagrams/generated/security-03-440113038e.svg)
 
 ### 3.2 Permission Model
 
-![/**](/img/diagrams/generated/security-04-837df60f50.svg)
+![/**](../../website/static/img/diagrams/generated/security-04-837df60f50.svg)
 
 ### 3.3 Permission Storage
 
@@ -310,7 +310,7 @@ and an already running data-plane query.
 
 ### 4.1 RLS Architecture
 
-![Row-Level Security](/img/diagrams/generated/security-06-1100cc4200.svg)
+![Row-Level Security](../../website/static/img/diagrams/generated/security-06-1100cc4200.svg)
 
 ### 4.2 RLS Policy Definition
 
@@ -511,11 +511,11 @@ authority within the existing transaction gate.
 
 ### 5.1 Masking Architecture
 
-![Column Masking](/img/diagrams/generated/security-11-2a0e31a098.svg)
+![Column Masking](../../website/static/img/diagrams/generated/security-11-2a0e31a098.svg)
 
 ### 5.2 Masking Policy Definition
 
-![-- Column masking policy table](/img/diagrams/generated/security-12-6f7ef8d09f.svg)
+![-- Column masking policy table](../../website/static/img/diagrams/generated/security-12-6f7ef8d09f.svg)
 
 ### 5.3 Masking Implementation
 
@@ -633,7 +633,7 @@ Consumer contracts:
 
 ### 6.1 Audit Architecture
 
-![Audit Architecture](/img/diagrams/generated/security-15-db00b7d998.svg)
+![Audit Architecture](../../website/static/img/diagrams/generated/security-15-db00b7d998.svg)
 
 ### 6.2 Audit Event Model
 
@@ -823,7 +823,7 @@ ORDER BY query_count DESC;
 
 ### 7.1 Encryption Architecture
 
-![Encryption Architecture](/img/diagrams/generated/security-19-868622e297.svg)
+![Encryption Architecture](../../website/static/img/diagrams/generated/security-19-868622e297.svg)
 
 ### 7.2 Transport Encryption Configuration
 
@@ -873,7 +873,7 @@ Long-running queries (such as large table scans or complex JOINs) may encounter 
 
 **Design principle**: bind the token at query submission; a valid token is not required during the query lifecycle.
 
-![Query-Level Token Lifecycle](/img/diagrams/generated/security-21-2679a0634f.svg)
+![Query-Level Token Lifecycle](../../website/static/img/diagrams/generated/security-21-2679a0634f.svg)
 
 ```java
 /**

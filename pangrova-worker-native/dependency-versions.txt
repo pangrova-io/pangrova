@@ -1,0 +1,9 @@
+# Cache-key inputs for the layered native build caches.
+#
+# Changing any value here invalidates the dependency prefix and the Velox build
+# layer; changing the bootstrap script alone does not. Bump
+# PANGROVA_DEPENDENCY_BUILD whenever dependency build flags or install options
+# change, so cached prefixes are never reused across an incompatible build.
+VELOX_REF=v2026.04.17.00
+XXHASH_VERSION=0.8.2
+PANGROVA_DEPENDENCY_BUILD=3

@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.Authenticator;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;

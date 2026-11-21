@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.scheduling;
 
 import java.util.Set;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.scheduler.api.speculation.SpeculativeQueryInventory;
 
 /** Reads active query identities from the query lifecycle owner. */

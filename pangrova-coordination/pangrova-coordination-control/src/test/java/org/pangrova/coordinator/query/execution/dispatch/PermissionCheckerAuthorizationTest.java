@@ -5,7 +5,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.statement.StatementTestSessions;
 import org.pangrova.parser.parse.AntlrSqlParser;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;

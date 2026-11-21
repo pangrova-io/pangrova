@@ -45,7 +45,7 @@ class SchedulerApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.scheduler.placement.TaskScheduler",
-                    "org.pangrova.scheduler.builtin.placement.LoadBalancedStrategyFactory",
+                    "org.pangrova.scheduler.strategies.placement.LoadBalancedStrategyFactory",
                     "org.pangrova.protocol.v2.CapabilityInventory", "com.google.protobuf.Message",
                     "org.pangrova.connector.api.plugin.Connector",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",

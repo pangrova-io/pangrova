@@ -9,7 +9,7 @@ import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -18,7 +18,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.enums.CatalogState;
@@ -115,7 +115,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null, null);
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -144,7 +144,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null, null);
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -162,7 +162,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null, null);
 
         // Manually record an intent
         writeCommitJournal.recordIntent(entry(
@@ -243,7 +243,7 @@ class WriteCommitJournalIdempotencyTest {
                 "coord-A",
                 "process-A",
                 3L,
-                null, null));
+                null, null, null));
 
         WriteCommitEntry pendingEntry = writeCommitJournal.getEntry("q-replayable").orElseThrow();
         assertThat(pendingEntry.fragments().get(0)).isEqualTo(new byte[]{9, 8, 7});
@@ -292,7 +292,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null, null);
 
         registerTwoTasks();
 
@@ -360,7 +360,7 @@ class WriteCommitJournalIdempotencyTest {
                 null,
                 null,
                 0L,
-                null, null);
+                null, null, null);
     }
 
     private void registerTwoTasks() {
@@ -374,7 +374,7 @@ class WriteCommitJournalIdempotencyTest {
 
     private TaskStatusReport finishedWithWriteResult(String taskId, byte[] commitMetadata) {
         WriteResultDescriptor wr = new WriteResultDescriptor(
-                List.of(), 100, 1024, commitMetadata);
+                List.of(), 100, 1024, commitMetadata, java.util.List.of());
         return new TaskStatusReport(
                 taskId, QUERY_ID, 0, 0, "WRITE", WORKER_ID, "FINISHED",
                 null, null, wr, sequenceCounter++, System.currentTimeMillis(),
