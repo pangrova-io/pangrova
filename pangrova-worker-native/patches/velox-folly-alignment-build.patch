@@ -1,0 +1,15 @@
+--- a/scripts/setup-common.sh
++++ b/scripts/setup-common.sh
+@@ -51,6 +51,12 @@
+   if [[ -n "${PANGROVA_FOLLY_PATCH:-}" && -f "${PANGROVA_FOLLY_PATCH}" ]]; then
+     if ! patch -R --dry-run -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}" >/dev/null 2>&1; then
+       patch -p1 -d "${DEPENDENCY_DIR}/folly" < "${PANGROVA_FOLLY_PATCH}"
++    fi
++  fi
++  local alignment_patch="${PANGROVA_FOLLY_ALIGNMENT_PATCH:-}"
++  if [[ -n "$alignment_patch" ]]; then
++    if ! patch -R --dry-run --batch -p1 -d "${DEPENDENCY_DIR}/folly" -i "$alignment_patch" >/dev/null 2>&1; then
++      patch --batch --forward -p1 -d "${DEPENDENCY_DIR}/folly" -i "$alignment_patch"
+     fi
+   fi
+   local FOLLY_FLAGS=(-DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF -DFOLLY_HAVE_INT128_T=ON)
