@@ -1,4 +1,4 @@
-LogicalProject(i_item_id=[$0], agg1=[CAST(/($1, $2)):INTEGER NOT NULL], agg2=[CAST(/(CAST($3):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL], agg3=[CAST(/(CAST($4):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL], agg4=[CAST(/(CAST($5):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL])
+LogicalProject(i_item_id=[$0], agg1=[CAST(/(CAST($1):INTEGER NOT NULL, $2)):INTEGER NOT NULL], agg2=[CAST(/(CAST($3):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL], agg3=[CAST(/(CAST($4):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL], agg4=[CAST(/(CAST($5):DECIMAL(7, 2) NOT NULL, $2)):DECIMAL(7, 2) NOT NULL])
   LogicalSort(sort0=[$0], dir0=[ASC], fetch=[100])
     LogicalAggregate(group=[{9}], agg#0=[$SUM0($1)], agg#1=[COUNT()], agg#2=[$SUM0($2)], agg#3=[$SUM0($4)], agg#4=[$SUM0($3)])
       LogicalFilter(condition=[AND(=($5, 'M'), =($6, 'S'), =($7, 'College'), OR(=($11, 'N'), =($12, 'N')), =($8, 2000))])

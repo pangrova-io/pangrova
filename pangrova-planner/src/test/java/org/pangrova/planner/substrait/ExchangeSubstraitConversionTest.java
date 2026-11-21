@@ -1,8 +1,9 @@
 package org.pangrova.planner.substrait;
 
-import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.Rel;
-import io.substrait.type.TypeCreator;
+import io.substrait.relation.physical.BroadcastExchange;
+import io.substrait.relation.physical.RoundRobinExchange;
+import io.substrait.relation.physical.ScatterExchange;
 
 import com.google.common.collect.ImmutableList;
 
@@ -30,8 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies that PangrovaExchange operators are correctly converted to
- * Substrait ExtensionSingleRel with ExchangeRelDetail metadata,
- * making physical distribution explicit in the IR.
+ * the official Substrait physical ExchangeRel variants.
  */
 class ExchangeSubstraitConversionTest {
 
@@ -53,63 +53,68 @@ class ExchangeSubstraitConversionTest {
     }
 
     @Test
-    void hashExchangeProducesExtensionSingleWithDetail() {
+    void hashExchangeProducesStandardScatterExchange() {
         PangrovaDistribution hashDist = PangrovaDistribution.hash(List.of(0, 2));
         PangrovaExchange exchange = buildExchange(hashDist);
 
         Rel result = converter.visit(exchange);
 
-        assertThat(result).isInstanceOf(ExtensionSingle.class);
-        ExtensionSingle ext = (ExtensionSingle) result;
-        assertThat(ext.getDetail()).isInstanceOf(ExchangeRelDetail.class);
-        ExchangeRelDetail detail = (ExchangeRelDetail) ext.getDetail();
-        assertThat(detail.distributionType()).isEqualTo("HASH");
-        assertThat(detail.hashKeys()).containsExactly(0, 2);
+        assertThat(result).isInstanceOf(ScatterExchange.class);
+        ScatterExchange scatter = (ScatterExchange) result;
+        assertThat(scatter.getPartitionCount())
+                .isEqualTo(PhysicalJoinConverter.UNBOUND_PARTITION_COUNT);
+        assertThat(scatter.getFields()).extracting(ExchangeSubstraitConversionTest::fieldOffset)
+                .containsExactly(0, 2);
     }
 
     @Test
-    void broadcastExchangeProducesExtensionSingle() {
+    void broadcastExchangeProducesStandardBroadcastExchange() {
         PangrovaExchange exchange = buildExchange(PangrovaDistribution.BROADCAST);
 
         Rel result = converter.visit(exchange);
 
-        assertThat(result).isInstanceOf(ExtensionSingle.class);
-        ExchangeRelDetail detail = (ExchangeRelDetail) ((ExtensionSingle) result).getDetail();
-        assertThat(detail.distributionType()).isEqualTo("BROADCAST");
-        assertThat(detail.hashKeys()).isEmpty();
+        assertThat(result).isInstanceOf(BroadcastExchange.class);
+        assertThat(((BroadcastExchange) result).getPartitionCount())
+                .isEqualTo(PhysicalJoinConverter.UNBOUND_PARTITION_COUNT);
     }
 
     @Test
-    void singletonExchangeProducesExtensionSingle() {
+    void singletonExchangeProducesOnePartitionRoundRobin() {
         PangrovaExchange exchange = buildExchange(PangrovaDistribution.SINGLETON);
 
         Rel result = converter.visit(exchange);
 
-        assertThat(result).isInstanceOf(ExtensionSingle.class);
-        ExchangeRelDetail detail = (ExchangeRelDetail) ((ExtensionSingle) result).getDetail();
-        assertThat(detail.distributionType()).isEqualTo("SINGLETON");
+        assertThat(result).isInstanceOf(RoundRobinExchange.class);
+        RoundRobinExchange roundRobin = (RoundRobinExchange) result;
+        assertThat(roundRobin.getPartitionCount()).isEqualTo(1);
+        assertThat(roundRobin.getExact()).isTrue();
     }
 
     @Test
-    void roundRobinExchangeProducesExtensionSingle() {
+    void roundRobinExchangeProducesStandardRoundRobin() {
         PangrovaExchange exchange = buildExchange(PangrovaDistribution.ROUND_ROBIN);
 
         Rel result = converter.visit(exchange);
 
-        assertThat(result).isInstanceOf(ExtensionSingle.class);
-        ExchangeRelDetail detail = (ExchangeRelDetail) ((ExtensionSingle) result).getDetail();
-        assertThat(detail.distributionType()).isEqualTo("ROUND_ROBIN");
+        assertThat(result).isInstanceOf(RoundRobinExchange.class);
+        RoundRobinExchange roundRobin = (RoundRobinExchange) result;
+        assertThat(roundRobin.getPartitionCount())
+                .isEqualTo(PhysicalJoinConverter.UNBOUND_PARTITION_COUNT);
+        assertThat(roundRobin.getExact()).isFalse();
     }
 
     @Test
-    void exchangeDetailSerializesToJson() {
-        var outputType = TypeCreator.NULLABLE.struct(
-                List.of(TypeCreator.NULLABLE.I32, TypeCreator.NULLABLE.STRING));
-        ExchangeRelDetail detail = new ExchangeRelDetail("HASH", List.of(0), outputType);
+    void exchangeSerializesAsOfficialExchangeRel() throws Exception {
+        PangrovaExchange exchange = buildExchange(PangrovaDistribution.hash(List.of(0)));
+        byte[] bytes = new SubstraitPlanSerializer().serialize(
+                new SubstraitConverter().convert(exchange));
 
-        com.google.protobuf.Any proto = detail.toProto();
-        assertThat(proto).isNotNull();
-        assertThat(proto.getTypeUrl()).contains("StringValue");
+        io.substrait.proto.Rel rel = io.substrait.proto.Plan.parseFrom(bytes)
+                .getRelations(0).getRoot().getInput();
+        assertThat(rel.hasExchange()).isTrue();
+        assertThat(rel.getExchange().hasScatterByFields()).isTrue();
+        assertThat(rel.getExchange().getScatterByFields().getFieldsCount()).isEqualTo(1);
+        assertThat(rel.getExchange().hasAdvancedExtension()).isFalse();
     }
 
     private PangrovaExchange buildExchange(PangrovaDistribution dist) {
@@ -130,5 +135,10 @@ class ExchangeSubstraitConversionTest {
 
         RelTraitSet traitSet = cluster.traitSet().replace(dist);
         return new PangrovaExchange(cluster, traitSet, valuesInput, dist);
+    }
+
+    private static int fieldOffset(io.substrait.expression.FieldReference reference) {
+        return ((io.substrait.expression.FieldReference.StructField)
+                reference.segments().get(0)).offset();
     }
 }

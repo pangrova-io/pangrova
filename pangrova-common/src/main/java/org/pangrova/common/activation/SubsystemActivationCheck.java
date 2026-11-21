@@ -1,5 +1,7 @@
 package org.pangrova.common.activation;
 
+import org.pangrova.common.exception.SubsystemActivationException;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;

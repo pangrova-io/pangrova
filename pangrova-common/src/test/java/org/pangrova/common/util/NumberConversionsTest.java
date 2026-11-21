@@ -10,6 +10,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class NumberConversionsTest {
 
+    @Test
+    void preservesCallerDefaultsForMissingAndNonNumericValuesOnly() {
+        assertThat(NumberConversions.toLong(null, -1L)).isEqualTo(-1L);
+        assertThat(NumberConversions.toLong("12", -1L)).isEqualTo(-1L);
+        assertThat(NumberConversions.toLong(12.9, -1L)).isEqualTo(12L);
+        assertThat(NumberConversions.toDouble(null, -1.5)).isEqualTo(-1.5);
+        assertThat(NumberConversions.toDouble("12", -1.5)).isEqualTo(-1.5);
+        assertThat(NumberConversions.toDouble(0L, -1.5)).isZero();
+    }
+
     // --- toDouble ---
 
     @Test

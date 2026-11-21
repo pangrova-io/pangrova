@@ -62,7 +62,7 @@ public final class PlanCaptureRegistry {
                     @Override
                     protected boolean removeEldestEntry(
                             Map.Entry<String, Deque<PlanCaptureRecord>> eldest) {
-                        return size() > config.maxCapturedQueries();
+                        return super.size() > config.maxCapturedQueries();
                     }
                 });
     }

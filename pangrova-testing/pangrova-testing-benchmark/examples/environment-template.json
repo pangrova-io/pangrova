@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "kind": "tpc-environment",
+  "exclusive": true,
+  "engine": {"name": "pangrova", "version": "0.1.0-SNAPSHOT", "artifactSha256": "filled-from-running-image"},
+  "sourceRevision": "filled-from-verified-image-label",
+  "hardware": [{
+    "host": "REPLACE_WITH_DOCKER_INFO_NAME",
+    "cpuModel": "REPLACE_WITH_MEASURED_CPU_MODEL_AND_NUMA_LAYOUT",
+    "cpus": 64,
+    "memoryBytes": 274877906944,
+    "storage": "REPLACE_WITH_MEASURED_DEVICE_FILESYSTEM_AND_MOUNT_CONFIGURATION",
+    "network": "REPLACE_WITH_MEASURED_LINK_SPEED_AND_TOPOLOGY"
+  }],
+  "resources": {
+    "totalCpu": 34,
+    "totalMemoryBytes": 201863462912,
+    "coordinatorMemoryBytes": 12884901888,
+    "workerHeapBytes": 17179869184,
+    "workerNativeBytes": 17179869184,
+    "workerDirectBytes": 4294967296,
+    "workerOverheadBytes": 4294967296,
+    "backgroundMemoryBytes": 17179869184
+  },
+  "cachePolicy": {"mode": "warm", "procedure": "One complete suite warmup per stream before five complete measured rounds; no result cache"},
+  "settings": {
+    "configurationSha256": "REPLACE_WITH_RENDERED_RUNTIME_CONFIGURATION_SHA256",
+    "statisticsProcedure": "REPLACE_WITH_REPRODUCIBLE_STATISTICS_COLLECTION_PROCEDURE",
+    "requireQueryProfile": true,
+    "resultCache": false,
+    "retryPolicy": "none",
+    "dataLayout": "unpartitioned Iceberg/Parquet/Snappy, shared snapshot"
+  },
+  "workers": [],
+  "multiHost": false,
+  "client": {
+    "host": "filled-from-running-coordinator",
+    "catalog": "tpc",
+    "schema": "sf100",
+    "requestTimeout": 30,
+    "allowPlaintextResults": true,
+    "tokenEnv": "PANGROVA_BENCHMARK_TOKEN"
+  }
+}

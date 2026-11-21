@@ -7,10 +7,10 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
  */
 record PaimonPageSinkContext(BatchWriteBuilder writeBuilder, PaimonRowConverter rowConverter,
                               String schemaName, String tableName, String tempDir,
-                              boolean dynamicBucket, boolean postponeBucket) {
+                              boolean dynamicBucket) {
 
     PaimonPageSinkContext(BatchWriteBuilder writeBuilder, PaimonRowConverter rowConverter,
                           String schemaName, String tableName, String tempDir) {
-        this(writeBuilder, rowConverter, schemaName, tableName, tempDir, false, false);
+        this(writeBuilder, rowConverter, schemaName, tableName, tempDir, false);
     }
 }

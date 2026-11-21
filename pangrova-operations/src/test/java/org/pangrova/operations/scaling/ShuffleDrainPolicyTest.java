@@ -49,14 +49,11 @@ class ShuffleDrainPolicyTest {
                 .isInstanceOf(NullPointerException.class);
     }
 
-    // ── noOp policy ──
-
     @Test
-    void noOpPolicyAlwaysAllows() {
-        ShuffleDrainPolicy policy = ShuffleDrainPolicy.noOp();
-        ShuffleDrainPolicy.ScaleDownResult result = policy.prepareScaleDown(8, 6);
-        assertThat(result.ready()).isTrue();
-        assertThat(result.adjustedTarget()).isEqualTo(6);
+    void unknownResidencyPreservesTheCurrentPool() {
+        var result = ShuffleDrainPolicy.preserveWorkers().prepareScaleDown(8, 6);
+        assertThat(result.adjustedTarget()).isEqualTo(8);
+        assertThat(result.reason()).contains("unknown");
     }
 
     // ── Clear residency (no drain needed) ──
@@ -65,7 +62,7 @@ class ShuffleDrainPolicyTest {
     void clearResidencyProceedsWithoutDrain() {
         AtomicBoolean drainCalled = new AtomicBoolean(false);
         ShuffleDrainPolicy policy = new ShuffleDrainPolicy(
-                ShuffleResidencyCheck.alwaysAllow(),
+                (current, target) -> ShuffleResidencyCheck.ScaleDownAdvice.allow(target),
                 timeout -> { drainCalled.set(true); return true; },
                 Duration.ofSeconds(30));
 
@@ -167,7 +164,7 @@ class ShuffleDrainPolicyTest {
     @Test
     void nullDrainExecutorThrows() {
         assertThatThrownBy(() ->
-                new ShuffleDrainPolicy(ShuffleResidencyCheck.alwaysAllow(), null,
+                new ShuffleDrainPolicy((current, target) -> ShuffleResidencyCheck.ScaleDownAdvice.allow(target), null,
                         Duration.ofSeconds(30)))
                 .isInstanceOf(NullPointerException.class);
     }
@@ -175,7 +172,7 @@ class ShuffleDrainPolicyTest {
     @Test
     void zeroDrainTimeoutThrows() {
         assertThatThrownBy(() ->
-                new ShuffleDrainPolicy(ShuffleResidencyCheck.alwaysAllow(),
+                new ShuffleDrainPolicy((current, target) -> ShuffleResidencyCheck.ScaleDownAdvice.allow(target),
                         timeout -> true, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -183,7 +180,7 @@ class ShuffleDrainPolicyTest {
     @Test
     void negativeDrainTimeoutThrows() {
         assertThatThrownBy(() ->
-                new ShuffleDrainPolicy(ShuffleResidencyCheck.alwaysAllow(),
+                new ShuffleDrainPolicy((current, target) -> ShuffleResidencyCheck.ScaleDownAdvice.allow(target),
                         timeout -> true, Duration.ofSeconds(-5)))
                 .isInstanceOf(IllegalArgumentException.class);
     }

@@ -1,5 +1,8 @@
 package org.pangrova.config;
 
+import org.pangrova.config.constants.CoordinatorOptions;
+
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -29,16 +32,28 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.COORDINATOR_PORT.typeClass()).isEqualTo(Integer.class);
     }
 
-    // ---- Feature flags: all true except security ----
+    @Test
+    void coordinatorTransportTlsIsExplicitAndDisabledByDefault() {
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_PRIVATE_KEY_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_ROOT_CA_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.SHUFFLE_TLS_SERVER_IDENTITY.defaultValue())
+                .isEmpty();
+    }
+
+    // ---- Feature flags: tenancy and security require explicit activation ----
 
     @Test
-    void allFeatureFlagsDefaultTrueExceptSecurity() {
+    void remainingFeatureFlagsDefaultTrue() {
         List<ConfigOption<Boolean>> enabledByDefault = List.of(
                 CoordinatorOptions.METADATA_ENABLED,
                 CoordinatorOptions.GOVERNANCE_ENABLED,
                 CoordinatorOptions.RESILIENCE_ENABLED,
                 CoordinatorOptions.STREAMING_ENABLED,
-                CoordinatorOptions.TENANT_ENABLED,
                 CoordinatorOptions.INDEXING_ENABLED,
                 CoordinatorOptions.OPERATIONS_ENABLED,
                 CoordinatorOptions.OBSERVABILITY_ENABLED);
@@ -58,7 +73,26 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.SECURITY_ENABLED.typeClass()).isEqualTo(Boolean.class);
     }
 
+    @Test
+    void tenantEnabledDefaultsToFalseWithoutAuthentication() {
+        assertThat(CoordinatorOptions.TENANT_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.TENANT_ENABLED.key()).isEqualTo("tenant.enabled");
+    }
+
     // ---- HA defaults ----
+
+    @Test
+    void internalControlSecretIsExplicitAndSpeculationIsOptIn() {
+        var defaults = PangrovaConfiguration.fromYaml(Map.of());
+        assertThat(defaults.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET)).isNull();
+        assertThat(defaults.getBoolean(CoordinatorOptions.SPECULATION_ENABLED)).isFalse();
+        var configured = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.internal-auth-secret", "configured-exact-secret",
+                "coordinator.speculation.enabled", "true"));
+        assertThat(configured.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET))
+                .isEqualTo("configured-exact-secret");
+        assertThat(configured.getBoolean(CoordinatorOptions.SPECULATION_ENABLED)).isTrue();
+    }
 
     @Test
     void highAvailabilityEnabledDefaultsToFalse() {
@@ -66,11 +100,6 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.key()).isEqualTo("coordinator.ha.enabled");
     }
 
-    @Test
-    void highAvailabilityJdbcUrlHasNoDefault() {
-        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.defaultValue()).isNull();
-        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.hasDefaultValue()).isFalse();
-    }
 
     // ---- Query defaults ----
 
@@ -100,34 +129,18 @@ class CoordinatorOptionsTest {
     // ---- Metadata defaults ----
 
     @Test
-    void stateStoreTypeDefaultsToInMemory() {
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.defaultValue())
-                .isEqualTo(StateStoreType.IN_MEMORY);
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.key())
-                .isEqualTo("state-store.type");
-        assertThat(CoordinatorOptions.STATE_STORE_TYPE.typeClass())
-                .isEqualTo(StateStoreType.class);
-    }
-
-    @Test
-    void stateStoreTypeResolvedFromConfig() {
-        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(
-                Map.of("state-store.type", "JDBC"));
-        assertThat(config.get(CoordinatorOptions.STATE_STORE_TYPE))
-                .isEqualTo(StateStoreType.JDBC);
-    }
-
-    @Test
-    void stateStoreTypeDefaultsToInMemoryWithEmptyConfig() {
-        PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
-        assertThat(emptyConfig.get(CoordinatorOptions.STATE_STORE_TYPE))
-                .isEqualTo(StateStoreType.IN_MEMORY);
-    }
-
-    @Test
     void metadataJdbcUrlHasNoDefault() {
         assertThat(CoordinatorOptions.METADATA_JDBC_URL.defaultValue()).isNull();
         assertThat(CoordinatorOptions.METADATA_JDBC_URL.hasDefaultValue()).isFalse();
+    }
+
+    @Test
+    void metadataCredentialsDefaultToEmptyAndHaveIndependentTypedKeys() {
+        var config = PangrovaConfiguration.fromYaml(Map.of());
+        assertThat(config.getString(CoordinatorOptions.METADATA_JDBC_USERNAME)).isEmpty();
+        assertThat(config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD)).isEmpty();
+        assertThat(CoordinatorOptions.METADATA_JDBC_USERNAME.key()).isEqualTo("metadata.jdbc-username");
+        assertThat(CoordinatorOptions.METADATA_JDBC_PASSWORD.key()).isEqualTo("metadata.jdbc-password");
     }
 
     @Test
@@ -140,17 +153,17 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.METADATA_CACHE_L1_TTL.defaultValue()).isEqualTo(Duration.ofSeconds(60));
     }
 
-    // ---- R1.3: Empty config enables all modules except security ----
+    // ---- R1.3: Empty config keeps unauthenticated tenancy disabled ----
 
     @Test
-    void emptyConfigEnablesAllModulesExceptSecurity() {
+    void emptyConfigDisablesSecurityAndTenancy() {
         PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
 
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.METADATA_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.GOVERNANCE_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.RESILIENCE_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.STREAMING_ENABLED)).isTrue();
-        assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isFalse();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED)).isTrue();

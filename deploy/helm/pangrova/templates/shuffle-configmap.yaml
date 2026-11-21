@@ -1,0 +1,61 @@
+{{- if $.Values.shuffle.enabled }}
+{{- $namespace := .Values.namespace }}
+{{- $replicas := int $.Values.shuffle.replicas }}
+{{- $partitions := int $.Values.shuffle.partitions }}
+{{- $port := int $.Values.shuffle.port }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pangrova-shuffle-config
+  namespace: {{ $namespace }}
+  labels:
+    app: pangrova
+    component: shuffle
+data:
+{{- range $index := until $replicas }}
+  shuffle-{{ $index }}.yml: |
+    server:
+      port: {{ $port }}
+      advertised-host: "pangrova-shuffle-{{ $index }}.pangrova-shuffle-headless.{{ $namespace }}.svc"
+      tls-identity: "pangrova-shuffle-{{ $index }}.pangrova-shuffle-headless.{{ $namespace }}.svc"
+      endpoints:
+{{- range $peer := until $replicas }}
+        - host: "pangrova-shuffle-{{ $peer }}.pangrova-shuffle-headless.{{ $namespace }}.svc"
+          port: {{ $port }}
+          tls-identity: "pangrova-shuffle-{{ $peer }}.pangrova-shuffle-headless.{{ $namespace }}.svc"
+          partition-start: {{ div (mul $peer $partitions) $replicas }}
+          partition-end: {{ div (mul (add1 $peer) $partitions) $replicas }}
+{{- end }}
+    database:
+      jdbc-url: {{ $.Values.shuffle.database.jdbcUrl | quote }}
+      username: {{ $.Values.shuffle.database.username | quote }}
+      password-file: /etc/pangrova-shuffle/secrets/db/password
+      maximum-pool-size: {{ int $.Values.shuffle.database.maximumPoolSize }}
+    object-storage:
+      bucket: {{ $.Values.shuffle.objectStorage.bucket | quote }}
+      prefix: {{ $.Values.shuffle.objectStorage.prefix | quote }}
+      region: {{ $.Values.shuffle.objectStorage.region | quote }}
+{{- if $.Values.shuffle.objectStorage.endpoint }}
+      endpoint: {{ $.Values.shuffle.objectStorage.endpoint | quote }}
+{{- end }}
+      path-style-access: {{ $.Values.shuffle.objectStorage.pathStyleAccess }}
+      replication-enabled: {{ $.Values.shuffle.objectStorage.replicationEnabled }}
+    security:
+      certificate-chain-path: /etc/pangrova-shuffle/tls/tls.crt
+      private-key-path: /etc/pangrova-shuffle/tls/tls.key
+      root-ca-path: /etc/pangrova-shuffle/tls/ca.crt
+      capability-secret-path: /etc/pangrova-shuffle/secrets/capability/secret
+      capability-ttl-seconds: {{ int $.Values.shuffle.security.capabilityTtlSeconds }}
+      coordinator-tls-identities:
+{{- range $identity := $.Values.shuffle.security.coordinatorTlsIdentities }}
+        - {{ $identity | quote }}
+{{- end }}
+    limits:
+      max-chunk-bytes: {{ int $.Values.shuffle.limits.maxChunkBytes }}
+      max-batch-bytes: {{ int $.Values.shuffle.limits.maxBatchBytes }}
+      max-inflight-bytes: {{ int $.Values.shuffle.limits.maxInflightBytes }}
+      max-write-streams: {{ int $.Values.shuffle.limits.maxWriteStreams }}
+      io-threads: {{ int $.Values.shuffle.limits.ioThreads }}
+      max-queued-operations: {{ int $.Values.shuffle.limits.maxQueuedOperations }}
+{{- end }}
+{{- end }}

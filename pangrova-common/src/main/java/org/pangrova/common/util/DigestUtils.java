@@ -1,9 +1,13 @@
 package org.pangrova.common.util;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Objects;
 
 /**
  * SHA-256 digest utilities for hashing strings and byte arrays.
@@ -47,6 +51,47 @@ public final class DigestUtils {
     }
 
     /**
+     * Requires exactly 64 ASCII hexadecimal characters, accepting either case.
+     * Does not normalize the value or verify the content it identifies.
+     */
+    public static void requireSha256(String value, String name) {
+        if (value == null || !value.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException(name + " must be a SHA-256 hex digest");
+        }
+    }
+
+    /**
+     * Verifies a public SHA-256 integrity digest using constant-time binary comparison.
+     *
+     * @param data bytes whose integrity is checked; must not be null
+     * @param expectedHex exact 64-character lowercase hexadecimal digest; no whitespace or case normalization
+     * @return false for an absent, malformed or different expected digest
+     * @throws NullPointerException if {@code data} is null, even when {@code expectedHex} is invalid
+     */
+    public static boolean matchesSha256(byte[] data, String expectedHex) {
+        Objects.requireNonNull(data, "data must not be null");
+        if (!isSha256Hex(expectedHex)) {
+            return false;
+        }
+        byte[] expected = HexFormat.of().parseHex(expectedHex);
+        return MessageDigest.isEqual(sha256().digest(data), expected);
+    }
+
+    /** Checks canonical, lowercase ASCII SHA-256 text. Null and malformed values return false. */
+    public static boolean isSha256Hex(String value) {
+        if (value == null || value.length() != 64) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if ((character < '0' || character > '9') && (character < 'a' || character > 'f')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Returns a fresh {@link MessageDigest} instance configured for SHA-256.
      *
      * <p>Useful for streaming digest computation where data is fed incrementally
@@ -61,6 +106,19 @@ public final class DigestUtils {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    /** Returns an independent keyed MAC for a single signing or verification operation. */
+    public static Mac hmacSha256(byte[] key) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key, mac.getAlgorithm()));
+            return mac;
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("HMAC-SHA256 is unavailable", e);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid HMAC-SHA256 key", e);
         }
     }
 }

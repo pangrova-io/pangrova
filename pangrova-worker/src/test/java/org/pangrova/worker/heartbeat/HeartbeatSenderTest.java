@@ -1,10 +1,14 @@
 package org.pangrova.worker.heartbeat;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
 
@@ -13,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HeartbeatSenderTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     private static ScheduledExecutorService newExecutor() {
         ScheduledThreadPoolExecutor exec = new ScheduledThreadPoolExecutor(1);
@@ -25,7 +31,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-1", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-1", "NONE", 0.1, 0, 1024),
+                () -> new HeartbeatPayload("w-1", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -45,7 +51,7 @@ class HeartbeatSenderTest {
                 () -> {
                     callCount.incrementAndGet();
                     latch.countDown();
-                    return new HeartbeatPayload("w-2", "NONE", 0.5, 2, 2048);
+                    return new HeartbeatPayload("w-2", "NONE", 0.5, 2, 2048, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -68,7 +74,7 @@ class HeartbeatSenderTest {
                 () -> {
                     callCount.incrementAndGet();
                     latch.countDown();
-                    return new HeartbeatPayload("w-3", "LOW", 0.8, 5, 512);
+                    return new HeartbeatPayload("w-3", "LOW", 0.8, 5, 512, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -116,7 +122,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-5", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-5", "NONE", 0.1, 0, 1024),
+                () -> new HeartbeatPayload("w-5", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -139,7 +145,7 @@ class HeartbeatSenderTest {
                 () -> {
                     heartbeatCount.incrementAndGet();
                     firstBeat.countDown();
-                    return new HeartbeatPayload("w-6", "NONE", 0.1, 0, 1024);
+                    return new HeartbeatPayload("w-6", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -176,7 +182,7 @@ class HeartbeatSenderTest {
                 () -> {
                     heartbeatCount.incrementAndGet();
                     firstBeat.countDown();
-                    return new HeartbeatPayload("w-7", "NONE", 0.2, 1, 4096);
+                    return new HeartbeatPayload("w-7", "NONE", 0.2, 1, 4096, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -209,7 +215,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-8", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-8", "NONE", 0.1, 0, 1024),
+                () -> new HeartbeatPayload("w-8", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -222,4 +228,118 @@ class HeartbeatSenderTest {
         sender.stop();
         assertFalse(sender.isRunning());
     }
+
+    @Test
+    void successfulHeartbeatPublishesAuthenticatedControlEpoch() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/worker/heartbeat", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = "{\"status\":\"ok\",\"coordinator_epoch\":42}".getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            try (java.io.OutputStream output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        ScheduledExecutorService executor = newExecutor();
+        try {
+            HeartbeatConfig config = new HeartbeatConfig(
+                    "http://127.0.0.1:" + server.getAddress().getPort(), "w-epoch", 1000);
+            HeartbeatSender sender = new HeartbeatSender(
+                    config,
+                    () -> new HeartbeatPayload("w-epoch", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                    executor, HttpClient.newHttpClient(), null);
+            AtomicLong observed = new AtomicLong();
+            sender.setCoordinatorEpochObserver(observed::set);
+
+            sender.sendHeartbeat();
+
+            assertEquals(42L, observed.get());
+        } finally {
+            executor.shutdownNow();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void firstHeartbeatPublishesResourceSnapshotBeforePeriodicInterval() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch acknowledged = new CountDownLatch(1);
+        AtomicLong availableMemory = new AtomicLong();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/worker/heartbeat", exchange -> {
+            byte[] request = exchange.getRequestBody().readAllBytes();
+            availableMemory.set(org.pangrova.common.json.JsonMapperFactory.shared()
+                    .readTree(request).path("available_memory_bytes").asLong());
+            received.countDown();
+            byte[] response = "{\"status\":\"ok\",\"coordinator_epoch\":42}".getBytes();
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(response);
+            }
+        });
+        server.start();
+        ScheduledExecutorService executor = newExecutor();
+        HeartbeatSender sender = new HeartbeatSender(
+                new HeartbeatConfig("http://127.0.0.1:" + server.getAddress().getPort(),
+                        "w-immediate", 10_000),
+                () -> new HeartbeatPayload("w-immediate", "NONE", 0.1, 0, 512L * 1024 * 1024, HEARTBEAT_IDENTITY),
+                executor);
+        sender.setCoordinatorEpochObserver(epoch -> acknowledged.countDown());
+        try {
+            sender.start();
+            assertTrue(received.await(3, TimeUnit.SECONDS),
+                    "The initialized resource snapshot must precede the first 10-second interval");
+            assertEquals(512L * 1024 * 1024, availableMemory.get());
+            assertTrue(acknowledged.await(3, TimeUnit.SECONDS),
+                    "The Coordinator must acknowledge the first resource heartbeat");
+        } finally {
+            sender.stop();
+            executor.shutdownNow();
+            server.stop(0);
+        }
+    }
+    @Test
+    void conflictActionIsParsedExactlyAndFencingNeverReRegistersOrResumes() throws Exception {
+        var response = new java.util.concurrent.atomic.AtomicReference<>(
+                "{\"status\":\"error\",\"message\":\"do not re-register\"}");
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/worker/heartbeat", exchange -> {
+            calls.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = response.get().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(409, body.length);
+            try (var output = exchange.getResponseBody()) { output.write(body); }
+        });
+        server.start();
+        var executor = newExecutor();
+        var sender = new HeartbeatSender(new HeartbeatConfig(
+                "http://127.0.0.1:" + server.getAddress().getPort(), "fenced-worker", 1000),
+                () -> new HeartbeatPayload("fenced-worker", "NONE", 0, 0, 1024, HEARTBEAT_IDENTITY), executor);
+        var repaired = new java.util.concurrent.atomic.AtomicInteger();
+        var fenced = new java.util.concurrent.atomic.AtomicInteger();
+        sender.setReRegistrationCallback(repaired::incrementAndGet);
+        sender.setFencedCallback(fenced::incrementAndGet);
+        try {
+            sender.sendHeartbeat();
+            assertEquals(0, repaired.get());
+            response.set("{\"status\":\"error\",\"action\":\"re-register\"}");
+            sender.sendHeartbeat();
+            assertEquals(1, repaired.get());
+            response.set("{\"status\":\"error\",\"action\":\"fenced\"}");
+            sender.sendHeartbeat();
+            assertTrue(sender.isFenced());
+            assertEquals(1, fenced.get());
+            response.set("{\"status\":\"error\",\"action\":\"re-register\"}");
+            sender.sendHeartbeat();
+            assertEquals(3, calls.get());
+            assertEquals(1, repaired.get());
+        } finally {
+            sender.stop();
+            executor.shutdownNow();
+            server.stop(0);
+        }
+    }
+
 }

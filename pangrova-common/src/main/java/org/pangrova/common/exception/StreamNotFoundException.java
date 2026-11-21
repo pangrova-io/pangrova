@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Thrown when an ingestion stream is referenced but does not exist
  * in the stream state store.

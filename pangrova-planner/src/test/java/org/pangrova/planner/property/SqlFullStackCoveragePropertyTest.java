@@ -2,8 +2,8 @@ package org.pangrova.planner.property;
 
 import org.pangrova.planner.parse.AstToSqlNodeConverter;
 import net.jqwik.api.*;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Statement;
 import org.apache.calcite.sql.SqlNode;
 
 import java.util.List;
@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 53.1, 53.4</b></p>
  *
  * <p>For each grammar rule category in PangrovaSql.g4, generates SQL strings,
- * parses them with {@link SqlParser}, converts with {@link AstToSqlNodeConverter},
+ * parses them with {@link AntlrSqlParser}, converts with {@link AstToSqlNodeConverter},
  * and validates the round-trip succeeds (parser → AST → planner SqlNode).</p>
  *
  * <h3>Coverage Matrix Summary</h3>
@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("Property 35: SQL full-stack coverage")
 class SqlFullStackCoveragePropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private final AstToSqlNodeConverter converter = new AstToSqlNodeConverter();
 
     // ── Core property: parse → convert round-trip succeeds ──

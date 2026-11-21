@@ -14,6 +14,10 @@
     <name>Pangrova Config</name>
     <description>Typed configuration framework with YAML loading, environment variable override, and module-specific option definitions</description>
 
+    <properties>
+        <module.name>org.pangrova.config</module.name>
+    </properties>
+
     <dependencies>
         <!-- Internal module dependency (version inherited from parent) -->
         <dependency>

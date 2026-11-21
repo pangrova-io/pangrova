@@ -7,7 +7,10 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.security.MessageDigest;
+import java.util.Locale;
 import java.util.EnumSet;
+import org.pangrova.common.util.DigestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,8 +27,8 @@ import org.slf4j.LoggerFactory;
  * <p>This is the same path for development, CI, and production. The dylib
  * reaches the classpath via:
  * <ul>
- *   <li>Local dev: maven-resources-plugin copies from CMake build dir to
- *       {@code target/classes/META-INF/native/...} (see pangrova-worker pom.xml)</li>
+ *   <li>Local dev: {@code package-native-lib.sh} stages the canonical resource,
+ *       then Maven copies it to {@code target/classes/META-INF/native/...}</li>
  *   <li>CI/production: pangrova-native-bundle classifier JAR on the classpath</li>
  * </ul>
  *
@@ -64,7 +67,7 @@ public final class NativeLibraryLoader {
     /**
      * Returns true if the native library is available on the classpath.
      * Does NOT load the library — call {@link #load()} for that.
-     * Used by integration tests to skip gracefully when no native bundle is built.
+     * Readiness checks use this probe to fail with an actionable packaging error.
      */
     public static boolean isAvailable() {
         if (loaded) {
@@ -80,18 +83,17 @@ public final class NativeLibraryLoader {
     private static volatile Boolean functionalCache;
 
     /**
-     * Returns true if the native library is BOTH available AND its ABI matches
-     * the current Java declarations. Attempts a minimal {@link System#load}
+     * Returns true if the native library is available and can be loaded.
+     * Attempts a minimal {@link System#load}
      * via the regular loader; if the dylib resource is missing, or extraction
      * fails, or any cached probe stored earlier failed, returns false.
      *
-     * <p>The ABI check (dylib has all the {@code nativeXxx} symbols Java
-     * declares) is partial — it only catches the case where the dylib is
-     * completely absent. For finer ABI verification, callers can attempt
+     * <p>This probe does not verify the {@code nativeXxx} symbols Java declares.
+     * For JNI ABI verification, callers must attempt
      * the real init and call {@link #markUnsupported()} on UnsatisfiedLinkError
      * to cache a {@code false} for subsequent test classes.
      *
-     * <p>Used by E2E test base classes to skip when no native bundle is built.
+     * <p>Used by E2E readiness checks, where a false result is a test failure.
      */
     public static boolean isFunctional() {
         if (functionalCache != null) {
@@ -119,7 +121,7 @@ public final class NativeLibraryLoader {
      * Marks the native library as unsupported (ABI mismatch). Subsequent
      * {@link #isFunctional()} calls return false. Used after catching an
      * {@code UnsatisfiedLinkError} from a runtime init attempt so that
-     * remaining test classes can skip cleanly without re-attempting init.
+     * later readiness checks fail deterministically without re-attempting init.
      */
     public static void markUnsupported() {
         synchronized (NativeLibraryLoader.class) {
@@ -137,8 +139,8 @@ public final class NativeLibraryLoader {
         if (resource == null) {
             throw new UnsatisfiedLinkError(
                     "Native library not found on classpath: " + resourcePath
-                    + ". For local development, run: mvn process-resources -pl pangrova-worker"
-                    + " (copies dylib from CMake build dir)."
+                    + ". For local development, run pangrova-worker-native/bin/package-native-lib.sh"
+                    + " before Maven copies the packaged resource."
                     + " For production, ensure pangrova-native-bundle JAR is on the classpath.");
         }
 
@@ -147,7 +149,7 @@ public final class NativeLibraryLoader {
             // Schedule cleanup immediately — ensures temp file is removed even if
             // System.load() throws UnsatisfiedLinkError (ABI mismatch, wrong arch).
             tempFile.toFile().deleteOnExit();
-            extract(resource, tempFile);
+            extractVerifiedResource(NativeLibraryLoader.class.getClassLoader(), resourcePath, resource, tempFile);
             setExecutePermission(tempFile);
             System.load(tempFile.toAbsolutePath().toString());
             LOG.info("event=native_library_loaded source=classpath os={} arch={}", os, arch);
@@ -157,11 +159,44 @@ public final class NativeLibraryLoader {
         }
     }
 
-    private static void extract(URL source, Path target) throws IOException {
+    /** Validates every same-name classpath artifact against the bytes actually extracted for loading. */
+    static void extractVerifiedResource(ClassLoader loader, String resourcePath, URL source, Path target)
+            throws IOException {
+        byte[] expected = extract(source, target);
+        var resources = loader.getResources(resourcePath);
+        while (resources.hasMoreElements()) {
+            URL candidate = resources.nextElement();
+            // Resource identity is lexical; URL.equals may perform blocking DNS resolution.
+            if (candidate.toExternalForm().equals(source.toExternalForm())) {
+                continue;
+            }
+            MessageDigest digest = DigestUtils.sha256();
+            try (InputStream input = candidate.openStream()) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    digest.update(buffer, 0, count);
+                }
+            }
+            if (!MessageDigest.isEqual(expected, digest.digest())) {
+                throw new UnsatisfiedLinkError("Conflicting native libraries on classpath for "
+                        + resourcePath + ": " + source + " and " + candidate);
+            }
+        }
+    }
+
+    private static byte[] extract(URL source, Path target) throws IOException {
+        MessageDigest digest = DigestUtils.sha256();
         try (InputStream in = source.openStream();
              OutputStream out = Files.newOutputStream(target)) {
-            in.transferTo(out);
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
+                digest.update(buffer, 0, count);
+            }
         }
+        return digest.digest();
     }
 
     private static void setExecutePermission(Path path) {
@@ -176,7 +211,7 @@ public final class NativeLibraryLoader {
     }
 
     private static String detectOs() {
-        String os = System.getProperty("os.name", "").toLowerCase();
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("linux")) return "linux";
         if (os.contains("mac") || os.contains("darwin")) return "osx";
         if (os.contains("win")) return "windows";
@@ -184,7 +219,7 @@ public final class NativeLibraryLoader {
     }
 
     private static String detectArch() {
-        String arch = System.getProperty("os.arch", "").toLowerCase();
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         return switch (arch) {
             case "amd64", "x86_64" -> "x86_64";
             case "aarch64", "arm64" -> "aarch64";

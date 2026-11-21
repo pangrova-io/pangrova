@@ -1,0 +1,31 @@
+package org.pangrova.coordinator.query.execution.dispatch.task;
+
+import java.util.List;
+
+import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+import org.pangrova.query.api.enums.StatementCategory;
+import org.pangrova.query.dispatch.StatementExecutionContext;
+import org.pangrova.query.dispatch.StatementResult;
+import org.pangrova.query.statement.StatementTableTargets;
+import org.pangrova.coordinator.query.statement.MaintenanceExecutor;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.types.value.TypedRow;
+
+/**
+ * Executes OPTIMIZE TABLE by delegating to {@link MaintenanceExecutor#executeOptimize}.
+ */
+public final class OptimizeTask implements MetadataTask<OptimizeStatement> {
+
+    private final MaintenanceExecutor executor;
+
+    public OptimizeTask(MaintenanceExecutor executor) {
+        this.executor = executor;
+    }
+
+    @Override
+    public StatementResult execute(OptimizeStatement statement, StatementExecutionContext context) {
+        List<TypedRow> rows = executor.executeOptimize(statement, context.session());
+        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+        return StatementResult.fromRows(rows, mutatedTable, StatementCategory.MAINTENANCE);
+    }
+}

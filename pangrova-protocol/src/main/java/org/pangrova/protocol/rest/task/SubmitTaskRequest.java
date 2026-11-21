@@ -1,211 +1,170 @@
 package org.pangrova.protocol.rest.task;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.Objects;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.protobuf.InvalidProtocolBufferException;
 
-import org.pangrova.protocol.rest.config.OutputConfig;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
-import org.pangrova.protocol.rest.config.ShuffleConfig;
-import org.pangrova.protocol.rest.config.WriteConfig;
-import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
-
-import java.util.List;
-import java.util.Map;
+import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
+import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.v2.TaskRequest;
 
 /**
- * Request body for submitting a task via REST API (TaskDescriptor JSON format).
+ * Authenticated REST transport envelope for one canonical Native task request.
+ *
+ * <p>The canonical v2 {@link TaskRequest} remains the sole Native task contract.
+ * The optional COPY bearer ticket travels only in this private HTTP envelope;
+ * its nonce must never be serialized into the Native-visible protobuf.</p>
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-public record SubmitTaskRequest(
-    @JsonProperty("task_id") String taskId,
-    @JsonProperty("query_id") String queryId,
-    @JsonProperty("stage_id") int stageId,
-    @JsonProperty("partition_id") int partitionId,
-    @JsonProperty("task_type") String taskType,
-    @JsonProperty("plan_fragment") String planFragment,
-    @JsonProperty("splits") List<String> splits,
-    @JsonProperty("exchange_sources") List<ExchangeSourceDescriptor> exchangeSources,
-    @JsonProperty("resource_limit") ResourceLimitPayload resourceLimit,
-    @JsonProperty("session_properties") Map<String, String> sessionProperties,
-    @JsonProperty("output_config") OutputConfig outputConfig,
-    @JsonProperty("write_config") WriteConfig writeConfig,
-    @JsonProperty("dynamic_filters") List<DynamicFilterPayload> dynamicFilters,
-    @JsonProperty("shuffle_config") ShuffleConfig shuffleConfig,
-    @JsonProperty("split_mode") String splitMode,
-    @JsonProperty("tenant_id") String tenantId,
-    @JsonProperty("principal") String principal,
-    @JsonProperty("vector_search") VectorSearchInfoPayload vectorSearch,
-    // F-COORD-HA-04: Coordinator ownership epoch for zombie fencing.
-    // Workers can reject task submissions from a stale coordinator whose
-    // epoch is lower than the last-seen epoch, preventing split-brain writes.
-    @JsonProperty("coordinator_epoch") Long coordinatorEpoch
-) {
+public final class SubmitTaskRequest {
 
-    public SubmitTaskRequest {
-        requireNonBlank(taskId, "taskId");
-        requireNonBlank(queryId, "queryId");
-        if (planFragment != null && planFragment.isBlank()) {
-            throw new IllegalArgumentException("planFragment must not be blank when provided");
+    private static final int SHA256_BYTES = 32;
+
+    private final String canonicalTaskRequest;
+    private final byte[] canonicalBytes;
+    private final TaskRequest taskRequest;
+    private final CopySourceReadHttp.RedeemRequest copySourceRead;
+
+    /** Creates a transport envelope from Base64-encoded canonical v2 bytes. */
+    @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
+    public SubmitTaskRequest(
+            @JsonProperty(value = "canonical_task_request", required = true)
+            String canonicalTaskRequest,
+            @JsonProperty("copy_source_read") CopySourceReadHttp.RedeemRequest copySourceRead) {
+        if (canonicalTaskRequest == null || canonicalTaskRequest.isBlank()) {
+            throw new IllegalArgumentException(
+                    "canonicalTaskRequest must not be null or blank");
         }
-        splits = copyListOrEmpty(splits);
-        exchangeSources = copyListOrEmpty(exchangeSources);
-        sessionProperties = copyMapOrEmpty(sessionProperties);
-        dynamicFilters = copyListOrEmpty(dynamicFilters);
+        try {
+            this.canonicalBytes = Base64.getDecoder().decode(canonicalTaskRequest);
+            this.taskRequest = TaskRequest.parseFrom(this.canonicalBytes);
+        } catch (IllegalArgumentException | InvalidProtocolBufferException failure) {
+            throw new IllegalArgumentException(
+                    "canonicalTaskRequest is not a canonical v2 TaskRequest", failure);
+        }
+        if (this.canonicalBytes.length == 0) {
+            throw new IllegalArgumentException("canonicalTaskRequest must not be empty");
+        }
+        this.canonicalTaskRequest = canonicalTaskRequest;
+        this.copySourceRead = copySourceRead;
+        requireCopySourceBinding();
     }
 
-    /**
-     * Creates a new builder with all fields unset.
-     */
-    public static Builder builder() {
-        return new Builder();
+    /** Existing non-COPY task transport has no private source ticket. */
+    public SubmitTaskRequest(String canonicalTaskRequest) {
+        this(canonicalTaskRequest, null);
     }
 
-    private static void requireNonBlank(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be null or blank");
+    /** Wraps a fully built canonical task request for REST transport. */
+    public static SubmitTaskRequest from(TaskRequest taskRequest) {
+        Objects.requireNonNull(taskRequest, "taskRequest must not be null");
+        return new SubmitTaskRequest(Base64.getEncoder().encodeToString(
+                taskRequest.toByteArray()));
+    }
+
+    /** Wraps a fully bound COPY task and its separate private admission ticket. */
+    public static SubmitTaskRequest from(TaskRequest taskRequest,
+                                         CopySourceReadHttp.RedeemRequest copySourceRead) {
+        Objects.requireNonNull(taskRequest, "taskRequest must not be null");
+        Objects.requireNonNull(copySourceRead, "copySourceRead must not be null");
+        return new SubmitTaskRequest(Base64.getEncoder().encodeToString(
+                taskRequest.toByteArray()), copySourceRead);
+    }
+
+    /** Preserves a private ticket only if all canonical bytes are already final. */
+    public SubmitTaskRequest withBoundTask(TaskRequest bound) {
+        Objects.requireNonNull(bound, "bound");
+        if (copySourceRead != null && !Arrays.equals(canonicalBytes, bound.toByteArray())) {
+            throw new IllegalArgumentException(
+                    "COPY ticket must be issued after final task identity and output binding");
+        }
+        return copySourceRead == null ? from(bound) : from(bound, copySourceRead);
+    }
+
+    /** Returns the only JSON transport field. */
+    @JsonProperty("canonical_task_request")
+    public String canonicalTaskRequest() {
+        return canonicalTaskRequest;
+    }
+
+    /** Private Worker RPC payload. Never log or propagate to JNI. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty("copy_source_read")
+    public CopySourceReadHttp.RedeemRequest copySourceRead() {
+        return copySourceRead;
+    }
+
+    /** Returns the immutable parsed canonical task contract. */
+    public TaskRequest taskRequest() {
+        return taskRequest;
+    }
+
+    /** Returns the exact bytes received from or sent by the transport envelope. */
+    public byte[] canonicalBytes() {
+        return canonicalBytes.clone();
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return this == other
+                || other instanceof SubmitTaskRequest that
+                && Arrays.equals(canonicalBytes, that.canonicalBytes)
+                && Objects.equals(copySourceRead, that.copySourceRead);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * Arrays.hashCode(canonicalBytes) + Objects.hashCode(copySourceRead);
+    }
+
+    @Override
+    public String toString() {
+        return "SubmitTaskRequest[canonicalBytes=" + canonicalBytes.length
+                + ", copySourceRead=" + (copySourceRead == null ? "absent" : "REDACTED") + "]";
+    }
+
+    private void requireCopySourceBinding() {
+        boolean canonicalCopy = taskRequest.hasCopySourceStagingCommandSha256();
+        if (canonicalCopy != (copySourceRead != null)) {
+            throw new IllegalArgumentException("COPY staging command and private ticket must be paired");
+        }
+        if (!canonicalCopy) {
+            return;
+        }
+        requireDigestBinding();
+        requireAttemptBinding();
+    }
+
+    private void requireDigestBinding() {
+        var checksum = taskRequest.getCopySourceStagingCommandSha256();
+        if (checksum.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
+                || checksum.getDigest().size() != SHA256_BYTES
+                || !Arrays.equals(checksum.getDigest().toByteArray(),
+                        HexFormat.of().parseHex(copySourceRead.scope().commandSha256()))) {
+            throw new IllegalArgumentException("COPY staging command digest does not match private scope");
         }
     }
 
-    private static <T> List<T> copyListOrEmpty(List<T> values) {
-        return values == null ? List.of() : List.copyOf(values);
-    }
-
-    private static Map<String, String> copyMapOrEmpty(Map<String, String> values) {
-        return values == null ? Map.of() : Map.copyOf(values);
-    }
-
-    /**
-     * Fluent builder for {@link SubmitTaskRequest}, covering callers that only
-     * populate a subset of the fields (the historical backward-compatible
-     * constructor overloads are expressed through selective setter calls).
-     */
-    public static final class Builder {
-
-        private String taskId;
-        private String queryId;
-        private int stageId;
-        private int partitionId;
-        private String taskType;
-        private String planFragment;
-        private List<String> splits;
-        private List<ExchangeSourceDescriptor> exchangeSources;
-        private ResourceLimitPayload resourceLimit;
-        private Map<String, String> sessionProperties;
-        private OutputConfig outputConfig;
-        private WriteConfig writeConfig;
-        private List<DynamicFilterPayload> dynamicFilters;
-        private ShuffleConfig shuffleConfig;
-        private String splitMode;
-        private String tenantId;
-        private String principal;
-        private VectorSearchInfoPayload vectorSearch;
-        private Long coordinatorEpoch;
-
-        private Builder() {}
-
-        public Builder taskId(String taskId) {
-            this.taskId = taskId;
-            return this;
-        }
-
-        public Builder queryId(String queryId) {
-            this.queryId = queryId;
-            return this;
-        }
-
-        public Builder stageId(int stageId) {
-            this.stageId = stageId;
-            return this;
-        }
-
-        public Builder partitionId(int partitionId) {
-            this.partitionId = partitionId;
-            return this;
-        }
-
-        public Builder taskType(String taskType) {
-            this.taskType = taskType;
-            return this;
-        }
-
-        public Builder planFragment(String planFragment) {
-            this.planFragment = planFragment;
-            return this;
-        }
-
-        public Builder splits(List<String> splits) {
-            this.splits = splits;
-            return this;
-        }
-
-        public Builder exchangeSources(List<ExchangeSourceDescriptor> exchangeSources) {
-            this.exchangeSources = exchangeSources;
-            return this;
-        }
-
-        public Builder resourceLimit(ResourceLimitPayload resourceLimit) {
-            this.resourceLimit = resourceLimit;
-            return this;
-        }
-
-        public Builder sessionProperties(Map<String, String> sessionProperties) {
-            this.sessionProperties = sessionProperties;
-            return this;
-        }
-
-        public Builder outputConfig(OutputConfig outputConfig) {
-            this.outputConfig = outputConfig;
-            return this;
-        }
-
-        public Builder writeConfig(WriteConfig writeConfig) {
-            this.writeConfig = writeConfig;
-            return this;
-        }
-
-        public Builder dynamicFilters(List<DynamicFilterPayload> dynamicFilters) {
-            this.dynamicFilters = dynamicFilters;
-            return this;
-        }
-
-        public Builder shuffleConfig(ShuffleConfig shuffleConfig) {
-            this.shuffleConfig = shuffleConfig;
-            return this;
-        }
-
-        public Builder splitMode(String splitMode) {
-            this.splitMode = splitMode;
-            return this;
-        }
-
-        public Builder tenantId(String tenantId) {
-            this.tenantId = tenantId;
-            return this;
-        }
-
-        public Builder principal(String principal) {
-            this.principal = principal;
-            return this;
-        }
-
-        public Builder vectorSearch(VectorSearchInfoPayload vectorSearch) {
-            this.vectorSearch = vectorSearch;
-            return this;
-        }
-
-        public Builder coordinatorEpoch(Long coordinatorEpoch) {
-            this.coordinatorEpoch = coordinatorEpoch;
-            return this;
-        }
-
-        /**
-         * Builds the request, applying the same validation as the canonical constructor.
-         */
-        public SubmitTaskRequest build() {
-            return new SubmitTaskRequest(taskId, queryId, stageId, partitionId, taskType,
-                    planFragment, splits, exchangeSources, resourceLimit, sessionProperties,
-                    outputConfig, writeConfig, dynamicFilters, shuffleConfig, splitMode,
-                    tenantId, principal, vectorSearch, coordinatorEpoch);
+    private void requireAttemptBinding() {
+        var scope = copySourceRead.scope();
+        var attempt = taskRequest.getAttempt();
+        var owner = attempt.getExecutionOwner();
+        if (!scope.tenantId().equals(taskRequest.getSecurity().getTenantId())
+                || !scope.principal().equals(taskRequest.getSecurity().getPrincipal())
+                || !scope.executionId().equals(attempt.getQueryOrJobId())
+                || !scope.stagingAttemptId().equals(attempt.getTaskId())
+                || scope.controlEpoch() != attempt.getControlEpoch()
+                || !attempt.hasExecutionOwner()
+                || !scope.ownerId().equals(owner.getOwnerId())
+                || !scope.ownerIncarnation().equals(owner.getOwnerIncarnation())
+                || scope.ownerFencingToken() != owner.getFencingToken()
+                || scope.deadlineEpochMs() != taskRequest.getDeadlineEpochMs()) {
+            throw new IllegalArgumentException("COPY private ticket is not bound to the canonical task attempt");
         }
     }
 }

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="930" viewBox="0 0 1200 930" role="img" aria-labelledby="t d">
+<title id="t">Query optimization surfaces</title>
+<desc id="d">Planner rules, materialized-view rewrite, caches, admission, routing, statistics, and runtime filters.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="930" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Query optimization surfaces</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Only behaviour with production wiring and tests is described as available.</text>
+<rect x="60" y="140" width="520" height="300" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="172" font-size="19" font-weight="700" fill="#7C3AED">IMPLEMENTED</text>
+<rect x="90" y="195" width="460" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="195" width="5" height="90" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="223" font-size="16.5" font-weight="700" fill="#111827">Calcite rules and cost model</text>
+<text x="110" y="247" font-size="13.5" fill="#64748B">Statistics-aware relational transformations</text>
+<rect x="90" y="305" width="460" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="305" width="5" height="90" rx="2.5" fill="#D97706"/>
+<text x="110" y="333" font-size="16.5" font-weight="700" fill="#111827">Runtime filters</text>
+<text x="110" y="357" font-size="13.5" fill="#64748B">Same-task hash join filters and bounded literal rules</text>
+<rect x="620" y="140" width="520" height="300" rx="18" fill="#FFFFFF" stroke="#94A3B8" stroke-opacity="0.45" stroke-width="1.6" stroke-dasharray="9 7"/>
+<text x="644" y="172" font-size="19" font-weight="700" fill="#94A3B8">TARGET DESIGN</text>
+<rect x="650" y="195" width="460" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="650" y="195" width="5" height="90" rx="2.5" fill="#94A3B8"/>
+<text x="670" y="223" font-size="16.5" font-weight="700" fill="#111827">Result cache and semantic cache</text>
+<text x="670" y="247" font-size="13.5" fill="#64748B">Evidence and invalidation design only</text>
+<rect x="650" y="305" width="460" height="90" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="650" y="305" width="5" height="90" rx="2.5" fill="#94A3B8"/>
+<text x="670" y="333" font-size="16.5" font-weight="700" fill="#111827">Automatic cross-stage pruning</text>
+<text x="670" y="357" font-size="13.5" fill="#64748B">Build-side key-domain publisher</text>
+<line x1="600" y1="440" x2="600" y2="500" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="60" y="500" width="1080" height="210" rx="18" fill="#F7FEFC" stroke="#0D9488" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="532" font-size="19" font-weight="700" fill="#0D9488">CONTROL SURFACES</text>
+<rect x="90" y="555" width="320" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="555" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="583" font-size="16.5" font-weight="700" fill="#111827">Admission and throttling</text>
+<text x="110" y="607" font-size="13.5" fill="#64748B">Concurrency, resource, and tenant limits</text>
+<rect x="440" y="555" width="320" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="555" width="5" height="120" rx="2.5" fill="#0D9488"/>
+<text x="460" y="583" font-size="16.5" font-weight="700" fill="#111827">Routing and placement</text>
+<text x="460" y="607" font-size="13.5" fill="#64748B">Worker capabilities and locality</text>
+<rect x="790" y="555" width="310" height="120" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="790" y="555" width="5" height="120" rx="2.5" fill="#7C3AED"/>
+<text x="810" y="583" font-size="16.5" font-weight="700" fill="#111827">Materialized views</text>
+<text x="810" y="607" font-size="13.5" fill="#64748B">Rewrite from persisted definitions; lifecycle open</text>
+<text x="600" y="790" font-size="14" fill="#64748B" text-anchor="middle">A rule, cache, or rewrite class is not evidence of a supported plan shape; verify the bound plan and execution path.</text>
+<line x1="60" y1="900" x2="100" y2="900" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="905" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="900" x2="280" y2="900" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="905" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

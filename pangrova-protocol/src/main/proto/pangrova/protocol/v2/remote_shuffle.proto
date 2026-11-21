@@ -1,0 +1,214 @@
+syntax = "proto3";
+package pangrova.protocol.v2.shuffle;
+
+option java_package = "org.pangrova.protocol.v2.shuffle";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/common.proto";
+
+// External shuffle is a pluggable data plane. Coordinator calls are limited to
+// allocation and cleanup; Workers stream bytes directly to/from the service.
+service ShuffleService {
+  rpc RegisterShuffle(RegisterShuffleRequest) returns (RegisterShuffleResponse);
+  rpc WriteBatch(stream WriteBatchRequest) returns (WriteBatchResponse);
+  rpc CommitProducerAttempt(CommitProducerAttemptRequest)
+      returns (CommitProducerAttemptResponse);
+  rpc FinalizeShuffle(FinalizeShuffleRequest) returns (FinalizeShuffleResponse);
+  rpc ReadPartition(ReadPartitionRequest) returns (stream ReadBatchResponse);
+  rpc Cleanup(CleanupRequest) returns (CleanupResponse);
+  rpc RenewAccess(RenewAccessRequest) returns (RenewAccessResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// One canonical RPC refreshes control capabilities and delegates/renews data
+// capabilities. Only a Coordinator mTLS peer may grant a capability bound to
+// the exact dispatched task attempt. A Worker may renew only that task-bound
+// capability. Neither path bypasses the live owner.
+enum ShuffleAccessOperation {
+  SHUFFLE_ACCESS_OPERATION_UNSPECIFIED = 0;
+  SHUFFLE_ACCESS_OPERATION_READ = 1;
+  SHUFFLE_ACCESS_OPERATION_WRITE = 2;
+  SHUFFLE_ACCESS_OPERATION_FINALIZE = 3;
+  SHUFFLE_ACCESS_OPERATION_CLEANUP = 4;
+}
+
+message RenewAccessRequest {
+  ShuffleAccessOperation operation = 1;
+  // Exactly one of shuffle_id (READ/WRITE/FINALIZE) or query_id (CLEANUP).
+  string shuffle_id = 2;
+  string query_id = 3;
+  pangrova.protocol.v2.ExecutionOwnerIdentity execution_owner = 4;
+  // Required for Coordinator task grant and Worker READ/WRITE renewal. A
+  // Coordinator omits it only to refresh its own stage capability. Control
+  // renewal omits it.
+  pangrova.protocol.v2.TaskAttemptId task_attempt = 5;
+  // An unexpired exact task capability is required for Worker renewal. An
+  // authenticated Coordinator must omit it for initial task grant and may
+  // omit it to recover FINALIZE/CLEANUP after authoritative owner takeover.
+  pangrova.protocol.v2.ShuffleAccessCapability previous_capability = 6;
+}
+
+message RenewAccessResponse {
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 1;
+}
+
+message RegisterShuffleRequest {
+  string query_id = 1;
+  int32 stage_id = 2;
+  int32 num_partitions = 3;
+  int64 estimated_bytes_per_partition = 4;
+  bool require_replication = 5;
+  string shuffle_id = 6;
+  pangrova.protocol.v2.ProtocolVersion protocol = 7;
+  uint64 plan_epoch = 8;
+  pangrova.protocol.v2.ExecutionOwnerIdentity execution_owner = 9;
+  uint32 expected_producer_partitions = 10;
+  pangrova.protocol.v2.Checksum expected_producer_set_checksum = 11;
+}
+
+message RegisterShuffleResponse {
+  string shuffle_id = 1;
+  repeated pangrova.protocol.v2.ShuffleServiceEndpoint endpoints = 2;
+  pangrova.protocol.v2.ShuffleAccessCapability read_capability = 3;
+  pangrova.protocol.v2.ShuffleAccessCapability write_capability = 4;
+  pangrova.protocol.v2.ShuffleAccessCapability cleanup_capability = 5;
+  pangrova.protocol.v2.ShuffleServiceAddress commit_address = 6;
+  pangrova.protocol.v2.ShuffleAccessCapability finalize_capability = 7;
+}
+
+message WriteBatchRequest {
+  string shuffle_id = 1;
+  int32 partition_id = 2;
+  // Global chunk sequence on one producer-attempt/endpoint stream.
+  int64 stream_sequence = 3;
+  // Partition-local complete-batch sequence and fragment integrity contract.
+  // For compressed writes, this chunks the compressed payload.
+  pangrova.protocol.v2.BatchChunk chunk = 4;
+  uint64 uncompressed_size = 5;
+  CompressionCodec codec = 6;
+  pangrova.protocol.v2.TaskAttemptId producer_attempt = 7;
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 8;
+  // Authoritative row count for the complete batch. Repeated identically on
+  // every chunk and accounted only after the complete batch is accepted.
+  uint64 row_count = 9;
+}
+
+message PartitionWriteAck {
+  int32 partition_id = 1;
+  int64 batches_accepted = 2;
+  int64 bytes_accepted = 3;
+  int64 last_partition_sequence = 4;
+}
+
+message WriteBatchResponse {
+  repeated PartitionWriteAck partitions = 1;
+  int64 total_batches_accepted = 2;
+  int64 total_bytes_accepted = 3;
+}
+
+message PartitionCommitSummary {
+  int32 partition_id = 1;
+  int64 expected_last_sequence = 2;
+  // SHA-256 of the canonical ordered partition manifest. The manifest uses
+  // domain pangrova.shuffle.partition-manifest.v2 plus a NUL byte, followed by fixed-width
+  // batch sequence, byte count, row count, and canonical payload SHA-256.
+  pangrova.protocol.v2.Checksum output_checksum = 3;
+  int64 total_bytes = 4;
+  int64 total_batches = 5;
+  uint64 total_rows = 6;
+}
+
+message CommitProducerAttemptRequest {
+  string shuffle_id = 1;
+  pangrova.protocol.v2.TaskAttemptId producer_attempt = 2;
+  repeated PartitionCommitSummary partitions = 3;
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 4;
+}
+
+message CommitProducerAttemptResponse {
+  int64 accepted_partitions = 1;
+  int64 total_bytes = 2;
+  uint64 committed_attempt_fencing_token = 3;
+}
+
+message FinalizeShuffleRequest {
+  string shuffle_id = 1;
+  uint64 plan_epoch = 2;
+  pangrova.protocol.v2.ExecutionOwnerIdentity execution_owner = 3;
+  uint32 expected_producer_partitions = 4;
+  pangrova.protocol.v2.Checksum expected_producer_set_checksum = 5;
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 6;
+}
+
+message PartitionFinalizationSummary {
+  int32 partition_id = 1;
+  int64 total_bytes = 2;
+  int64 total_rows = 3;
+  int64 committed_last_sequence = 4;
+  // SHA-256 of the canonical ordered partition manifest.
+  pangrova.protocol.v2.Checksum output_checksum = 5;
+}
+
+message FinalizeShuffleResponse {
+  uint32 committed_producer_count = 1;
+  pangrova.protocol.v2.Checksum producer_set_checksum = 2;
+  repeated PartitionFinalizationSummary partitions = 3;
+  int64 total_bytes = 4;
+  int64 total_rows = 5;
+}
+
+message ReadPartitionRequest {
+  string shuffle_id = 1;
+  int32 partition_id = 2;
+  int64 start_sequence = 3;
+  pangrova.protocol.v2.TaskAttemptId consumer_attempt = 4;
+  uint64 deadline_epoch_ms = 5;
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 6;
+}
+
+message ReadBatchResponse {
+  oneof frame {
+    // Service output is the uncompressed canonical batch representation.
+    pangrova.protocol.v2.BatchChunk chunk = 1;
+    ReadPartitionTerminal terminal = 2;
+  }
+  // Authoritative complete-batch row count. Repeated on every chunk frame;
+  // terminal frames must leave this field at zero.
+  uint64 row_count = 3;
+}
+
+message ReadPartitionTerminal {
+  int64 committed_last_sequence = 1;
+  // SHA-256 of the canonical ordered partition manifest.
+  pangrova.protocol.v2.Checksum output_checksum = 2;
+  uint32 committed_producer_count = 3;
+  int64 total_bytes = 4;
+  int64 total_rows = 5;
+  pangrova.protocol.v2.Checksum producer_set_checksum = 6;
+  uint64 generation_plan_epoch = 7;
+}
+
+message CleanupRequest {
+  string query_id = 1;
+  pangrova.protocol.v2.ExecutionOwnerIdentity execution_owner = 2;
+  pangrova.protocol.v2.ShuffleAccessCapability access_capability = 3;
+}
+
+message CleanupResponse {
+  int64 partitions_cleaned = 1;
+  int64 bytes_freed = 2;
+}
+
+message HeartbeatRequest {
+  string worker_id = 1;
+  int64 timestamp_ms = 2;
+}
+
+message HeartbeatResponse { bool accepted = 1; }
+
+enum CompressionCodec {
+  COMPRESSION_CODEC_UNSPECIFIED = 0;
+  COMPRESSION_CODEC_NONE = 1;
+  COMPRESSION_CODEC_LZ4 = 2;
+  COMPRESSION_CODEC_ZSTD = 3;
+}

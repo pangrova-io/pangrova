@@ -1,11 +1,12 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.rest.PangrovaClientException;
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.ResultBatchConsumer;
-import org.pangrova.protocol.rest.query.QueryStatusResponse;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
+import org.pangrova.client.cli.exception.QueryTimeoutException;
+import org.pangrova.common.client.query.QueryClient;
+import org.pangrova.common.client.enums.CancelOutcome;
+import org.pangrova.common.client.exception.PangrovaClientException;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -47,10 +48,10 @@ class SqlShellTimeoutTest {
             }
 
             @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            public CancelOutcome cancelQuery(String queryId) {
                 cancelCalled.set(true);
                 cancelledQueryId.set(queryId);
-                return PangrovaRestClient.CancelOutcome.CANCEL_ACCEPTED;
+                return CancelOutcome.CANCEL_ACCEPTED;
             }
         };
 
@@ -93,9 +94,9 @@ class SqlShellTimeoutTest {
             }
 
             @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            public CancelOutcome cancelQuery(String queryId) {
                 cancelCalled.set(true);
-                return PangrovaRestClient.CancelOutcome.CANCEL_ACCEPTED;
+                return CancelOutcome.CANCEL_ACCEPTED;
             }
         };
 
@@ -142,9 +143,9 @@ class SqlShellTimeoutTest {
             }
 
             @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            public CancelOutcome cancelQuery(String queryId) {
                 cancelCalled.set(true);
-                return PangrovaRestClient.CancelOutcome.CANCEL_ACCEPTED;
+                return CancelOutcome.CANCEL_ACCEPTED;
             }
         };
 
@@ -182,7 +183,7 @@ class SqlShellTimeoutTest {
             }
 
             @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            public CancelOutcome cancelQuery(String queryId) {
                 throw new PangrovaClientException("CONNECTION_REFUSED", "Connection refused");
             }
         };
@@ -224,7 +225,7 @@ class SqlShellTimeoutTest {
             }
 
             @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            public CancelOutcome cancelQuery(String queryId) {
                 throw new AssertionError("Cancel should not be called");
             }
         };
@@ -284,13 +285,13 @@ class SqlShellTimeoutTest {
         }
 
         @Override
-        public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+        public CancelOutcome cancelQuery(String queryId) {
             throw new UnsupportedOperationException("Not stubbed");
         }
 
         @Override
-        public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
-            // no-op default
+        public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+            throw new UnsupportedOperationException("This polling-only test does not execute a result stream");
         }
     }
 }

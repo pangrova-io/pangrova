@@ -1,7 +1,8 @@
 package org.pangrova.operations.dr;
 
-import org.pangrova.common.annotation.Experimental;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.operations.enums.FailoverStep;
+import org.pangrova.common.annotation.ExperimentalImplementation;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,7 @@ import org.slf4j.LoggerFactory;
  * but no production {@link StandbyOperations} implementation exists. The failover
  * pipeline is untested against real infrastructure.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-failover")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-failover")
 public final class FailoverController {
 
     private static final Logger LOG = LoggerFactory.getLogger(FailoverController.class);
@@ -55,10 +56,6 @@ public final class FailoverController {
             throw new PangrovaException(PangrovaErrorCode.OPS_FAILOVER_VERIFICATION_FAILED,
                     "Failover step " + step + " failed: " + e.getMessage(), e);
         }
-    }
-
-    public enum FailoverStep {
-        VERIFY_STANDBY, CHECK_LAG, STOP_WRITES, WAIT_CATCHUP, PROMOTE, UPDATE_DNS, NOTIFY
     }
 
     /**

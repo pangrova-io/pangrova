@@ -1,5 +1,9 @@
 package org.pangrova.config;
 
+import org.pangrova.config.constants.WorkerOptions;
+
+import org.pangrova.config.constants.CommonOptions;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +40,13 @@ class WorkerOptionsTest {
     }
 
     @Test
+    void shuffleAdvertisedHostHasNoIndependentDefault() {
+        assertThat(WorkerOptions.SHUFFLE_ADVERTISED_HOST.key())
+                .isEqualTo("worker.shuffle.advertised-host");
+        assertThat(WorkerOptions.SHUFFLE_ADVERTISED_HOST.hasDefaultValue()).isFalse();
+    }
+
+    @Test
     void workerIdDefaultsToWorker1() {
         assertThat(WorkerOptions.WORKER_ID.defaultValue()).isEqualTo("worker-1");
         assertThat(WorkerOptions.WORKER_ID.typeClass()).isEqualTo(String.class);
@@ -56,6 +67,11 @@ class WorkerOptionsTest {
     }
 
     // ---- Transport ----
+
+    @Test
+    void copyTaskTlsPortDefaultsToAutomaticLocalAssignment() {
+        assertThat(WorkerOptions.COPY_TASK_TLS_PORT.defaultValue()).isZero();
+    }
 
     @Test
     void transportPortDefaultsToZero() {
@@ -121,9 +137,11 @@ class WorkerOptionsTest {
     }
 
     @Test
-    void spillDirectoryHasNoDefault() {
-        assertThat(WorkerOptions.SPILL_DIRECTORY.defaultValue()).isNull();
-        assertThat(WorkerOptions.SPILL_DIRECTORY.hasDefaultValue()).isFalse();
+    void spillDirectoryDefaultsToWritableLocalPath() {
+        // An unset directory disabled engine spill entirely, so large joins and
+        // aggregations failed instead of spilling.
+        assertThat(WorkerOptions.SPILL_DIRECTORY.defaultValue()).isEqualTo("data/worker-spill");
+        assertThat(WorkerOptions.SPILL_DIRECTORY.hasDefaultValue()).isTrue();
     }
 
     // ---- Native engine ----
@@ -187,12 +205,12 @@ class WorkerOptionsTest {
 
     @Test
     void observabilityServiceNameHasNoDefault() {
-        assertThat(WorkerOptions.OBSERVABILITY_SERVICE_NAME.defaultValue()).isNull();
+        assertThat(CommonOptions.OBSERVABILITY_SERVICE_NAME.defaultValue()).isNull();
     }
 
     @Test
     void observabilityOtlpEndpointHasNoDefault() {
-        assertThat(WorkerOptions.OBSERVABILITY_OTLP_ENDPOINT.defaultValue()).isNull();
+        assertThat(CommonOptions.OBSERVABILITY_OTLP_ENDPOINT.defaultValue()).isNull();
     }
 
     // ---- R1.3: Empty config enables feature flags except security ----

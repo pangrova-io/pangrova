@@ -13,8 +13,9 @@
  */
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.ColumnDescriptor;
-import org.pangrova.transport.ResultBatch;
+import org.pangrova.client.jdbc.value.VectorSqlArray;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.ResultBatch;
 
 import java.io.InputStream;
 import java.io.Reader;
@@ -36,6 +37,7 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
@@ -46,13 +48,14 @@ import java.util.Map;
  * Contains no Arrow imports — Arrow decoding is done in {@code pangrova-transport}
  * before this ResultSet is constructed.
  *
- * <p>The full batch is held in heap memory. For streaming large result sets
- * use {@link PaginatedResultSet} instead.</p>
+ * <p>The complete result is currently held in heap memory. A bounded-memory
+ * Flight-backed JDBC cursor is required before advertising large-result
+ * streaming support.</p>
  */
 public final class PangrovaResultSet implements ResultSet {
 
-    private final List<Object[]> rows;
-    private final List<ColumnDescriptor> columns;
+    private List<Object[]> rows;
+    private List<ColumnDescriptor> columns;
     private final Statement owningStatement;
     private PangrovaResultSetMetaData metaData;
     // PERF-T19: Lazy-built column name index for O(1) findColumn() lookups.
@@ -77,6 +80,10 @@ public final class PangrovaResultSet implements ResultSet {
     @Override
     public void close() {
         closed = true;
+        rows = List.of();
+        columns = List.of();
+        metaData = null;
+        columnIndexCache = null;
     }
 
     @Override
@@ -103,7 +110,12 @@ public final class PangrovaResultSet implements ResultSet {
     @Override
     public String getString(int columnIndex) throws SQLException {
         Object value = getObjectInternal(columnIndex);
-        return value == null ? null : value.toString();
+        if (value == null) return null;
+        if (value instanceof float[] vector) return Arrays.toString(vector);
+        if (value instanceof double[] vector) return Arrays.toString(vector);
+        if (value instanceof Float[] vector) return Arrays.toString(vector);
+        if (value instanceof Double[] vector) return Arrays.toString(vector);
+        return value.toString();
     }
 
     @Override
@@ -156,7 +168,7 @@ public final class PangrovaResultSet implements ResultSet {
     public int findColumn(String columnLabel) throws SQLException {
         checkOpen();
         // PERF-T19: O(1) lookup via lazily-built HashMap instead of O(N) linear scan.
-        Integer idx = columnIndex().get(columnLabel.toLowerCase());
+        Integer idx = columnIndex().get(columnLabel.toLowerCase(java.util.Locale.ROOT));
         if (idx == null) {
             throw new SQLException("Column not found: " + columnLabel);
         }
@@ -168,7 +180,7 @@ public final class PangrovaResultSet implements ResultSet {
             Map<String, Integer> map = new HashMap<>(columns.size() * 2);
             for (int i = 0; i < columns.size(); i++) {
                 // putIfAbsent: first column wins for duplicate names (JDBC convention)
-                map.putIfAbsent(columns.get(i).name().toLowerCase(), i + 1);
+                map.putIfAbsent(columns.get(i).name().toLowerCase(java.util.Locale.ROOT), i + 1);
             }
             columnIndexCache = map;
         }
@@ -296,17 +308,24 @@ public final class PangrovaResultSet implements ResultSet {
     @Override public void cancelRowUpdates() throws SQLException { throw unsupported(); }
     @Override public void moveToInsertRow() throws SQLException { throw unsupported(); }
     @Override public void moveToCurrentRow() throws SQLException { throw unsupported(); }
-    @Override public Statement getStatement() { return owningStatement; }
+    @Override public Statement getStatement() throws SQLException {
+        checkOpen();
+        return owningStatement;
+    }
     @Override public Object getObject(int columnIndex, Map<String, Class<?>> map) throws SQLException { throw unsupported(); }
     @Override public Ref getRef(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public Blob getBlob(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public Clob getClob(int columnIndex) throws SQLException { throw unsupported(); }
-    @Override public Array getArray(int columnIndex) throws SQLException { throw unsupported(); }
+    @Override public Array getArray(int columnIndex) throws SQLException {
+        return VectorSqlArray.fromValue(getObjectInternal(columnIndex));
+    }
     @Override public Object getObject(String columnLabel, Map<String, Class<?>> map) throws SQLException { throw unsupported(); }
     @Override public Ref getRef(String columnLabel) throws SQLException { throw unsupported(); }
     @Override public Blob getBlob(String columnLabel) throws SQLException { throw unsupported(); }
     @Override public Clob getClob(String columnLabel) throws SQLException { throw unsupported(); }
-    @Override public Array getArray(String columnLabel) throws SQLException { throw unsupported(); }
+    @Override public Array getArray(String columnLabel) throws SQLException {
+        return getArray(findColumn(columnLabel));
+    }
     @Override public Date getDate(int columnIndex, Calendar cal) throws SQLException { throw unsupported(); }
     @Override public Date getDate(String columnLabel, Calendar cal) throws SQLException { throw unsupported(); }
     @Override public Time getTime(int columnIndex, Calendar cal) throws SQLException { throw unsupported(); }

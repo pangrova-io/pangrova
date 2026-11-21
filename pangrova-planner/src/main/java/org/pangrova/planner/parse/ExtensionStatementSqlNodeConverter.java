@@ -1,30 +1,30 @@
 package org.pangrova.planner.parse;
 
-import org.pangrova.parser.ast.CreateCatalogStatement;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.ShowSchemasStatement;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.AlterCatalogStatement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
-import org.pangrova.parser.ast.statement.DescribeTableStatement;
-import org.pangrova.parser.ast.statement.DropCatalogStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
-import org.pangrova.parser.ast.statement.ShowTablesStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.parser.ast.statement.maintenance.CallStatement;
-import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
-import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
+import org.pangrova.parser.api.ast.CreateCatalogStatement;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.ShowSchemasStatement;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.ShowCatalogsStatement;
+import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
 import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlDelete;
 import org.apache.calcite.sql.SqlFunction;
@@ -39,9 +39,12 @@ import org.apache.calcite.sql.SqlUpdate;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.Function;
 
 /**
@@ -119,10 +122,10 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private void addDmlHandlers(Map<Class<? extends Statement>, Function<Statement, SqlNode>> map) {
-        map.put(InsertStatement.class, s -> ext(PangrovaOperatorTable.INSERT_INTO));
+        map.put(InsertStatement.class, s -> convertInsertValues((InsertStatement) s));
         map.put(InsertSelectStatement.class, s -> convertInsertSelect((InsertSelectStatement) s));
         map.put(InsertOverwriteStatement.class,
-                s -> ext(PangrovaOperatorTable.INSERT_OVERWRITE, id(((InsertOverwriteStatement) s).tableName())));
+                s -> convertInsertOverwriteValues((InsertOverwriteStatement) s));
         map.put(DeleteStatement.class, s -> convertDelete((DeleteStatement) s));
         map.put(UpdateStatement.class, s -> convertUpdate((UpdateStatement) s));
         map.put(MergeStatement.class, s -> convertMerge((MergeStatement) s));
@@ -156,6 +159,21 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private SqlNode convertMerge(MergeStatement m) {
+        long matchedActions = m.clauses().stream().filter(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate
+                        || clause instanceof MergeStatement.MergeClause.WhenMatchedDelete).count();
+        long insertActions = m.clauses().stream().filter(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert).count();
+        if (matchedActions > 1 || insertActions > 1) {
+            throw new IllegalArgumentException(
+                    "MERGE cannot be lowered to one atomic native write: multiple actions of the same kind");
+        }
+        if (m.clauses().stream().anyMatch(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert insert
+                        && insert.condition().isPresent())) {
+            throw new IllegalArgumentException(
+                    "MERGE cannot be lowered to one atomic native write: conditional INSERT");
+        }
         SqlIdentifier target = (SqlIdentifier) id(m.targetTable());
         SqlIdentifier targetAlias = m.targetAlias()
                 .map(a -> new SqlIdentifier(a, POS)).orElse(null);
@@ -169,16 +187,31 @@ final class ExtensionStatementSqlNodeConverter {
         SqlInsert ins = null;
         for (var clause : m.clauses()) {
             if (clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate wu) {
+                if (wu.condition().isPresent()) {
+                    if (insertActions != 0) {
+                        throw new IllegalArgumentException(
+                                "MERGE cannot be lowered to one atomic native write: conditional UPDATE with INSERT");
+                    }
+                    onCond = SqlStdOperatorTable.AND.createCall(
+                            POS, onCond, convertExpression(wu.condition().orElseThrow()));
+                }
                 SqlNodeList c = new SqlNodeList(wu.assignments().stream()
                         .map(a -> (SqlNode) new SqlIdentifier(a.column(), POS)).toList(), POS);
                 SqlNodeList v = new SqlNodeList(wu.assignments().stream()
                         .map(a -> convertExpression(a.value())).toList(), POS);
-                upd = new SqlUpdate(POS, target, c, v,
-                        wu.condition().map(this::convertExpression).orElse(null), null, null);
+                upd = new SqlUpdate(POS, target, c, v, null, null, null);
             } else if (clause instanceof MergeStatement.MergeClause.WhenMatchedDelete wd) {
+                if (wd.condition().isPresent()) {
+                    if (insertActions != 0) {
+                        throw new IllegalArgumentException(
+                                "MERGE cannot be lowered to one atomic native write: conditional DELETE with INSERT");
+                    }
+                    onCond = SqlStdOperatorTable.AND.createCall(
+                            POS, onCond, convertExpression(wd.condition().orElseThrow()));
+                }
                 if (upd == null) {
                     upd = new SqlUpdate(POS, target, SqlNodeList.EMPTY, SqlNodeList.EMPTY,
-                            wd.condition().map(this::convertExpression).orElse(null), null, null);
+                            null, null, null);
                 }
             } else if (clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert wi) {
                 SqlNodeList c2 = wi.columns().map(this::toColumnNodeList).orElse(null);
@@ -197,6 +230,53 @@ final class ExtensionStatementSqlNodeConverter {
         SqlNodeList columnList = stmt.columns()
                 .map(this::toColumnNodeList).orElse(null);
         return new SqlInsert(POS, SqlNodeList.EMPTY, targetTable, source, columnList);
+    }
+
+    private SqlNode convertInsertValues(InsertStatement stmt) {
+        return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+    }
+
+    private SqlNode convertInsertOverwriteValues(InsertOverwriteStatement stmt) {
+        if (stmt.partitionSpec().isEmpty() || stmt.partitionSpec().get().isEmpty()) {
+            return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+        }
+        if (stmt.columns().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "INSERT OVERWRITE with PARTITION requires an explicit column list");
+        }
+        // A static partition is written from the PARTITION clause, not from the
+        // VALUES rows. Project each partition value so the row carries the same
+        // partition the output handle scopes the overwrite to.
+        List<String> targetColumns = new ArrayList<>(stmt.columns().get());
+        List<Expression> staticValues = new ArrayList<>();
+        new TreeMap<>(stmt.partitionSpec().get()).forEach((column, value) -> {
+            targetColumns.add(column);
+            staticValues.add(value);
+        });
+        List<List<Expression>> rows = stmt.values().stream()
+                .map(row -> {
+                    List<Expression> effective = new ArrayList<>(row);
+                    effective.addAll(staticValues);
+                    return List.copyOf(effective);
+                })
+                .toList();
+        return valuesInsert(stmt.tableName(), Optional.of(targetColumns), rows);
+    }
+
+    private SqlInsert valuesInsert(
+            Identifier tableName,
+            java.util.Optional<List<String>> columns,
+            List<List<Expression>> rows) {
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("INSERT VALUES requires at least one row");
+        }
+        SqlNode[] rowNodes = rows.stream()
+                .map(row -> SqlStdOperatorTable.ROW.createCall(
+                        POS, row.stream().map(this::convertExpression).toArray(SqlNode[]::new)))
+                .toArray(SqlNode[]::new);
+        SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rowNodes);
+        SqlNodeList columnList = columns.map(this::toColumnNodeList).orElse(null);
+        return new SqlInsert(POS, SqlNodeList.EMPTY, id(tableName), values, columnList);
     }
 
     private SqlNode convertCall(CallStatement stmt) {

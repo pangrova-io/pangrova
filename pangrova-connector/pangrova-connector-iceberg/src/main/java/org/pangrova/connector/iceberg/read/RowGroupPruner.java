@@ -1,9 +1,9 @@
 package org.pangrova.connector.iceberg.read;
 
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.spi.index.statistics.RowGroupSkipInfo;
-import org.pangrova.spi.index.statistics.RowGroupStatistics;
-import org.pangrova.spi.index.statistics.RowGroupStatistics.ColumnStats;
+import org.pangrova.connector.api.enums.ColumnComparisonOperator;
+import org.pangrova.indexing.api.statistics.RowGroupSkipInfo;
+import org.pangrova.indexing.api.statistics.RowGroupStatistics;
+import org.pangrova.indexing.api.statistics.RowGroupStatistics.ColumnStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +47,7 @@ public final class RowGroupPruner {
      */
     public record Predicate(
             String column,
-            FileColumnStatistics.ComparisonOp op,
+            ColumnComparisonOperator op,
             Comparable<?> value) {}
 
     /**

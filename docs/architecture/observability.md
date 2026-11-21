@@ -1,5 +1,6 @@
 ---
-title: "Observability"
+title: "Observability Architecture"
+description: "OpenTelemetry metrics, tracing, logging, and Native-layer instrumentation"
 sidebar_label: "Observability"
 ---
 
@@ -14,47 +15,86 @@ sidebar_label: "Observability"
 
 ## 1. Overall Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Observability Architecture                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                         Application Layer                              │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │   Coordinator   │  │     Worker      │  │    Connector    │       │  │
-│  │  │ @Traced @Metered│  │ @Traced @Metered│  │ @Traced @Metered│       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    Observability SPI Layer                             │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │ TracingProvider │  │ MetricsProvider │  │ LoggingProvider │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              │                    │                    │                    │
-│  ┌───────────▼────────────────────▼────────────────────▼─────────────────┐  │
-│  │                    OpenTelemetry SDK                                   │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  Trace Exporter │  │ Metric Exporter │  │   Log Exporter  │       │  │
-│  │  │  (OTLP/Jaeger)  │  │ (OTLP/Prom)     │  │  (OTLP/Loki)    │       │  │
-│  │  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘       │  │
-│  └───────────┼────────────────────┼────────────────────┼─────────────────┘  │
-│              ▼                    ▼                    ▼                    │
-│  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐      │
-│  │      Jaeger       │  │    Prometheus     │  │       Loki        │      │
-│  │ (Distributed      │  │ (Metrics Storage) │  │ (Log Aggregation) │      │
-│  │  Tracing)         │  │                   │  │                   │      │
-│  └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘      │
-│            └──────────────────────┼──────────────────────┘                  │
-│                                   ▼                                         │
-│                        ┌───────────────────┐                               │
-│                        │      Grafana      │                               │
-│                        │   (Visualization) │                               │
-│                        └───────────────────┘                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+Coordinator and Worker bootstraps own their `TelemetryInitializer` and inject
+its configured `Meter` and `Tracer` into `OtelMetricsProvider` and
+`OtelTracingProvider`. These two implementations are not class-path
+`ServiceLoader` providers: they require the configured SDK and its lifecycle.
+Registering them in `META-INF/services` fails the
+[JDK provider-constructor contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/ServiceLoader.html#developing-service-providers).
+Provider selection remains explicit in process assembly. Task wrapping is an
+explicitly constructed `TaskWrapping` implementation; no contract-level global
+ServiceLoader or first-provider selection remains.
+
+Execution identity is separate from exporting spans. `ExecutionTraceContext` and
+`ExecutionTraceContextFactory` live in the unified Observability API artifact;
+Server explicitly supplies the stateless `OtelExecutionTraceContextFactory` from
+the current SDK module. The provider preserves trace ID, span ID, flags and W3C
+vendor state, or generates an unsampled root when no valid parent exists. Snapshot
+activation restores the calling thread's previous scope on close; it owns neither
+query authority nor exporter shutdown. There is no static provider registry.
+
+The SQL E2E fixture uses disabled telemetry. Its canonical TaskRequest identity
+and actual Native result assertions do not prove exported-span continuity or
+HTTP parent propagation under an enabled provider; SDK/filter/JNI tests cover
+those individual boundaries. The full SDK/provider/transport module split is
+still pending.
+
+![Observability pipeline: instrumented components, metrics/tracing/logging/profiling providers, sampling, OTLP export, NoOp mode, and collector backends](../../website/static/img/diagrams/observability-pipeline.svg)
+
+### Current artifact and ownership boundaries
+
+| Artifact | Owns |
+|---|---|
+| `pangrova-observability-api` | `.api` tracing/metric/logging values and profiling configuration/errors; `.api` providers, task wrapping and profiler contracts |
+| `pangrova-observability-instrumentation` | MDC capture/restore, metric registration scopes and profiling delegation |
+| `pangrova-observability-noop` | Explicit disabled telemetry instruments/providers and `UnavailableProfiler` |
+| `pangrova-observability-sdk` | Existing OpenTelemetry implementation, configuration and transport/native adapters pending their planned split |
+
+The API depends only on Common. Query observations and listener contracts belong to
+`pangrova-query` (`api.event` / `spi.event`); their process-local dispatcher belongs
+to `pangrova-query` (`core.event`). Observability API and Core do not depend on
+Query API/Core. Core and Noop do not depend on the central SPI, OpenTelemetry SDK,
+Coordinator or Worker. Query observer callbacks remain fault-isolated; durable
+audit/publication authority remains with the owning workflow, not the in-memory
+event dispatcher. Provider factories, the remaining
+SDK/Core separation, and dedicated HTTP/gRPC/native adapter artifacts remain
+part of the target plan and are not claimed complete here.
+
+Dimensioned metric overloads reject nonempty attributes when an implementation
+has not implemented dimension handling; they never silently record an unlabelled
+observation. Explicit disabled instruments discard the whole observation.
+`Span.makeCurrent()` is mandatory: only the disabled span explicitly returns a
+no-op scope; active providers must implement activation/restoration.
+
+Gauge registrations implement `AutoCloseable`. The handle owner unregisters its
+callback when the observation ends; closing it does not shut down the shared SDK.
+Coordinator and Worker inject a `MetricsScope` that owns all registrations created
+through it, including those whose handles were not retained by individual collectors.
+Role shutdown closes that scope before the telemetry backend. A child scope borrows
+its parent provider; Native metrics publishing uses a child scope and unregisters
+its four gauges on `stop()`, after the sampling executor has drained in Worker
+shutdown. Failed publisher construction closes any registrations already acquired.
+
+Scope close rejects new instrument creation, releases gauges in reverse order,
+attempts every release, and retains failed registrations for retry. Independent
+owners sharing a backend remain active. A callback already collecting may finish
+after unregister, so gauge suppliers must read safe snapshots rather than dereference
+a released Native handle. This lifecycle does not establish cardinality bounds or
+complete the remaining per-component metric accounting and adapter separation.
+
+Coordinator's bounded async-submit executor captures request logging fields when each dispatch is submitted. The dispatch scope installs the query ID and execution span. Task wrappers capture the submitting context at decoration time and restore
+the executing thread's previous MDC in `finally`, including inline execution,
+nested wrappers and exceptions. The executor decorator shares its delegate's
+lifecycle; shutting down the decorator shuts down that delegate. It does not
+own an independently created pool.
+
+Coordinator currently configures `UnavailableProfiler`. Profiling start, stop
+and data retrieval reject with `ProfilingUnavailableException`, rather than
+returning a fabricated session or empty successful result. The HTTP SVG profile
+endpoint translates this explicit unsupported capability to **501** with
+`UNSUPPORTED_CAPABILITY`. A configured profiler that has no data for a particular
+query can still produce the separate existing **404** response. Structured JSON
+query profiles are a distinct endpoint and are unchanged by this split.
 
 ## 2. OpenTelemetry Integration
 
@@ -218,40 +258,7 @@ Note: The data plane Arrow Flight is still based on gRPC streaming; a correspond
 ### 4.3 Cross-Layer Trace Correlation (Java ↔ Native)
 
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Cross-Layer Trace Correlation                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Java/Native layer Spans are loosely correlated, making it hard to trace the full execution path │
-│  Solution: unified TraceId propagation; the Native layer integrates the OpenTelemetry C++ SDK   │
-│                                                                                  │
-│  Trace propagation flow:                                                         │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Layer                                                              │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Span: query.execute (trace_id=abc123)                          │   │   │
-│  │  │    └─ Span: task.submit                                         │   │   │
-│  │  │         └─ Span: native.execute ──────────────────────────┐    │   │   │
-│  │  └──────────────────────────────────────────────────────────┼────┘   │   │
-│  └─────────────────────────────────────────────────────────────┼─────────┘   │
-│                                                                 │             │
-│                    JNI Call (propagate trace_id, span_id)      │             │
-│                                                                 ▼             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Native Layer (C++ OpenTelemetry SDK)                                    │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Span: velox.task.execute (parent=native.execute)               │   │   │
-│  │  │    ├─ Span: velox.pipeline.run                                  │   │   │
-│  │  │    │    ├─ Span: velox.operator.tablescan                       │   │   │
-│  │  │    │    ├─ Span: velox.operator.filter                          │   │   │
-│  │  │    │    └─ Span: velox.operator.aggregate                       │   │   │
-│  │  │    └─ Span: velox.io.read                                       │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Cross-Layer Trace Correlation](../../website/static/img/diagrams/generated/observability-06-c1b8d2d56b.svg)
 
 ```cpp
 // NativeTracer.h - Native-layer Trace integration
@@ -483,64 +490,15 @@ void TableScanOperator::getOutput(RowVectorPtr& output) {
 }
 ```
 
-```java
-// NativeTraceBridge.java - Java-side Trace Context propagation
-public class NativeTraceBridge {
-
-    /**
-     * Submit a Native task, propagating the Trace Context (Pull mode: no callback parameter)
-     */
-    public long submitWithTrace(long executorHandle) {
-        Span currentSpan = Span.current();
-        SpanContext ctx = currentSpan.getSpanContext();
-
-        // Submit task with trace context, returns task handle
-        return nativeSubmitWithTrace(
-            executorHandle,
-            ctx.getTraceId(),      // 32 char hex
-            ctx.getSpanId(),       // 16 char hex
-            ctx.getTraceFlags().asByte()
-        );
-    }
-
-    private static native long nativeSubmitWithTrace(
-        long executorHandle,
-        String traceId,
-        String parentSpanId,
-        byte traceFlags);
-}
-```
+Worker HTTP handlers read the active OpenTelemetry identifiers through `CurrentSpanIds`
+when populating `LogContext`. Outside an active span the standard W3C invalid trace and
+span identifiers are all zeroes. At task startup, `NativeTaskExecutor.startTask` obtains
+the trace ID captured on that executor's admitted request. It holds the handle lease
+while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 
 ### 4.4 Native-Layer Profiling
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Native Layer Profiling                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: performance issues in the C++ layer are hard to pinpoint             │
-│  Solution: integrate perf/async-profiler and expose Native-layer flame graphs   │
-│                                                                                  │
-│  Profiling modes:                                                                │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. On-Demand Profiling: triggered via HTTP API, collects a specified window │   │
-│  │  2. Continuous Profiling: low-overhead continuous collection, reported to Pyroscope/Parca │   │
-│  │  3. Query-Level Profiling: enabled for a specific query, for problem diagnosis │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Collected content:                                                              │
-│  • CPU Profile: call stacks, hot functions                                       │
-│  • Memory Profile: allocation hotspots, leak detection                           │
-│  • Lock Contention: lock contention analysis                                     │
-│  • I/O Profile: file read/write latency distribution                            │
-│                                                                                  │
-│  Output formats:                                                                 │
-│  • Flame Graph (SVG/HTML)                                                       │
-│  • pprof format (compatible with the Go pprof toolchain)                         │
-│  • Trace Event format (Chrome Tracing)                                           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Layer Profiling](../../website/static/img/diagrams/generated/observability-11-4c6501d6a1.svg)
 
 ```cpp
 // NativeProfiler.h
@@ -613,42 +571,44 @@ public class ProfilerEndpoint {
 
 ### 4.5 Query Resource Audit
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Resource Audit                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: historical query resource consumption cannot be traced               │
-│  Solution: persist a resource-usage report after query completion              │
-│                                                                                  │
-│  Audit content:                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  QueryAuditRecord {                                                      │   │
-│  │    queryId, user, source, sql,                                          │   │
-│  │    startTime, endTime, state,                                           │   │
-│  │                                                                          │   │
-│  │    // Resource usage                                                     │   │
-│  │    cpuTimeMs, wallTimeMs,                                               │   │
-│  │    peakMemoryBytes, spilledBytes,                                       │   │
-│  │    inputRows, outputRows,                                               │   │
-│  │    inputBytes, outputBytes,                                             │   │
-│  │    shuffleReadBytes, shuffleWriteBytes,                                 │   │
-│  │                                                                          │   │
-│  │    // Cost breakdown by stage                                           │   │
-│  │    stages: [{stageId, cpuTimeMs, memoryBytes, ioBytes}],                │   │
-│  │                                                                          │   │
-│  │    // Worker distribution                                               │   │
-│  │    workers: [{workerId, taskCount, cpuTimeMs}]                          │   │
-│  │  }                                                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Storage: PostgreSQL (query_audit_records table), retained for 30 days              │
-│  Purpose: cost allocation, capacity planning, anomalous-query detection, SLA reporting │
+![Query Resource Audit](../../website/static/img/diagrams/generated/observability-14-c3b9f08902.svg)
 
+### Resource audit admission and shutdown
 
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Query audit values and the admission sink live in `pangrova-query` under
+`org.pangrova.query.api.audit`; the storage port lives in `pangrova-persistence-query-api`
+under `org.pangrova.persistence.query.api.audit`. The runtime service remains
+`org.pangrova.query.audit.QueryAuditService`. Each Coordinator composes its own
+`QueryAuditServices`: admission and profile lookup
+share one `org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore` instance.
+Independent Coordinators do not share a global cache.
+API consumers do not load the service, cache or JDBC backend.
+
+Terminal query records preserve the query-owned submitting principal and resolved
+tenant for both success and failure. Anonymous rejection is explicitly attributed
+to `anonymous`, without inventing a tenant. The record persistence branch receives
+the same immutable attribution as the security event branch; it must not drop
+identity when the event backend is absent. This does not yet close the resource
+audit integration gap: terminal resource records currently lack actual stage/task
+and Native usage aggregation, and zero placeholders are not measured usage.
+
+The unused asynchronous JdbcAuditStore (retired) implementation has been removed: no production
+constructor, factory or service registration selected it. Its private queue tests were
+removed with it; the active audit-service and shared-cache tests remain. The historical
+`query_audit_records` migration is preserved byte-for-byte, but this table is not the
+current resource-audit persistence path. The separately implemented
+`org.pangrova.persistence.query.postgresql.event.JdbcQueryEventListener` writes completion/split
+observations to `query_events` / `query_split_profiles`. It has PostgreSQL integration
+coverage but is not registered by current production assembly; split-completion
+publishing is also not wired in the execution path. Its callback logs and swallows
+SQL failures, so it cannot serve as a durable resource-usage audit ledger or replace
+the query journal, committed lineage facts, or publication authority.
+
+Metric getters intentionally expose the same registered live instrument, JVM collectors
+retain live management beans, and no-op instruments are stateless shared singletons.
+Immutable profile and alert-rule collections are defensively copied; native metrics
+arrays are copied on capture and access. Static-analysis exceptions for these shared
+handles and immutable lists match exact classes, methods, fields, and bug patterns only.
 
 ## 5. Native-Layer Metrics
 
@@ -786,40 +746,7 @@ public class NativeMetricsPuller {
 
 **Backpressure Behavior** (Native metrics accumulation rate > Java pull rate):
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                  Native Metrics Pull Backpressure                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Scenario: Native emits metrics at high speed, Java pulling cannot keep up      │
-│                                                                                  │
-│  Design: no extra backpressure needed — the Native-side snapshot() is an instantaneous snapshot │
-│                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Native side:                                                            │   │
-│  │  • NativeMetricsCollector uses atomic counters, lock-free writes          │   │
-│  │  • snapshot() reads current values, O(1) time complexity                 │   │
-│  │  • No "backlog" problem — every snapshot is the latest state             │   │
-│  │                                                                          │   │
-│  │  Java side:                                                              │   │
-│  │  • Intermediate states within the pull interval are skipped (sampling semantics, not event semantics) │   │
-│  │  • Lower pull frequency → coarser metric granularity, but final state is not lost │   │
-│  │  • Pull timeout → skip this round, retry next round                      │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Exception handling:                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Scenario                    │ Behavior                                  │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  nativeGetTaskStats timeout  │ Skip, retry next interval                │   │
-│  │  Native task already finished│ Return final snapshot, puller stops      │   │
-│  │  JNI call throws exception   │ Log + increment failure counter          │   │
-│  │  Consecutive failures ≥ 5    │ Reduce pull frequency to 5× interval    │   │
-│  │  Stale threshold exceeded    │ Expose stale label in Prometheus metric │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Native Metrics Pull Backpressure](../../website/static/img/diagrams/generated/observability-17-05a3428fdb.svg)
 
 **Proposed configuration** (not part of the verified
 [configuration key reference](../configuration/reference.md)):
@@ -838,32 +765,12 @@ observability:
 
 ## 6. Module Structure
 
-```
-pangrova-observability/
-├── src/main/java/org/pangrova/observability/
-│   ├── ObservabilityModule.java         # Module entry point
-│   ├── config/                          # Configuration
-│   │   ├── ObservabilityConfig.java
-│   │   └── OpenTelemetryConfig.java
-│   ├── tracing/                         # Tracing
-│   │   ├── TracingProvider.java
-│   │   ├── OtelTracingProvider.java
-│   │   ├── QueryTracer.java
-│   │   └── interceptor/
-│   ├── metrics/                         # Metrics
-│   │   ├── MetricsProvider.java
-│   │   ├── OtelMetricsProvider.java
-│   │   ├── CoordinatorMetrics.java
-│   │   └── WorkerMetrics.java
-│   ├── logging/                         # Logging
-│   │   ├── LoggingProvider.java
-│   │   └── StructuredLogger.java
-│   └── annotation/                      # Annotations
-│       ├── Traced.java
-│       ├── Metered.java
-│       └── aspect/
-```
+![pangrova-observability/](../../website/static/img/diagrams/generated/observability-19-13d5663abd.svg)
 
+Provider implementations live in `pangrova-observability-sdk` (for example
+`org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider` and
+`...sdk.tracing.otel.OtelTracingProvider`), not in Core. Query audit/event
+persistence belongs to Query and Persistence, not Observability.
 
 ---
 
@@ -877,7 +784,7 @@ All logs use a JSON structured format, making them easy to collect and query wit
 {
   "timestamp": "2025-01-15T10:30:00.123Z",
   "level": "INFO",
-  "logger": "org.pangrova.worker.TaskExecutor",
+  "logger": "org.pangrova.worker.execution.TaskExecutor",
   "message": "Task completed",
   "trace_id": "abc123def456",
   "span_id": "789ghi",
@@ -941,29 +848,7 @@ Format: `{component}.{operation}`, all lowercase, dot-separated.
 
 ### 8.2 Core Span Hierarchy
 
-```
-query.execute                              (Coordinator, SERVER)
-├── query.parse                            (Coordinator, INTERNAL)
-├── query.optimize                         (Coordinator, INTERNAL)
-│   ├── query.optimize.rule.{ruleName}     (Coordinator, INTERNAL)
-│   └── query.optimize.statistics          (Coordinator, INTERNAL)
-├── query.schedule                         (Coordinator, INTERNAL)
-│   ├── query.schedule.split               (Coordinator, INTERNAL)
-│   └── query.schedule.assign              (Coordinator, INTERNAL)
-├── task.submit                            (Coordinator → Worker, CLIENT)
-│   └── task.execute                       (Worker, SERVER)
-│       ├── native.execute                 (Worker → Native, INTERNAL)
-│       │   ├── velox.pipeline.run         (Native, INTERNAL)
-│       │   │   ├── velox.operator.tablescan   (Native, INTERNAL)
-│       │   │   ├── velox.operator.filter      (Native, INTERNAL)
-│       │   │   ├── velox.operator.project     (Native, INTERNAL)
-│       │   │   ├── velox.operator.hashjoin    (Native, INTERNAL)
-│       │   │   └── velox.operator.aggregate   (Native, INTERNAL)
-│       │   └── velox.io.read              (Native, CLIENT)
-│       ├── shuffle.write                  (Worker, INTERNAL)
-│       └── shuffle.read                   (Worker, CLIENT)
-└── query.result.stream                    (Output Worker → Client, SERVER)
-```
+![query.execute                              (Coordinator, SERVER)](../../website/static/img/diagrams/generated/observability-22-7cb9ee026d.svg)
 
 ### 8.3 Span Attributes Standard
 
@@ -992,11 +877,30 @@ Pangrova has two complementary audit subsystems:
 | Aspect | Security Audit ([12 §6](./security.md)) | Resource Audit (§4.5) |
 |--------|---------------------------------------------|----------------------|
 | Scope | Who did what (authentication, authorization, DDL, data access) | How much was consumed (CPU, memory, I/O, shuffle) |
-| Storage | `audit_logs` table | `query_audit_records` table |
+| Storage | `audit_logs` table | Structured log and bounded process-local cache |
 | Key fields | principal, clientIp, sql, success, accessedObjects | cpuTimeMs, peakMemoryBytes, spilledBytes, inputRows |
-| Owner | SecurityModule | ObservabilityModule |
+| Owner | Security audit service / Persistence JDBC | Query audit service / Persistence Memory |
 
-Both tables share a common `AuditEvent` base schema (see [12 §6.3](./security.md)) and can be joined via `query_id` for full audit trail.
+The active security events and resource records use distinct contracts. Query identifiers
+allow correlation, but the process-local resource cache is not a durable SQL join source.
+
+Query lifecycle security events retain the submitting principal in the query-owned
+state machine before ownership acquisition. Completion and failure use that captured
+principal and the resolved tenant (`properties.tenant_id`), rather than an emitter-side
+identity cache or the thread's current request context. Anonymous rejection is
+explicitly attributed to `anonymous`. Authentication tokens and arbitrary session
+properties are not retained for terminal audit attribution.
+
+This in-process attribution is not a durable audit guarantee. The current session
+journal does not persist the principal for recovery, and early admission/ownership
+rejections can precede terminal-event emission. Those paths and process-loss delivery
+require separate recovery and durability verification.
+
+The Coordinator module owner also closes and joins its metadata invalidation
+poller before the metadata data source is released. Ownership is registered
+before schema validation or scheduler startup, so a later bootstrap failure still
+enters the same cleanup path. Canceling only the leader-gated cleanup timer is
+insufficient: the poller owns a separate scheduled executor.
 
 ### OpenLineage Trace Correlation
 

@@ -1,12 +1,12 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.observability.tracing.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies NativeTraceExporter provides valid trace IDs for JNI propagation.
+ * Verifies CurrentSpanIds provides valid trace IDs for JNI propagation.
  * Full end-to-end trace propagation requires native library; this test
  * validates the Java-side contract that NativeTaskExecutor relies on.
  */
@@ -17,7 +17,7 @@ class NativeTaskExecutorTracePropagationTest {
 
     @Test
     void currentTraceIdReturnsValidHexStringWhenNoActiveSpan() {
-        String traceId = NativeTraceExporter.currentTraceId();
+        String traceId = CurrentSpanIds.currentTraceId();
 
         assertThat(traceId).isNotNull();
         assertThat(traceId).hasSize(32);
@@ -26,7 +26,7 @@ class NativeTaskExecutorTracePropagationTest {
 
     @Test
     void currentSpanIdReturnsValidHexStringWhenNoActiveSpan() {
-        String spanId = NativeTraceExporter.currentSpanId();
+        String spanId = CurrentSpanIds.currentSpanId();
 
         assertThat(spanId).isNotNull();
         assertThat(spanId).hasSize(16);
@@ -35,8 +35,8 @@ class NativeTaskExecutorTracePropagationTest {
 
     @Test
     void traceIdFormatIsConsistentAcrossCalls() {
-        String first = NativeTraceExporter.currentTraceId();
-        String second = NativeTraceExporter.currentTraceId();
+        String first = CurrentSpanIds.currentTraceId();
+        String second = CurrentSpanIds.currentTraceId();
 
         assertThat(first).isEqualTo(second);
         assertThat(first).matches("[0-9a-f]{32}");

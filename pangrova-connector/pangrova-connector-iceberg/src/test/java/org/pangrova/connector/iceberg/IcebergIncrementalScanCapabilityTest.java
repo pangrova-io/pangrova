@@ -27,9 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Integration test for {@link IcebergIncrementalScanCapability}
  * using real HadoopCatalog.
  *
- * <p>Note: Iceberg snapshot IDs are random longs, not sequential.
- * Tests that need {@code from < to} numerically create snapshots
- * in a loop until the ordering condition is met.</p>
+ * <p>Snapshot IDs deliberately decrease while real SDK commits advance their
+ * parent chain. No retry loop or random ordering precondition is used.</p>
  */
 class IcebergIncrementalScanCapabilityTest {
 
@@ -62,7 +61,6 @@ class IcebergIncrementalScanCapabilityTest {
 
     /**
      * Append-only range: two consecutive append commits, no deletes.
-     * Keeps creating tables until snapshot IDs satisfy from < to.
      */
     @Test
     void isAppendOnly_appendOnlyRange_returnsTrue() {
@@ -74,7 +72,6 @@ class IcebergIncrementalScanCapabilityTest {
 
     /**
      * Range with delete files: append data then add position deletes.
-     * Keeps creating tables until snapshot IDs satisfy from < to.
      */
     @Test
     void isAppendOnly_withDeleteFiles_returnsFalse() {
@@ -85,70 +82,56 @@ class IcebergIncrementalScanCapabilityTest {
     }
 
     @Test
-    void isAppendOnly_fromGreaterThanTo_throwsIllegalArgument() {
-        assertThatThrownBy(() -> capability.isAppendOnly("db.any_table", 100L, 50L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("must not be greater than");
+    void isAppendOnly_reversedAncestryIsRejectedRegardlessOfNumericOrder() {
+        SnapshotPair pair = createAppendOnlyTable("backwards");
+        assertThat(pair.fromSnapshotId).isGreaterThan(pair.toSnapshotId);
+        assertThatThrownBy(() -> capability.isAppendOnly(
+                "db." + pair.tableName, pair.toSnapshotId, pair.fromSnapshotId))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not an ancestor");
     }
 
     @Test
-    void isAppendOnly_sameSnapshot_returnsTrue() {
-        assertThat(capability.isAppendOnly("db.any_table", 42L, 42L)).isTrue();
+    void isAppendOnly_sameExistingSnapshotReturnsTrueButMissingSnapshotFails() {
+        SnapshotPair pair = createAppendOnlyTable("same_snapshot");
+        assertThat(capability.isAppendOnly("db." + pair.tableName,
+                pair.fromSnapshotId, pair.fromSnapshotId)).isTrue();
+        assertThatThrownBy(() -> capability.isAppendOnly("db." + pair.tableName, 42, 42))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not found");
     }
 
-    // -- snapshot pair helpers --
-
-    /**
-     * Creates an append-only table, retrying with different table names
-     * until the first snapshot ID is numerically less than the second.
-     * Iceberg snapshot IDs are random, so this is necessary to satisfy
-     * the SPI contract {@code fromSnapshotId < toSnapshotId}.
-     */
-    private SnapshotPair createAppendOnlyTable(String baseName) {
-        for (int attempt = 0; attempt < 50; attempt++) {
-            String tableName = baseName + "_" + attempt;
-            Table table = createTable("db", tableName);
-            appendDataFile(table, "/data/file1.parquet", 1024L);
-            long snap1 = table.currentSnapshot().snapshotId();
-
-            appendDataFile(table, "/data/file2.parquet", 2048L);
-            long snap2 = table.currentSnapshot().snapshotId();
-
-            if (snap1 < snap2) {
-                return new SnapshotPair(tableName, snap1, snap2);
-            }
-        }
-        throw new AssertionError(
-                "Could not create table with from < to after 50 attempts");
+    @Test
+    void overwriteWithoutDeleteManifestsIsNotAppendOnly() {
+        Table table = createTable("db", "overwrite");
+        DataFile original = dataFile("/data/original.parquet", 1024);
+        table.newAppend().appendFile(original).commit();
+        long from = table.currentSnapshot().snapshotId();
+        table.newOverwrite().deleteFile(original).addFile(dataFile("/data/replacement.parquet", 2048)).commit();
+        long to = table.currentSnapshot().snapshotId();
+        assertThat(table.currentSnapshot().deleteManifests(table.io())).isEmpty();
+        assertThat(capability.isAppendOnly("db.overwrite", from, to)).isFalse();
     }
 
-    /**
-     * Creates a table with append + delete, retrying until snapshot IDs
-     * satisfy the numeric ordering contract.
-     */
-    private SnapshotPair createTableWithDeletes(String baseName) {
-        for (int attempt = 0; attempt < 50; attempt++) {
-            String tableName = baseName + "_" + attempt;
-            Table table = createTable("db", tableName);
-            appendDataFile(table, "/data/file1.parquet", 1024L);
-            long snap1 = table.currentSnapshot().snapshotId();
+    private SnapshotPair createAppendOnlyTable(String tableName) {
+        Table table = createTable("db", tableName);
+        appendDataFile(table, "/data/file1.parquet", 1024L);
+        long from = table.currentSnapshot().snapshotId();
+        appendDataFile(table, "/data/file2.parquet", 2048L);
+        long to = table.currentSnapshot().snapshotId();
+        assertThat(from).isGreaterThan(to);
+        return new SnapshotPair(tableName, from, to);
+    }
 
-            DeleteFile deleteFile = FileMetadata.deleteFileBuilder(table.spec())
-                    .ofPositionDeletes()
-                    .withPath("/data/delete1.parquet")
-                    .withFileSizeInBytes(128L)
-                    .withRecordCount(5)
-                    .withFormat(FileFormat.PARQUET)
-                    .build();
-            table.newRowDelta().addDeletes(deleteFile).commit();
-            long snap2 = table.currentSnapshot().snapshotId();
-
-            if (snap1 < snap2) {
-                return new SnapshotPair(tableName, snap1, snap2);
-            }
-        }
-        throw new AssertionError(
-                "Could not create table with from < to after 50 attempts");
+    private SnapshotPair createTableWithDeletes(String tableName) {
+        Table table = createTable("db", tableName);
+        appendDataFile(table, "/data/file1.parquet", 1024L);
+        long from = table.currentSnapshot().snapshotId();
+        DeleteFile deleteFile = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes().withPath("/data/delete1.parquet").withFileSizeInBytes(128L)
+                .withRecordCount(5).withFormat(FileFormat.PARQUET).build();
+        table.newRowDelta().addDeletes(deleteFile).commit();
+        long to = table.currentSnapshot().snapshotId();
+        assertThat(from).isGreaterThan(to);
+        return new SnapshotPair(tableName, from, to);
     }
 
     private record SnapshotPair(String tableName, long fromSnapshotId, long toSnapshotId) {}
@@ -158,17 +141,20 @@ class IcebergIncrementalScanCapabilityTest {
     private Table createTable(String namespace, String tableName) {
         createNamespace(namespace);
         TableIdentifier id = TableIdentifier.of(namespace, tableName);
-        return catalog.createTable(id, TEST_SCHEMA);
+        return DeterministicSnapshotTable.descendingIds(catalog.createTable(id, TEST_SCHEMA));
     }
 
     private void appendDataFile(Table table, String filePath, long fileSizeBytes) {
-        DataFile dataFile = DataFiles.builder(PartitionSpec.unpartitioned())
+        table.newAppend().appendFile(dataFile(filePath, fileSizeBytes)).commit();
+    }
+
+    private DataFile dataFile(String filePath, long fileSizeBytes) {
+        return DataFiles.builder(PartitionSpec.unpartitioned())
                 .withPath(filePath)
                 .withFileSizeInBytes(fileSizeBytes)
                 .withRecordCount(100)
                 .withFormat(FileFormat.PARQUET)
                 .build();
-        table.newAppend().appendFile(dataFile).commit();
     }
 
     private Catalog createHadoopCatalog() {

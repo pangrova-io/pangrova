@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Thrown when a CREATE STREAM is issued for a stream name that already exists
  * and IF NOT EXISTS was not specified.

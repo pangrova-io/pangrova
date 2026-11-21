@@ -17,8 +17,8 @@ import io.substrait.expression.FieldReference;
 import io.substrait.plan.Plan;
 import io.substrait.relation.Aggregate;
 import io.substrait.relation.Rel;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlanResult;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlanResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * SQL:2003 aggregate FILTER clause conversion to Substrait
@@ -112,13 +111,16 @@ class AggregateFilterSubstraitConversionTest {
     }
 
     @Test
-    void multiDistinctWithFilterOnDistinctMeasureIsRejected() {
-        PlanResult result = planner.plan(
+    void multiDistinctPreservesTheFilteredAndUnfilteredCanonicalMeasures() {
+        Aggregate aggregate = planAggregate(
                 "SELECT COUNT(DISTINCT A) FILTER (WHERE B > 10), COUNT(DISTINCT C) FROM T");
-
-        assertThatThrownBy(() -> converter.convert(result.plan()))
-                .isInstanceOf(SubstraitConversionException.class)
-                .hasMessageContaining("FILTER (WHERE ...) on a DISTINCT aggregate");
+        assertThat(aggregate.getMeasures()).hasSize(2)
+                .allMatch(measure -> measure.getFunction().invocation()
+                        == io.substrait.expression.Expression.AggregationInvocation.DISTINCT);
+        assertThat(aggregate.getMeasures().get(0).getPreMeasureFilter())
+                .hasValueSatisfying(filter -> assertThat(filter).isInstanceOf(FieldReference.class));
+        assertThat(aggregate.getMeasures().get(1).getPreMeasureFilter()).isEmpty();
+        assertThat(aggregate.getExtension()).isEmpty();
     }
 
     @Test

@@ -1,13 +1,17 @@
 package org.pangrova.operations.ddl;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.operations.enums.DdlJobState;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -17,7 +21,7 @@ import java.util.concurrent.TimeUnit;
  * (DATA_REWRITE jobs) submits work to a single-threaded background executor
  * and updates job state to COMPLETED or FAILED when the work finishes.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-async-ddl")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-async-ddl")
 public final class AsyncDdlExecutor implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(AsyncDdlExecutor.class);
@@ -28,6 +32,8 @@ public final class AsyncDdlExecutor implements AutoCloseable {
     private final DdlJobStore store;
     private final DdlExecutionCallback executionCallback;
     private final ExecutorService backgroundExecutor;
+    /** Includes accepted queued and executing jobs until their callback exits. */
+    private final Set<String> asynchronousJobs = ConcurrentHashMap.newKeySet();
     private volatile long shutdownGraceSeconds = DEFAULT_SHUTDOWN_GRACE_SECONDS;
 
     /**
@@ -49,13 +55,23 @@ public final class AsyncDdlExecutor implements AutoCloseable {
         this.backgroundExecutor = Objects.requireNonNull(backgroundExecutor, "backgroundExecutor");
     }
 
+    /** Persists a pending DDL job and schedules its execution. */
     public DdlJob submit(DdlJob job) {
-        store.save(job);
+        if (job.state() != DdlJobState.PENDING) {
+            throw new IllegalArgumentException("New DDL jobs must be PENDING");
+        }
+        store.insert(job);
+        if (!store.compareAndUpdateState(job.jobId(), DdlJobState.PENDING, DdlJobState.RUNNING)) {
+            return current(job.jobId());
+        }
         return routeByType(job);
     }
 
+    /** Cancels queued execution and fences completion. A callback already in flight may finish its side effects. */
     public void cancel(String jobId) {
-        store.findById(jobId).ifPresent(this::tryCancelJob);
+        if (store.compareAndUpdateState(jobId, DdlJobState.RUNNING, DdlJobState.CANCELLED)) {
+            LOG.info("event=ddl_job_cancelled jobId={}", jobId);
+        }
     }
 
     public List<DdlJob> listJobs() {
@@ -77,12 +93,39 @@ public final class AsyncDdlExecutor implements AutoCloseable {
             if (!backgroundExecutor.awaitTermination(shutdownGraceSeconds, TimeUnit.SECONDS)) {
                 LOG.warn("event=async_ddl_shutdown_timeout graceSeconds={} action=shutdownNow",
                         shutdownGraceSeconds);
-                backgroundExecutor.shutdownNow();
+                stopOutstandingJobs();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            backgroundExecutor.shutdownNow();
+            stopOutstandingJobs();
         }
+    }
+
+    private void stopOutstandingJobs() {
+        RuntimeException failure = null;
+        try {
+            for (String jobId : asynchronousJobs) {
+                try {
+                    cancel(jobId);
+                } catch (RuntimeException error) {
+                    if (failure == null) {
+                        failure = error;
+                    } else if (failure != error) {
+                        failure.addSuppressed(error);
+                    }
+                }
+            }
+        } finally {
+            backgroundExecutor.shutdownNow();
+            asynchronousJobs.clear();
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private DdlJob current(String jobId) {
+        return store.findById(jobId).orElseThrow(() -> new IllegalStateException("Missing DDL job " + jobId));
     }
 
     private DdlJob routeByType(DdlJob job) {
@@ -94,42 +137,46 @@ public final class AsyncDdlExecutor implements AutoCloseable {
     }
 
     private DdlJob executeSynchronously(DdlJob job) {
-        LOG.info("event=ddl_sync_executing jobId={} type={}", job.jobId(), job.type());
-        store.updateState(job.jobId(), DdlJob.DdlJobState.RUNNING);
+        LOG.info("event=ddl_executing jobId={} type={}", job.jobId(), job.type());
         try {
             executionCallback.execute(job);
-            store.updateState(job.jobId(), DdlJob.DdlJobState.COMPLETED);
-            return job.withState(DdlJob.DdlJobState.COMPLETED);
-        } catch (RuntimeException e) {
-            LOG.error("event=ddl_execution_failed jobId={} error={}", job.jobId(), e.getMessage());
-            store.updateState(job.jobId(), DdlJob.DdlJobState.FAILED);
-            throw e;
+        } catch (RuntimeException failure) {
+            LOG.error("event=ddl_execution_failed jobId={}", job.jobId(), failure);
+            recordFailure(job, failure);
+            throw failure;
+        }
+        store.compareAndUpdateState(job.jobId(), DdlJobState.RUNNING, DdlJobState.COMPLETED);
+        return current(job.jobId());
+    }
+
+    private void recordFailure(DdlJob job, RuntimeException failure) {
+        try {
+            store.compareAndUpdateState(job.jobId(), DdlJobState.RUNNING, DdlJobState.FAILED);
+        } catch (RuntimeException storeFailure) {
+            if (failure != storeFailure) {
+                failure.addSuppressed(storeFailure);
+            }
         }
     }
 
     private DdlJob scheduleAsynchronously(DdlJob job) {
-        LOG.info("event=ddl_async_scheduled jobId={} type={}", job.jobId(), job.type());
-        store.updateState(job.jobId(), DdlJob.DdlJobState.RUNNING);
-        backgroundExecutor.submit(() -> {
-            try {
-                executionCallback.execute(job);
-                store.updateState(job.jobId(), DdlJob.DdlJobState.COMPLETED);
-                LOG.info("event=ddl_async_completed jobId={}", job.jobId());
-            } catch (RuntimeException e) {
-                LOG.error("event=ddl_async_failed jobId={} error={}", job.jobId(), e.getMessage());
-                store.updateState(job.jobId(), DdlJob.DdlJobState.FAILED);
-            }
-        });
-        return job.withState(DdlJob.DdlJobState.RUNNING);
-    }
-
-    private void tryCancelJob(DdlJob job) {
-        if (store.compareAndUpdateState(job.jobId(), DdlJob.DdlJobState.RUNNING,
-                DdlJob.DdlJobState.CANCELLED)) {
-            LOG.info("event=ddl_job_cancelled jobId={}", job.jobId());
-        } else {
-            LOG.debug("event=ddl_cancel_skipped jobId={} reason=not_running", job.jobId());
+        asynchronousJobs.add(job.jobId());
+        try {
+            backgroundExecutor.submit(() -> {
+                try {
+                    if (current(job.jobId()).state() == DdlJobState.RUNNING) {
+                        executeSynchronously(job);
+                    }
+                } finally {
+                    asynchronousJobs.remove(job.jobId());
+                }
+            });
+        } catch (RejectedExecutionException failure) {
+            asynchronousJobs.remove(job.jobId());
+            recordFailure(job, failure);
+            throw failure;
         }
+        return job.withState(DdlJobState.RUNNING);
     }
 
     /**

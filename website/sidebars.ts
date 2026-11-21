@@ -25,6 +25,9 @@ const sidebars: SidebarsConfig = {
       label: 'Getting Started',
       collapsed: false,
       items: [
+        {type: 'doc', id: 'getting-started/project-positioning', label: 'Positioning & Customers'},
+        {type: 'doc', id: 'getting-started/capability-status', label: 'Current Capability Status'},
+        {type: 'doc', id: 'getting-started/roadmap', label: 'Roadmap'},
         {type: 'doc', id: 'getting-started/quickstart', label: 'Quickstart'},
         {
           type: 'category',
@@ -39,9 +42,11 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Connectors',
+          link: {type: 'doc', id: 'getting-started/connectors/index'},
           items: [
             {type: 'doc', id: 'getting-started/connectors/iceberg', label: 'Iceberg'},
             {type: 'doc', id: 'getting-started/connectors/paimon', label: 'Paimon'},
+            {type: 'doc', id: 'getting-started/connectors/lance', label: 'Lance'},
           ],
         },
         {
@@ -50,6 +55,7 @@ const sidebars: SidebarsConfig = {
           items: [
             {type: 'doc', id: 'getting-started/catalogs/catalog-management', label: 'Catalog Management'},
             {type: 'doc', id: 'getting-started/catalogs/storage-backends', label: 'Storage Backends'},
+        {type: 'doc', id: 'getting-started/catalogs/volumes-stages-files', label: 'Volumes, Stages & Files'},
             {type: 'doc', id: 'getting-started/catalogs/multi-catalog-example', label: 'Multi-Catalog Example'},
           ],
         },
@@ -68,6 +74,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sql-reference/streaming', label: 'Streaming'},
         {type: 'doc', id: 'sql-reference/versioning', label: 'Versioning'},
         {type: 'doc', id: 'sql-reference/session', label: 'Session'},
+        {type: 'doc', id: 'sql-reference/feature-views', label: 'Feature Views'},
         {
           type: 'category',
           label: 'Functions',
@@ -83,8 +90,8 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'sql-reference/functions/map', label: 'Map'},
             {type: 'doc', id: 'sql-reference/functions/struct', label: 'Struct'},
             {type: 'doc', id: 'sql-reference/functions/table-functions', label: 'Table Functions'},
-            {type: 'doc', id: 'sql-reference/functions/spatial', label: 'Spatial'},
-            {type: 'doc', id: 'sql-reference/functions/vector', label: 'Vector'},
+            {type: 'doc', id: 'sql-reference/functions/spatial', label: 'Spatial Functions'},
+            {type: 'doc', id: 'sql-reference/functions/vector', label: 'Vector Functions'},
             {type: 'doc', id: 'sql-reference/functions/vector-search', label: 'Vector Search'},
             {type: 'doc', id: 'sql-reference/functions/ai-functions', label: 'AI Functions'},
           ],
@@ -94,6 +101,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Data Types',
+      link: {type: 'doc', id: 'data-types/index'},
       items: [
         {
           type: 'category',
@@ -165,6 +173,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Indexing',
+      link: {type: 'doc', id: 'indexing/index'},
       items: [
         {type: 'doc', id: 'indexing/index-ddl', label: 'Index DDL'},
         {
@@ -188,8 +197,8 @@ const sidebars: SidebarsConfig = {
         },
         {type: 'doc', id: 'indexing/full-text', label: 'Full-Text'},
         {type: 'doc', id: 'indexing/containment', label: 'Containment'},
-        {type: 'doc', id: 'indexing/spatial', label: 'Spatial'},
-        {type: 'doc', id: 'indexing/vector', label: 'Vector'},
+        {type: 'doc', id: 'indexing/spatial', label: 'Spatial (R_TREE)'},
+        {type: 'doc', id: 'indexing/vector', label: 'Vector Index'},
       ],
     },
     {
@@ -204,12 +213,14 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'configuration/security', label: 'Security'},
         {type: 'doc', id: 'configuration/observability', label: 'Observability'},
         {type: 'doc', id: 'configuration/operations', label: 'Operations'},
+        {type: 'doc', id: 'configuration/shuffle-service', label: 'External Shuffle Service'},
         {type: 'doc', id: 'configuration/reference', label: 'Key Reference'},
       ],
     },
     {
       type: 'category',
       label: 'Deployment',
+      link: {type: 'doc', id: 'deployment/index'},
       items: [
         {type: 'doc', id: 'deployment/planning', label: 'Planning'},
         {type: 'doc', id: 'deployment/docker', label: 'Docker'},
@@ -233,6 +244,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'architecture/query-execution', label: 'Query Execution'},
             {type: 'doc', id: 'architecture/query-optimization', label: 'Query Optimization'},
             {type: 'doc', id: 'architecture/native-execution', label: 'Native Execution Layer'},
+            {type: 'doc', id: 'architecture/dynamic-table-manual-full-refresh', label: 'Dynamic Table Refresh'},
           ],
         },
         {
@@ -241,9 +253,10 @@ const sidebars: SidebarsConfig = {
           items: [
             {type: 'doc', id: 'architecture/connectors', label: 'Connector Design'},
             {type: 'doc', id: 'architecture/metadata', label: 'Metadata Management'},
-            {type: 'doc', id: 'architecture/indexing', label: 'Indexing (Target)'},
+            {type: 'doc', id: 'architecture/indexing', label: 'Indexing'},
             {type: 'doc', id: 'architecture/streaming', label: 'Streaming & CDC'},
             {type: 'doc', id: 'architecture/distributed-writes', label: 'Distributed Write'},
+            {type: 'doc', id: 'architecture/file-storage', label: 'File & Blob Storage'},
           ],
         },
         {
@@ -257,6 +270,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'architecture/security', label: 'Security'},
             {type: 'doc', id: 'architecture/multi-tenancy', label: 'Multi-Tenancy'},
             {type: 'doc', id: 'architecture/data-governance', label: 'Data Governance'},
+            {type: 'doc', id: 'architecture/query-lineage', label: 'Query Lineage'},
           ],
         },
         {
@@ -270,8 +284,9 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Internals & Reference',
           items: [
-            {type: 'doc', id: 'architecture/jni-bridge', label: 'JNI Bridge'},
+            {type: 'doc', id: 'architecture/jni-runtime', label: 'JNI Runtime'},
             {type: 'doc', id: 'architecture/dynamic-filtering', label: 'Dynamic Filter Lifecycle'},
+            {type: 'doc', id: 'architecture/domain-modularization-adr', label: 'Domain Modularization ADR'},
           ],
         },
       ],
@@ -323,6 +338,15 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'contributing/developer-guide', label: 'Developer Guide'},
         {type: 'doc', id: 'contributing/testing', label: 'Testing Framework'},
         {type: 'doc', id: 'contributing/documentation', label: 'Documentation Guide'},
+        {type: 'doc', id: 'contributing/repository-guide', label: 'Repository & Scripts'},
+        {type: 'doc', id: 'contributing/script-inventory', label: 'Script Inventory'},
+        {type: 'doc', id: 'testing/tpc-benchmark-methodology', label: 'TPC Benchmark Methodology'},
+        {type: 'doc', id: 'testing/dml-copy-on-write-policy', label: 'DML Copy-on-Write Policy'},
+        {type: 'doc', id: 'testing/speculative-process-e2e', label: 'Speculative Execution E2E'},
+        {type: 'doc', id: 'testing/shuffle-read-comparison', label: 'Shuffle Read Comparison'},
+        {type: 'doc', id: 'development/native-build-dependencies', label: 'Native Build Dependencies'},
+        {type: 'doc', id: 'development/darwin-arm64-asan-runtime', label: 'Darwin ASAN Runtime'},
+        {type: 'doc', id: 'development/darwin-function-sanitizer', label: 'Darwin Function Sanitizer'},
       ],
     },
   ],

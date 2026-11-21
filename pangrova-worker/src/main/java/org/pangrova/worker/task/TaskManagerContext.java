@@ -1,15 +1,17 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.report.TaskStatusReporter;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-import org.pangrova.spi.execution.ResultTransport;
+import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.ShuffleTransport;
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.NodeMemoryPool;
-import org.pangrova.spi.execution.TaskExecutor;
+import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.resource.ResourceManager;
+import org.pangrova.worker.resource.memory.NodeMemoryPool;
+import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.worker.task.memory.MemoryRefs;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 import java.util.concurrent.ExecutorService;
 
@@ -61,9 +63,9 @@ public final class TaskManagerContext {
         return memoryDeps.nodeMemoryPool();
     }
 
-    /** Shuffle transport SPI. */
-    public ShuffleTransport shuffleTransport() {
-        return transportDeps.shuffleTransport();
+    /** Task-owned Native serving adapter. */
+    public NativeShuffleProducerRegistration shuffleProducers() {
+        return transportDeps.shuffleProducers();
     }
 
     /** Result transport SPI. */

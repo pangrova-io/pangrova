@@ -14,18 +14,65 @@
     <name>Pangrova Standalone</name>
     <description>Single-JVM entry point running both Coordinator and Worker for dev/test use</description>
 
+    <properties>
+        <module.name>org.pangrova.standalone</module.name>
+    </properties>
+
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-bootstrap</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-coordinator</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordinator</artifactId>
+            <artifactId>pangrova-config</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-worker</artifactId>
+            <artifactId>pangrova-coordination-control</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-coordination-zookeeper</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-server-worker</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-worker</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions><execution>
+                    <id>role-runtime-classpath</id>
+                    <phase>package</phase>
+                    <goals><goal>build-classpath</goal></goals>
+                    <configuration>
+                        <includeScope>runtime</includeScope>
+                        <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+                    </configuration>
+                </execution></executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

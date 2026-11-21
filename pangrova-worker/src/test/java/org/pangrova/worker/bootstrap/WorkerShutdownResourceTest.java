@@ -1,7 +1,9 @@
 package org.pangrova.worker.bootstrap;
 
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -67,8 +69,8 @@ class WorkerShutdownResourceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
         assertThat(bootstrap.isStarted()).isTrue();
 
@@ -86,8 +88,8 @@ class WorkerShutdownResourceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         bootstrap.shutdown();

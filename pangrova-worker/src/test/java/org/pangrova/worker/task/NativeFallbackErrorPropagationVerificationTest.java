@@ -23,7 +23,8 @@ class NativeFallbackErrorPropagationVerificationTest {
                 "NATIVE_FALLBACK_REQUIRED",
                 Map.of("feature_name", "avro_format",
                        "connector_type", "iceberg",
-                       "split_id", "split-42"));
+                       "split_id", "split-42"),
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertEquals("NATIVE_FALLBACK_REQUIRED", report.errorCode());
         assertEquals("avro_format", report.errorMetadata().get("feature_name"));
@@ -37,7 +38,8 @@ class NativeFallbackErrorPropagationVerificationTest {
         TaskStatusReport report = new TaskStatusReport(
                 "task-2", "query-2", 0, 0, "SCAN", "worker-1", "FAILED",
                 null, null, null, 1, System.currentTimeMillis(),
-                "NATIVE_FALLBACK_REQUIRED", metadata);
+                "NATIVE_FALLBACK_REQUIRED", metadata,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertThrows(UnsupportedOperationException.class, () ->
                 report.errorMetadata().put("extra", "value"));
@@ -47,7 +49,8 @@ class NativeFallbackErrorPropagationVerificationTest {
     void taskStatusReportWithoutErrorCodeIsValid() {
         TaskStatusReport report = new TaskStatusReport(
                 "task-3", "query-3", 0, 0, "SCAN", "worker-1", "FINISHED",
-                null, null, null, 1, System.currentTimeMillis(), null, null);
+                null, null, null, 1, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertNull(report.errorCode());
         assertNull(report.errorMetadata());
@@ -58,7 +61,8 @@ class NativeFallbackErrorPropagationVerificationTest {
         TaskStatusReport report = new TaskStatusReport(
                 "task-4", "query-4", 0, 0, "SCAN", "worker-1", "FAILED",
                 null, null, null, 1, System.currentTimeMillis(),
-                "NATIVE_FALLBACK_REQUIRED", null);
+                "NATIVE_FALLBACK_REQUIRED", null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertEquals("NATIVE_FALLBACK_REQUIRED", report.errorCode());
         assertNull(report.errorMetadata());

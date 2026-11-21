@@ -1,8 +1,11 @@
 package org.pangrova.operations.diagnostics;
 
+import org.pangrova.operations.exception.DiagnosticException;
+
 import java.nio.file.Path;
 import java.time.Duration;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -17,9 +20,25 @@ class JfrControllerTest {
     @TempDir
     Path tempDir;
 
+    private final JfrController controller = new JfrController();
+
+    @AfterEach
+    void close() {
+        controller.close();
+    }
+
+    @Test
+    void closeReleasesActiveRecordingsAndRejectsNewOnes() throws Exception {
+        controller.start(Duration.ofMinutes(1), "default", tempDir.resolve("closing.jfr"));
+        controller.close();
+        controller.close();
+        assertThat(controller.activeRecordingCount()).isZero();
+        assertThatThrownBy(() -> controller.start(Duration.ofMinutes(1), "default", tempDir.resolve("late.jfr")))
+                .isInstanceOf(DiagnosticException.class).hasMessageContaining("closed");
+    }
+
     @Test
     void startAndStopRecordingCleanly() throws Exception {
-        JfrController controller = new JfrController();
         Path output = tempDir.resolve("test-recording.jfr");
         long id = controller.start(Duration.ofSeconds(30), "default", output);
 
@@ -31,7 +50,6 @@ class JfrControllerTest {
 
     @Test
     void stopUnknownRecordingThrows() {
-        JfrController controller = new JfrController();
         assertThatThrownBy(() -> controller.stop(99999))
                 .isInstanceOf(DiagnosticException.class)
                 .hasMessageContaining("99999");
@@ -39,7 +57,6 @@ class JfrControllerTest {
 
     @Test
     void multipleRecordingsCanBeStartedAndStopped() throws Exception {
-        JfrController controller = new JfrController();
         Path output1 = tempDir.resolve("recording1.jfr");
         Path output2 = tempDir.resolve("recording2.jfr");
         long id1 = controller.start(Duration.ofMinutes(5), "default", output1);
@@ -55,7 +72,6 @@ class JfrControllerTest {
 
     @Test
     void stoppingAlreadyStoppedRecordingThrows() throws Exception {
-        JfrController controller = new JfrController();
         Path output = tempDir.resolve("recording.jfr");
         long id = controller.start(Duration.ofMinutes(5), "default", output);
 

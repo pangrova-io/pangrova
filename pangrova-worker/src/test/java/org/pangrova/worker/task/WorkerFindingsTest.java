@@ -1,126 +1,19 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.bootstrap.lifecycle.GracefulShutdownConfig;
 import org.pangrova.worker.exchange.ExchangeConnectionPoolConfig;
 import org.pangrova.worker.heartbeat.WorkerHealthSnapshot;
 import org.pangrova.worker.memory.TaskMemorySpillTrigger;
 import org.junit.jupiter.api.Test;
 
-import java.net.ConnectException;
-import java.net.SocketTimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for Worker (Java) P1 findings: retry, shutdown, spill, health,
+ * Tests for Worker (Java) P1 findings: shutdown, spill, health,
  * buffering, connection pooling, cancellation, and metrics.
  */
 class WorkerFindingsTest {
-
-    // ── 13.1.1 Task retry on transient failure ──
-
-    @Test
-    void taskRetryConfig_defaults() {
-        TaskRetryConfig config = TaskRetryConfig.defaults();
-        assertThat(config.maxRetries()).isEqualTo(3);
-        assertThat(config.initialBackoffMs()).isEqualTo(1000);
-        assertThat(config.backoffMultiplier()).isEqualTo(2.0);
-        assertThat(config.maxBackoffMs()).isEqualTo(30_000);
-    }
-
-    @Test
-    void taskRetryConfig_computeBackoff_exponential() {
-        TaskRetryConfig config = TaskRetryConfig.defaults();
-        assertThat(config.computeBackoffMs(0)).isEqualTo(1000);
-        assertThat(config.computeBackoffMs(1)).isEqualTo(2000);
-        assertThat(config.computeBackoffMs(2)).isEqualTo(4000);
-        assertThat(config.computeBackoffMs(10)).isEqualTo(30_000); // capped at max
-    }
-
-    @Test
-    void transientFailureClassifier_networkTimeout() {
-        assertThat(TransientFailureClassifier.isTransient(
-                new SocketTimeoutException("Read timed out"))).isTrue();
-    }
-
-    @Test
-    void transientFailureClassifier_connectionRefused() {
-        assertThat(TransientFailureClassifier.isTransient(
-                new ConnectException("Connection refused"))).isTrue();
-    }
-
-    @Test
-    void transientFailureClassifier_permanentFailure() {
-        assertThat(TransientFailureClassifier.isTransient(
-                new IllegalStateException("Unsupported operation"))).isFalse();
-    }
-
-    @Test
-    void transientFailureClassifier_oomAfterSpill() {
-        assertThat(TransientFailureClassifier.isTransient(
-                new RuntimeException("Memory pool exhausted after spill"))).isTrue();
-    }
-
-    @Test
-    void transientFailureClassifier_nestedCause() {
-        Exception nested = new RuntimeException("wrapper",
-                new ConnectException("Connection refused"));
-        assertThat(TransientFailureClassifier.isTransient(nested)).isTrue();
-    }
-
-    @Test
-    void taskRetryExecutor_shouldRetry_transientFailure() {
-        TaskRetryExecutor executor = new TaskRetryExecutor(TaskRetryConfig.defaults());
-        Exception transient_ = new SocketTimeoutException("timeout");
-        assertThat(executor.shouldRetry("task-1", transient_)).isTrue();
-    }
-
-    @Test
-    void taskRetryExecutor_shouldNotRetry_permanentFailure() {
-        TaskRetryExecutor executor = new TaskRetryExecutor(TaskRetryConfig.defaults());
-        Exception permanent = new IllegalStateException("bad state");
-        assertThat(executor.shouldRetry("task-1", permanent)).isFalse();
-    }
-
-    @Test
-    void taskRetryExecutor_exhaustsRetries() {
-        TaskRetryConfig config = new TaskRetryConfig(2, 100, 2.0, 1000);
-        TaskRetryExecutor executor = new TaskRetryExecutor(config);
-        Exception transient_ = new SocketTimeoutException("timeout");
-
-        assertThat(executor.shouldRetry("task-1", transient_)).isTrue();
-        executor.recordRetryAndGetBackoff("task-1");
-        assertThat(executor.shouldRetry("task-1", transient_)).isTrue();
-        executor.recordRetryAndGetBackoff("task-1");
-        assertThat(executor.shouldRetry("task-1", transient_)).isFalse();
-    }
-
-    @Test
-    void taskRetryExecutor_backoffIncreases() {
-        TaskRetryConfig config = new TaskRetryConfig(3, 100, 2.0, 10000);
-        TaskRetryExecutor executor = new TaskRetryExecutor(config);
-
-        long first = executor.recordRetryAndGetBackoff("task-1");
-        long second = executor.recordRetryAndGetBackoff("task-1");
-        assertThat(second).isGreaterThan(first);
-    }
-
-    // ── 13.1.2 Worker graceful shutdown ──
-
-    @Test
-    void gracefulShutdownConfig_defaults() {
-        GracefulShutdownConfig config = GracefulShutdownConfig.defaults();
-        assertThat(config.drainTimeoutSeconds()).isEqualTo(30);
-        assertThat(config.notifyCoordinator()).isTrue();
-        assertThat(config.deregisterFromDiscovery()).isTrue();
-    }
-
-    @Test
-    void gracefulShutdownConfig_rejectsInvalidTimeout() {
-        assertThatThrownBy(() -> new GracefulShutdownConfig(0, true, true))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
 
     // ── 13.1.3 Task memory spill trigger ──
 

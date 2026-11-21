@@ -1,0 +1,20 @@
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -- %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Keep connection-level library DEBUG out of the build log. -->
+  <logger name="org.eclipse.jetty" level="INFO" />
+  <logger name="org.testcontainers" level="INFO" />
+  <logger name="com.github.dockerjava" level="WARN" />
+  <logger name="org.apache.hc" level="WARN" />
+  <logger name="org.apache.arrow" level="WARN" />
+  <logger name="io.grpc" level="WARN" />
+  <logger name="io.netty" level="WARN" />
+  <logger name="org.apache.calcite" level="WARN" />
+  <root level="INFO">
+    <appender-ref ref="CONSOLE" />
+  </root>
+</configuration>

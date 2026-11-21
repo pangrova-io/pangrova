@@ -1,12 +1,13 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.ConnectorIndexSupport;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.ColumnValueReader;
+import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.apache.paimon.catalog.Catalog;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,24 +19,21 @@ import java.util.Optional;
 final class PaimonConnectorIndexSupport implements ConnectorIndexSupport {
 
     private final PaimonMetadata metadata;
+    private final Catalog catalog;
 
-    PaimonConnectorIndexSupport(PaimonMetadata metadata) {
+    PaimonConnectorIndexSupport(PaimonMetadata metadata, Catalog catalog) {
         this.metadata = metadata;
+        this.catalog = catalog;
     }
 
     @Override
     public Optional<FileSystemAccessor> getFileSystemAccessor() {
-        return Optional.empty(); // Paimon FS accessor wired at connector level
+        return metadata.getFileSystemAccessor();
     }
 
     @Override
     public Optional<ColumnValueReader> getColumnValueReader() {
-        return Optional.empty(); // Paimon column reader wired at connector level
-    }
-
-    @Override
-    public void registerCommitListener(CommitListener listener) {
-        metadata.registerCommitListener(listener);
+        return metadata.getColumnValueReader();
     }
 
     @Override
@@ -52,6 +50,11 @@ final class PaimonConnectorIndexSupport implements ConnectorIndexSupport {
     public Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(
             String schemaName, String tableName) {
         return metadata.getSnapshotAwareMetadata(schemaName, tableName);
+    }
+
+    @Override
+    public Optional<SnapshotPinProvider> getSnapshotPinProvider() {
+        return Optional.of(new PaimonSnapshotPinProvider(catalog));
     }
 
     @Override

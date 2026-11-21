@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-bom</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+    <artifactId>pangrova-persistence</artifactId>
+    <packaging>pom</packaging>
+    <name>Pangrova Persistence</name>
+    <description>Domain persistence contracts and independently selected backend implementations</description>
+    <modules>
+        <module>pangrova-persistence-materialization-api</module>
+        <module>pangrova-persistence-indexing-api</module>
+        <module>pangrova-persistence-indexing-postgresql</module>
+        <module>pangrova-persistence-catalog-api</module>
+        <module>pangrova-persistence-catalog-postgresql</module>
+        <module>pangrova-persistence-file-api</module>
+        <module>pangrova-persistence-file-postgresql</module>
+        <module>pangrova-persistence-table-api</module>
+        <module>pangrova-persistence-table-postgresql</module>
+        <module>pangrova-persistence-table-memory</module>
+        <module>pangrova-persistence-query-postgresql</module>
+        <module>pangrova-persistence-query-memory</module>
+        <module>pangrova-persistence-coordination-api</module>
+        <module>pangrova-persistence-coordination-postgresql</module>
+        <module>pangrova-persistence-coordination-memory</module>
+        <module>pangrova-persistence-security-postgresql</module>
+        <module>pangrova-persistence-security-memory</module>
+        <module>pangrova-persistence-security-api</module>
+        <module>pangrova-persistence-jdbc-api</module>
+        <module>pangrova-persistence-query-api</module>
+        <module>pangrova-persistence-jdbc-support</module>
+        <module>pangrova-persistence-generation-api</module>
+        <module>pangrova-persistence-generation-postgresql</module>
+        <module>pangrova-persistence-governance-postgresql</module>
+        <module>pangrova-persistence-semantic-postgresql</module>
+        <module>pangrova-persistence-streaming-postgresql</module>
+        <module>pangrova-persistence-streaming-memory</module>
+        <module>pangrova-persistence-materialization-postgresql</module>
+        <module>pangrova-persistence-ai-postgresql</module>
+        <module>pangrova-persistence-workflow-api</module>
+        <module>pangrova-persistence-workflow-postgresql</module>
+    </modules>
+</project>

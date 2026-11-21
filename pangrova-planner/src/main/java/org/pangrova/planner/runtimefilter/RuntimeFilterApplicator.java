@@ -1,5 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +53,7 @@ public final class RuntimeFilterApplicator {
         int inputSize = ranges.size();
         List<PartitionRange> result;
 
-        if (filter.type() == RuntimeFilter.FilterType.BLOOM) {
+        if (filter.filterType() == DynamicFilterType.BLOOM) {
             result = applyBloomFilter(ranges, filter);
         } else {
             Comparable filterMin = filter.rawMin();
@@ -68,7 +69,7 @@ public final class RuntimeFilterApplicator {
 
         if (pruned > 0) {
             LOG.debug("event=runtime_filter_pruning filter_type={} column={} evaluated={} pruned={}",
-                    filter.type(), filter.column(), inputSize, pruned);
+                    filter.filterType(), filter.column(), inputSize, pruned);
         }
         return result;
     }

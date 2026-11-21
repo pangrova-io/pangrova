@@ -3,13 +3,12 @@ package org.pangrova.connector.paimon;
 import org.pangrova.connector.paimon.system.PaimonAuditLogSystemTable;
 import org.pangrova.connector.paimon.system.PaimonBranchesSystemTable;
 import org.pangrova.connector.paimon.system.PaimonConsumersSystemTable;
-import org.pangrova.connector.paimon.system.PaimonFilesSystemTable;
 import org.pangrova.connector.paimon.system.PaimonManifestsSystemTable;
 import org.pangrova.connector.paimon.system.PaimonOptionsSystemTable;
 import org.pangrova.connector.paimon.system.PaimonSchemasSystemTable;
 import org.pangrova.connector.paimon.system.PaimonSnapshotsSystemTable;
 import org.pangrova.connector.paimon.system.PaimonTagsSystemTable;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Optional;
@@ -27,7 +26,6 @@ final class PaimonSystemTables {
             case "snapshots" -> Optional.of(new PaimonSnapshotsSystemTable(paimonTable));
             case "schemas" -> Optional.of(new PaimonSchemasSystemTable(paimonTable));
             case "options" -> Optional.of(new PaimonOptionsSystemTable(paimonTable));
-            case "files" -> Optional.of(new PaimonFilesSystemTable(paimonTable));
             case "tags" -> Optional.of(new PaimonTagsSystemTable(paimonTable));
             case "branches" -> Optional.of(new PaimonBranchesSystemTable(paimonTable));
             case "consumers" -> Optional.of(new PaimonConsumersSystemTable(paimonTable));

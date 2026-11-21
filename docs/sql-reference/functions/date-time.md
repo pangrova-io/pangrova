@@ -71,15 +71,9 @@ SELECT created_at + INTERVAL '3' MONTH AS renewal_date FROM subscriptions;
 
 ## Current Date/Time
 
-```sql
-CURRENT_DATE → DATE
-CURRENT_TIMESTAMP → TIMESTAMP
-```
-
-```sql
-SELECT * FROM orders WHERE order_date = CURRENT_DATE;
-SELECT * FROM events WHERE event_time >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR;
-```
+`CURRENT_DATE` and `CURRENT_TIMESTAMP` are not parsed by the current grammar.
+Use explicit `DATE '...'` / `TIMESTAMP '...'` literals and arithmetic with
+`INTERVAL`.
 
 ---
 

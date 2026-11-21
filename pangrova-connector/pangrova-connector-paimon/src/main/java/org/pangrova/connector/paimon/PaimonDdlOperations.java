@@ -1,10 +1,10 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.types.enums.PangrovaType;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.SchemaChange;

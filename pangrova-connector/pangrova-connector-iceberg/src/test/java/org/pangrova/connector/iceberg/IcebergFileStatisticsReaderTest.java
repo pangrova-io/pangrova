@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
@@ -107,6 +107,37 @@ class IcebergFileStatisticsReaderTest {
     }
 
     @Test
+    void liveRowCount_withEqualityDelete_returnsUnknownInsteadOfOverCount() {
+        Table table = createTable("stats_eq_delete", "2");
+        writeDataFile(table, 10);
+        commitEqualityDeleteFor(table, List.of(2L, 4L));
+
+        FileScanTask task = singleScanTask(table);
+
+        assertThat(task.deletes()).isNotEmpty();
+        assertThat(IcebergFileStatisticsReader.liveRowCount(table, task))
+                .isEqualTo(IcebergFileStatisticsReader.UNKNOWN_ROW_COUNT);
+    }
+
+    @Test
+    void buildFileColumnStatistics_withEqualityDelete_reportsUnknownRowCount() {
+        Table table = createTable("stats_eq_delete_columns", "2");
+        writeDataFile(table, 10);
+        commitEqualityDeleteFor(table, List.of(2L));
+
+        FileScanTask task = singleScanTask(table);
+
+        List<FileColumnStatistics> stats = IcebergFileStatisticsReader
+                .buildFileColumnStatistics(table, task, table.schema(), Map.of());
+
+        assertThat(stats).isNotEmpty();
+        for (FileColumnStatistics cs : stats) {
+            assertThat(cs.rowCount())
+                    .isEqualTo(IcebergFileStatisticsReader.UNKNOWN_ROW_COUNT);
+        }
+    }
+
+    @Test
     void buildFileColumnStatistics_withoutPuffin_setsNdvToMinusOne() {
         Table table = createV3Table("stats_no_puffin");
         writeDataFile(table, 8);
@@ -207,6 +238,23 @@ class IcebergFileStatisticsReaderTest {
         table.refresh();
     }
 
+    private void commitEqualityDeleteFor(Table table, List<Long> ids) {
+        Schema deleteSchema = new Schema(table.schema().findField("id"));
+        List<Record> deleted = new ArrayList<>();
+        for (long id : ids) {
+            GenericRecord record = GenericRecord.create(deleteSchema);
+            record.setField("id", id);
+            deleted.add(record);
+        }
+        DeleteFile deleteFile = IcebergDeleteWriter.buildEqualityDeleteFile(
+                table,
+                new int[] {table.schema().findField("id").fieldId()},
+                deleteSchema,
+                deleted);
+        table.newRowDelta().addDeletes(deleteFile).commit();
+        table.refresh();
+    }
+
     private Catalog buildHadoopCatalog() {
         Map<String, String> props = Map.of(
                 "type", "hadoop",
@@ -216,10 +264,14 @@ class IcebergFileStatisticsReaderTest {
     }
 
     private Table createV3Table(String tableName) {
+        return createTable(tableName, "3");
+    }
+
+    private Table createTable(String tableName, String formatVersion) {
         TableIdentifier tableId = TableIdentifier.of(NAMESPACE, tableName);
         return catalog.createTable(tableId, TEST_SCHEMA,
                 PartitionSpec.unpartitioned(),
-                Map.of("format-version", "3",
+                Map.of("format-version", formatVersion,
                         "write.metadata.metrics.default", "full"));
     }
 

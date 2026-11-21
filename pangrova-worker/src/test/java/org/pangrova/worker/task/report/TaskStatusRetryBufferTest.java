@@ -226,6 +226,8 @@ class TaskStatusRetryBufferTest {
     private static TaskStatusReport report(String taskId, String queryId, String state) {
         return new TaskStatusReport(
                 taskId, queryId, 0, 0, "COMPUTE",
-                "worker-1", state, null, null, null, 1, System.currentTimeMillis(), null, null);
+                "worker-1", state, null, null, null, 1, System.currentTimeMillis(),
+                null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 }

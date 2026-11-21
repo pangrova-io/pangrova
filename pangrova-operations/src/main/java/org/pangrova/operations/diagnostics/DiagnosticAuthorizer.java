@@ -1,12 +1,13 @@
 package org.pangrova.operations.diagnostics;
 
+import org.pangrova.operations.exception.DiagnosticException;
+
 /**
  * Strategy interface for authorizing diagnostic operations.
  * Implementations should throw {@link DiagnosticException} if the caller
  * is not permitted to execute the requested operation.
  *
- * <p>The default implementation ({@link #ALLOW_ALL}) permits all operations
- * and is intended only for testing or non-production deployments.
+ * <p>The default role policy requires an authenticated admin or operator.
  */
 @FunctionalInterface
 public interface DiagnosticAuthorizer {
@@ -24,12 +25,6 @@ public interface DiagnosticAuthorizer {
      * @throws DiagnosticException if the caller lacks authorization
      */
     void checkHeapDumpPermission(CallerContext caller) throws DiagnosticException;
-
-    /**
-     * An authorizer that permits all operations without any checks.
-     * Use only for testing or explicitly unsecured deployments.
-     */
-    DiagnosticAuthorizer ALLOW_ALL = caller -> {};
 
     /**
      * Creates a role-based authorizer that requires the caller to have

@@ -14,23 +14,34 @@
     <name>Pangrova Client CLI</name>
     <description>Command-line SQL shell for Pangrova distributed query engine</description>
 
+    <properties>
+        <module.name>org.pangrova.client.cli</module.name>
+    </properties>
+
     <dependencies>
-        <!-- Internal: REST client SDK (PangrovaRestClient) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- REST client implementation -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-rest</artifactId>
+            <artifactId>pangrova-client-http</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport-client</artifactId>
         </dependency>
 
-        <!-- Internal: protocol DTOs (QueryStatusResponse, SubmitQueryResponse, etc.) -->
+        <!-- Shared concurrency utilities used directly by SqlShell -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-protocol</artifactId>
-        </dependency>
-
-        <!-- Transport layer: Arrow IPC decoding (Arrow confined to pangrova-transport) -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-transport</artifactId>
+            <artifactId>pangrova-common</artifactId>
         </dependency>
 
         <!-- SLF4J for logging -->
@@ -63,7 +74,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <argLine>@{jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <!-- Recreate the thin input when upgrading from the former replaced artifact. -->
+                    <forceCreation>true</forceCreation>
                 </configuration>
             </plugin>
             <plugin>
@@ -77,6 +96,11 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <!-- Java consumers resolve one dependency graph. The standalone
+                                 executable must never replace the ordinary dependency artifact. -->
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>exec</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>org.pangrova.client.cli.PangrovaCli</mainClass>

@@ -1,0 +1,249 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "substrait/type.proto";
+
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+  bytes descriptor_set_sha256 = 3;
+  string rollout_epoch = 4;
+}
+
+message ExecutionOwnerIdentity {
+  string owner_id = 1;
+  string owner_incarnation = 2;
+  uint64 fencing_token = 3;
+}
+
+// Exact Worker execution scope selected before dispatch and retained in every task receipt.
+message WorkerExecutionIdentity {
+  string admission_domain_id = 1;
+  string incarnation_id = 2;
+}
+
+message TaskAttemptId {
+  string query_or_job_id = 1;
+  int32 stage_id = 2;
+  int32 partition_id = 3;
+  uint64 plan_epoch = 4;
+  uint32 attempt_id = 5;
+  uint64 fencing_token = 6;
+  string task_id = 7;
+  uint64 control_epoch = 8;
+  ExecutionOwnerIdentity execution_owner = 9;
+  WorkerExecutionIdentity worker_execution_identity = 10;
+}
+
+message VersionedRef {
+  string id = 1;
+  string version = 2;
+  bytes signature_sha256 = 3;
+}
+
+message Checksum {
+  enum Algorithm {
+    ALGORITHM_UNSPECIFIED = 0;
+    ALGORITHM_SHA256 = 1;
+  }
+  Algorithm algorithm = 1;
+  bytes digest = 2;
+}
+
+// One bounded fragment of a complete serialized columnar batch. The same
+// contract is shared by runtime/JNI and network shuffle transports so batch
+// ordering, integrity, and reassembly cannot drift between data-plane hops.
+message BatchChunk {
+  // Zero-based sequence of the complete batch within one ordered source.
+  int64 batch_sequence = 1;
+  // Zero-based position of this chunk within the batch.
+  uint32 chunk_index = 2;
+  // Exact number of chunks in the batch; constant across all chunks.
+  uint32 chunk_count = 3;
+  // Exact byte size of the complete reassembled batch; canonical producers
+  // cap complete batches at 256 MiB and split row ranges before serialization.
+  uint64 batch_size_bytes = 4;
+  // Chunk payload. Canonical producers cap this at 1 MiB.
+  bytes data = 5;
+  // SHA-256 of data.
+  Checksum chunk_checksum = 6;
+  // SHA-256 of the complete batch, repeated identically on every chunk.
+  Checksum batch_checksum = 7;
+}
+
+// One external shuffle service endpoint and the exact half-open partition
+// range it owns. A complete binding must cover [0, partition_count) exactly
+// once; consumers and producers select the endpoint containing a partition.
+message ShuffleServiceEndpoint {
+  string host = 1;
+  int32 port = 2;
+  int32 partition_start = 3;
+  int32 partition_end = 4;
+  string tls_identity = 5;
+}
+
+// Explicit non-partitioned address for registration, attempt commit, and
+// allocation cleanup. It must never be inferred from a data endpoint range.
+message ShuffleServiceAddress {
+  string host = 1;
+  int32 port = 2;
+  string tls_identity = 3;
+}
+
+// Opaque service-signed authorization for one shuffle operation scope. The
+// service, not the Worker, validates the embedded shuffle/owner/partition/
+// operation fence. Workers only reject missing/expired values and forward it.
+message ShuffleAccessCapability {
+  bytes token = 1;
+  uint64 expires_at_epoch_ms = 2;
+}
+
+// Stable identity contract used to map an artifact-local node ordinal back to
+// a source row. This is generic infrastructure shared by indexes, caches,
+// feature materializations and training exports; retrieval implementations
+// must not invent algorithm-specific row-id protocols.
+enum RowLocatorKind {
+  ROW_LOCATOR_KIND_UNSPECIFIED = 0;
+  // Zero-based physical row position scoped by one immutable source object.
+  ROW_LOCATOR_KIND_PHYSICAL_ROW_POSITION = 1;
+  // Canonically encoded typed primary-key tuple, stable across MOR rewrites.
+  ROW_LOCATOR_KIND_PRIMARY_KEY = 2;
+}
+
+message RowLocatorContract {
+  uint32 schema_version = 1;
+  RowLocatorKind kind = 2;
+  // Empty for physical row positions. PRIMARY_KEY requires the exact ordered
+  // logical key types so producer and consumer cannot disagree on encoding.
+  repeated LogicalType key_types = 3;
+  bytes schema_sha256 = 4;
+  // Must be true for PHYSICAL_ROW_POSITION: ArtifactObject.source_object_id is
+  // then part of the row identity and cannot be dropped during candidate flow.
+  bool source_object_scoped = 5;
+}
+
+// Cross-runtime identity of an immutable artifact's binary format. This is
+// generic infrastructure shared by indexes, model assets, caches and exports;
+// feature-specific protocols must not redefine it.
+message ArtifactFormatRef {
+  string format_id = 1;
+  uint32 major_version = 2;
+  uint32 minor_version = 3;
+  bytes schema_sha256 = 4;
+  string writer_build_id = 5;
+}
+
+message LogicalType {
+  string canonical_sql = 1;
+  substrait.Type substrait_type = 2;
+  repeated TypeConstraint constraints = 3;
+}
+
+message TypeConstraint {
+  string name = 1;
+  int64 integer_value = 2;
+  string string_value = 3;
+}
+
+message DecimalValue {
+  bytes unscaled_twos_complement = 1;
+  int32 precision = 2;
+  int32 scale = 3;
+}
+
+message FileReference {
+  string object_id = 1;
+  string version = 2;
+  string storage_scope = 3;
+  string opaque_location_token = 4;
+  string content_type = 5;
+  int64 size_bytes = 6;
+  Checksum checksum = 7;
+  string tenant_id = 8;
+  string policy_classification = 9;
+}
+
+message TensorValue {
+  enum ElementType {
+    ELEMENT_TYPE_UNSPECIFIED = 0;
+    ELEMENT_TYPE_FLOAT32 = 1;
+    ELEMENT_TYPE_FLOAT64 = 2;
+    ELEMENT_TYPE_INT8 = 3;
+    ELEMENT_TYPE_INT32 = 4;
+    ELEMENT_TYPE_INT64 = 5;
+  }
+  ElementType element_type = 1;
+  repeated uint64 shape = 2;
+  bytes packed_little_endian_values = 3;
+}
+
+message ListValue { repeated TypedValue values = 1; }
+
+message NamedValue {
+  string name = 1;
+  TypedValue value = 2;
+}
+
+message StructValue { repeated NamedValue fields = 1; }
+
+message TypedValue {
+  LogicalType type = 1;
+  oneof value {
+    bool bool_value = 10;
+    sint64 int64_value = 11;
+    double double_value = 12;
+    string string_value = 13;
+    bytes binary_value = 14;
+    DecimalValue decimal_value = 15;
+    FileReference file_value = 16;
+    TensorValue tensor_value = 17;
+    ListValue list_value = 18;
+    StructValue struct_value = 19;
+  }
+}
+
+enum ErrorClass {
+  ERROR_CLASS_UNSPECIFIED = 0;
+  ERROR_CLASS_INVALID_REQUEST = 1;
+  ERROR_CLASS_PROTOCOL_MISMATCH = 2;
+  ERROR_CLASS_CAPABILITY_MISMATCH = 3;
+  ERROR_CLASS_ADMISSION = 4;
+  ERROR_CLASS_DEADLINE = 5;
+  ERROR_CLASS_CANCELLED = 6;
+  ERROR_CLASS_TRANSPORT = 7;
+  ERROR_CLASS_PROVIDER = 8;
+  ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN = 9;
+  ERROR_CLASS_POLICY_DENIED = 10;
+  ERROR_CLASS_BUDGET_EXHAUSTED = 11;
+  ERROR_CLASS_DATA_CORRUPTION = 12;
+  ERROR_CLASS_RESULT_VALIDATION = 13;
+  ERROR_CLASS_INTERNAL = 14;
+}
+
+message ExecutionError {
+  ErrorClass error_class = 1;
+  string code = 2;
+  string message = 3;
+  bool retryable = 4;
+  string failed_component = 5;
+  repeated string failed_partition_ids = 6;
+}
+
+message TraceContext {
+  string trace_id = 1;
+  string span_id = 2;
+  string trace_state = 3;
+  uint32 trace_flags = 4;
+}
+
+// Stable wire-level batch serialization choices. Engine-specific serde names
+// are deliberately excluded from the protocol and are resolved inside Native.
+enum BatchSerde {
+  reserved 1;
+  reserved "BATCH_SERDE_NATIVE_ROW";
+  BATCH_SERDE_UNSPECIFIED = 0;
+  BATCH_SERDE_ARROW_BATCH = 2;
+}

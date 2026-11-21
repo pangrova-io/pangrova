@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="914" height="209" viewBox="0 0 914 209" role="img">
+<rect width="914" height="209" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="912.5" height="207.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">MaintenanceScheduler.expireSnapshotsAsync(tableName)</text>
+<path d="M52.0 57.0 L52.0 68.0 L63.0 62.5 z" fill="#D97706"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">    TableMaintenance.expireSnapshotsAsync()</text>
+<path d="M70.8 76.0 L70.8 87.0 L81.8 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">      Iceberg Table.expireSnapshots().commit()</text>
+<path d="M89.60000000000001 95.0 L89.60000000000001 106.0 L100.60000000000001 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">        Returns List&lt;Long&gt; expiredSnapshotIds</text>
+<path d="M52.0 114.0 L52.0 125.0 L63.0 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">    CacheEvictionNotifier.notifySnapshotExpired(tableName, expiredSnapshotIds)</text>
+<path d="M70.8 133.0 L70.8 144.0 L81.8 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">      Coordinator broadcasts to all Workers (planned HTTP POST /v1/cache/expire-snapshots)</text>
+<path d="M89.60000000000001 152.0 L89.60000000000001 163.0 L100.60000000000001 157.5 z" fill="#D97706"/>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">        Each Worker's CacheManager marks matching entries as stale</text>
+</g>
+</svg>

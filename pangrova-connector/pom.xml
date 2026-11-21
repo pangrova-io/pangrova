@@ -16,7 +16,11 @@
     <description>Connector parent for Pangrova: Iceberg and Paimon connector implementations</description>
 
     <modules>
+        <module>pangrova-connector-api</module>
+
+        <module>pangrova-connector-runtime</module>
         <module>pangrova-connector-iceberg</module>
         <module>pangrova-connector-paimon</module>
+        <module>pangrova-connector-lance</module>
     </modules>
 </project>

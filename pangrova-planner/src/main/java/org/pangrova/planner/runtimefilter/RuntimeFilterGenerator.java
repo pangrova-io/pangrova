@@ -1,7 +1,7 @@
 package org.pangrova.planner.runtimefilter;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -45,15 +45,16 @@ public final class RuntimeFilterGenerator {
         Set<Comparable<?>> distinct = new HashSet<>(buildSideValues);
         return distinct.size() > BLOOM_THRESHOLD
                 ? Optional.of(createBloomFilter(column, distinct, columnType))
-                : Optional.of(createMinMaxFilter(column, buildSideValues));
+                : Optional.of(createMinMaxFilter(column, buildSideValues, columnType));
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private RuntimeFilter createMinMaxFilter(String column,
-                                             List<? extends Comparable<?>> values) {
+                                             List<? extends Comparable<?>> values,
+                                             PangrovaType columnType) {
         Comparable min = Collections.min((List) values);
         Comparable max = Collections.max((List) values);
-        return RuntimeFilter.minMax(column, min, max);
+        return RuntimeFilter.minMax(column, min, max, columnType);
     }
 
     private RuntimeFilter createBloomFilter(String column,
@@ -67,7 +68,7 @@ public final class RuntimeFilterGenerator {
                 builder.putBytes(encoded);
             }
         }
-        return RuntimeFilter.bloom(column, builder.build());
+        return RuntimeFilter.bloom(column, builder.build(), columnType);
     }
 
     /**

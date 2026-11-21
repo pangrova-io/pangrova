@@ -33,7 +33,7 @@ Validate that a worker crash during shuffle does not corrupt data or leave the c
 
 ```bash
 # Run shuffle-heavy query to identify active shuffle workers
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint http://coordinator:8080 \
   --query "SELECT l_orderkey, sum(l_extendedprice) FROM lineitem JOIN orders ON l_orderkey = o_orderkey GROUP BY l_orderkey LIMIT 1000" \
   --interval 2s \
@@ -50,7 +50,7 @@ WORKER_PID=$(ssh worker-2 "pgrep -f pangrova-worker")
 ssh worker-2 "kill -9 ${WORKER_PID}"
 
 # Measure recovery
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint http://coordinator:8080 \
   --probe-query "SELECT 1" \
   --timeout 120s \
@@ -78,7 +78,7 @@ Monitor and record:
 
 | Outcome | Pass Criteria |
 |---------|--------------|
-| Detection time | < 15 seconds (heartbeat timeout) |
+| Detection time | Consistent with the configured heartbeat timeout (30 seconds by default) plus monitoring/scheduling delay |
 | Query failure | Clear error with retryable code |
 | Data integrity | No partial/corrupt results returned |
 | Cluster recovery | Healthy within 60 seconds |
@@ -88,7 +88,7 @@ Monitor and record:
 
 1. Restart killed worker: `ssh worker-2 "systemctl start pangrova-worker"`
 2. Verify worker re-registers with coordinator
-3. If shuffle files are orphaned, trigger manual cleanup via admin API
+3. Verify owner-driven cleanup after the affected attempts have drained; there is no shuffle-cleanup admin API, and file age alone does not prove safe deletion
 
 ## Observability Checklist
 

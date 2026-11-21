@@ -2,7 +2,7 @@ package org.pangrova.worker.memory;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.spi.annotation.ThreadSafe;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * <p>Design: a single instance is shared across all write tasks on the
  * worker. Its budget is carved from the global memory budget at startup
  * (default 10% of total, min 256 MB). The allocator participates in the
- * unified {@link org.pangrova.resource.memory.MemoryArbitrator} accounting
+ * unified {@link org.pangrova.worker.resource.memory.MemoryArbitrator} accounting
  * by reserving/releasing from the arbitrator, but does so outside any
  * JNI call chain.</p>
  *

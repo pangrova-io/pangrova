@@ -32,7 +32,7 @@ public final class CalciteSentinels {
      *         both 0 and MIN_VALUE interchangeably depending on the path).
      */
     public static boolean isUnspecified(int value) {
-        return value <= 0 || value == UNSPECIFIED;
+        return value <= 0;
     }
 
     /**

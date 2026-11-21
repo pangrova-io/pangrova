@@ -1,14 +1,18 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.enums.JoinStrategy;
+import org.pangrova.planner.api.adaptive.StageReplanDecision;
+import org.pangrova.planner.api.adaptive.StageReplanCallback;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlanResult;
-import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlanResult;
+import org.pangrova.planner.statistics.StatisticsCollector;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

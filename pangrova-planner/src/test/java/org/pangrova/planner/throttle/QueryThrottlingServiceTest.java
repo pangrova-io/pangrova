@@ -1,6 +1,6 @@
 package org.pangrova.planner.throttle;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

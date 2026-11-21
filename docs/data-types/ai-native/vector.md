@@ -24,12 +24,21 @@ CREATE TABLE articles (
 );
 ```
 
-**Construction:**
+**Construction:** the examples below use `...` to abbreviate vector coordinates.
+Replace it with actual numeric elements so the array length matches the declared
+dimension; `...` is not executable SQL.
 
 ```sql
 -- Vectors are constructed using ARRAY literal syntax
 INSERT INTO articles (id, embedding) VALUES (1, ARRAY[0.1, 0.2, 0.3, ...]);
 ```
+
+**Query results:** `AI_EMBED` result columns retain their selected model's
+`VECTOR(n)` logical type. On the Arrow Flight result stream, the column uses
+`List<Float32>` storage with field metadata
+`ARROW:extension:name=pangrova.vector` and
+`ARROW:extension:metadata=<dimension>`. Ordinary `ARRAY<FLOAT>` results have
+no vector extension metadata.
 
 **Distance Functions:**
 

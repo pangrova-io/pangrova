@@ -16,11 +16,11 @@ import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.UriInfo;
-import org.pangrova.observability.tracing.OtelTracingProvider;
-import org.pangrova.observability.tracing.TracingHttpFilter;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.SpanKind;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
+import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.observability.api.enums.SpanKind;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -141,6 +141,11 @@ class WorkerTracingFilterTest {
         @Override public String getMethod() { return "POST"; }
         @Override public MultivaluedMap<String, String> getHeaders() { return headers; }
         @Override public String getHeaderString(String name) { return headers.getFirst(name); }
+        @Override public boolean containsHeaderString(
+                String name, String value, java.util.function.Predicate<String> valuePredicate) {
+            return headers.getOrDefault(name, List.of()).stream()
+                    .anyMatch(valuePredicate);
+        }
         @Override public UriInfo getUriInfo() { return new StubUriInfo(path); }
 
         @Override public void setRequestUri(URI requestUri) {}
@@ -177,6 +182,10 @@ class WorkerTracingFilterTest {
         @Override public MultivaluedMap<String, Object> getHeaders() { return new MultivaluedHashMap<>(); }
         @Override public MultivaluedMap<String, String> getStringHeaders() { return new MultivaluedHashMap<>(); }
         @Override public String getHeaderString(String name) { return null; }
+        @Override public boolean containsHeaderString(
+                String name, String value, java.util.function.Predicate<String> valuePredicate) {
+            return false;
+        }
         @Override public java.util.Set<String> getAllowedMethods() { return java.util.Set.of(); }
         @Override public java.util.Date getDate() { return null; }
         @Override public java.util.Locale getLanguage() { return null; }
@@ -227,6 +236,7 @@ class WorkerTracingFilterTest {
         @Override public MultivaluedMap<String, String> getQueryParameters() { return new MultivaluedHashMap<>(); }
         @Override public MultivaluedMap<String, String> getQueryParameters(boolean decode) { return new MultivaluedHashMap<>(); }
         @Override public java.util.List<String> getMatchedURIs() { return List.of(); }
+        @Override public String getMatchedResourceTemplate() { return path; }
         @Override public java.util.List<String> getMatchedURIs(boolean decode) { return List.of(); }
         @Override public java.util.List<Object> getMatchedResources() { return List.of(); }
         @Override public URI resolve(URI uri) { return uri; }

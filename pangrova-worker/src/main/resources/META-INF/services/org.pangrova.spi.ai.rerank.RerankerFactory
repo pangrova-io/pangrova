@@ -1,4 +1,0 @@
-org.pangrova.worker.ai.rerank.RrfRerankerFactory
-org.pangrova.worker.ai.rerank.WeightedRerankerFactory
-org.pangrova.worker.ai.rerank.CrossEncoderRerankerFactory
-org.pangrova.worker.ai.rerank.CascadeRerankerFactory

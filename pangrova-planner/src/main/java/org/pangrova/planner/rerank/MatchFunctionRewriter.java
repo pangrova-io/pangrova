@@ -1,27 +1,28 @@
 package org.pangrova.planner.rerank;
 
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.expression.FunctionCall;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Detects MATCH(column, 'query') function calls in AST expressions and extracts
+ * Detects full-text predicate and score calls in AST expressions and extracts
  * the information needed to produce a {@link FullTextScoringNode}.
  *
- * <p>MATCH() returns a DOUBLE BM25 score (not a BOOLEAN). When used in WHERE,
- * it acts as a filter (score &gt; 0 means the document matches). When used in SELECT,
- * it exposes the relevance score for ordering or display.</p>
+ * <p>{@code MATCH()} is a boolean predicate. {@code BM25_SCORE()} is a numeric
+ * relevance expression. Keeping the two contracts distinct prevents a score
+ * from being coerced into a predicate differently by the JVM and Native runtimes.</p>
  *
  * <p>This rewriter is stateless and thread-safe.</p>
  */
 public final class MatchFunctionRewriter {
 
-    private static final String MATCH_FUNCTION_NAME = "MATCH";
+    private static final String MATCH = "MATCH";
+    private static final String BM25_SCORE = "BM25_SCORE";
 
     private MatchFunctionRewriter() {}
 
@@ -32,7 +33,12 @@ public final class MatchFunctionRewriter {
      * @return true if the expression is a MATCH(column, 'query') call
      */
     public static boolean isMatchFunction(Expression expression) {
-        return extractMatchCall(expression).isPresent();
+        return extractFunction(expression, MATCH).isPresent();
+    }
+
+    /** Returns whether the expression is a well-formed {@code BM25_SCORE()} call. */
+    public static boolean isScoreFunction(Expression expression) {
+        return extractFunction(expression, BM25_SCORE).isPresent();
     }
 
     /**
@@ -42,10 +48,26 @@ public final class MatchFunctionRewriter {
      * @return match details if the expression is a valid MATCH(column, 'query'), empty otherwise
      */
     public static Optional<MatchCallDetails> extractMatchCall(Expression expression) {
+        return extractFunction(expression, MATCH);
+    }
+
+    /** Extracts a well-formed {@code BM25_SCORE(column, 'query')} call. */
+    public static Optional<MatchCallDetails> extractScoreCall(Expression expression) {
+        return extractFunction(expression, BM25_SCORE);
+    }
+
+    /** Extracts either supported text-search call while preserving one argument contract. */
+    public static Optional<MatchCallDetails> extractTextCall(Expression expression) {
+        Optional<MatchCallDetails> match = extractMatchCall(expression);
+        return match.isPresent() ? match : extractScoreCall(expression);
+    }
+
+    private static Optional<MatchCallDetails> extractFunction(
+            Expression expression, String expectedName) {
         if (!(expression instanceof FunctionCall fn)) {
             return Optional.empty();
         }
-        if (!isMatchName(fn.name())) {
+        if (!hasSimpleName(fn.name(), expectedName)) {
             return Optional.empty();
         }
         List<Expression> args = fn.arguments();
@@ -76,9 +98,10 @@ public final class MatchFunctionRewriter {
         return new FullTextScoringNode(tableName, details.column(), details.queryText(), preFilters);
     }
 
-    private static boolean isMatchName(Identifier name) {
+    private static boolean hasSimpleName(Identifier name, String expectedName) {
         List<String> parts = name.parts();
-        return parts.size() == 1 && MATCH_FUNCTION_NAME.equalsIgnoreCase(parts.get(0));
+        return parts.size() == 1
+                && expectedName.equals(parts.get(0).toUpperCase(java.util.Locale.ROOT));
     }
 
     private static String extractColumnName(Expression expr) {

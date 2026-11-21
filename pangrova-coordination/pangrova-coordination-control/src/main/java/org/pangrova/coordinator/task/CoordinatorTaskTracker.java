@@ -1,0 +1,608 @@
+package org.pangrova.coordinator.task;
+
+import org.pangrova.coordinator.enums.ScheduledTaskState;
+import org.pangrova.query.api.lifecycle.QueryOperation;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+
+import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.scheduler.api.speculation.TaskDuration;
+
+/**
+ * Owns issued task identities, state machines and exact physical-drain receipts.
+ * Local publication is serialized with issuance sealing; transport operations run outside that gate.
+ */
+@ThreadSafe
+public class CoordinatorTaskTracker implements org.pangrova.query.recovery.RecoveredTaskRegistry {
+
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, TaskStateMachine>> queryTasks =
+            new ConcurrentHashMap<>();
+
+    private final ConcurrentHashMap<String, String> taskWorkerAssignment =
+            new ConcurrentHashMap<>();
+
+    /** Reverse index: workerId -> set of queryIds with active tasks on that worker. */
+    private final ConcurrentHashMap<String, Set<String>> workerQueryIndex =
+            new ConcurrentHashMap<>();
+
+    private final TaskTimingTracker timingTracker = new TaskTimingTracker();
+    private final Object drainRetirementLock = new Object();
+
+    /** Atomic task identity used for status fencing and optional speculative cloning. */
+    private final TaskIdentityRegistry taskIdentityStore = new TaskIdentityRegistry();
+
+    public CoordinatorTaskTracker() {
+        taskIdentityStore.onConnectorOperationExit(this::notifyQueryOperationExit);
+    }
+
+    /** Registers a logical task under the query issuance authority. */
+    public void registerTask(String queryId, String taskId) {
+        taskIdentityStore.registerLogicalTask(queryId, () -> {
+            var tasks = queryTasks.computeIfAbsent(queryId, k -> new ConcurrentHashMap<>());
+            var candidate = new TaskStateMachine();
+            if (tasks.putIfAbsent(taskId, candidate) != null) {
+                throw new IllegalStateException("Task already registered: queryId=" + queryId + ", taskId=" + taskId);
+            }
+            try {
+                timingTracker.registerTaskQuery(taskId, queryId);
+            } catch (RuntimeException | Error failure) {
+                tasks.remove(taskId, candidate);
+                if (tasks.isEmpty()) queryTasks.remove(queryId, tasks);
+                timingTracker.clearTaskTracking(taskId);
+                throw failure;
+            }
+        });
+    }
+
+    /** Rolls back only before transport entry; an ambiguous HTTP failure may leave a real Worker owner. */
+    public void unregisterUndispatchedTask(String queryId, String taskId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            return;
+        }
+        TaskStateMachine state = tasks.get(taskId);
+        if (state == null) {
+            return;
+        }
+        if (state.getState() != ScheduledTaskState.PENDING
+                && state.getState() != ScheduledTaskState.SCHEDULED) {
+            throw new IllegalStateException(
+                    "cannot unregister a started task: " + taskId);
+        }
+        taskIdentityStore.remove(taskId);
+        if (tasks.remove(taskId, state)) {
+            if (tasks.isEmpty()) {
+                queryTasks.remove(queryId, tasks);
+            }
+            taskWorkerAssignment.remove(taskId);
+            timingTracker.clearTaskTracking(taskId);
+        }
+    }
+
+    /** Records the Worker selected for a task. */
+    public void assignWorker(String taskId, String workerId) {
+        taskWorkerAssignment.put(taskId, workerId);
+        // Maintain reverse index: find queryId from timing tracker and add to worker index
+        String queryId = timingTracker.getQueryIdForTask(taskId);
+        if (queryId != null) {
+            workerQueryIndex.computeIfAbsent(workerId,
+                    k -> ConcurrentHashMap.newKeySet()).add(queryId);
+        }
+    }
+
+    public String getWorkerForTask(String taskId) {
+        return taskWorkerAssignment.get(taskId);
+    }
+
+    /** Removes a pre-dispatch assignment only when it still names the expected worker. */
+    public boolean unassignWorker(String taskId, String workerId) {
+        return taskWorkerAssignment.remove(taskId, workerId);
+    }
+
+    public void markScheduled(String queryId, String taskId) {
+        TaskStateMachine sm = getStateMachine(queryId, taskId);
+        sm.tryTransition(ScheduledTaskState.SCHEDULED);
+    }
+
+    /** Returns whether the reported state is accepted, including an exact idempotent state observation. */
+    public boolean updateTaskState(String queryId, String taskId, String workerState) {
+        TaskStateMachine sm = getStateMachine(queryId, taskId);
+        ScheduledTaskState target = TaskLogicalCompletion.mapWorkerState(workerState);
+        boolean transitioned = sm.tryTransition(target);
+        boolean accepted = transitioned || sm.getState() == target;
+        if (transitioned && target == ScheduledTaskState.FINISHED) {
+            timingTracker.recordTaskFinish(taskId);
+        }
+        if (accepted && (target == ScheduledTaskState.FAILED
+                || target == ScheduledTaskState.ABANDONED)) {
+            completeTaskFutureIfTerminal(taskId, sm);
+        }
+        return accepted;
+    }
+
+    /** Loss detection operates on an earlier snapshot. A finished or retired attempt cannot fail its query. */
+    public boolean markLostTaskFailed(String queryId, String taskId) {
+        TaskStateMachine sm = findStateMachine(queryId, taskId);
+        if (sm == null) return false;
+        if (sm.tryTransition(ScheduledTaskState.FAILED) || sm.getState() == ScheduledTaskState.FAILED) {
+            completeTaskFutureIfTerminal(taskId, sm);
+            return true;
+        }
+        return false;
+    }
+
+    /** Completes the task future after an accepted terminal state. */
+    public void signalTaskTerminal(String queryId, String taskId) {
+        TaskStateMachine sm = findStateMachine(queryId, taskId);
+        if (sm != null) {
+            completeTaskFutureIfTerminal(taskId, sm);
+        }
+    }
+
+    private TaskStateMachine findStateMachine(String queryId, String taskId) {
+        var tasks = queryTasks.get(queryId);
+        return tasks != null ? tasks.get(taskId) : null;
+    }
+
+    /** Returns whether every registered task has finished successfully. */
+    public boolean allTasksFinished(String queryId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null || tasks.isEmpty()) {
+            return false;
+        }
+        for (TaskStateMachine sm : tasks.values()) {
+            if (sm.getState() != ScheduledTaskState.FINISHED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Returns whether the query has a failed task. */
+    public boolean hasFailedTask(String queryId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            return false;
+        }
+        for (TaskStateMachine sm : tasks.values()) {
+            if (sm.getState() == ScheduledTaskState.FAILED) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public ScheduledTaskState getTaskState(String queryId, String taskId) {
+        return getStateMachine(queryId, taskId).getState();
+    }
+
+    /** Returns queries with active tasks assigned to a Worker. */
+    public Set<String> getQueriesForWorker(String workerId) {
+        Set<String> indexed = workerQueryIndex.get(workerId);
+        if (indexed != null && !indexed.isEmpty()) {
+            // Filter indexed results to only include queries with active tasks,
+            // since the index is not pruned on terminal state transitions.
+            Set<String> active = new HashSet<>();
+            for (String queryId : indexed) {
+                ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+                if (tasks != null && hasActiveTaskOnWorker(tasks, workerId)) {
+                    active.add(queryId);
+                }
+            }
+            return active;
+        }
+        // Fallback: full scan if index is empty (should not happen in normal flow)
+        Set<String> affected = new HashSet<>();
+        for (Map.Entry<String, ConcurrentHashMap<String, TaskStateMachine>> queryEntry : queryTasks.entrySet()) {
+            if (hasActiveTaskOnWorker(queryEntry.getValue(), workerId)) {
+                affected.add(queryEntry.getKey());
+            }
+        }
+        return affected;
+    }
+
+    /** Returns the task identities currently tracked for a query. */
+    public Set<String> getTaskIds(String queryId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            return Set.of();
+        }
+        return Set.copyOf(tasks.keySet());
+    }
+
+    /** Returns the most recently started task identity, when available. */
+    public String getLatestStartedTaskId(String queryId) {
+        Set<String> taskIds = getTaskIds(queryId);
+        if (taskIds.isEmpty()) {
+            return null;
+        }
+        String latest = null;
+        Instant latestTime = null;
+        for (String taskId : taskIds) {
+            Instant startTime = timingTracker.getStartTime(taskId);
+            if (startTime != null && (latestTime == null || startTime.isAfter(latestTime))) {
+                latestTime = startTime;
+                latest = taskId;
+            }
+        }
+        return latest != null ? latest : taskIds.stream()
+                .max(java.util.Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    /** Groups a Worker's active task identities by query. */
+    public Map<String, Set<String>> getActiveTasksByQueryForWorker(String workerId) {
+        Map<String, Set<String>> result = new HashMap<>();
+        for (Map.Entry<String, ConcurrentHashMap<String, TaskStateMachine>> queryEntry : queryTasks.entrySet()) {
+            String queryId = queryEntry.getKey();
+            for (Map.Entry<String, TaskStateMachine> taskEntry : queryEntry.getValue().entrySet()) {
+                String taskId = taskEntry.getKey();
+                String assignedWorker = taskWorkerAssignment.get(taskId);
+                if (workerId.equals(assignedWorker) && !taskEntry.getValue().isTerminal()) {
+                    result.computeIfAbsent(queryId, k -> new HashSet<>()).add(taskId);
+                }
+            }
+        }
+        return result;
+    }
+
+    // --- Delegation to TaskTimingTracker ---
+
+    public void setDeadline(String taskId, Instant deadline) {
+        timingTracker.setDeadline(taskId, deadline);
+    }
+
+    public Map<String, String> getTimedOutTasks(Instant now) {
+        return timingTracker.getTimedOutTasks(now, this::isNonTerminal);
+    }
+
+    public void removeDeadline(String taskId) {
+        timingTracker.removeDeadline(taskId);
+    }
+
+    public void recordTaskStart(String taskId, String stageId) {
+        timingTracker.recordTaskStart(taskId, stageId);
+    }
+
+    public void recordTaskStart(String taskId, String stageId, Instant startTime) {
+        timingTracker.recordTaskStart(taskId, stageId, startTime);
+    }
+
+    public List<TaskDuration> getTaskDurationSnapshots(
+            String queryId, String stageId, Set<String> speculativeTaskIds, Instant now) {
+        return timingTracker.getTaskDurationSnapshots(
+                queryTasks.get(queryId), stageId, speculativeTaskIds, now);
+    }
+
+    /** Returns stage IDs with running tasks. */
+    public Set<String> getRunningStageIds(String queryId) {
+        return timingTracker.getRunningStageIds(queryTasks.get(queryId));
+    }
+
+    public void clearTaskTracking(String taskId) {
+        timingTracker.clearTaskTracking(taskId);
+        // Logical terminal timing is not evidence that the issued Native owner
+        // exited. Keep its request until exact release evidence permits retirement.
+    }
+
+    /** Retires a settled logical task without losing retained physical-exit evidence. */
+    public void unregisterSettledTask(String queryId, String taskId) {
+        synchronized (drainRetirementLock) {
+            ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+            if (tasks != null) {
+                TaskStateMachine state = tasks.get(taskId);
+                if (state != null && !state.isTerminal()) {
+                    throw new IllegalStateException("cannot unregister a non-terminal task: " + taskId);
+                }
+            }
+            // Settled-task compaction and exact drain retirement share one lock;
+            // otherwise the latter can read a request that this call discards.
+            taskIdentityStore.remove(taskId);
+            if (tasks != null) {
+                tasks.remove(taskId);
+                if (tasks.isEmpty()) {
+                    queryTasks.remove(queryId, tasks);
+                }
+            }
+            taskWorkerAssignment.remove(taskId);
+            timingTracker.clearTaskTracking(taskId);
+        }
+    }
+
+    /** Retires execution resources without awarding rejected durable publication a DAG win. */
+    public void unregisterDrainedTask(org.pangrova.protocol.v2.TaskReport receipt) {
+        synchronized (drainRetirementLock) {
+            unregisterDrainedTaskOwned(receipt);
+        }
+    }
+
+    /** Retires the currently retained drain receipt under the same lock as compaction. */
+    public boolean unregisterRecordedDrainedTask(String taskId) {
+        synchronized (drainRetirementLock) {
+            var receipt = taskIdentityStore.executionDrainReceipt(taskId);
+            if (receipt.isEmpty()) return false;
+            unregisterDrainedTaskOwned(receipt.orElseThrow());
+            return true;
+        }
+    }
+
+    private void unregisterDrainedTaskOwned(org.pangrova.protocol.v2.TaskReport receipt) {
+        String taskId = receipt.getAttempt().getTaskId();
+        var retained = taskIdentityStore.executionDrainReceipt(taskId).orElseThrow(() ->
+                new IllegalStateException("Cannot retire execution without its retained exact drain receipt"));
+        var request = taskIdentityStore.request(taskId);
+        if (request == null) {
+            if (!org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(retained)
+                    .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                            .compactExecutionDrainReceipt(receipt))) {
+                throw new IllegalArgumentException("Execution drain receipt changed");
+            }
+            return; // Concurrent cleanup already compacted this exact released owner.
+        }
+        if (!retained.equals(receipt)) throw new IllegalArgumentException("Execution drain receipt changed");
+        if (!request.taskRequest().getAttempt().equals(receipt.getAttempt())) {
+            throw new IllegalStateException("Execution drain receipt lost its exact issued request");
+        }
+        String executionId = receipt.getAttempt().getQueryOrJobId();
+        var tasks = queryTasks.get(executionId);
+        if (tasks != null) {
+            var state = tasks.remove(taskId);
+            if (state != null && !state.completionSignal().isDone()) {
+                state.completionSignal().completeExceptionally(new java.util.concurrent.CancellationException(
+                        "Execution owner drained without an accepted publication completion"));
+            }
+            if (tasks.isEmpty()) queryTasks.remove(executionId, tasks);
+        }
+        taskWorkerAssignment.remove(taskId);
+        timingTracker.clearTaskTracking(taskId);
+        taskIdentityStore.compactDrainedTask(taskId, request, receipt);
+    }
+
+    // --- Task identity store (status fencing and speculative cloning) ---
+
+    /** Stores the exact issued request for status fencing and speculative cloning. */
+    public void registerTaskRequest(String taskId, SubmitTaskRequest request) {
+        taskIdentityStore.registerRequest(taskId, request);
+    }
+
+    /** Opens the sole issuance authority before planning. */
+    public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+        return taskIdentityStore.openQuery(queryId);
+    }
+
+    public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
+
+    /** Enters a query issuance operation and notifies listeners when it exits. */
+    public QueryOperation enterQueryOperation(String queryId) {
+        Runnable exited = taskIdentityStore.enterQueryOperation(queryId);
+        try {
+            return new QueryIssuanceOperation(() -> {
+                exited.run();
+                notifyQueryOperationExit(queryId);
+            });
+        } catch (RuntimeException | Error failure) {
+            exited.run();
+            throw failure;
+        }
+    }
+
+    /** Enters an already issued scope for a state transition, including terminal cleanup metadata. */
+    public QueryOperation enterQueryMetadataOperation(String queryId) {
+        Runnable exited = taskIdentityStore.enterMetadataOperation(queryId);
+        try {
+            return new QueryIssuanceOperation(() -> {
+                exited.run();
+                notifyQueryOperationExit(queryId);
+            });
+        } catch (RuntimeException | Error failure) {
+            exited.run();
+            throw failure;
+        }
+    }
+
+    private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
+            queryOperationExitListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private void notifyQueryOperationExit(String queryId) {
+        if (taskIdentityStore.queryOperationsDrained(queryId)) {
+            queryOperationExitListeners.forEach(listener -> listener.accept(queryId));
+        }
+    }
+
+    public void addQueryOperationExitListener(java.util.function.Consumer<String> listener) {
+        queryOperationExitListeners.add(java.util.Objects.requireNonNull(listener));
+    }
+
+    /** Returns whether this exact report still owns a required publication or observer retry. */
+    public boolean hasPendingReportPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.hasPendingPublication(report);
+    }
+
+    /** Registers the required publication before retaining a report's drain evidence. */
+    public TaskReportPublication enterReportPublication(SubmitTaskRequest request,
+            org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {
+        // The publication exit owns the notification claim and still holds its query-operation lease.
+        // Rechecking completed notifications here would block the very callback that completes them.
+        return taskIdentityStore.enterReport(request, report, resourceOnly,
+                () -> publishExecutionDrain(report.taskId()),
+                () -> notifyQueryOperationExit(report.queryId()));
+    }
+
+    /** Captures the actual target before transport admission, never a later WorkerId lookup. */
+    public void bindDispatchTarget(SubmitTaskRequest request, org.pangrova.coordinator.worker.WorkerInfo worker) {
+        taskIdentityStore.bindTarget(request, worker);
+    }
+
+    /** Conservative entered boundary: a throw after this point still requires Worker seal/drain evidence. */
+    public void enterTaskDispatch(SubmitTaskRequest request) { taskIdentityStore.enterDispatch(request); }
+
+    public List<IssuedTask> sealQueryIssuance(String queryId) { return taskIdentityStore.sealQuery(queryId); }
+
+    /** Requires exact physical drain receipts for every retained task. */
+    public void requireQueryExecutionDrained(String queryId) {
+        taskIdentityStore.requireQueryDrained(queryId);
+        var tasks = queryTasks.get(queryId);
+        if (tasks != null) {
+            for (String taskId : tasks.keySet()) {
+                if (taskIdentityStore.executionDrainReceipt(taskId).isEmpty()) {
+                    throw new IllegalStateException("Tracked task has no exact execution drain receipt: " + taskId);
+                }
+            }
+        }
+    }
+
+    /** Called only after all dependent query owners have actually cleaned up. */
+    public void retireQueryIssuance(String queryId) {
+        synchronized (drainRetirementLock) {
+            // Query retirement compacts every retained request. It must not
+            // interleave with a loser cleanup that has read one of those requests.
+            taskIdentityStore.retireQuery(queryId);
+            var removed = queryTasks.remove(queryId);
+            if (removed != null) {
+                removed.keySet().forEach(taskId -> {
+                    taskWorkerAssignment.remove(taskId);
+                    timingTracker.clearTaskTracking(taskId);
+                });
+            }
+            workerQueryIndex.values().forEach(index -> index.remove(queryId));
+            queryRetirementListeners.forEach(listener -> listener.accept(queryId));
+        }
+    }
+
+    private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
+            queryRetirementListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Runs only after issuance retirement verified every entered execution had drained. */
+    public void addQueryRetirementListener(java.util.function.Consumer<String> listener) {
+        queryRetirementListeners.add(java.util.Objects.requireNonNull(listener));
+    }
+
+    public boolean supersedesResultNotice(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.supersedesResultNotice(report);
+    }
+
+    /** Reacknowledges only an already validated exact exit receipt, never outputs or a new winner. */
+    public boolean acknowledgesExecutionDrain(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.acknowledgesDrain(report);
+    }
+
+    /** Reacknowledges completed report work without claiming the execution has drained. */
+    public boolean acknowledgesReportPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.acknowledgesPublication(report);
+    }
+
+    /** A completed exact FINISHED publication must precede durable artifact task retirement. */
+    public boolean finishedPublicationComplete(org.pangrova.protocol.v2.TaskReport receipt) {
+        return taskIdentityStore.finishedPublicationComplete(receipt);
+    }
+
+    public record IssuedTask(SubmitTaskRequest request, org.pangrova.coordinator.worker.WorkerInfo worker,
+                            java.util.Optional<org.pangrova.protocol.v2.TaskReport> drainReceipt) {}
+
+    /** Removes a prepared request only when it is still the exact registered request. */
+    public boolean unregisterTaskRequest(String taskId, SubmitTaskRequest request) {
+        return taskIdentityStore.removeRequest(taskId, request);
+    }
+
+    /** Registers the only attempt identity authorized to report for a task ID. */
+    public void registerTaskAttempt(String taskId, TaskAttemptDescriptor attempt) {
+        taskIdentityStore.registerAttempt(taskId, attempt);
+    }
+
+    /** Returns the expected status-report attempt, or null for an unknown task identity. */
+    public TaskAttemptDescriptor getTaskAttempt(String taskId) {
+        return taskIdentityStore.attempt(taskId);
+    }
+
+    /** Returns the original issued request, or null if unavailable. */
+    public SubmitTaskRequest getTaskRequest(String taskId) {
+        return taskIdentityStore.request(taskId);
+    }
+
+    /** Returns the original issued scheduled fact, preserving event identity and producer time on retry. */
+    public org.pangrova.query.api.journal.TaskStateEvent scheduledJournalEvent(String taskId) {
+        return taskIdentityStore.scheduledEvent(taskId);
+    }
+
+    public void recordExecutionDrain(SubmitTaskRequest request, org.pangrova.protocol.v2.TaskReport report) {
+        taskIdentityStore.recordExecutionDrain(request, report);
+        notifyExecutionDrain(report.getAttempt().getTaskId());
+    }
+
+    private final TaskExecutionDrainNotifications executionDrainListeners = new TaskExecutionDrainNotifications();
+
+    private void notifyExecutionDrain(String taskId) {
+        if (taskIdentityStore.drainNotificationReady(taskId)) {
+            publishExecutionDrain(taskId);
+        }
+    }
+
+    private void publishExecutionDrain(String taskId) {
+        taskIdentityStore.executionDrainReceipt(taskId).ifPresent(executionDrainListeners::publish);
+    }
+
+    /**
+     * Registers an observer of exact retained drain evidence. Observers must tolerate exact-fact replay:
+     * rejection by any observer retries the whole fanout, including observers that already succeeded.
+     */
+    public void addExecutionDrainListener(java.util.function.Consumer<org.pangrova.protocol.v2.TaskReport> listener) {
+        executionDrainListeners.add(java.util.Objects.requireNonNull(listener));
+    }
+
+    public java.util.Optional<org.pangrova.protocol.v2.TaskReport> executionDrainReceipt(String taskId) {
+        return taskIdentityStore.executionDrainReceipt(taskId);
+    }
+
+    public CompletableFuture<Void> awaitTaskCompletion(String queryId, String taskId) {
+        return getStateMachine(queryId, taskId).completionSignal();
+    }
+
+    private void completeTaskFutureIfTerminal(String taskId, TaskStateMachine sm) {
+        TaskLogicalCompletion.complete(taskId, sm, timingTracker);
+    }
+
+    // --- Internal helpers ---
+
+    private boolean isNonTerminal(String queryId, String taskId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            return false;
+        }
+        TaskStateMachine sm = tasks.get(taskId);
+        return sm != null && !sm.isTerminal();
+    }
+
+    private boolean hasActiveTaskOnWorker(ConcurrentHashMap<String, TaskStateMachine> tasks,
+                                          String workerId) {
+        for (Map.Entry<String, TaskStateMachine> taskEntry : tasks.entrySet()) {
+            String assignedWorker = taskWorkerAssignment.get(taskEntry.getKey());
+            if (workerId.equals(assignedWorker) && !taskEntry.getValue().isTerminal()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private TaskStateMachine getStateMachine(String queryId, String taskId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            throw new IllegalArgumentException("Unknown queryId: " + queryId);
+        }
+        TaskStateMachine sm = tasks.get(taskId);
+        if (sm == null) {
+            throw new IllegalArgumentException(
+                    "Unknown taskId: " + taskId + " for queryId: " + queryId);
+        }
+        return sm;
+    }
+
+}
