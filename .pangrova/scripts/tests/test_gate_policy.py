@@ -426,6 +426,17 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
 
+    def test_dependency_baseline_consumers_are_opt_in(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_ARTIFACT == 'true'", native)
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", native)
+        revision = ("tr -d '\\n' < pangrova-worker-native/dependency-versions.txt "
+                    "| sha256sum | cut -c1-16")
+        self.assertIn(revision, native)
+        baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
+        self.assertIn(revision, baseline)
+
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
                  'docs/architecture/overview.md', 'pangrova-worker-native/README.md',

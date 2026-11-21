@@ -230,7 +230,10 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   OCI image to GHCR when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
   granted. This mirrors Gluten's prebuilt-dependency images without adding
-  credentials or registry dependencies to pull-request runs.
+  credentials or registry dependencies to pull-request runs; CI consumes
+  them only when `PANGROVA_NATIVE_DEPS_ARTIFACT=true` (macOS artifact) or
+  `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` (Linux image) is set, otherwise the
+  layered caches above are the only dependency input.
 
 ## Apache Gluten Reference
 
