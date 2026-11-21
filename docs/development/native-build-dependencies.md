@@ -159,17 +159,20 @@ Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
 `X509_get_subject_name`, `X509_EXTENSION_get_object`, `X509_get_ext` and
 `X509_EXTENSION_get_data` no longer compile, and its example/benchmark targets
-fail to link on Intel macOS. The bootstrap applies both reviewed Folly source
-patches (ASN.1 accessors and the OpenSSL 3.6 const results in `OpenSSLUtils.cpp`
-and `OpenSSLCertUtils.cpp`) before configure, and patches the Wangle and Fizz
-const results (`SSLUtil.cpp`, `CertUtil.h`) right after their sources are
-extracted,
+fail to link on Intel macOS. The bootstrap applies the reviewed Folly source
+patches (ASN.1 accessors, the OpenSSL 3.6 const results in `OpenSSLUtils.cpp`
+and `OpenSSLCertUtils.cpp`, and the pre-libc++ 18 exception-construction path in
+`Exception.cpp`) before configure, and patches the Wangle and Fizz const results
+(`SSLUtil.cpp`, `CertUtil.h`) right after their sources are extracted,
 disables its examples and benchmarks, and sets `PROMPT_ALWAYS_RESPOND=n` so the
 pinned dependency sources are reused instead of re-downloaded on non-interactive
 runners.
-On macOS the Folly build also selects the documented pre-libc++ 19 exception
-construction path because Homebrew LLVM headers are newer than the runner
-libc++abi; the same define is applied when Pangrova rebuilds Folly itself.
+The exception patch is a source change because libc++ redefines its own
+availability macro, so a `-D` override is ignored and the newer
+`__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
+macOS builds also pin Homebrew `openssl@3` (installing it when the image only
+ships `openssl@4`): Arrow's bundled thrift still calls `SSLv3_method` and
+`ASN1_STRING_data`, which OpenSSL 4 removed.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
@@ -222,7 +225,7 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
 - `.github/workflows/native-deps-baseline.yml` warms exactly those keys weekly
-  and on dependency changes. macOS publishes a
+  and when the dependency lock changes. macOS publishes a
   `native-deps-<platform>.tar.zst` artifact; Linux can additionally publish an
   OCI image to GHCR when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is

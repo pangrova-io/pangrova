@@ -362,7 +362,11 @@ esac
             self.assertIn(patched_file, const_patch)
         self.assertIn('wangle-2026.01.05-openssl-const.patch', source)
         self.assertIn('fizz-2026.01.05-openssl-const.patch', source)
+        self.assertIn('folly-2026.01.05-libcxx-exception-path.patch', source)
         self.assertIn('apply_dependency_source_patches "$dir"', source)
+        exception_patch = (ROOT / 'pangrova-worker-native/patches/'
+                           'folly-2026.01.05-libcxx-exception-path.patch').read_text()
+        self.assertIn('folly/lang/Exception.cpp', exception_patch)
         wangle_patch = (ROOT / 'pangrova-worker-native/patches/'
                         'wangle-2026.01.05-openssl-const.patch').read_text()
         self.assertIn('wangle/ssl/SSLUtil.cpp', wangle_patch)

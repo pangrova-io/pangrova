@@ -57,6 +57,12 @@ if [[ "$OS" == "Darwin" ]]; then
   fi
   HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
   OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  if [[ -z "$OPENSSL_PREFIX" ]]; then
+    # Arrow's bundled thrift still calls APIs removed in OpenSSL 4 (SSLv3_method,
+    # ASN1_STRING_data); build the whole dependency stack against OpenSSL 3.
+    HOMEBREW_NO_AUTO_UPDATE=1 "$PANGROVA_BREW" install openssl@3
+    OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3)"
+  fi
   BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
   FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
 fi
@@ -422,7 +428,8 @@ build_velox() {
       local folly_patch
       for folly_patch in \
         "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
-        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"; do
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch" \
+        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-libcxx-exception-path.patch"; do
         if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
             -i "$folly_patch" >/dev/null 2>&1; then
           patch --dry-run --batch --forward -d "$source" -p1 -i "$folly_patch"
@@ -534,7 +541,6 @@ build_velox() {
       cmake_install_dir folly \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
-        -DCMAKE_CXX_FLAGS="-D_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION=0" \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
     }
 

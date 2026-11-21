@@ -40,7 +40,7 @@ with a restore prefix, so a patch edit recompiles only patched translation
 units. The whole `~/.pangrova/velox` tree must not be cached: it exceeds the
 repository cache limit, and a restored cache must never contain partial
 dependency checkouts (the setup script verifies each pinned revision).
-`native-deps-baseline.yml` warms the same keys weekly and on dependency changes.
+`native-deps-baseline.yml` warms the same keys weekly and when the lock changes.
 
 On a clean machine, publish the patched Iceberg JDBC catalog candidate before Maven.
 It needs JDK 17 and Gradle 8.14.4 (`GRADLE_BIN` if not on `PATH`), verifies archive
