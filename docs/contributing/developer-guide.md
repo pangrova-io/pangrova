@@ -67,6 +67,13 @@ an older archive into the expected path is rejected. When installing a separate
 matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
+The daily Java jobs and production regression restore the Lance fixture tool
+from the same workflow run's Linux x86-64 Native build. The test artifact
+preserves executable permissions and includes the tool's shared dependencies.
+Locally, build the `pangrova_lance_fixture_tool` Native target before running
+the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
+default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
+
 ### 1.3 Matching AddressSanitizer Dependencies
 
 ASan must use one compiler and a matching instrumented dependency cohort. Using
