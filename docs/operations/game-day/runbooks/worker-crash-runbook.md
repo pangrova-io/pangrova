@@ -5,7 +5,10 @@ description: "Diagnose and recover from worker process crashes"
 
 # Runbook: Worker Crash Recovery
 
-**Use this runbook when:** A worker node's heartbeat has been missed for > 15 seconds, the worker process has exited, or the Coordinator has marked a worker as DEAD.
+**Use this runbook when:** A Worker has exceeded the configured heartbeat timeout
+(30 seconds by default), its process has exited, or the Coordinator reports it
+unavailable. Detection also depends on the monitoring sweep; 15 seconds is not
+the default failure threshold.
 
 | Field | Value |
 |-------|-------|
@@ -18,22 +21,7 @@ description: "Diagnose and recover from worker process crashes"
 
 ## Decision Tree
 
-```
-Worker down?
-  │
-  ├─► Is only one worker affected, or multiple?
-  │     │
-  │     ├─► ONE worker ──► Single-node failure → proceed with Step 1
-  │     │
-  │     └─► MULTIPLE workers ──► Infrastructure event or coordinator issue
-  │           → Escalate to on-call lead before proceeding
-  │
-  └─► Did the worker crash or was it intentionally stopped?
-        │
-        ├─► CRASHED ──► Collect artifacts before restarting → Step 1
-        │
-        └─► STOPPED ──► Skip artifact collection; proceed to Step 4
-```
+![Worker down?](../../../../website/static/img/diagrams/generated/worker-crash-runbook-01-a12eb391fa.svg)
 
 ---
 
@@ -46,7 +34,7 @@ curl -s http://coordinator:8080/api/workers | \
 import json, sys
 workers = json.load(sys.stdin)
 for w in workers:
-    status_flag = '⚠' if w['healthState'] != 'HEALTHY' else ' '
+    status_flag = '⚠' if w['healthState'] != 'ACTIVE' else ' '
     print(f\"{status_flag} {w['host']}:{w['httpPort']}: {w['healthState']}  tasks={w['runningTaskCount']}  lastHeartbeat={w['lastHeartbeat']}\")
 "
 
@@ -141,7 +129,7 @@ ssh "${TARGET_WORKER}" "
   cat /tmp/hs_err_pid*.log 2>/dev/null | head -30 || echo 'No JVM error log'
 
   echo '=== Worker error log ==='
-  tail -30 /var/log/pangrova/pangrova-worker-error.log 2>/dev/null
+  tail -30 /var/log/pangrova/worker-error.log 2>/dev/null
 "
 
 # Restart the worker process
@@ -171,7 +159,7 @@ for w in workers:
         print(w['healthState'])
 ")
   echo "  [${i}] ${TARGET_WORKER} status: ${STATUS}"
-  [[ "${STATUS}" == "HEALTHY" ]] && echo "RECOVERED" && break
+  [[ "${STATUS}" == "ACTIVE" ]] && echo "RECOVERED" && break
   sleep 5
 done
 
@@ -196,8 +184,8 @@ curl -s http://coordinator:8080/api/workers | \
   python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-healthy = sum(1 for w in workers if w['healthState'] == 'HEALTHY')
-print(f'Cluster health: {healthy}/{len(workers)} workers HEALTHY')
+healthy = sum(1 for w in workers if w['healthState'] == 'ACTIVE')
+print(f'Cluster health: {healthy}/{len(workers)} workers ACTIVE')
 "
 ```
 
@@ -205,7 +193,7 @@ print(f'Cluster health: {healthy}/{len(workers)} workers HEALTHY')
 
 ## Recovery Verification Checklist
 
-- [ ] Worker registered with coordinator as HEALTHY
+- [ ] Worker registered with coordinator as ACTIVE
 - [ ] Worker accepting new query tasks
 - [ ] No orphaned shuffle files remaining on any surviving worker
 - [ ] Previously-failed queries retried (or clients notified for non-retryable failures)

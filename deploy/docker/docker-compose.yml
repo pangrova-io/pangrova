@@ -13,6 +13,22 @@
 # ============================================================
 
 services:
+  metadata:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pangrova_meta
+      POSTGRES_USER: pangrova
+      POSTGRES_PASSWORD: ${PANGROVA_DB_PASSWORD:?Set PANGROVA_DB_PASSWORD in .env}
+    volumes:
+      - metadata-data:/var/lib/postgresql/data
+    networks:
+      - pangrova-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pangrova -d pangrova_meta"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   coordinator:
     image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
     container_name: pangrova-coordinator
@@ -24,13 +40,20 @@ services:
       - PANGROVA_HOME=/opt/pangrova
       - PANGROVA_CONF_DIR=/opt/pangrova/config
       - PANGROVA_LOG_DIR=/opt/pangrova/logs
-      - PANGROVA_JAVA_OPTS=${COORDINATOR_JAVA_OPTS:--Xms2g -Xmx8g}
+      - PANGROVA_JAVA_OPTS=${COORDINATOR_JAVA_OPTS:--Xms128m -Xmx512m}
+      - PANGROVA_INTERNAL_AUTH_SECRET=${PANGROVA_INTERNAL_AUTH_SECRET:?Set PANGROVA_INTERNAL_AUTH_SECRET in .env}
+      - PANGROVA_DB_USERNAME=pangrova
+      - PANGROVA_DB_PASSWORD=${PANGROVA_DB_PASSWORD:?Set PANGROVA_DB_PASSWORD in .env}
     volumes:
       - coordinator-logs:/opt/pangrova/logs
+      - ./config/coordinator.yml:/opt/pangrova/config/coordinator.yml:ro
     networks:
       - pangrova-net
+    depends_on:
+      metadata:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,18 +71,21 @@ services:
       - PANGROVA_HOME=/opt/pangrova
       - PANGROVA_CONF_DIR=/opt/pangrova/config
       - PANGROVA_LOG_DIR=/opt/pangrova/logs
-      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g}
-      - WORKER_COORDINATOR_URL=http://coordinator:8080
+      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms128m -Xmx384m -XX:MaxDirectMemorySize=128m}
+      - PANGROVA_COORDINATOR_URL=http://coordinator:8080
+      - PANGROVA_ADVERTISED_HOST=worker
+      - PANGROVA_INTERNAL_AUTH_SECRET=${PANGROVA_INTERNAL_AUTH_SECRET:?Set PANGROVA_INTERNAL_AUTH_SECRET in .env}
     volumes:
       - worker-logs:/opt/pangrova/logs
       - worker-data:/opt/pangrova/data
+      - ./config/worker.yml:/opt/pangrova/config/worker.yml:ro
     networks:
       - pangrova-net
     depends_on:
       coordinator:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,6 +93,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  metadata-data:
   coordinator-logs:
   worker-logs:
   worker-data:

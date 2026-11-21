@@ -1,0 +1,63 @@
+--- a/core/src/main/java/org/apache/iceberg/io/DataWriter.java
++++ b/core/src/main/java/org/apache/iceberg/io/DataWriter.java
+@@ -39,6 +39,8 @@
+   private final ByteBuffer keyMetadata;
+   private final SortOrder sortOrder;
+   private DataFile dataFile = null;
++  private boolean failed;
++  private boolean appenderClosed;
+ 
+   public DataWriter(
+       FileAppender<T> appender,
+@@ -69,7 +71,13 @@
+ 
+   @Override
+   public void write(T row) {
+-    appender.add(row);
++    Preconditions.checkState(!failed && !appenderClosed, "Cannot write after failure or close");
++    try {
++      appender.add(row);
++    } catch (RuntimeException | Error failure) {
++      failed = true;
++      throw failure;
++    }
+   }
+ 
+   @Override
+@@ -80,7 +88,19 @@
+   @Override
+   public void close() throws IOException {
+     if (dataFile == null) {
+-      appender.close();
++      if (!appenderClosed) {
++        try {
++          appender.close();
++          appenderClosed = true;
++        } catch (IOException | RuntimeException | Error failure) {
++          failed = true;
++          throw failure;
++        }
++      }
++      if (failed) {
++        return;
++      }
++      try {
+       this.dataFile =
+           DataFiles.builder(spec)
+               .withFormat(format)
+@@ -93,10 +113,15 @@
+               .withSplitOffsets(appender.splitOffsets())
+               .withSortOrder(sortOrder)
+               .build();
++      } catch (RuntimeException | Error failure) {
++        failed = true;
++        throw failure;
++      }
+     }
+   }
+ 
+   public DataFile toDataFile() {
++    Preconditions.checkState(!failed, "Cannot publish a failed writer");
+     Preconditions.checkState(dataFile != null, "Cannot create data file from unclosed writer");
+     return dataFile;
+   }

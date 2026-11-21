@@ -12,13 +12,16 @@
 
     <artifactId>pangrova-common</artifactId>
     <name>Pangrova Common</name>
-    <description>Common utilities, exception hierarchy, and configuration framework for Pangrova</description>
+    <description>Shared primitives, lifecycle utilities, and exception hierarchy for Pangrova</description>
+
+    <properties>
+        <module.name>org.pangrova.common</module.name>
+    </properties>
 
     <dependencies>
-        <!-- YAML parsing (merged from pangrova-config) -->
         <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
         </dependency>
 
         <!-- Logging -->
@@ -27,26 +30,15 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
-        <!-- Jetty HTTP -->
-        <dependency>
-            <groupId>org.eclipse.jetty</groupId>
-            <artifactId>jetty-server</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.eclipse.jetty</groupId>
-            <artifactId>jetty-servlet</artifactId>
-            <scope>provided</scope>
-        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <scope>provided</scope>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
-            <scope>provided</scope>
+            <optional>true</optional>
         </dependency>
 
         <!-- Test dependencies (versions inherited from parent) -->

@@ -1,5 +1,7 @@
 package org.pangrova.common.exception;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+
 /**
  * Base exception for infrastructure-level (system) errors that are usually
  * non-recoverable. Module-specific infrastructure exceptions should extend

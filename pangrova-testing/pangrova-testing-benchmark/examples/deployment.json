@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "filled-by-job-from-source-revision",
+  "clientJarInImage": "/opt/pangrova/cli/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar",
+  "nodes": [{
+    "context": "default",
+    "clientHost": "127.0.0.1",
+    "composeFile": "REPLACE_WITH_ABSOLUTE_COMPOSE_FILE_PATH",
+    "services": {
+      "coordinator": {"role": "coordinator", "endpoint": "AUTO"},
+      "worker-1": {"role": "worker", "endpoint": "AUTO"},
+      "worker-2": {"role": "worker", "endpoint": "AUTO"},
+      "worker-3": {"role": "worker", "endpoint": "AUTO"},
+      "worker-4": {"role": "worker", "endpoint": "AUTO"}
+    }
+  }]
+}

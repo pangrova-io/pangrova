@@ -7,7 +7,7 @@
 //   - All fields are null before initialization
 //   - The struct layout matches the design specification
 
-#include "jni/bridge/JniBridge.h"
+#include "jni/JniEntryPoints.h"
 
 #include <gtest/gtest.h>
 

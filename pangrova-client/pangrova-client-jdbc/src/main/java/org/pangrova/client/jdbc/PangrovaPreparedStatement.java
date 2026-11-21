@@ -38,32 +38,23 @@ import java.util.TreeMap;
  */
 public final class PangrovaPreparedStatement implements PreparedStatement {
 
+    private final PangrovaStatement delegate;
     private final PangrovaConnection connection;
     private final String originalSql;
+    private final int parameterCount;
     private final Map<Integer, Object> parameters = new TreeMap<>();
-    private boolean closed;
-    private int queryTimeoutSeconds;
-    private ResultSet currentResultSet;
 
     PangrovaPreparedStatement(PangrovaConnection connection, String sql) {
         this.connection = connection;
+        this.delegate = new PangrovaStatement(connection);
         this.originalSql = sql;
+        this.parameterCount = countPlaceholders(sql);
     }
 
     @Override
     public ResultSet executeQuery() throws SQLException {
         checkOpen();
-        closeCurrentResultSet();
-        String sql = substituteParameters();
-        PangrovaStatement delegate = new PangrovaStatement(connection);
-        try {
-            ResultSet rs = delegate.executeQuery(sql);
-            currentResultSet = rs;
-            return rs;
-        } catch (SQLException e) {
-            delegate.close();
-            throw e;
-        }
+        return delegate.executeBoundQuery(originalSql, parameters, this);
     }
 
     @Override
@@ -77,89 +68,89 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
     }
 
     @Override
-    public void clearParameters() {
+    public void clearParameters() throws SQLException {
+        checkOpen();
         parameters.clear();
     }
 
     @Override
-    public void setNull(int parameterIndex, int sqlType) {
-        parameters.put(parameterIndex, null);
+    public void setNull(int parameterIndex, int sqlType) throws SQLException {
+        bind(parameterIndex, null);
     }
 
     @Override
-    public void setBoolean(int parameterIndex, boolean x) {
-        parameters.put(parameterIndex, x);
+    public void setBoolean(int parameterIndex, boolean x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setByte(int parameterIndex, byte x) {
-        parameters.put(parameterIndex, (int) x);
+    public void setByte(int parameterIndex, byte x) throws SQLException {
+        bind(parameterIndex, (int) x);
     }
 
     @Override
-    public void setShort(int parameterIndex, short x) {
-        parameters.put(parameterIndex, (int) x);
+    public void setShort(int parameterIndex, short x) throws SQLException {
+        bind(parameterIndex, (int) x);
     }
 
     @Override
     public void setInt(int parameterIndex, int x) throws SQLException {
-        checkOpen();
-        parameters.put(parameterIndex, x);
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setLong(int parameterIndex, long x) {
-        parameters.put(parameterIndex, x);
+    public void setLong(int parameterIndex, long x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setFloat(int parameterIndex, float x) {
-        parameters.put(parameterIndex, x);
+    public void setFloat(int parameterIndex, float x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setDouble(int parameterIndex, double x) {
-        parameters.put(parameterIndex, x);
+    public void setDouble(int parameterIndex, double x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setBigDecimal(int parameterIndex, BigDecimal x) {
-        parameters.put(parameterIndex, x);
+    public void setBigDecimal(int parameterIndex, BigDecimal x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setString(int parameterIndex, String x) {
-        parameters.put(parameterIndex, x);
+    public void setString(int parameterIndex, String x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setDate(int parameterIndex, Date x) {
-        parameters.put(parameterIndex, x);
+    public void setDate(int parameterIndex, Date x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setTime(int parameterIndex, Time x) {
-        parameters.put(parameterIndex, x);
+    public void setTime(int parameterIndex, Time x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setTimestamp(int parameterIndex, Timestamp x) {
-        parameters.put(parameterIndex, x);
+    public void setTimestamp(int parameterIndex, Timestamp x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setObject(int parameterIndex, Object x) {
-        parameters.put(parameterIndex, x);
+    public void setObject(int parameterIndex, Object x) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setObject(int parameterIndex, Object x, int targetSqlType) {
-        parameters.put(parameterIndex, x);
+    public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) {
-        parameters.put(parameterIndex, x);
+    public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
+        bind(parameterIndex, x);
     }
 
     @Override
@@ -169,41 +160,43 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
 
     @Override
     public ResultSetMetaData getMetaData() throws SQLException {
-        return currentResultSet != null ? currentResultSet.getMetaData() : null;
+        checkOpen();
+        ResultSet current = delegate.getResultSet();
+        return current != null ? current.getMetaData() : null;
     }
 
     @Override
     public ParameterMetaData getParameterMetaData() throws SQLException {
         checkOpen();
-        return new PangrovaParameterMetaData(countPlaceholders(originalSql));
+        return new PangrovaParameterMetaData(parameterCount);
     }
 
     @Override
     public void close() throws SQLException {
-        if (!closed) {
-            closed = true;
-            closeCurrentResultSet();
-        }
+        delegate.close();
+        parameters.clear();
+        connection.statementClosed(this);
     }
 
     @Override
     public boolean isClosed() {
-        return closed;
+        return delegate.isClosed();
     }
 
     @Override
     public void setQueryTimeout(int seconds) {
-        this.queryTimeoutSeconds = Math.max(0, seconds);
+        delegate.setQueryTimeout(seconds);
     }
 
     @Override
     public int getQueryTimeout() {
-        return queryTimeoutSeconds;
+        return delegate.getQueryTimeout();
     }
 
     @Override
-    public Connection getConnection() {
-        return connection;
+    public Connection getConnection() throws SQLException {
+        checkOpen();
+        return delegate.getConnection();
     }
 
     // --- Unsupported setters ---
@@ -256,22 +249,22 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
 
     @Override
     public void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
-        parameters.put(parameterIndex, x);
+        bind(parameterIndex, x);
     }
 
     @Override
     public void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
-        parameters.put(parameterIndex, x);
+        bind(parameterIndex, x);
     }
 
     @Override
     public void setTimestamp(int parameterIndex, Timestamp x, Calendar cal) throws SQLException {
-        parameters.put(parameterIndex, x);
+        bind(parameterIndex, x);
     }
 
     @Override
-    public void setNull(int parameterIndex, int sqlType, String typeName) {
-        parameters.put(parameterIndex, null);
+    public void setNull(int parameterIndex, int sqlType, String typeName) throws SQLException {
+        bind(parameterIndex, null);
     }
 
     @Override
@@ -285,8 +278,8 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
     }
 
     @Override
-    public void setNString(int parameterIndex, String value) {
-        parameters.put(parameterIndex, value);
+    public void setNString(int parameterIndex, String value) throws SQLException {
+        bind(parameterIndex, value);
     }
 
     @Override
@@ -379,11 +372,14 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
     @Override public int getMaxRows() { return 0; }
     @Override public void setMaxRows(int max) {}
     @Override public void setEscapeProcessing(boolean enable) {}
-    @Override public void cancel() throws SQLException {}
+    @Override public void cancel() throws SQLException { delegate.cancel(); }
     @Override public SQLWarning getWarnings() { return null; }
     @Override public void clearWarnings() {}
     @Override public void setCursorName(String name) throws SQLException { throw unsupported(); }
-    @Override public ResultSet getResultSet() throws SQLException { return currentResultSet; }
+    @Override public ResultSet getResultSet() throws SQLException {
+        checkOpen();
+        return delegate.getResultSet();
+    }
     @Override public int getUpdateCount() { return -1; }
     @Override public boolean getMoreResults() { return false; }
     @Override public void setFetchDirection(int direction) {}
@@ -427,6 +423,7 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
      * Returns the final SQL string ready for execution.
      */
     String substituteParameters() throws SQLException {
+        checkOpen();
         return SqlParameterSubstitutor.substitute(originalSql, parameters);
     }
 
@@ -439,16 +436,18 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
     }
 
     private void checkOpen() throws SQLException {
-        if (closed) {
+        if (delegate.isClosed()) {
             throw new SQLException("PreparedStatement is closed");
         }
     }
 
-    private void closeCurrentResultSet() throws SQLException {
-        if (currentResultSet != null && !currentResultSet.isClosed()) {
-            currentResultSet.close();
+    private void bind(int parameterIndex, Object value) throws SQLException {
+        checkOpen();
+        if (parameterIndex < 1 || parameterIndex > parameterCount) {
+            throw new SQLException("Parameter index out of range: " + parameterIndex
+                    + " (parameter count: " + parameterCount + ")", "07009");
         }
-        currentResultSet = null;
+        parameters.put(parameterIndex, value);
     }
 
     private static SQLFeatureNotSupportedException unsupported() {

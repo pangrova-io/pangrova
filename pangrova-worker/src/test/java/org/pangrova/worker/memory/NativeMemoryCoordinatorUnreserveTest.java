@@ -1,6 +1,6 @@
 package org.pangrova.worker.memory;
 
-import org.pangrova.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatCode;

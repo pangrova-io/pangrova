@@ -5,8 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -35,7 +35,7 @@ public final class PaimonTagsSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return COLUMNS;
+        return List.copyOf(COLUMNS);
     }
 
     @Override

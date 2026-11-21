@@ -11,11 +11,41 @@
 # ==============================================================================
 cmake_minimum_required(VERSION 3.20)
 project(pangrova-worker-native VERSION 0.1.0 LANGUAGES CXX)
+# The canonical artifact is a shared JNI library. Build every embedded
+# static dependency (OpenTelemetry, simdjson, …) as position-independent code
+# so AArch64 TLS and relocation models stay valid inside the shared object.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# AArch64 Linux links a very large shared object whose text can exceed the
+# +/-128 MiB range of R_AARCH64_CALL26 branches. GNU ld cannot extend those
+# branches to outline-atomics helpers inside static archives; lld inserts
+# range-extension thunks. The version script also names optional JNI entry
+# points that may be absent for a given link.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  find_program(PANGROVA_LLD_LINKER ld.lld)
+  if(PANGROVA_LLD_LINKER)
+    add_link_options(-fuse-ld=lld "-Wl,--undefined-version")
+    message(STATUS "AArch64 Linux linker: lld with range-extension thunks")
+  endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+option(PANGROVA_PRODUCTION_BUILD "Build self-contained Linux production JNI" OFF)
+if(PANGROVA_PRODUCTION_BUILD)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "PANGROVA_PRODUCTION_BUILD currently requires Linux")
+  endif()
+  set(_PANGROVA_SYSTEM_LIBRARY_SUFFIXES "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
+  set(CMAKE_SKIP_RPATH TRUE)
+endif()
 
 if(APPLE)
   add_compile_definitions(_DARWIN_C_SOURCE)
@@ -64,7 +94,13 @@ endif()
 # Priority: explicit -D flag > environment variable > ~/.pangrova convention
 # This eliminates the need to source env.sh for most development workflows.
 # ==============================================================================
-set(_PANGROVA_HOME "$ENV{HOME}/.pangrova")
+if(PANGROVA_HOME)
+  set(_PANGROVA_HOME "${PANGROVA_HOME}")
+elseif(DEFINED ENV{PANGROVA_HOME} AND NOT "$ENV{PANGROVA_HOME}" STREQUAL "")
+  set(_PANGROVA_HOME "$ENV{PANGROVA_HOME}")
+else()
+  set(_PANGROVA_HOME "$ENV{HOME}/.pangrova")
+endif()
 
 # PANGROVA_DEPS_PREFIX: hermetic native dependencies
 if(NOT PANGROVA_DEPS_PREFIX)
@@ -142,23 +178,46 @@ option(PANGROVA_WERROR "Treat warnings as errors for first-party sources" ON)
 # ==============================================================================
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-if(PANGROVA_ENABLE_OTEL)
-  set(OPENSSL_USE_STATIC_LIBS TRUE)
-  if(APPLE AND NOT OPENSSL_ROOT_DIR AND
-      EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
-    set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
-  endif()
-  find_package(OpenSSL REQUIRED)
+set(OPENSSL_USE_STATIC_LIBS TRUE)
+if(APPLE AND NOT OPENSSL_ROOT_DIR AND
+    EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
+  set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
 endif()
+find_package(OpenSSL REQUIRED)
 
-find_package(JNI REQUIRED)
+# Only the JNI headers are consumed. Request the headless JVM component so
+# FindJNI does not also require the unrelated AWT library by default.
+if(PANGROVA_PRODUCTION_BUILD)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_PANGROVA_SYSTEM_LIBRARY_SUFFIXES}")
+endif()
+find_package(JNI REQUIRED COMPONENTS JVM)
+if(PANGROVA_PRODUCTION_BUILD)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+endif()
 find_package(Arrow REQUIRED)
+if(NOT ARROW_WITH_LZ4 OR NOT ARROW_WITH_ZSTD)
+  message(FATAL_ERROR
+    "Canonical Arrow IPC requires LZ4 and ZSTD support; rebuild Arrow with both codecs enabled")
+endif()
 find_package(Parquet QUIET)
+if(PANGROVA_PRODUCTION_BUILD)
+  if(NOT TARGET Arrow::arrow_static OR NOT TARGET Parquet::parquet_static)
+    message(FATAL_ERROR "Linux production requires static Arrow and Parquet packages")
+  endif()
+  set(PANGROVA_ARROW_TARGET Arrow::arrow_static)
+  set(PANGROVA_PARQUET_TARGET Parquet::parquet_static)
+else()
+  set(PANGROVA_ARROW_TARGET Arrow::arrow_shared)
+  set(PANGROVA_PARQUET_TARGET Parquet::parquet_shared)
+endif()
 
 include(FindArrowFlight)
 include(FindLanceCFFI)
 include(FindVelox)
 include(PangrovaSystemDeps)
+if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(velox_imported INTERFACE "-Wl,--end-group")
+endif()
 include(PangrovaProtobuf)
 
 if(Parquet_FOUND)
@@ -167,12 +226,6 @@ if(Parquet_FOUND)
 else()
   message(STATUS "Parquet NOT found — format readers compile without Parquet link")
   add_compile_definitions(PANGROVA_PARQUET_AVAILABLE=0)
-endif()
-
-if(LANCE_C_FFI_FOUND)
-  add_compile_definitions(PANGROVA_LANCE_AVAILABLE=1)
-else()
-  add_compile_definitions(PANGROVA_LANCE_AVAILABLE=0)
 endif()
 
 # ==============================================================================
@@ -237,11 +290,17 @@ if(PANGROVA_ENABLE_OTEL)
   set(WITH_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(WITH_BENCHMARK OFF CACHE BOOL "" FORCE)
   set(OTELCPP_MAINTAINER_MODE OFF CACHE BOOL "" FORCE)
-  # Suppress Clang 17+ error for OpenTelemetry's template keyword usage.
-  # Must be set via CMAKE_CXX_FLAGS before FetchContent_MakeAvailable so ALL
-  # OTel subdirectory targets (including sdk/src/logs) inherit the flag.
+  # Suppress the Clang diagnostic only when this compiler implements it.
+  # Passing an unknown -Wno-* option emits one warning for every OTel source.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(
+    "-Wno-missing-template-arg-list-after-template-kw"
+    PANGROVA_HAS_MISSING_TEMPLATE_ARG_LIST_SUPPRESSION)
   set(_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
+  if(PANGROVA_HAS_MISSING_TEMPLATE_ARG_LIST_SUPPRESSION)
+    set(CMAKE_CXX_FLAGS
+      "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
+  endif()
   FetchContent_MakeAvailable(opentelemetry-cpp)
   set(CMAKE_CXX_FLAGS "${_SAVED_CXX_FLAGS}")
   set(PANGROVA_HAS_OTEL TRUE)
@@ -269,8 +328,8 @@ FetchContent_Declare(
   GIT_TAG        v4.1.0
   GIT_SHALLOW    TRUE
 )
-set(SIMDJSON_JUST_LIBRARY ON CACHE BOOL "" FORCE)
-set(SIMDJSON_BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_BUILD_STATIC_LIB ${PANGROVA_PRODUCTION_BUILD} CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(simdjson)
 
 if(PANGROVA_BUILD_TESTS)
@@ -301,96 +360,132 @@ endif()
 # No separate STATIC target — eliminates double compilation.
 # C++ tests link directly against this SHARED library.
 # ==============================================================================
-file(GLOB_RECURSE PANGROVA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+# Result streaming and remote exchange are mandatory execution dependencies.
+add_compile_definitions(PANGROVA_HAS_FLIGHT=1)
 
-# Exclude Arrow Flight-dependent sources when Flight is not available.
-# These files #include <arrow/flight/server.h> or <arrow/flight/client.h> and
-# produce undefined symbols that dyld cannot resolve at runtime.
-if(NOT ARROW_FLIGHT_FOUND)
-  list(FILTER PANGROVA_SOURCES EXCLUDE REGEX "FlightShuffleServer\\.cpp|FlightResultServer\\.cpp|PangrovaExchangeSource\\.cpp|FlightServerRegistry\\.cpp")
-  message(STATUS "Arrow Flight not available — excluded FlightShuffleServer, FlightResultServer, PangrovaExchangeSource, FlightServerRegistry")
-elseif(ARROW_FLIGHT_HEADERS_ONLY)
-  # Headers available for compilation but no library to link.
-  # Exclude .cpp files that define Flight server implementations (they reference
-  # libarrow_flight symbols), but keep all other files that only #include Flight
-  # headers for type definitions.
-  list(FILTER PANGROVA_SOURCES EXCLUDE REGEX "FlightShuffleServer\\.cpp|FlightResultServer\\.cpp|PangrovaExchangeSource\\.cpp|FlightServerRegistry\\.cpp")
-  add_compile_definitions(PANGROVA_HAS_FLIGHT=0)
-  message(STATUS "Arrow Flight headers-only — excluded Flight server implementations, kept type definitions")
-else()
-  add_compile_definitions(PANGROVA_HAS_FLIGHT=1)
-endif()
+# ==============================================================================
+# M13a: one SHARED library assembled from responsibility-scoped OBJECT targets.
+# Directories do not move in this step; the split proves the include/link DAG
+# before M13b relocates sources. The bridge target is the only JNI boundary;
+# the execution core does not include AI/index capability implementations.
+# ==============================================================================
+add_library(pangrova_native_headers INTERFACE)
+target_include_directories(pangrova_native_headers INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${JNI_INCLUDE_DIRS}
+)
 
-if(PANGROVA_SOURCES)
-  # OBJECT library: compiles sources once, shared by both SHARED lib and tests.
-  # This avoids double compilation while allowing different visibility settings.
-  add_library(pangrova_native_objects OBJECT ${PANGROVA_SOURCES})
-  target_include_directories(pangrova_native_objects PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${JNI_INCLUDE_DIRS}
+# Aggregates every first-party OBJECT target for the SHARED library and tests.
+add_library(pangrova_native_objects INTERFACE)
+
+function(pangrova_add_object_target target)
+  file(GLOB_RECURSE _sources CONFIGURE_DEPENDS ${ARGN})
+  add_library(${target} OBJECT ${_sources})
+  target_link_libraries(${target} PUBLIC
+    pangrova_native_headers
+    pangrova_native_deps
   )
+  target_link_libraries(pangrova_native_objects INTERFACE ${target})
 
-  # ============================================================================
-  # Task 27.3: Strict warnings for first-party (src/) code only.
-  # Velox / folly / arrow headers trigger many warnings we cannot fix, so we
-  # apply these flags via target_compile_options on our OBJECT library rather
-  # than add_compile_options (which would leak into FetchContent deps).
-  # ============================================================================
+  # Strict warnings for first-party (src/) code only. Velox / folly / arrow
+  # headers trigger warnings we cannot fix, so the flags live on the OBJECT
+  # targets rather than add_compile_options (which would leak into deps).
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(pangrova_native_objects PRIVATE
+    target_compile_options(${target} PRIVATE
       -Wall
       -Wextra
       -fstack-protector-strong
-      # Silence noise from generated protobuf code + Velox public headers
-      # included from first-party translation units.
       -Wno-unused-parameter
       -Wno-deprecated-declarations
     )
     if(PANGROVA_WERROR)
-      target_compile_options(pangrova_native_objects PRIVATE -Werror)
+      target_compile_options(${target} PRIVATE -Werror)
     endif()
   endif()
+  if(APPLE)
+    target_compile_options(${target} PRIVATE -fvisibility=hidden)
+    set_target_properties(${target} PROPERTIES VISIBILITY_INLINES_HIDDEN YES)
+  endif()
+endfunction()
 
-  # --- Core dependencies on OBJECT library ---
-  target_link_libraries(pangrova_native_objects PUBLIC
-    Arrow::arrow_shared
-    roaring
-    roaring-headers-cpp
-    simdjson
+pangrova_add_object_target(pangrova_native_command_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/command/*.cpp)
+pangrova_add_object_target(pangrova_native_jni_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/jni/*.cpp)
+pangrova_add_object_target(pangrova_native_core_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp)
+pangrova_add_object_target(pangrova_native_capability_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/capabilities/*.cpp)
+pangrova_add_object_target(pangrova_native_index_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/indexing/*.cpp)
+pangrova_add_object_target(pangrova_native_vector_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/vector/*.cpp)
+pangrova_add_object_target(pangrova_native_udf_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/udf/*.cpp)
+pangrova_add_object_target(pangrova_native_lance_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/lance/*.cpp)
+pangrova_add_object_target(pangrova_native_spatial_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/spatial/*.cpp)
+
+set(PANGROVA_OBJECT_TARGETS
+  pangrova_native_command_objects
+  pangrova_native_jni_objects
+  pangrova_native_core_objects
+  pangrova_native_capability_objects
+  pangrova_native_index_objects
+  pangrova_native_vector_objects
+  pangrova_native_udf_objects
+  pangrova_native_lance_objects
+  pangrova_native_spatial_objects)
+
+# Third-party dependencies are shared by every first-party OBJECT target.
+add_library(pangrova_native_deps INTERFACE)
+target_link_libraries(pangrova_native_deps INTERFACE
+  ${PANGROVA_ARROW_TARGET}
+  roaring
+  roaring-headers-cpp
+  simdjson
+  arrow_flight_imported
+)
+target_link_libraries(pangrova_native_objects INTERFACE pangrova_native_deps)
+if(Parquet_FOUND)
+  target_link_libraries(pangrova_native_deps INTERFACE ${PANGROVA_PARQUET_TARGET})
+endif()
+if(TARGET pangrova_proto)
+  target_link_libraries(pangrova_native_deps INTERFACE pangrova_proto)
+endif()
+if(PANGROVA_HAS_OTEL)
+  target_compile_definitions(pangrova_native_deps INTERFACE HAS_OTEL_CPP=1)
+  target_link_libraries(pangrova_native_deps INTERFACE
+    opentelemetry_trace
+    opentelemetry_exporter_otlp_grpc
+    opentelemetry_resources
+    opentelemetry_common
   )
-  if(ARROW_FLIGHT_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC arrow_flight_imported)
-  endif()
-  if(Parquet_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC Parquet::parquet_shared)
-  endif()
-  if(TARGET pangrova_proto)
-    target_link_libraries(pangrova_native_objects PUBLIC pangrova_proto)
-  endif()
-  if(PANGROVA_HAS_OTEL)
-    target_compile_definitions(pangrova_native_objects PUBLIC HAS_OTEL_CPP=1)
-    target_link_libraries(pangrova_native_objects PUBLIC
-      opentelemetry_trace
-      opentelemetry_exporter_otlp_grpc
-      opentelemetry_resources
-      opentelemetry_common
-    )
-  endif()
-  if(VELOX_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC velox_imported)
-  endif()
-  if(LANCE_C_FFI_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC lance_c_ffi)
-  endif()
+endif()
+if(VELOX_FOUND)
+  target_link_libraries(pangrova_native_deps INTERFACE velox_imported)
+endif()
+target_link_libraries(pangrova_native_deps INTERFACE lance_c_ffi)
 
-  # SHARED library: uses OBJECT library + adds visibility hidden + Velox force-load.
-  add_library(pangrova_native SHARED)
+include(PangrovaFunctionCatalog)
+
+  # SHARED library: uses the OBJECT targets + adds visibility hidden + Velox force-load.
+  set(_pangrova_object_files)
+  foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+    list(APPEND _pangrova_object_files $<TARGET_OBJECTS:${_pangrova_object_target}>)
+  endforeach()
+  add_library(pangrova_native SHARED ${_pangrova_object_files})
   target_include_directories(pangrova_native PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${JNI_INCLUDE_DIRS}
   )
-  # Link the OBJECT library — this pulls in both .o files and transitive deps.
-  target_link_libraries(pangrova_native PUBLIC pangrova_native_objects)
+  # Object files arrive as sources above; only usage requirements and link
+  # libraries are needed here.
+  target_link_libraries(pangrova_native PUBLIC pangrova_native_deps)
+  if(PANGROVA_PRODUCTION_BUILD)
+    target_link_options(pangrova_native PRIVATE "-Wl,-z,defs")
+  endif()
 
   # --- Velox (the sole execution backend) ---
   if(VELOX_FOUND)
@@ -408,7 +503,7 @@ if(PANGROVA_SOURCES)
       # The strip script (bin/strip-velox-optional-deps.sh) removes .o files
       # that reference unavailable libraries (DuckDB, geos, S2, tpch, stemmer,
       # protobuf v5 API, Arrow Flight server, Network.framework, BZ2).
-    else()
+    elseif(NOT PANGROVA_PRODUCTION_BUILD)
       if(VELOX_MONO_LIB)
         target_link_options(pangrova_native PRIVATE
           "-Wl,--whole-archive" "${VELOX_MONO_LIB}" "-Wl,--no-whole-archive"
@@ -431,7 +526,24 @@ if(PANGROVA_SOURCES)
     # - gflags symbols (fLB::FLAGS_*) from libvelox.a are force-loaded into the
     #   dylib. They're hidden but internally resolvable — Velox code within the
     #   same dylib can reference them without external lookup.
-    target_compile_options(pangrova_native PRIVATE -fvisibility=hidden)
+    # Sources are compiled in the OBJECT targets; the visibility flags are
+    # applied by pangrova_add_object_target, since setting them only on the
+    # source-less SHARED target does not change their visibility.
+
+    # Static Velox/Arrow dependencies are built with default visibility, so a
+    # compile flag alone cannot prevent their symbols from being re-exported.
+    # Restrict the final Mach-O export trie to JNI entry points.
+    set(_JNI_EXPORTED_SYMBOLS_LIST
+      "${CMAKE_CURRENT_SOURCE_DIR}/jni_exported_symbols_macos.list")
+    if(EXISTS "${_JNI_EXPORTED_SYMBOLS_LIST}")
+      target_link_options(pangrova_native PRIVATE
+        "-Wl,-exported_symbols_list,${_JNI_EXPORTED_SYMBOLS_LIST}")
+      message(STATUS
+        "JNI symbol isolation: exported-symbols-list ${_JNI_EXPORTED_SYMBOLS_LIST}")
+    else()
+      message(FATAL_ERROR
+        "JNI exported symbols list not found: ${_JNI_EXPORTED_SYMBOLS_LIST}")
+    endif()
 
     # Suppress linker warnings about "direct access to global weak symbol"
     # caused by visibility mismatch between our hidden .o and Velox's default .a.
@@ -469,7 +581,7 @@ if(PANGROVA_SOURCES)
     list(APPEND _RPATH_DIRS "${_flight_dir}")
   endif()
   # Arrow shared lib directory
-  get_target_property(_arrow_loc Arrow::arrow_shared IMPORTED_LOCATION)
+  get_target_property(_arrow_loc ${PANGROVA_ARROW_TARGET} IMPORTED_LOCATION)
   if(_arrow_loc)
     get_filename_component(_arrow_dir "${_arrow_loc}" DIRECTORY)
     list(APPEND _RPATH_DIRS "${_arrow_dir}")
@@ -478,22 +590,6 @@ if(PANGROVA_SOURCES)
   if(_DEPS_INSTALL AND EXISTS "${_DEPS_INSTALL}/lib")
     list(APPEND _RPATH_DIRS "${_DEPS_INSTALL}/lib")
   endif()
-  # Arrow Flight from ARROW_FLIGHT_HOME or system Arrow for Velox vtable resolution.
-  # Velox force-load pulls in FlightServerBase vtable refs that dlopen must resolve.
-  if(NOT ARROW_FLIGHT_FOUND AND _arrow_loc)
-    get_filename_component(_arrow_parent "${_arrow_dir}" DIRECTORY)
-    # Check if arrow_flight exists alongside arrow (common install layout)
-    find_library(_ARROW_FLIGHT_RPATH_LIB NAMES arrow_flight
-      PATHS "${_arrow_dir}" NO_DEFAULT_PATH)
-    if(_ARROW_FLIGHT_RPATH_LIB)
-      list(APPEND _RPATH_DIRS "${_arrow_dir}")
-      # Directly link arrow_flight so dlopen loads it (RPATH alone is insufficient
-      # for two-level namespace dynamic_lookup symbols on macOS).
-      target_link_libraries(pangrova_native PUBLIC "${_ARROW_FLIGHT_RPATH_LIB}")
-      message(STATUS "Arrow Flight linked for Velox vtable resolution: ${_ARROW_FLIGHT_RPATH_LIB}")
-    endif()
-  endif()
-
   if(APPLE)
     set_target_properties(pangrova_native PROPERTIES
       MACOSX_RPATH TRUE
@@ -515,7 +611,6 @@ if(PANGROVA_SOURCES)
     OUTPUT_NAME "pangrova_native"
     PREFIX "lib"
   )
-endif()
 
 # ==============================================================================
 # Tests
@@ -524,7 +619,26 @@ if(PANGROVA_BUILD_TESTS)
   enable_testing()
   include(GoogleTest)
 
-  file(GLOB_RECURSE TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
+  # Real SDK prerequisite for Java PG publication tests. It loads no Worker/JNI
+  # classes and does not link the engine, so test-compile -> SDK tool -> CTest
+  # has no Java integration-test/native-test dependency cycle.
+  if(NOT TARGET pangrova_proto)
+    message(FATAL_ERROR "Managed Lance SDK fixture requires canonical pangrova_proto")
+  endif()
+  add_executable(pangrova_lance_fixture_tool
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-tools/LanceManagedSourceFixtureTool.cpp")
+  target_link_libraries(pangrova_lance_fixture_tool PRIVATE
+    lance_c_ffi ${PANGROVA_ARROW_TARGET} pangrova_proto)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(pangrova_lance_fixture_tool PRIVATE
+      -Wall -Wextra -fstack-protector-strong -Wno-unused-parameter -Wno-deprecated-declarations)
+    if(PANGROVA_WERROR)
+      target_compile_options(pangrova_lance_fixture_tool PRIVATE -Werror)
+    endif()
+  endif()
+
+  file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
 
   # Velox test utilities (VectorMaker) not in libvelox.a — compile directly.
   set(VELOX_TEST_UTILS "")
@@ -543,7 +657,7 @@ if(PANGROVA_BUILD_TESTS)
       # Explicit template instantiations lost during ar x (filename collision in
       # strip-velox-optional-deps.sh). Compiled directly into test binary since
       # the dylib uses -fvisibility=hidden and cannot export these symbols.
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/compat/ExceptionCheckInstantiations.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/compat/ExceptionCheckInstantiations.cpp
     )
     target_include_directories(pangrova_native_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -555,13 +669,38 @@ if(PANGROVA_BUILD_TESTS)
     target_link_libraries(pangrova_native_tests PRIVATE
       GTest::gtest
       GTest::gmock
-      pangrova_native_objects
     )
+    foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+      target_link_libraries(pangrova_native_tests PRIVATE ${_pangrova_object_target})
+    endforeach()
+    target_link_libraries(pangrova_native_tests PRIVATE pangrova_native_deps)
     if(VELOX_FOUND AND VELOX_MONO_LIB)
       if(APPLE)
         target_link_options(pangrova_native_tests PRIVATE
           "-Wl,-force_load,${VELOX_MONO_LIB}")
         target_link_libraries(pangrova_native_tests PRIVATE "-lc++abi")
+
+        # Arrow Flight is a shared library that carries its own private gRPC and
+        # Abseil implementation.  The ASan test executable also contains an
+        # instrumented static Abseil through Velox/Protobuf.  Darwin coalesces
+        # weak C++ symbols across Mach-O images, so exporting the executable's
+        # Abseil templates makes uninstrumented Flight call into instrumented
+        # code with incompatible sanitizer annotations (reported as
+        # use-after-poison in absl::Cord).  Keep test-only static dependency
+        # symbols private; the executable has no plugin ABI and only main needs
+        # to be externally visible.
+        if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+          set(_TEST_ASAN_EXPORTED_SYMBOLS_LIST
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_asan_exported_symbols_macos.list")
+          if(EXISTS "${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+            target_link_options(pangrova_native_tests PRIVATE
+              "-Wl,-exported_symbols_list,${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+          else()
+            message(FATAL_ERROR
+              "ASan test exported symbols list not found: "
+              "${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+          endif()
+        endif()
       else()
         target_link_options(pangrova_native_tests PRIVATE
           "-Wl,--whole-archive" "${VELOX_MONO_LIB}" "-Wl,--no-whole-archive"
@@ -584,7 +723,7 @@ if(PANGROVA_BUILD_TESTS)
   # patch_flight_types.py rewrites an Arrow header during dependency setup; a
   # silent regression there breaks the build long before any C++ test runs, so
   # its unit tests belong in the same `ctest` invocation as everything else.
-  find_package(Python3 COMPONENTS Interpreter QUIET)
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
   if(Python3_Interpreter_FOUND)
     add_test(
       NAME patch_flight_types
@@ -592,8 +731,56 @@ if(PANGROVA_BUILD_TESTS)
               ${CMAKE_CURRENT_SOURCE_DIR}/test/PatchFlightTypesTest.py
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
-  else()
-    message(WARNING "Python3 not found — patch_flight_types test will not run")
+    add_test(
+      NAME native_test_fixture_lifecycle
+      COMMAND ${Python3_EXECUTABLE} -B
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/RunNativeTestsTest.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_function_provenance
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalFunctionProvenanceTest.py
+              --cmake ${CMAKE_COMMAND}
+              --python ${Python3_EXECUTABLE}
+              --source ${VELOX_HOME}
+              --include ${VELOX_INCLUDE_DIR}
+              --archive ${_VELOX_MONO_LIB}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_abseil_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalAbseilPackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --package ${absl_DIR}
+              --sdk-deps ${PANGROVA_DEPS_PREFIX}
+              --compiler ${CMAKE_CXX_COMPILER}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_flight_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalFlightPackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --deps-prefix ${PANGROVA_DEPS_PREFIX}
+              --flight-prefix ${ARROW_FLIGHT_HOME}
+              --compiler ${CMAKE_CXX_COMPILER}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_re2_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalRe2PackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --deps-prefix ${PANGROVA_DEPS_PREFIX}
+              --absl-package ${absl_DIR}
+              "--cxx-flags=${CMAKE_CXX_FLAGS}"
+              "--linker-flags=${CMAKE_EXE_LINKER_FLAGS}"
+              --compiler ${CMAKE_CXX_COMPILER}
+              --ar ${CMAKE_AR}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
   endif()
 endif()
 
@@ -607,7 +794,7 @@ message(STATUS "  NDEBUG:            ${_NDEBUG_STATUS}")
 message(STATUS "  protoc:            ${PROTOC_EXECUTABLE}")
 message(STATUS "  libprotobuf:       ${_PB_SOURCE}")
 message(STATUS "  Velox:             ${VELOX_HOME}")
-message(STATUS "  Lance C FFI:       ${LANCE_C_FFI_FOUND}")
+message(STATUS "  Lance C FFI:       ${LANCE_C_FFI_LIB}")
 message(STATUS "  OTel SDK:          ${PANGROVA_HAS_OTEL}")
 message(STATUS "  CMAKE_IGNORE_PATH: ${CMAKE_IGNORE_PATH}")
 message(STATUS "  Tests:             ${PANGROVA_BUILD_TESTS}")

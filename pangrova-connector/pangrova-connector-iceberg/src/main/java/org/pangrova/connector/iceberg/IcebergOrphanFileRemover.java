@@ -27,7 +27,7 @@ final class IcebergOrphanFileRemover {
     private IcebergOrphanFileRemover() {}
 
     /** Aggregated outcome of an orphan-file sweep. */
-    record SweepResult(long scannedCount, long deletedCount, long deletedBytes,
+    record SweepResult(long scannedCount, long orphanCount, long deletedCount, long deletedBytes,
                        List<String> deletedOrphanPaths) {}
 
     /**
@@ -41,7 +41,17 @@ final class IcebergOrphanFileRemover {
      */
     static SweepResult sweep(Table table, SupportsPrefixOperations prefixIO,
                              long olderThanMs, String tableName) {
+        return sweep(table, prefixIO, olderThanMs, tableName, false);
+    }
+
+    /**
+     * Scans the table location and, unless {@code dryRun}, deletes unreachable files older than
+     * the cutoff. A dry run reports the exact candidates without deleting anything.
+     */
+    static SweepResult sweep(Table table, SupportsPrefixOperations prefixIO,
+                             long olderThanMs, String tableName, boolean dryRun) {
         Set<String> reachable = collectReachableFiles(table);
+        long orphanCount = 0;
         long deletedCount = 0;
         long deletedBytes = 0;
         long scannedCount = 0;
@@ -52,7 +62,11 @@ final class IcebergOrphanFileRemover {
                 continue;
             }
             String location = fileInfo.location();
-            if (reachable.contains(location) || reachable.contains(canonicalize(location))) {
+            if (reachable.contains(canonicalize(location))) {
+                continue;
+            }
+            orphanCount++;
+            if (dryRun) {
                 continue;
             }
             try {
@@ -65,7 +79,8 @@ final class IcebergOrphanFileRemover {
                         tableName, location, e.getMessage());
             }
         }
-        return new SweepResult(scannedCount, deletedCount, deletedBytes, deletedOrphanPaths);
+        return new SweepResult(scannedCount, orphanCount, deletedCount, deletedBytes,
+                deletedOrphanPaths);
     }
 
     /**
@@ -76,36 +91,38 @@ final class IcebergOrphanFileRemover {
     private static Set<String> collectReachableFiles(Table table) {
         Set<String> reachable = new HashSet<>();
 
-        // Metadata JSON files + version-hint
-        reachable.addAll(ReachableFileUtil.metadataFileLocations(table, true));
+        // Store one canonical form per path: the previous code kept both the raw
+        // and the scheme-stripped form for every reachable file, doubling peak
+        // memory on tables with millions of data files.
+        addAllCanonical(reachable, ReachableFileUtil.metadataFileLocations(table, true));
         String versionHint = ReachableFileUtil.versionHintLocation(table);
         if (versionHint != null) {
-            reachable.add(versionHint);
+            reachable.add(canonicalize(versionHint));
         }
 
         // Manifest list files for all snapshots
-        reachable.addAll(ReachableFileUtil.manifestListLocations(table));
+        addAllCanonical(reachable, ReachableFileUtil.manifestListLocations(table));
 
         // Statistics files (Puffin, etc.)
-        reachable.addAll(ReachableFileUtil.statisticsFilesLocations(table));
+        addAllCanonical(reachable, ReachableFileUtil.statisticsFilesLocations(table));
 
         // Manifest files + every data/delete file path referenced by them.
         // ManifestFiles.readPaths works for both DATA and DELETES manifests.
         FileIO io = table.io();
         for (Snapshot snapshot : table.snapshots()) {
             for (ManifestFile manifest : snapshot.allManifests(io)) {
-                reachable.add(manifest.path());
+                reachable.add(canonicalize(manifest.path()));
                 addManifestEntryPaths(table, manifest, reachable);
             }
         }
 
-        // Also normalize forms (with/without scheme) for matching
-        Set<String> normalized = new HashSet<>();
-        for (String path : reachable) {
-            normalized.add(canonicalize(path));
-        }
-        reachable.addAll(normalized);
         return reachable;
+    }
+
+    private static void addAllCanonical(Set<String> target, Iterable<String> paths) {
+        for (String path : paths) {
+            target.add(canonicalize(path));
+        }
     }
 
     private static void addManifestEntryPaths(
@@ -114,7 +131,7 @@ final class IcebergOrphanFileRemover {
                 org.apache.iceberg.ManifestFiles.readPaths(
                         manifest, table.io(), table.specs())) {
             for (String path : paths) {
-                reachable.add(path);
+                reachable.add(canonicalize(path));
             }
         } catch (Exception e) {
             LOG.warn("event=walk_manifest_failed manifest={} error={}",

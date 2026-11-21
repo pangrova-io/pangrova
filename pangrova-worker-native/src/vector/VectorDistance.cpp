@@ -12,7 +12,11 @@
 #include "vector/VectorDistance.h"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 #ifdef __AVX512F__
 #include <immintrin.h>
@@ -24,6 +28,159 @@
 
 namespace pangrova::vector {
 namespace {
+
+void requireFiniteElements(double left, double right) {
+  if (!std::isfinite(left) || !std::isfinite(right)) {
+    throw std::invalid_argument("Vector distance requires finite elements");
+  }
+}
+
+double requireFiniteResult(double value) {
+  if (!std::isfinite(value)) {
+    throw std::overflow_error("Vector distance result exceeds DOUBLE range");
+  }
+  return value;
+}
+
+// A binary64 product is an integer multiple of 2^-2148. Its significand
+// occupies at most 4196 bits; another 64 bits covers any size_t dimension.
+// Separate positive and negative sums allow exact cancellation without an
+// overflowing floating-point intermediate or a heap allocation.
+class ExactDotAccumulator {
+ public:
+  void add(double left, double right) {
+    requireFiniteElements(left, right);
+    const auto leftBits = std::bit_cast<uint64_t>(left);
+    const auto rightBits = std::bit_cast<uint64_t>(right);
+    const uint64_t leftMantissa = mantissa(leftBits);
+    const uint64_t rightMantissa = mantissa(rightBits);
+    if (leftMantissa == 0 || rightMantissa == 0) {
+      return;
+    }
+    const __uint128_t product =
+        static_cast<__uint128_t>(leftMantissa) * rightMantissa;
+    const int shift = exponent(leftBits) + exponent(rightBits) + 2148;
+    const size_t word = shift / 64;
+    const int offset = shift % 64;
+    auto& sum = ((leftBits ^ rightBits) >> 63) ? negative_ : positive_;
+    const auto low = static_cast<uint64_t>(product);
+    const auto high = static_cast<uint64_t>(product >> 64);
+    addWord(sum, word, low << offset);
+    if (offset == 0) {
+      addWord(sum, word + 1, high);
+    } else {
+      addWord(sum, word + 1, (high << offset) | (low >> (64 - offset)));
+      addWord(sum, word + 2, high >> (64 - offset));
+    }
+  }
+
+  double negativeDot() const {
+    const bool negative = larger(negative_, positive_);
+    const auto& large = negative ? negative_ : positive_;
+    const auto& small = negative ? positive_ : negative_;
+    Words magnitude{};
+    uint64_t borrow = 0;
+    for (size_t i = 0; i < magnitude.size(); ++i) {
+      magnitude[i] = large[i] - small[i] - borrow;
+      borrow = large[i] < small[i] || (borrow && large[i] == small[i]);
+    }
+    const double result = roundedMagnitude(magnitude);
+    return negative ? result : -result;
+  }
+
+ private:
+  static_assert(std::numeric_limits<double>::is_iec559 &&
+                std::numeric_limits<double>::digits == 53 &&
+                sizeof(double) == sizeof(uint64_t));
+  using Words = std::array<uint64_t, 68>;
+
+  static uint64_t mantissa(uint64_t bits) {
+    const uint64_t fraction = bits & ((uint64_t{1} << 52) - 1);
+    return ((bits >> 52) & 0x7ff) == 0
+        ? fraction : fraction | (uint64_t{1} << 52);
+  }
+
+  static int exponent(uint64_t bits) {
+    const int encoded = static_cast<int>((bits >> 52) & 0x7ff);
+    return encoded == 0 ? -1074 : encoded - 1075;
+  }
+
+  static void addWord(Words& sum, size_t index, uint64_t value) {
+    while (value != 0) {
+      const auto previous = sum[index];
+      sum[index] += value;
+      value = sum[index] < previous ? 1 : 0;
+      ++index;
+    }
+  }
+
+  static bool larger(const Words& left, const Words& right) {
+    for (size_t i = left.size(); i > 0; --i) {
+      if (left[i - 1] != right[i - 1]) {
+        return left[i - 1] > right[i - 1];
+      }
+    }
+    return false;
+  }
+
+  static double roundedMagnitude(const Words& magnitude) {
+    size_t used = magnitude.size();
+    while (used > 0 && magnitude[used - 1] == 0) {
+      --used;
+    }
+    if (used == 0) {
+      return 0.0;
+    }
+    const int top = static_cast<int>((used - 1) * 64 +
+        63 - std::countl_zero(magnitude[used - 1]));
+    if (top > 3171) {
+      throw std::overflow_error("Vector distance result exceeds DOUBLE range");
+    }
+    // Normal results retain 53 bits. Subnormals round in units of 2^-1074.
+    const int shift = std::max(top - 52, 1074);
+    const size_t word = shift / 64;
+    const int offset = shift % 64;
+    uint64_t significand = magnitude[word] >> offset;
+    if (offset != 0) {
+      significand |= magnitude[word + 1] << (64 - offset);
+    }
+    const size_t halfWord = (shift - 1) / 64;
+    const int halfOffset = (shift - 1) % 64;
+    const bool guard = ((magnitude[halfWord] >> halfOffset) & 1) != 0;
+    bool sticky = (magnitude[halfWord] &
+                   ((uint64_t{1} << halfOffset) - 1)) != 0;
+    for (size_t i = 0; i < halfWord; ++i) {
+      sticky = sticky || magnitude[i] != 0;
+    }
+    if (guard && (sticky || (significand & 1))) {
+      ++significand;
+    }
+    return requireFiniteResult(std::ldexp(
+        static_cast<double>(significand), shift - 2148));
+  }
+
+  Words positive_{};
+  Words negative_{};
+};
+
+double exactInnerProduct(const double* a, const double* b, size_t dimension) {
+  ExactDotAccumulator accumulator;
+  for (size_t i = 0; i < dimension; ++i) {
+    accumulator.add(a[i], b[i]);
+  }
+  return accumulator.negativeDot();
+}
+
+bool addCompensated(double value, double& sum, double& error) {
+  const double next = sum + value;
+  if (!std::isfinite(next)) {
+    return false;
+  }
+  error += std::abs(sum) >= std::abs(value)
+      ? (sum - next) + value : (value - next) + sum;
+  sum = next;
+  return std::isfinite(error);
+}
 
 // =============================================================================
 // Scalar fallback implementations
@@ -350,6 +507,72 @@ double innerProduct(const float* a, const float* b, size_t dimension) {
 #else
   return innerProductScalar(a, b, dimension);
 #endif
+}
+
+// The DOUBLE VECTOR path never rounds stored values to float32. Scaling before
+// squaring keeps finite norms representable across the full DOUBLE exponent
+// range. The accumulation loops remain allocation-free and vectorizable.
+double l2Distance(const double* a, const double* b, size_t dimension) {
+  double scale = 0.0;
+  for (size_t i = 0; i < dimension; ++i) {
+    requireFiniteElements(a[i], b[i]);
+    const double difference = requireFiniteResult(a[i] - b[i]);
+    scale = std::max(scale, std::abs(difference));
+  }
+  if (scale == 0.0) {
+    return 0.0;
+  }
+  double sum = 0.0;
+  for (size_t i = 0; i < dimension; ++i) {
+    const double difference = (a[i] - b[i]) / scale;
+    sum += difference * difference;
+  }
+  return requireFiniteResult(scale * std::sqrt(sum));
+}
+
+double cosineDistance(const double* a, const double* b, size_t dimension) {
+  double scaleA = 0.0;
+  double scaleB = 0.0;
+  for (size_t i = 0; i < dimension; ++i) {
+    requireFiniteElements(a[i], b[i]);
+    scaleA = std::max(scaleA, std::abs(a[i]));
+    scaleB = std::max(scaleB, std::abs(b[i]));
+  }
+  if (scaleA == 0.0 || scaleB == 0.0) {
+    return 1.0;
+  }
+  double dot = 0.0;
+  double normA = 0.0;
+  double normB = 0.0;
+  for (size_t i = 0; i < dimension; ++i) {
+    const double left = a[i] / scaleA;
+    const double right = b[i] / scaleB;
+    dot += left * right;
+    normA += left * left;
+    normB += right * right;
+  }
+  const double similarity = requireFiniteResult(
+      dot / (std::sqrt(normA) * std::sqrt(normB)));
+  return 1.0 - std::clamp(similarity, -1.0, 1.0);
+}
+
+double innerProduct(const double* a, const double* b, size_t dimension) {
+  double dot = 0.0;
+  double error = 0.0;
+  for (size_t i = 0; i < dimension; ++i) {
+    requireFiniteElements(a[i], b[i]);
+    const double product = a[i] * b[i];
+    if (!std::isfinite(product) ||
+        (a[i] != 0.0 && b[i] != 0.0 &&
+         std::abs(product) < std::numeric_limits<double>::min()) ||
+        !addCompensated(product, dot, error) ||
+        !addCompensated(std::fma(a[i], b[i], -product), dot, error)) {
+      return exactInnerProduct(a, b, dimension);
+    }
+  }
+  const double result = -(dot + error);
+  return std::isfinite(result)
+      ? result : exactInnerProduct(a, b, dimension);
 }
 
 }  // namespace pangrova::vector

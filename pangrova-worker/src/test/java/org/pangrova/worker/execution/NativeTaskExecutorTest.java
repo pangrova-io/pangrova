@@ -1,6 +1,5 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.spi.execution.TaskExecutor;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1045" height="2432" viewBox="0 0 1045 2432" role="img">
+<rect width="1045" height="2432" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="1043.5" height="2430.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * Metadata service — the unified entry point for all metadata operations</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> *</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve"> * Responsibilities:</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve"> * 1. Permission checks (delegated to AccessControl; see security.md)</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve"> * 2. Cache lookups (delegated to MetadataCache)</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve"> * 3. Routing to the correct Catalog implementation</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve"> * 4. Publishing metadata change events</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">public class MetadataService {</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">    private final CatalogRegistry catalogRegistry;</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">    private final MetadataCache metadataCache;</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">    private final AccessControl accessControl;</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">    private final MetadataEventDispatcher eventDispatcher;</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">    private final SchemaEvolutionChecker schemaChecker;</text>
+<line x1="99.8" y1="366.5" x2="109.2" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="366.5" x2="118.6" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="306.6" y1="366.5" x2="316.0" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="316.0" y1="366.5" x2="325.4" y2="366.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">    //    Catalog Operations</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">    public void createCatalog(SessionContext session, CatalogDescriptor descriptor) {</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanCreateCatalog(session.getIdentity());</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">        catalogRegistry.register(descriptor);</text>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">        eventDispatcher.dispatch(new CatalogCreatedEvent(descriptor));</text>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">    public void dropCatalog(SessionContext session, String catalogName, boolean cascade) {</text>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanDropCatalog(session.getIdentity(), catalogName);</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">        if (!cascade &amp;&amp; !listSchemas(session, catalogName).isEmpty()) {</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">            throw new CatalogNotEmptyException(catalogName);</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">        catalogRegistry.unregister(catalogName);</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">        metadataCache.invalidateCatalog(catalogName);</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">        eventDispatcher.dispatch(new CatalogDroppedEvent(catalogName));</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">    public List&lt;String&gt; listCatalogs(SessionContext session) {</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">        Set&lt;String&gt; allCatalogs = catalogRegistry.listCatalogs();</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">        // tenant filtering (see multi-tenancy.md)</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">        return allCatalogs.stream()</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">            .filter(c -&gt; accessControl.canAccessCatalog(session.getIdentity(), c))</text>
+<text x="34.0" y="807.7" fill="#1F2937" xml:space="preserve">            .filter(c -&gt; tenantFilter(session, c))</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">            .toList();</text>
+<text x="34.0" y="845.7" fill="#1F2937" xml:space="preserve">    }</text>
+<line x1="99.8" y1="879.5" x2="109.2" y2="879.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="879.5" x2="118.6" y2="879.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="297.2" y1="879.5" x2="306.6" y2="879.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="306.6" y1="879.5" x2="316.0" y2="879.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">    //    Schema Operations</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">    public List&lt;String&gt; listSchemas(SessionContext session, String catalogName) {</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanAccessCatalog(session.getIdentity(), catalogName);</text>
+<text x="34.0" y="959.7" fill="#1F2937" xml:space="preserve">        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">        return handle.getMetadata(session).listSchemaNames(session.toConnectorSession());</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">    }</text>
+<line x1="99.8" y1="1031.5" x2="109.2" y2="1031.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="1031.5" x2="118.6" y2="1031.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="287.8" y1="1031.5" x2="297.2" y2="1031.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="297.2" y1="1031.5" x2="306.6" y2="1031.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="1035.7" fill="#1F2937" xml:space="preserve">    //    Table Operations</text>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve">    public ResolvedTable resolveTable(SessionContext session, TableRef tableRef) {</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanAccessCatalog(session.getIdentity(), tableRef.getCatalog());</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">        // 1. look up cache</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">        //</text>
+<text x="34.0" y="1168.7" fill="#1F2937" xml:space="preserve">        Optional&lt;TableMetadata&gt; cached = metadataCache.getTable(</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">            tableRef.getCatalog(), tableRef.getSchema(), tableRef.getTable());</text>
+<text x="34.0" y="1206.7" fill="#1F2937" xml:space="preserve">        if (cached.isPresent()) {</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">            // Wrap cached TableMetadata into ResolvedTable (security policies re-evaluated below)</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">        // 2. load from Catalog</text>
+<text x="34.0" y="1301.7" fill="#1F2937" xml:space="preserve">        CatalogHandle handle = catalogRegistry.getCatalog(tableRef.getCatalog());</text>
+<text x="34.0" y="1320.7" fill="#1F2937" xml:space="preserve">        ConnectorMetadata metadata = handle.getMetadata(session);</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">        SchemaTableName schemaTable = new SchemaTableName(</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">            tableRef.getSchema(), tableRef.getTable());</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">        ConnectorTableHandle tableHandle = metadata.getTableHandle(</text>
+<text x="34.0" y="1396.7" fill="#1F2937" xml:space="preserve">            session.toConnectorSession(), schemaTable);</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">        if (tableHandle == null) {</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">            throw new TableNotFoundException(schemaTable);</text>
+<text x="34.0" y="1453.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">        // 3. permission check (table-level)</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanSelectFromTable(</text>
+<text x="34.0" y="1529.7" fill="#1F2937" xml:space="preserve">            session.getIdentity(),</text>
+<text x="34.0" y="1548.7" fill="#1F2937" xml:space="preserve">            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));</text>
+<text x="34.0" y="1586.7" fill="#1F2937" xml:space="preserve">        // 3.1 Security policy extraction (RLS + Column Masking)  [DEF-161]</text>
+<text x="34.0" y="1605.7" fill="#1F2937" xml:space="preserve">        // Retrieve row-level security filters and column masks for this table.</text>
+<text x="34.0" y="1624.7" fill="#1F2937" xml:space="preserve">        // The returned policies are attached to ResolvedTable and later injected</text>
+<text x="34.0" y="1643.7" fill="#1F2937" xml:space="preserve">        // into the Calcite RelNode tree during the Security Rewrite phase</text>
+<text x="34.0" y="1662.7" fill="#1F2937" xml:space="preserve">        // (see query-execution.md §2.1, security.md §3.2/§4.1).</text>
+<text x="34.0" y="1681.7" fill="#1F2937" xml:space="preserve">        Optional&lt;Expression&gt; rowFilter = accessControl.getRowFilter(</text>
+<text x="34.0" y="1700.7" fill="#1F2937" xml:space="preserve">            session.getIdentity(),</text>
+<text x="34.0" y="1719.7" fill="#1F2937" xml:space="preserve">            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));</text>
+<text x="34.0" y="1738.7" fill="#1F2937" xml:space="preserve">        Map&lt;String, Expression&gt; columnMasks = accessControl.getColumnMasks(</text>
+<text x="34.0" y="1757.7" fill="#1F2937" xml:space="preserve">            session.getIdentity(),</text>
+<text x="34.0" y="1776.7" fill="#1F2937" xml:space="preserve">            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));</text>
+<text x="34.0" y="1814.7" fill="#1F2937" xml:space="preserve">        // 4. build ResolvedTable and cache it</text>
+<text x="34.0" y="1833.7" fill="#1F2937" xml:space="preserve">        ResolvedTable resolved = new ResolvedTable(</text>
+<text x="34.0" y="1852.7" fill="#1F2937" xml:space="preserve">            handle, tableHandle, metadata,</text>
+<text x="34.0" y="1871.7" fill="#1F2937" xml:space="preserve">            metadata.getTableMetadata(session.toConnectorSession(), tableHandle),</text>
+<text x="34.0" y="1890.7" fill="#1F2937" xml:space="preserve">            rowFilter,      // [DEF-161] RLS filter expression</text>
+<text x="34.0" y="1909.7" fill="#1F2937" xml:space="preserve">            columnMasks);   // [DEF-161] column mask expressions</text>
+<text x="34.0" y="1928.7" fill="#1F2937" xml:space="preserve">        metadataCache.putTable(tableRef.getCatalog(), tableRef.getSchema(),</text>
+<text x="34.0" y="1947.7" fill="#1F2937" xml:space="preserve">            tableRef.getTable(), resolved.getTableMetadata());</text>
+<text x="34.0" y="1985.7" fill="#1F2937" xml:space="preserve">        return resolved;</text>
+<text x="34.0" y="2004.7" fill="#1F2937" xml:space="preserve">    }</text>
+<line x1="99.8" y1="2038.5" x2="109.2" y2="2038.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="109.2" y1="2038.5" x2="118.6" y2="2038.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="287.8" y1="2038.5" x2="297.2" y2="2038.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="297.2" y1="2038.5" x2="306.6" y2="2038.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="2042.7" fill="#1F2937" xml:space="preserve">    //    Schema Evolution</text>
+<text x="34.0" y="2080.7" fill="#1F2937" xml:space="preserve">    public void alterTable(SessionContext session, TableRef tableRef, TableChange change) {</text>
+<text x="34.0" y="2099.7" fill="#1F2937" xml:space="preserve">        accessControl.checkCanAlterTable(session.getIdentity(), tableRef);</text>
+<text x="34.0" y="2137.7" fill="#1F2937" xml:space="preserve">        CatalogHandle handle = catalogRegistry.getCatalog(tableRef.getCatalog());</text>
+<text x="34.0" y="2156.7" fill="#1F2937" xml:space="preserve">        ConnectorMetadata metadata = handle.getMetadata(session);</text>
+<text x="34.0" y="2194.7" fill="#1F2937" xml:space="preserve">        // Schema compatibility check (authoritative rules: §3.7 SchemaEvolutionValidator)</text>
+<text x="34.0" y="2213.7" fill="#1F2937" xml:space="preserve">        if (change instanceof SchemaChange schemaChange) {</text>
+<text x="34.0" y="2232.7" fill="#1F2937" xml:space="preserve">            schemaChecker.checkCompatibility(metadata, session, tableRef, schemaChange);</text>
+<text x="34.0" y="2251.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="2289.7" fill="#1F2937" xml:space="preserve">        metadata.alterTable(session.toConnectorSession(), tableRef, change);</text>
+<text x="34.0" y="2308.7" fill="#1F2937" xml:space="preserve">        //</text>
+<text x="34.0" y="2327.7" fill="#1F2937" xml:space="preserve">        metadataCache.invalidateTable(tableRef.getCatalog(), tableRef.getSchema(), tableRef.getTable());</text>
+<text x="34.0" y="2346.7" fill="#1F2937" xml:space="preserve">        eventDispatcher.dispatch(new TableAlteredEvent(tableRef, change));</text>
+<text x="34.0" y="2365.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="2384.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

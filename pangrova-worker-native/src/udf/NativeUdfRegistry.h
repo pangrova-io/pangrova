@@ -10,40 +10,15 @@
 #include <unordered_map>
 #include <vector>
 
-// Velox type system — guarded for graceful degradation.
-#if __has_include("velox/type/Type.h")
-#include "velox/type/Type.h"
-#define PANGROVA_HAS_VELOX_TYPE 1
-#else
-#define PANGROVA_HAS_VELOX_TYPE 0
-#endif
-
-// Velox vector function registration API.
-#if __has_include("velox/expression/VectorFunction.h")
-#include "velox/expression/VectorFunction.h"
-#define PANGROVA_HAS_VELOX_VECTOR_FUNC 1
-#else
-#define PANGROVA_HAS_VELOX_VECTOR_FUNC 0
-#endif
-
-// Velox aggregate function registration API.
-#if __has_include("velox/exec/Aggregate.h")
 #include "velox/exec/Aggregate.h"
-#define PANGROVA_HAS_VELOX_AGGREGATE 1
-#else
-#define PANGROVA_HAS_VELOX_AGGREGATE 0
-#endif
+#include "velox/expression/VectorFunction.h"
+#include "velox/type/Type.h"
 
 namespace pangrova::udf {
 
 enum class UdfType { SCALAR, AGGREGATE };
 
-#if PANGROVA_HAS_VELOX_TYPE
 using TypePtr = facebook::velox::TypePtr;
-#else
-// Fallback: opaque placeholder when Velox headers are unavailable.
-using TypePtr = std::shared_ptr<void>;
-#endif
 
 /// Scalar UDF specification.
 /// Type representation uses velox::TypePtr for direct Velox integration.
@@ -56,13 +31,19 @@ struct ScalarUdfSpec {
   /// If false, registers via registerVectorFunction (stateless).
   bool stateful = false;
 
-#if PANGROVA_HAS_VELOX_VECTOR_FUNC
+  /// Whether identical arguments always produce identical results.
+  /// Non-deterministic callbacks must not participate in constant folding.
+  bool deterministic = true;
+
+  /// Pure functions use the strict NULL-input default of the runtime.
+  /// Declared callbacks explicitly select whether NULL reaches their implementation.
+  bool defaultNullBehavior = facebook::velox::exec::VectorFunctionMetadata{}.defaultNullBehavior;
+
   /// Factory for stateless vector functions.
   std::function<std::unique_ptr<facebook::velox::exec::VectorFunction>(
       const std::string& name,
       const std::vector<facebook::velox::exec::VectorFunctionArg>& inputArgs)>
       vectorFunctionFactory;
-#endif
 };
 
 /// Aggregate UDF specification.
@@ -73,14 +54,12 @@ struct AggregateUdfSpec {
   TypePtr intermediateType;
   TypePtr outputType;
 
-#if PANGROVA_HAS_VELOX_AGGREGATE
   /// Factory for Velox Aggregate instances.
   std::function<std::unique_ptr<facebook::velox::exec::Aggregate>(
       facebook::velox::core::AggregationNode::Step step,
       const std::vector<TypePtr>& argTypes,
       const TypePtr& resultType)>
       aggregateFactory;
-#endif
 };
 
 /// Registry for native UDFs (scalar and aggregate).
@@ -96,6 +75,10 @@ class NativeUdfRegistry {
   /// Error message includes UDF name and failure reason.
   void registerScalar(const ScalarUdfSpec& spec);
 
+  /// Validates an entire registration batch against the current lifecycle and
+  /// overload set without changing either registry or invoking any factory.
+  NativeUdfRegistry withScalars(const std::vector<ScalarUdfSpec>& specs) const;
+
   /// Register an aggregate UDF. Throws std::runtime_error on invalid spec.
   /// Error message includes UDF name and failure reason.
   void registerAggregate(const AggregateUdfSpec& spec);
@@ -106,6 +89,10 @@ class NativeUdfRegistry {
   /// via registerAggregateFunction().
   /// Throws std::runtime_error if any registration fails.
   void registerAllWithVelox();
+
+  /// After real callback/execution drain, retire only this runtime's actual
+  /// SDK entries. A later unrelated registration of the same name survives.
+  void retireOwnedRegistrations();
 
   /// Lookup a scalar UDF by name.
   std::optional<ScalarUdfSpec> findScalar(const std::string& name) const;
@@ -120,11 +107,14 @@ class NativeUdfRegistry {
   size_t aggregateCount() const;
 
  private:
-  std::unordered_map<std::string, ScalarUdfSpec> scalarUdfs_;
+  // Keys follow the actual SDK sanitizeName identity; specs retain callback names.
+  std::unordered_map<std::string, std::vector<ScalarUdfSpec>> scalarUdfs_;
   std::unordered_map<std::string, AggregateUdfSpec> aggregateUdfs_;
   // P2-UDF-2: Guard against registration after finalization.
   // Set to true after registerAllWithVelox() completes.
   bool finalized_ = false;
+  std::shared_ptr<const facebook::velox::exec::FunctionRegistrationOwner> registration_owner_ =
+      std::make_shared<const facebook::velox::exec::FunctionRegistrationOwner>();
 };
 
 }  // namespace pangrova::udf

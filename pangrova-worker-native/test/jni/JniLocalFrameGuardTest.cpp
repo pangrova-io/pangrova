@@ -5,7 +5,7 @@
 // Full integration testing (PushLocalFrame/PopLocalFrame with a live
 // JNIEnv) is covered by Java-side E2E tests.
 
-#include "jni/bridge/JniBridge.h"
+#include "jni/JniEntryPoints.h"
 
 #include <gtest/gtest.h>
 #include <type_traits>

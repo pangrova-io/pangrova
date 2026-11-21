@@ -1,7 +1,8 @@
 package org.pangrova.planner.runtimefilter;
 
+import org.pangrova.connector.api.enums.DynamicFilterType;
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +54,7 @@ class RuntimeFilterJoinIntegrationTest {
         // --- Assert: filter generated and registered ---
         assertThat(filterOpt).isPresent();
         RuntimeFilter filter = filterOpt.get();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.MIN_MAX);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.MIN_MAX);
         assertThat(filter.column()).isEqualTo("n_nationkey");
 
         // Register in registry (simulates coordinator pipeline)
@@ -95,7 +96,7 @@ class RuntimeFilterJoinIntegrationTest {
         // --- Assert: bloom filter generated ---
         assertThat(filterOpt).isPresent();
         RuntimeFilter filter = filterOpt.get();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.BLOOM);
         assertThat(filter.column()).isEqualTo("s_suppkey");
         assertThat(filter.bloomFilter()).isNotNull();
 
@@ -156,7 +157,7 @@ class RuntimeFilterJoinIntegrationTest {
         // --- Act: generate bloom filter with BIGINT encoding ---
         RuntimeFilter filter = generator.generate("join_key", buildValues, PangrovaType.BIGINT)
                 .orElseThrow();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.BLOOM);
 
         SplitBlockBloomFilter bloomFilter = filter.bloomFilter();
 
@@ -200,7 +201,7 @@ class RuntimeFilterJoinIntegrationTest {
 
         RuntimeFilter filter = generator.generate("l_extendedprice", buildValues, PangrovaType.DOUBLE)
                 .orElseThrow();
-        assertThat(filter.type()).isEqualTo(RuntimeFilter.FilterType.BLOOM);
+        assertThat(filter.filterType()).isEqualTo(DynamicFilterType.BLOOM);
 
         SplitBlockBloomFilter bloomFilter = filter.bloomFilter();
 

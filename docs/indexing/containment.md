@@ -36,7 +36,7 @@ WITH ('gin.store_positions' = 'false');
 SELECT * FROM prod.analytics.events WHERE ARRAY_CONTAINS(tags, 'promo');
 
 SELECT * FROM prod.analytics.events
-WHERE ARRAY_CONTAINS_ALL(tags, ARRAY['premium', 'featured']);
+WHERE ARRAY_CONTAINS_ALL(tags, 'premium', 'featured');
 ```
 
 **See Also:** [Index DDL](index-ddl.md), [ARRAY data type](../data-types/complex/array.md), [Array Functions](../sql-reference/functions/array.md)

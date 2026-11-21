@@ -1,0 +1,133 @@
+{
+  "executionOrder": [
+    "baseline-1",
+    "candidate-1",
+    "candidate-2",
+    "baseline-2"
+  ],
+  "identities": {
+    "baseline": {
+      "baseline-commit": "ec51db67b183fd8af2495c4ab099b4837c6e7ee9",
+      "nativeSha256": "6cfa0b80749bcb0d322948d394bbd9aebe36f843f5c7071c903a19bc00f0682f",
+      "runtimeManifestSha256": "ccec52b0a3cea4c7b38559f65d0c5b14d969c4c3658753e3c0081159667ef46d"
+    },
+    "candidate": {
+      "nativeSha256": "75d88126094cc2e5ee8165fc9a81cfce2dd1f4e2144682382f7b2c5b7c46f929",
+      "runtimeManifestSha256": "b3788bd0c2df8c08f23b3389ace39b3b11058595553a5418e435cc2306a8ee11",
+      "tree-sha256": "69b7aea5dd0fc63b6cd48d1fd9d5ee7ed288038cc8839517c4385ed997ecae3e"
+    }
+  },
+  "platform": "macOS-13.7.8-arm64-arm-64bit",
+  "pooled": {
+    "baseline": {
+      "constant": {
+        "median": 3994.745959,
+        "n": 24,
+        "p95NearestRank": 7686.598292
+      },
+      "iceberg-sum": {
+        "median": 5065.5464375,
+        "n": 24,
+        "p95NearestRank": 12416.218458
+      }
+    },
+    "candidate": {
+      "constant": {
+        "median": 3527.8918125,
+        "n": 24,
+        "p95NearestRank": 5314.467167
+      },
+      "iceberg-sum": {
+        "median": 4651.812771,
+        "n": 24,
+        "p95NearestRank": 6293.048
+      }
+    }
+  },
+  "relativeMedianChangePct": {
+    "constant": -11.686704268345183,
+    "iceberg-sum": -8.167601888656073
+  },
+  "rssSampling": {
+    "csv": "process-rss-samples.csv",
+    "sha256": "6c7238459a36d409856e286421e995ba00422156ec8ef19fcfe4a9243d55560d",
+    "source": "macOS ps RSS in KiB sampled every second for direct children of the benchmark driver; maxima in report require at least one accepted timed query"
+  },
+  "runs": {
+    "baseline-1": {
+      "csvSha256": "bb254c4fad08010d67a00c537132d4272027fab817f6aad5cdc51629dee524a1",
+      "maxSampledSingleProcessRssMiB": {
+        "cli": 128.0,
+        "coordinator": 389.3,
+        "worker": 187.5
+      },
+      "measurements": {
+        "constant": {
+          "median": 3497.21075,
+          "p95NearestRank": 4839.949083
+        },
+        "iceberg-sum": {
+          "median": 4583.202125,
+          "p95NearestRank": 7064.392875
+        }
+      }
+    },
+    "baseline-2": {
+      "csvSha256": "94aeb4035ae78694334a526bff8ec4846a09d1cc95ad31ce68d728113c0150f2",
+      "maxSampledSingleProcessRssMiB": {
+        "cli": 135.8,
+        "coordinator": 373.7,
+        "worker": 160.2
+      },
+      "measurements": {
+        "constant": {
+          "median": 5050.560292,
+          "p95NearestRank": 8289.383625
+        },
+        "iceberg-sum": {
+          "median": 5628.659125,
+          "p95NearestRank": 15311.373833
+        }
+      }
+    },
+    "candidate-1": {
+      "csvSha256": "788f59dea71e62a5c37836a80f2d17e80cdf567dc8491af810fd15586b2971c9",
+      "maxSampledSingleProcessRssMiB": {
+        "cli": 141.5,
+        "coordinator": 393.0,
+        "worker": 196.0
+      },
+      "measurements": {
+        "constant": {
+          "median": 3232.720917,
+          "p95NearestRank": 4172.968375
+        },
+        "iceberg-sum": {
+          "median": 4504.062896,
+          "p95NearestRank": 5248.942583
+        }
+      }
+    },
+    "candidate-2": {
+      "csvSha256": "c2aa97056c753b43b2043b2688f27cb520c2104f6745171cbad8e22c35f394cb",
+      "maxSampledSingleProcessRssMiB": {
+        "cli": 132.9,
+        "coordinator": 380.6,
+        "worker": 188.2
+      },
+      "measurements": {
+        "constant": {
+          "median": 3874.1790625,
+          "p95NearestRank": 6179.091166
+        },
+        "iceberg-sum": {
+          "median": 5697.4930625,
+          "p95NearestRank": 8395.625041
+        }
+      }
+    }
+  },
+  "samplesPerForkAndSql": 12,
+  "units": "milliseconds public CLI process to FINISHED status with result",
+  "warmupsPerForkAndSql": 3
+}

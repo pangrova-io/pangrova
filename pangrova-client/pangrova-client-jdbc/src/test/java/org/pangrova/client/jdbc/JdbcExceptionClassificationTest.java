@@ -1,9 +1,9 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.rest.PangrovaConnectionException;
-import org.pangrova.client.rest.PangrovaProtocolException;
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.PangrovaServerException;
+import org.pangrova.common.client.exception.PangrovaConnectionException;
+import org.pangrova.common.client.exception.PangrovaProtocolException;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.exception.PangrovaServerException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

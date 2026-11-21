@@ -10,7 +10,7 @@ A complete example registering Iceberg and Paimon catalogs and querying across t
 
 ## End-to-End Example: Multi-Catalog Analytics
 
-Set up a production environment with both Iceberg and Paimon catalogs querying across data sources.
+This configuration and SQL walkthrough illustrates a multi-catalog evaluation. It requires reachable storage/metastore services and workload validation; completing it does not qualify a production deployment.
 
 **Step 1: Register catalogs**
 
@@ -77,10 +77,11 @@ LIMIT 20;
 
 ```sql
 -- Compact small files in the Iceberg table
-COMPACT prod_iceberg.analytics.dim_customers;
+CALL prod_iceberg.compact('analytics.dim_customers');
 
--- Clean up old snapshots
-VACUUM prod_iceberg.analytics.dim_customers;
+-- Expire snapshots older than the cutoff (epoch milliseconds), retaining the last 5.
+-- Choose a retention policy appropriate to readers, branches, and recovery needs.
+CALL prod_iceberg.expire_snapshots('analytics.dim_customers', 5, 1704067200000);
 
 -- Check catalog status
 SHOW CATALOGS;

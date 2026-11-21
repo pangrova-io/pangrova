@@ -1,6 +1,7 @@
 package org.pangrova.planner.stability;
 
 import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.util.SqlText;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.externalize.RelWriterImpl;
 import org.apache.calcite.sql.SqlExplainLevel;
@@ -16,10 +17,9 @@ import java.util.Objects;
  * regressions across runs of the same query.
  *
  * <h2>Query hash</h2>
- * A whitespace-collapsed lowercase SHA-256 of the SQL text. Two queries that
- * differ only in formatting share the same query hash. The same normalization
- * rule used by {@link org.pangrova.planner.cache.PlanCacheKey} so the two
- * subsystems remain consistent.
+ * A SHA-256 of the SQL text with unquoted ASCII case and token-separating
+ * whitespace normalized. Quoted values and comment boundaries retain their meaning. These fingerprints
+ * identify diagnostic plan baselines, not authorization credentials.
  *
  * <h2>Plan hash</h2>
  * SHA-256 of the structural digest produced by {@link RelWriterImpl} at the
@@ -47,7 +47,7 @@ public final class PlanHasher {
      */
     public static String queryHash(String sql) {
         Objects.requireNonNull(sql, "sql");
-        return DigestUtils.sha256Hex(normalizeSql(sql));
+        return DigestUtils.sha256Hex(SqlText.baselineKey(sql));
     }
 
     /**
@@ -73,9 +73,5 @@ public final class PlanHasher {
                 new PrintWriter(sw), SqlExplainLevel.DIGEST_ATTRIBUTES, false);
         plan.explain(writer);
         return sw.toString().trim();
-    }
-
-    private static String normalizeSql(String sql) {
-        return sql.strip().replaceAll("\\s+", " ").toLowerCase();
     }
 }

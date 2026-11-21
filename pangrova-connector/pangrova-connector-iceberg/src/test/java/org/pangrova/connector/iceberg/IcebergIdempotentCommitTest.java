@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.api.session.ConnectorSession;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DeleteFiles;
 import org.apache.iceberg.ExpireSnapshots;
@@ -261,6 +261,11 @@ class IcebergIdempotentCommitTest {
 
     private static ConnectorSession stubSession(Map<String, String> properties) {
         return new ConnectorSession() {
+            @Override
+            public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+                return java.util.Optional.empty();
+            }
+
             @Override public String getUser() { return "test"; }
             @Override public Optional<String> getCatalog() { return Optional.of("iceberg_catalog"); }
             @Override public Optional<String> getSchema() { return Optional.empty(); }

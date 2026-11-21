@@ -11,7 +11,11 @@
     </parent>
 
     <artifactId>pangrova-native-bundle</artifactId>
+    <packaging>pom</packaging>
     <name>Pangrova Native Bundle</name>
+    <properties>
+        <module.name>org.pangrova.worker.jni.bundle</module.name>
+    </properties>
     <description>
         Per-platform classifier JAR containing the native JNI library (libpangrova_native).
         Follows the Netty tcnative-boringssl-static / sqlite-jdbc pattern:
@@ -24,7 +28,8 @@
       This module is a packaging-only module. It does NOT contain Java source code.
       The release workflow:
         1. Builds libpangrova_native.{so,dylib} on each platform via CMake
-        2. Stages the library into src/main/resources/META-INF/native/{os}/{arch}/
+        2. Stages the library into the bridge-owned resource root
+           pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/
         3. Runs: mvn package -pl pangrova-native-bundle -Dnative.resource.dir=...
         4. Installs/deploys the JAR with classifier matching the build platform
 
@@ -48,13 +53,19 @@
         </plugins>
 
         <!--
-          Native libraries are staged into src/main/resources/ by CI before packaging.
+          Native libraries are staged into the bridge module's resource root by CI
+          before packaging. This keeps one staged copy shared by the loader resource
+          and this classifier JAR, so a stale Native payload cannot pair with new Java.
           Resource path convention: META-INF/native/{os}/{arch}/libpangrova_native.{so,dylib}
           This matches NativeLibraryLoader's classpath extraction path.
         -->
         <resources>
             <resource>
-                <directory>src/main/resources</directory>
+                <directory>${native.resource.dir}</directory>
+                <targetPath>META-INF/native/${native.resource.os}/${native.resource.arch}</targetPath>
+                <includes>
+                    <include>libpangrova_native.*</include>
+                </includes>
                 <filtering>false</filtering>
             </resource>
         </resources>
@@ -76,6 +87,32 @@
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>stage-native-classifier</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>resources</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>package-native-classifier</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-enforcer-plugin</artifactId>
                         <executions>
                             <execution>
@@ -88,11 +125,11 @@
                                     <rules>
                                         <requireFilesExist>
                                             <files>
-                                                <file>${project.basedir}/src/main/resources/META-INF/native</file>
+                                                <file>${native.library.path}</file>
                                             </files>
                                             <message>
-                                                Native library directory must exist when packaging.
-                                                Run the CMake build first to stage the library.
+                                                The exact classifier native library must exist when packaging.
+                                                Stage the CMake output and set -Dnative.library.path to that file.
                                             </message>
                                         </requireFilesExist>
                                     </rules>

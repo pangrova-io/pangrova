@@ -13,14 +13,12 @@
     <artifactId>pangrova-testing</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Testing</name>
-    <description>Testing framework parent for Pangrova: common, benchmark, e2e, fuzzer</description>
+    <description>Testing parent for Pangrova: testkit fixtures, integration suites, fuzzer and benchmark leaves</description>
 
     <modules>
-        <module>pangrova-test-common</module>
-        <module>pangrova-test-benchmark</module>
-        <module>pangrova-test-e2e</module>
-        <module>pangrova-test-fuzzer</module>
-        <module>pangrova-test-chaos</module>
-        <module>pangrova-test-smoke</module>
+        <module>pangrova-testing-kit</module>
+        <module>pangrova-testing-integration-tests</module>
+        <module>pangrova-testing-fuzzer</module>
+        <module>pangrova-testing-benchmark</module>
     </modules>
 </project>

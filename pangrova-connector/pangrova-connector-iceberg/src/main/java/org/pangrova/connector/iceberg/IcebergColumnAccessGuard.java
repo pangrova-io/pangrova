@@ -1,9 +1,9 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 
 import java.util.HashMap;
 import java.util.List;

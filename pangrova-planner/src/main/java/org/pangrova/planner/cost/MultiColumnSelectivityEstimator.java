@@ -1,7 +1,7 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.planner.stats.FunctionalDependency;
-import org.pangrova.planner.stats.MultiColumnStatistics;
+import org.pangrova.planner.api.statistics.FunctionalDependency;
+import org.pangrova.planner.api.statistics.MultiColumnStatistics;
 
 import java.util.ArrayList;
 import java.util.Collections;

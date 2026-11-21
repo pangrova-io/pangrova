@@ -1,23 +1,16 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskCancellationStatus;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Propagates query cancellation to all tasks belonging to a query within 1 second.
- *
- * <p>When a query is cancelled, this propagator identifies all tasks for that query
- * and cancels them, including native execution tasks via JNI callback. The design
- * ensures sub-second propagation by maintaining a queryId → taskIds index.</p>
- *
- * <p>Concurrency strategy: ConcurrentHashMap for the query-to-tasks index.
- * Registration and cancellation are lock-free. The index is eventually consistent
- * with the task registry — a task may be registered slightly after submission.</p>
+ * Maintains the query index until each attempt has actually stopped or is confirmed absent.
+ * A failed Native cancellation remains reachable by a subsequent fan-out attempt.
  */
 @ThreadSafe
 public final class QueryCancellationPropagator {
@@ -27,7 +20,7 @@ public final class QueryCancellationPropagator {
     /** Nanoseconds per millisecond, for elapsed-time conversion. */
     private static final long NANOS_PER_MILLI = 1_000_000;
 
-    private final ConcurrentHashMap<String, List<String>> queryTaskIndex = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<String>> queryTaskIndex = new ConcurrentHashMap<>();
     private final TaskManager taskManager;
 
     /** Creates a propagator that cancels tasks through the given task manager. */
@@ -43,7 +36,7 @@ public final class QueryCancellationPropagator {
      */
     public void registerTask(String queryId, String taskId) {
         queryTaskIndex.compute(queryId, (key, existing) -> {
-            List<String> tasks = existing != null ? existing : new ArrayList<>();
+            Set<String> tasks = existing != null ? existing : ConcurrentHashMap.newKeySet();
             tasks.add(taskId);
             return tasks;
         });
@@ -57,18 +50,31 @@ public final class QueryCancellationPropagator {
      */
     public int cancelQuery(String queryId) {
         long startNanos = System.nanoTime();
-        List<String> taskIds = queryTaskIndex.remove(queryId);
-        if (taskIds == null || taskIds.isEmpty()) {
+        Set<String> current = queryTaskIndex.get(queryId);
+        Set<String> taskIds = current == null ? Set.of() : Set.copyOf(current);
+        if (taskIds.isEmpty()) {
             LOG.debug("event=query_cancel_no_tasks queryId={}", queryId);
             return 0;
         }
         int cancelled = 0;
+        RuntimeException failure = null;
         for (String taskId : taskIds) {
-            TaskCancelResult result = taskManager.cancelTask(taskId);
-            if (result.isSuccess()) {
-                cancelled++;
+            try {
+                TaskCancelResult result = taskManager.cancelTask(taskId);
+                if (result.isSuccess()) {
+                    cancelled++;
+                } else if (result.status() == TaskCancellationStatus.NOT_FOUND) {
+                    deregisterTask(queryId, taskId);
+                }
+            } catch (RuntimeException rejected) {
+                if (failure == null) {
+                    failure = rejected;
+                } else if (failure != rejected) {
+                    failure.addSuppressed(rejected);
+                }
             }
         }
+        if (failure != null) throw failure;
         long elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MILLI;
         LOG.info("event=query_cancelled queryId={} totalTasks={} cancelled={} elapsedMs={}",
                 queryId, taskIds.size(), cancelled, elapsedMs);
@@ -100,7 +106,7 @@ public final class QueryCancellationPropagator {
      * Returns the number of tasks tracked for a specific query.
      */
     public int taskCountForQuery(String queryId) {
-        List<String> tasks = queryTaskIndex.get(queryId);
+        Set<String> tasks = queryTaskIndex.get(queryId);
         return tasks != null ? tasks.size() : 0;
     }
 }

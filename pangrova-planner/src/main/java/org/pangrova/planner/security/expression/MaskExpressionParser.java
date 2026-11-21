@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.security.expression;
 
+import org.pangrova.planner.exception.MaskParseException;
+
 import org.apache.calcite.config.CalciteConnectionConfigImpl;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.RelOptCluster;
@@ -24,7 +26,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -135,7 +137,7 @@ public final class MaskExpressionParser {
     private static SqlValidator buildValidator(CalciteCatalogReader catalogReader,
                                                RelDataTypeFactory typeFactory) {
         return SqlValidatorUtil.newValidator(
-                SqlStdOperatorTable.instance(), catalogReader, typeFactory,
+                new PangrovaSqlOperatorTable(), catalogReader, typeFactory,
                 SqlValidator.Config.DEFAULT);
     }
 
@@ -152,10 +154,4 @@ public final class MaskExpressionParser {
         }
     }
 
-    /** Exception thrown when a mask expression cannot be parsed or converted. */
-    public static final class MaskParseException extends RuntimeException {
-        public MaskParseException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

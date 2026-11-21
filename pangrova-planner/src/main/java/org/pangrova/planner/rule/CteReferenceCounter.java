@@ -1,11 +1,12 @@
 package org.pangrova.planner.rule;
 
-import org.pangrova.parser.ast.CteQuery;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.parser.ast.SetQuery;
-import org.pangrova.parser.ast.TableRef;
+import org.pangrova.parser.api.ast.CteQuery;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.TableRef;
 
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ public final class CteReferenceCounter {
     public static List<CTEReference> count(CteQuery cteQuery) {
         Map<String, Integer> counts = new HashMap<>();
         for (CteQuery.CteDefinition def : cteQuery.ctes()) {
-            counts.put(def.name().toLowerCase(), 0);
+            counts.put(def.name().toLowerCase(Locale.ROOT), 0);
         }
         countInStatement(cteQuery.body(), counts);
         for (CteQuery.CteDefinition def : cteQuery.ctes()) {
@@ -36,7 +37,7 @@ public final class CteReferenceCounter {
         }
         return cteQuery.ctes().stream()
                 .map(def -> {
-                    String name = def.name().toLowerCase();
+                    String name = def.name().toLowerCase(Locale.ROOT);
                     int refCount = counts.getOrDefault(name, 0);
                     return new CTEReference(def.name(), estimateCost(def.query()), refCount);
                 })
@@ -71,7 +72,7 @@ public final class CteReferenceCounter {
             ref.subquery().ifPresent(sub -> countInStatement(sub, counts));
         } else {
             List<String> parts = ref.name().parts();
-            String tableName = parts.get(parts.size() - 1).toLowerCase();
+            String tableName = parts.get(parts.size() - 1).toLowerCase(Locale.ROOT);
             if (counts.containsKey(tableName)) {
                 counts.merge(tableName, 1, Integer::sum);
             }
@@ -79,12 +80,12 @@ public final class CteReferenceCounter {
     }
 
     private static void countInExpression(
-            org.pangrova.parser.ast.Expression expr, Map<String, Integer> counts) {
-        if (expr instanceof org.pangrova.parser.ast.expression.SubqueryExpression sub) {
+            org.pangrova.parser.api.ast.Expression expr, Map<String, Integer> counts) {
+        if (expr instanceof org.pangrova.parser.api.ast.expression.SubqueryExpression sub) {
             countInStatement(sub.subquery(), counts);
-        } else if (expr instanceof org.pangrova.parser.ast.expression.ExistsExpression exists) {
+        } else if (expr instanceof org.pangrova.parser.api.ast.expression.ExistsExpression exists) {
             countInStatement(exists.subquery(), counts);
-        } else if (expr instanceof org.pangrova.parser.ast.expression.InSubqueryExpression inSub) {
+        } else if (expr instanceof org.pangrova.parser.api.ast.expression.InSubqueryExpression inSub) {
             countInStatement(inSub.subquery(), counts);
         }
     }

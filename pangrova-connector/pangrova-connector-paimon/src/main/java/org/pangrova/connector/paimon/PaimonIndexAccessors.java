@@ -1,12 +1,15 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
 import org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.index.statistics.DataFileStatistics;
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.enums.NativeIndexType;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalArray;
@@ -24,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -63,24 +65,23 @@ final class PaimonIndexAccessors {
         );
     }
 
-    /** Lists all data file names of the table, or an empty list on failure. */
+    /** Lists the physical data-file paths from one immutable current snapshot. */
     static List<String> listDataFiles(Catalog catalog, String schemaName, String tableName) {
         try {
             Identifier tableId = Identifier.create(schemaName, tableName);
-            Table table = catalog.getTable(tableId);
-            List<String> files = new ArrayList<>();
-            for (Split split : table.newReadBuilder().newScan().plan().splits()) {
-                if (split instanceof DataSplit dataSplit) {
-                    for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
-                        files.add(fileMeta.fileName());
-                    }
-                }
-            }
-            return files;
+            Table table = PaimonTableIdentity.loadFresh(catalog, tableId);
+            PaimonSnapshotAwareMetadata snapshotMetadata =
+                    new PaimonSnapshotAwareMetadata(table);
+            Optional<String> snapshot = snapshotMetadata.currentSnapshotId();
+            return snapshot.isEmpty()
+                    ? List.of()
+                    : snapshotMetadata.listFilesAtSnapshot(snapshot.get()).stream()
+                            .map(SnapshotDataFile::path)
+                            .toList();
         } catch (Exception e) {
-            LOG.warn("action=list_data_files_failed schema={} table={} error={}",
-                    schemaName, tableName, e.getMessage());
-            return List.of();
+            throw new IllegalStateException(
+                    "Failed to list complete Paimon data files for "
+                            + schemaName + "." + tableName, e);
         }
     }
 
@@ -88,12 +89,14 @@ final class PaimonIndexAccessors {
     static Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(
             Catalog catalog, String schemaName, String tableName) {
         try {
-            Table table = catalog.getTable(Identifier.create(schemaName, tableName));
-            return Optional.of(new PaimonSnapshotAwareMetadata(table));
+            Table table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(schemaName, tableName));
+            return table instanceof FileStoreTable
+                    ? Optional.of(new PaimonSnapshotAwareMetadata(table))
+                    : Optional.empty();
         } catch (Exception e) {
-            LOG.debug("action=snapshot_aware_metadata_unavailable schema={} table={} error={}",
-                    schemaName, tableName, e.getMessage());
-            return Optional.empty();
+            throw new IllegalStateException(
+                    "Failed to resolve Paimon snapshot metadata for "
+                            + schemaName + "." + tableName, e);
         }
     }
 
@@ -102,7 +105,7 @@ final class PaimonIndexAccessors {
             Catalog catalog, String schemaName, String tableName, List<String> dataFilePaths) {
         try {
             Identifier tableId = Identifier.create(schemaName, tableName);
-            Table table = catalog.getTable(tableId);
+            Table table = PaimonTableIdentity.loadFresh(catalog, tableId);
             if (!(table instanceof FileStoreTable)) {
                 return List.of();
             }
@@ -130,8 +133,7 @@ final class PaimonIndexAccessors {
                                                  List<DataField> fields, Set<String> targetPaths,
                                                  List<DataFileStatistics> result) {
         for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
-            String filePath = PaimonDataFileExtractor.buildFilePath(
-                    tableLocation, dataSplit, fileMeta.fileName(), Map.of());
+            String filePath = PaimonDataFileExtractor.buildFilePath(dataSplit, fileMeta);
             if (!targetPaths.contains(filePath)) {
                 continue;
             }

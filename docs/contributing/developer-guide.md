@@ -1,74 +1,116 @@
 ---
 title: "Developer Guide"
+description: "Development environment, module workflow, and connector development"
 sidebar_label: "Developer Guide"
 ---
 
-# Pangrova — Developer Guide
+# Developer Guide
 
 > **Summary.** Development-environment setup, the module development workflow, and connector development.
 
-> **Module inventory:** The project contains 38 Maven modules (the root aggregator
-> plus 37 sub-modules, four of which are group aggregators). For the authoritative
-> module list, see [Operations](../operations/index.md) and the
-> `<modules>` section of the root `pom.xml`.
+> **Module inventory:** Use the root and child POMs for the actual Maven reactor;
+> the [System Overview](../architecture/overview.md) provides a selected ownership map,
+> not a fixed module count.
 
 ## 1. Development Environment Setup
 
 ### 1.1 System Requirements
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Development Environment Requirements                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Required Software:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Software           │ Version       │ Purpose                           │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  JDK                │ 17+           │ Java compile and run              │   │
-│  │  Maven              │ 3.8+          │ Build management                  │   │
-│  │  CMake              │ 3.20+         │ Native build                      │   │
-│  │  GCC/Clang          │ 11+/14+       │ C++ compile                       │   │
-│  │  Docker             │ 20+           │ Test containers                   │   │
-│  │  Git                │ 2.30+         │ Version control                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Optional Software:                                                              │
-│  • IntelliJ IDEA (recommended IDE)                                              │
-│  • CLion (Native development)                                                   │
-│  • Docker Compose (local cluster)                                               │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Development Environment Requirements](../../website/static/img/diagrams/generated/developer-guide-01-91bf919dfb.svg)
 
 ### 1.2 Quick Start
 
+Use JDK 17 for the repository verification chain. Both Maven's function-contract
+generator and the native SDK generator require Python 3.10 or later. Ensure
+`python3` on `PATH` selects that interpreter, including test subprocesses. For an
+explicit Maven generator interpreter use
+`-Dpangrova.function-contract.python=/absolute/path/to/python3`; native bootstrap
+accepts `PANGROVA_FUNCTION_CONTRACT_PYTHON`, and CMake accepts `Python3_EXECUTABLE`.
+The host OS's older default Python is not a compliant build runtime.
+
+Run these commands from the repository root with JDK 17, Maven 3.9+, Python 3.10+,
+and Gradle 8.14.4 installed. The native prerequisite check reports the additional
+platform toolchain requirements without installing OS packages.
+
 ```bash
-# 1. Clone the code
-git clone https://github.com/pangrova/pangrova.git
+git clone https://github.com/pangrova-io/pangrova.git
 cd pangrova
 
-# 2. Install dependencies (macOS)
-brew install cmake ninja ccache protobuf
+# Check native tools, then build the pinned Java connector dependency.
+./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
+.pangrova/scripts/build-iceberg-sdk-candidate.sh
 
-# 3. Build Java modules
+# Build native dependencies, Lance, the engine, and packaged JNI resources.
+./pangrova-worker-native/bin/build-native.sh
 mvn clean install -DskipTests
 
-# 4. Build the Native module
-cd pangrova-worker-native
-mkdir build && cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-ninja
-
-# 5. Run tests
+# Validate the native and Java suites (Docker is needed for container tests).
+python3 pangrova-worker-native/bin/run-native-tests.py
 mvn test
-cd pangrova-worker-native/build && ctest
 
-# 6. Start a local cluster
-./bin/start-local-cluster.sh
+# Start Coordinator and Worker in one JVM.
+./bin/pangrova-standalone.sh
 ```
 
-### 1.3 IDE Configuration
+The patched Iceberg candidate is built from pinned upstream source and checked
+patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 is
+not the default executable. For the full release validation chain, use the
+repository's build-pipeline rule and the production CI workflow.
+
+The Lance Rust archive is tied to its Rust sources, Cargo lock/configuration,
+owned SDK patch, canonical protocols and C header by
+`liblance_c_ffi.a.provenance.json`. CMake verifies that receipt both when
+configuring and before linking. After these inputs change, run
+`pangrova-worker-native/bin/build-lance-ffi.sh` before rebuilding Native; copying
+an older archive into the expected path is rejected. When installing a separate
+`LANCE_FFI_PREFIX`, copy the receipt next to its archive in `lib/` and install the
+matching header in `include/`. The receipt is created only after a successful
+build whose inputs remained unchanged.
+
+### 1.3 Matching AddressSanitizer Dependencies
+
+ASan must use one compiler and a matching instrumented dependency cohort. Using
+Release RE2/gRPC/Flight with ASan Abseil can change inline hash-table layouts even
+when the headers and dependency versions match. A successful link is insufficient;
+the native configure executes the canonical RE2 template/regex admission check.
+
+After the regular bootstrap has fetched the pinned sources, build the separate
+sanitizer dependencies and explicitly select them. Run from the repository root:
+
+```bash
+source "$HOME/.pangrova/env.sh"
+./pangrova-worker-native/bin/setup-native-asan-env.sh
+source "$HOME/.pangrova/asan-env.sh"
+cmake --preset dev-asan -S pangrova-worker-native \
+  -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
+  -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
+  -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
+  -DArrow_DIR="$Arrow_DIR" \
+  -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
+  -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
+  -DProtobuf_DIR="$Protobuf_DIR" -Dabsl_DIR="$absl_DIR" \
+  -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB"
+cmake --build pangrova-worker-native/build-asan --parallel 2
+ctest --test-dir pangrova-worker-native/build-asan --output-on-failure
+```
+
+The bootstrap reconfigures and incrementally builds the actual pinned sources;
+cached package presence is not provenance. An existing CMake cache retains package
+paths, so the explicit arguments above matter when changing cohorts. Flight
+admission rejects a cached library outside the selected package prefix. Cross-built
+RE2 admission requires a real target emulator. A bootstrap/configure pass is not an
+ASan test pass; retain the original leak/error checks and report platform/runtime
+failures accurately.
+
+If an upstream source download is unavailable, Arrow's official `ARROW_LZ4_URL`
+and `ARROW_ZSTD_URL` environment variables may select an existing source archive
+(including a `file://` URL). Verify its SHA-256 against the matching SDK Arrow
+source's `cpp/thirdparty/versions.txt` first; Arrow's ExternalProject also retains
+its mandatory hash check. Rebuild the codec from this source with ASan. A cached
+Release codec library is not an acceptable replacement. Do not change codec
+versions, disable compression, or edit generated download scripts to pass setup.
+
+### 1.4 IDE Configuration
 
 ```xml
 
@@ -89,30 +131,49 @@ cd pangrova-worker-native/build && ctest
 </code_scheme>
 ```
 
+### 1.5 Local cleanup and SessionEnd hook
+
+Development runs leave ephemeral artifacts such as `javac.*.args`,
+`.jqwik-database`, `__pycache__`, and `dependency-reduced-pom.xml`. Clean them
+before ending a session and confirm the hygiene gate passes:
+
+```bash
+.pangrova/scripts/clean-dev-artifacts.sh          # ephemeral caches
+.pangrova/scripts/clean-dev-artifacts.sh --all    # also target/build outputs
+.pangrova/scripts/check-dev-artifacts.sh          # gate; --strict also rejects local leftovers
+```
+
+The cleanup script removes the retired non-published documentation directory if
+it reappears. It never touches `data/worker-admission/`, `.env*`, `.secrets/`,
+IDE directories, or `~/.qoder/plans/`.
+
+Qoder Desktop can run the cleanup at the end of every task. Add this to the
+user-level `~/.qoder/settings.json` (not committed; `.qoder/` is ignored):
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -x \"$root/.pangrova/scripts/clean-dev-artifacts.sh\" ] && \"$root/.pangrova/scripts/clean-dev-artifacts.sh\" --quiet || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The command is a no-op outside a Pangrova checkout and never blocks session end.
+
 ## 2. Module Development Guide
 
 ### 2.1 Module Structure Convention
 
-```
-pangrova-{module}/
-├── src/
-│   ├── main/
-│   │   ├── java/org/pangrova/{module}/
-│   │   │   ├── {Module}Module.java      # Module entry point (DI module — see [00 §9](../architecture/overview.md) for DI framework choice)
-
-│   │   │   ├── {Module}Config.java      # Configuration class
-│   │   │   ├── api/                     # Public API
-│   │   │   ├── internal/                # Internal implementation
-│   │   │   └── spi/                     # SPI interfaces (if any)
-│   │   └── resources/
-│   │       └── META-INF/services/       # SPI registration
-│   └── test/
-│       └── java/org/pangrova/{module}/
-│           ├── Test{Feature}.java       # Unit test
-│           └── Integration{Feature}Test.java  # Integration test
-├── pom.xml
-└── README.md
-```
+![pangrova-{module}/](../../website/static/img/diagrams/generated/developer-guide-07-df85bc009e.svg)
 
 ### 2.2 Code Conventions
 
@@ -121,10 +182,10 @@ pangrova-{module}/
  * Class design convention example
  * 
  * Rules:
- * 1. Single responsibility per class, no more than 500 lines
- * 2. Methods no longer than 20 lines
- * 3. No more than 5 parameters
- * 4. No more than 3 levels of indentation
+ * 1. One responsibility per class; Java file hard ceiling: 800 lines
+ * 2. Coherent methods; hard ceiling: 100 nonblank, noncomment lines
+ * 3. At most 10 method/constructor parameters; group only cohesive concepts
+ * 4. Keep nesting shallow; Checkstyle depth limits: if/for 3, try 2
  */
 public class QueryExecutor {
     
@@ -160,6 +221,14 @@ public class QueryExecutor {
     private QueryResult executeInternal(ExecutionPlan plan, QueryContext ctx) { /* ... */ }
 }
 ```
+
+### Validation Scope and Readability
+
+Repository policy is discovered through `AGENTS.md` and `.pangrova/rules/`, which
+own validation selection (`development.md`), structural review thresholds
+(`code-standards.md`), test rules (`testing.md`) and CI selection (`ci-gates.md`).
+Start with the closest check, then the owning module and affected consumers, and
+report blockers instead of disabling tests or claiming unexecuted checks passed.
 
 ### 2.3 Comment Conventions
 
@@ -200,33 +269,7 @@ public class QueryExecutor {
 
 ### 3.1 Connector Development Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Connector Development Flow                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  1. Create the module                                                           │
-│     pangrova-connector-{name}/                                                    │
-│                                                                                  │
-│  2. Implement core interfaces                                                   │
-│     ┌─────────────────────────────────────────────────────────────────────┐    │
-│     │  ConnectorFactory → Connector → ConnectorMetadata                   │    │
-│     │                              → ConnectorSplitManager                │    │
-│     │                              → ConnectorPageSourceProvider          │    │
-│     │                              → ConnectorPageSinkProvider (optional)  │    │
-│     └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                                  │
-│  3. Register SPI                                                                 │
-│     META-INF/services/org.pangrova.spi.connector.ConnectorFactory                │
-│                                                                                  │
-│  4. Write tests                                                                 │
-│     Use TestContainers for integration testing                                 │
-│                                                                                  │
-│  5. Documentation                                                               │
-│     README.md + configuration notes                                            │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Connector Development Flow](../../website/static/img/diagrams/generated/developer-guide-10-8ed8d9500b.svg)
 
 ### 3.2 Connector Implementation Example
 
@@ -237,6 +280,10 @@ public class QueryExecutor {
 
 // 1. ConnectorFactory
 public class CsvConnectorFactory implements ConnectorFactory {
+    @Override public int apiVersion() { return ConnectorFactoryContract.CURRENT_API_VERSION; }
+    @Override public Set<ConnectorRole> roles() { return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER); }
+    @Override public void validateConfiguration(Map<String, String> config) { new CsvConfig(config); }
+
     
     @Override
     public String getName() {
@@ -251,14 +298,6 @@ public class CsvConnectorFactory implements ConnectorFactory {
         return new CsvConnector(csvConfig, context);
     }
     
-    @Override
-    public List<PropertyMetadata<?>> getConfigProperties() {
-        return List.of(
-            PropertyMetadata.stringProperty("csv.path", "CSV files directory", true),
-            PropertyMetadata.stringProperty("csv.delimiter", "Field delimiter", ","),
-            PropertyMetadata.booleanProperty("csv.header", "Has header row", true)
-        );
-    }
 }
 
 // 2. Connector
@@ -428,15 +467,15 @@ public class CsvConnectorIntegrationTest {
 
 ## 4. Connector Development Quickstart
 
-Step-by-step guide from project creation to running integration tests. Assumes JDK 17+, Maven 3.8+, Docker installed.
+Step-by-step guide from project creation to running integration tests. Assumes JDK 17+, Maven 3.9+, Docker installed.
 
 ### Step 1: Create Module
 
 ```bash
 # From pangrova root directory
-mkdir -p pangrova-connector-mydb/src/main/java/org/pangrova/connector/mydb
-mkdir -p pangrova-connector-mydb/src/main/resources/META-INF/services
-mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/main/java/org/pangrova/connector/mydb
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/main/resources/META-INF/services
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
 ```
 
 ### Step 2: Add pom.xml
@@ -446,19 +485,19 @@ mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
 <project>
     <parent>
         <groupId>org.pangrova</groupId>
-        <artifactId>pangrova-connectors</artifactId>
-        <version>${revision}</version>
+        <artifactId>pangrova-connector</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>pangrova-connector-mydb</artifactId>
 
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-connector-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -476,6 +515,10 @@ mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
 package org.pangrova.connector.mydb;
 
 public class MyDbConnectorFactory implements ConnectorFactory {
+    @Override public int apiVersion() { return ConnectorFactoryContract.CURRENT_API_VERSION; }
+    @Override public Set<ConnectorRole> roles() { return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER); }
+    @Override public void validateConfiguration(Map<String, String> config) { new MyDbConfig(config); }
+
 
     @Override
     public String getName() {
@@ -490,13 +533,6 @@ public class MyDbConnectorFactory implements ConnectorFactory {
         return new MyDbConnector(myDbConfig);
     }
 
-    @Override
-    public List<PropertyMetadata<?>> getConfigProperties() {
-        return List.of(
-            PropertyMetadata.stringProperty("mydb.url", "JDBC URL", true),
-            PropertyMetadata.stringProperty("mydb.user", "Username", true)
-        );
-    }
 }
 ```
 
@@ -519,10 +555,15 @@ Refer to the CSV Connector example in §3.2 for implementation patterns.
 ```bash
 # Create SPI registration file
 echo "org.pangrova.connector.mydb.MyDbConnectorFactory" > \
-  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.spi.connector.ConnectorFactory
+  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory
 ```
 
 ### Step 6: Write Integration Test
+
+> **Illustrative test code.** `TestConnectorContext` and
+> `CsvConnectorIntegrationTest` below are tutorial-local names, not repository
+> classes. Real connector acceptance extends
+> `org.pangrova.testing.testkit.AbstractConnectorTckTest`.
 
 ```java
 package org.pangrova.connector.mydb;
@@ -680,11 +721,11 @@ Closes #123
 ```bash
 # Start Coordinator (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 \
-     -jar pangrova-coordinator/target/pangrova-coordinator.jar
+     -jar pangrova-coordination/pangrova-coordination-control/target/pangrova-coordination-control-0.1.0-SNAPSHOT.jar
 
 # Start Worker (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5006 \
-     -jar pangrova-worker/target/pangrova-worker.jar
+     -jar pangrova-worker/target/pangrova-worker-0.1.0-SNAPSHOT.jar
 
 # Native debugging (GDB)
 gdb --args ./pangrova-worker-native/build/pangrova_worker_native
@@ -699,12 +740,6 @@ logging:
     org.pangrova.coordinator.query: DEBUG
     org.pangrova.worker.execution: DEBUG
     org.pangrova.connector.iceberg: TRACE
-```
-
-```sql
--- Adjust log level via SQL
-SET SESSION log_level = 'DEBUG';
-SET SESSION log_level FOR 'org.pangrova.planner' = 'TRACE';
 ```
 
 ---
@@ -742,49 +777,48 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 
 
 
-> **Module Structure (§2.1)**: Each connector module follows the convention: `src/main/java/org/pangrova/connector/{format}/spi/` for SPI interfaces and `src/main/java/org/pangrova/connector/{format}/impl/` for implementations. This aligns with [connectors.md §2](../architecture/connectors.md) ClassLoader isolation — SPI packages are loaded by the parent ClassLoader.
+> **Module Structure (§2.1)**: Provider code lives under `src/main/java/org/pangrova/connector/{format}/` with `read/`, `write/`, `handle/`, and `type/` subpackages. SPI contracts live in `pangrova-connector/pangrova-connector-api`, not in provider modules.
 
 
-> **Code Standards (§2.2)**: The authoritative code standards are defined in [overview.md §8.3](../architecture/overview.md). This section provides developer-oriented quick reference only. Any divergence should be resolved in favor of 00 §8.3.
+> **Code Standards (§2.2):** The authoritative policy lives in repository code standards. This guide is a practical reference and does not override those rules.
 
 
-> **Connector Example (§3.2)**: `ConnectorFactory.create()` signature matches [04 §1.1](../architecture/connectors.md). `getConfigProperties()` returns `Map<String, String>` (not `Properties`) to align with the Connector SPI contract in 04 §1.2.
+> **Connector Example (§3.2)**: `ConnectorFactory` exposes `getName()`, `apiVersion()`, `roles()`, `validateConfiguration(...)`, and `create(...)`; it has no `getConfigProperties()` method. See [connectors.md §1](../architecture/connectors.md).
 
 ---
 
-## Appendix: Quick Start (English)
+## Appendix: Native E2E prerequisites
 
-### Prerequisites
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| JDK | 17+ | Java compilation and runtime |
-| Maven | 3.8+ | Build management |
-| Git | 2.30+ | Version control |
-| Docker | 20+ | Integration tests (TestContainers) |
-| CMake + Ninja | 3.20+ | Native C++ build (optional) |
-
-### Build & Run
-
-```bash
-mvn clean package -DskipTests          # Full build
-bin/pangrova-standalone.sh               # Start standalone
-bin/pangrova-cli.sh                      # Interactive SQL
-```
+Complete the [build setup](#12-quick-start) before running these checks.
 
 ### Running Tests
 
+Native E2E tests require a matching packaged JNI library and an immutable real
+model fixture. Prepare the fixture before Maven; test startup does not download
+models or require the public model registry:
+
 ```bash
-mvn test -pl pangrova-coordinator -am                  # Unit tests
-mvn test -pl pangrova-testing/pangrova-test-e2e -am      # E2E tests (Docker required)
-mvn test -pl pangrova-testing/pangrova-test-benchmark -am # TPC-H benchmark
+docker pull ollama/ollama:0.6.2
+python3.12 .pangrova/scripts/prepare-e2e-ai-image.py --receipt /tmp/pangrova-ai-fixture.json
+ai_fixture_id=$(python3.12 -c 'import json; print(json.load(open("/tmp/pangrova-ai-fixture.json"))["imageId"])')
+```
+
+Use a fresh receipt path when building another artifact. See the
+[real SQL regression prerequisite](../testing/tpc-benchmark-methodology.md#real-sqlnative-regression-prerequisite)
+for offline model imports, fixture integrity checks and the focused Q9 command.
+
+```bash
+mvn test -pl pangrova-coordination/pangrova-coordination-control -am                  # Unit tests
+mvn test -pl pangrova-testing/pangrova-testing-integration-tests -am -Pnative-runtime \
+  -Dpangrova.e2e.ai.image-id="$ai_fixture_id"           # Real E2E tests
+mvn test -pl pangrova-testing/pangrova-testing-benchmark -am # TPC-H benchmark
 ```
 
 ### Code Conventions
 
 - **Style**: Checkstyle at `config/checkstyle/`
 - **Bugs**: SpotBugs at `config/spotbugs/`
-- **SPI**: All public interfaces under `pangrova-spi` must have `@Stable`/`@Experimental`/`@Internal`
+- **SPI**: All public interfaces under an `-api`/`-spi` contract artifact must have `@Stable`/`@Experimental`/`@Internal`
 - **License**: All new Java files require Apache 2.0 header
 
 ### Native (C++) Build

@@ -1,0 +1,17 @@
+# Isolate static RPC dependency symbols without promoting Arrow's deliberately
+# hidden inline helpers into exports. Arrow's annotated public ABI is unchanged.
+*6google8protobuf*
+*4absl*
+*4grpc*
+*3re2*
+*9grpc_core*
+*grpc_event_engine*
+_grpc_*
+_gpr_*
+_upb_*
+__ZNSt*
+__ZNKSt*
+__ZSt*
+__ZT*NSt*
+__ZGVNSt*
+__ZZNSt*

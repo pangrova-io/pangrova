@@ -1,8 +1,10 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.enums.VectorElementType;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -72,14 +74,14 @@ public final class PaimonTypeMapper {
     }
 
     /**
-     * Converts a Paimon DataType to the parameterized {@link org.pangrova.spi.connector.data.Type}.
+     * Converts a Paimon DataType to the parameterized {@link org.pangrova.types.Type}.
      * For DECIMAL, ARRAY, MAP, and ROW, preserves full parameter information.
      * For simple types, bridges via {@link PangrovaTypeMapping}.
      *
      * @param paimonType the Paimon type to convert
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(DataType paimonType) {
+    public static org.pangrova.types.Type toParameterizedType(DataType paimonType) {
         return paimonType.accept(TO_PARAMETERIZED);
     }
 
@@ -94,7 +96,7 @@ public final class PaimonTypeMapper {
      * @return the corresponding Paimon ArrayType
      */
     public static ArrayType toPaimonVectorType(VectorType vectorType) {
-        DataType elementType = vectorType.elementType() == VectorType.ElementType.DOUBLE
+        DataType elementType = vectorType.elementType() == VectorElementType.DOUBLE
                 ? new DoubleType()
                 : new FloatType();
         return new ArrayType(elementType);
@@ -133,17 +135,21 @@ public final class PaimonTypeMapper {
     }
 
     /**
-     * Converts a Paimon type to a parameterized Pangrova {@link org.pangrova.spi.connector.data.type.Type},
+     * Converts a Paimon type to a parameterized Pangrova {@link org.pangrova.types.Type},
      * using table properties to detect vector columns. A {@code array(float/double)} column
      * with a matching dimension property is mapped to {@link VectorType}.
+     * A marked VARCHAR variant uses the same canonical variant storage type as the SDK visitor.
      *
      * @param paimonType      the Paimon type
      * @param columnName      the column name (for vector metadata lookup)
      * @param tableProperties the table properties
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(
+    public static org.pangrova.types.Type toParameterizedType(
             DataType paimonType, String columnName, Map<String, String> tableProperties) {
+        if (isVariantColumn(paimonType, columnName, tableProperties)) {
+            return PangrovaTypeMapping.toType(PangrovaType.VARIANT);
+        }
         if (isVectorColumn(paimonType, columnName, tableProperties)) {
             return parseVectorFromMetadata(paimonType, columnName, tableProperties);
         }
@@ -195,9 +201,9 @@ public final class PaimonTypeMapper {
                     "Invalid vector dimension for column '" + columnName + "': " + dimValue, e);
         }
         ArrayType arrayType = (ArrayType) paimonType;
-        VectorType.ElementType elementType = arrayType.getElementType() instanceof DoubleType
-                ? VectorType.ElementType.DOUBLE
-                : VectorType.ElementType.FLOAT;
+        VectorElementType elementType = arrayType.getElementType() instanceof DoubleType
+                ? VectorElementType.DOUBLE
+                : VectorElementType.FLOAT;
         return new VectorType(dimension, elementType);
     }
 
@@ -252,14 +258,15 @@ public final class PaimonTypeMapper {
     private static ConnectorTableMetadata.Column toColumn(DataField field) {
         PangrovaType type = toPangrovaType(field.type());
         return new ConnectorTableMetadata.Column(
-                field.name(), type, OptionalInt.of(field.id()));
+                field.name(), type, OptionalInt.of(field.id()), toParameterizedType(field.type()));
     }
 
     private static ConnectorTableMetadata.Column toColumn(DataField field,
                                                            Map<String, String> tableProperties) {
         PangrovaType type = toPangrovaType(field.type(), field.name(), tableProperties);
         return new ConnectorTableMetadata.Column(
-                field.name(), type, OptionalInt.of(field.id()));
+                field.name(), type, OptionalInt.of(field.id()),
+                toParameterizedType(field.type(), field.name(), tableProperties));
     }
 
     private static IllegalArgumentException unsupported(String domain, String typeName) {

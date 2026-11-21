@@ -23,21 +23,7 @@ description: "Diagnose and recover from coordinator failover"
 
 ## Decision Tree
 
-```
-Coordinator appears down?
-  │
-  ├─► Is /v1/health returning HTTP 200 on any coordinator?
-  │     │
-  │     ├─► YES on coordinator-2 or 3 ──► Check if a LEADER exists → Step 2
-  │     │
-  │     └─► NO on all coordinators ──► Full cluster outage → escalate immediately
-  │
-  └─► Is this a scheduled maintenance failover?
-        │
-        ├─► YES ──► Begin graceful failover → Step 1 (planned variant)
-        │
-        └─► NO  ──► Unplanned failure → Step 1 (emergency variant)
-```
+![Coordinator appears down?](../../../../website/static/img/diagrams/generated/coordinator-failover-runbook-01-eddc2e6332.svg)
 
 ---
 
@@ -71,12 +57,12 @@ timeout (default 30s).
 # Check each coordinator's latest HA role from its logs
 for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} ==="
-  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log 2>/dev/null | tail -1" \
+  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log 2>/dev/null | tail -1" \
     || echo "  UNREACHABLE"
 done
 
 # The authoritative leader is the current lease holder in the HA database
-LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP LIMIT 1;")
 echo "Current leader (lease holder): '${LEADER_ID}'"
 ```
@@ -90,13 +76,13 @@ for coord in coordinator-2 coordinator-3; do
   echo "Attempting election via restart on ${coord}..."
   ssh "${coord}" "sudo systemctl restart pangrova-coordinator"
   sleep 20
-  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -1" \
+  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -1" \
     | grep -q "role=LEADER" && echo "  ${coord} acquired leadership" && break
 done
 
 # Wait and verify a lease holder exists
 sleep 15
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at FROM distributed_lease;"
 ```
 
@@ -107,20 +93,20 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
 ```bash
 NEW_LEADER="coordinator-2"  # replace with actual new leader
 
-# Run a simple query to confirm the new leader is serving
+# Check whether the new Coordinator accepts a SQL submission
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -X POST "http://${NEW_LEADER}:8080/v1/query/submit" \
   -d '{"query": "SELECT 1"}')
-echo "Simple query: HTTP ${STATUS}"  # Expected: 200
+echo "SELECT 1 submission: HTTP ${STATUS}"  # Expected: 200
 
 # Confirm worker count matches expected
 curl -s "http://${NEW_LEADER}:8080/api/workers" | \
   python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-healthy = [w for w in workers if w['healthState'] == 'HEALTHY']
-print(f'{len(healthy)}/{len(workers)} workers HEALTHY')
+healthy = [w for w in workers if w['healthState'] == 'ACTIVE']
+print(f'{len(healthy)}/{len(workers)} workers ACTIVE')
 "
 
 # Queries owned by the failed coordinator are reclaimed automatically by the
@@ -135,15 +121,19 @@ for q in stuck:
     print(f'  {q[\"queryId\"]}: {q[\"status\"]}')
 "
 
-# Test metadata access with a second query
+# Check whether the Coordinator accepts a metadata query submission
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -X POST "http://${NEW_LEADER}:8080/v1/query/submit" \
   -d '{"query": "SHOW SCHEMAS"}')
-echo "SHOW SCHEMAS: HTTP ${STATUS}"  # Expected: 200
+echo "SHOW SCHEMAS submission: HTTP ${STATUS}"  # Expected: 200
 ```
 
 ---
+
+These HTTP checks do not verify metadata reads, SQL completion, or result
+delivery. Verify query recovery separately with a catalog-backed query and
+consume its expected result through the client.
 
 ## Step 4: Client Notification
 
@@ -169,7 +159,7 @@ ssh "${FAILED_COORDINATOR}" "
   TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
   ARCHIVE=/tmp/coordinator-crash-\${TIMESTAMP}.tar.gz
   tar czf \"\${ARCHIVE}\" \
-    /var/log/pangrova/pangrova-coordinator*.log \
+    /var/log/pangrova/coordinator*.log \
     /var/log/pangrova/gc-coordinator.log \
     /var/log/pangrova/heapdump-coordinator*.hprof 2>/dev/null \
     /var/log/syslog 2>/dev/null || true
@@ -185,7 +175,7 @@ ssh "${FAILED_COORDINATOR}" "
   tail -20 /var/log/pangrova/gc-coordinator.log 2>/dev/null || echo 'No GC log'
 
   echo '=== Error log tail ==='
-  tail -30 /var/log/pangrova/pangrova-coordinator-error.log 2>/dev/null || echo 'No error log'
+  tail -30 /var/log/pangrova/coordinator-error.log 2>/dev/null || echo 'No error log'
 "
 ```
 
@@ -204,7 +194,7 @@ sleep 30
 
 # Verify it joined as STANDBY (not competing for leadership)
 ROLE=$(ssh "${FAILED_COORDINATOR}" \
-  "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -1" \
+  "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -1" \
   | grep -o 'role=[A-Z]*' | cut -d= -f2)
 echo "${FAILED_COORDINATOR} role: ${ROLE}"
 # Expected: STANDBY
@@ -214,7 +204,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://${coord}:8080/v1/health")
   echo "${coord}: HTTP ${HTTP}"
 done
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" \
   | xargs -I{} echo "Active lease holders: {} (expect exactly 1)"
 ```
@@ -224,9 +214,11 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
 ## Recovery Verification Checklist
 
 - [ ] Exactly 1 LEADER elected; all other coordinators are STANDBY
-- [ ] All workers registered with the new LEADER as HEALTHY (`GET /api/workers`)
-- [ ] Simple SQL query returns HTTP 200 on the new LEADER (`POST /v1/query/submit`)
-- [ ] `SHOW SCHEMAS` query returns HTTP 200
+- [ ] All workers registered with the new LEADER as ACTIVE (`GET /api/workers`)
+- [ ] `POST /v1/query/submit` returns HTTP 200 for `SELECT 1` and `SHOW SCHEMAS`
+  (submission response only)
+- [ ] A new catalog-backed query finishes and the client consumes its expected
+  result; record the elapsed time from fault injection separately
 - [ ] Previously-failed coordinator rejoined as STANDBY
 - [ ] No queries stuck in RUNNING/SUBMITTED after orphan reclamation
 - [ ] Monitoring alerts cleared in Grafana/Alertmanager

@@ -1,0 +1,149 @@
+#include <folly/container/detail/F14Table.h>
+#include <folly/hash/Hash.h>
+#include <folly/hash/SpookyHashV2.h>
+#include <folly/synchronization/DistributedMutex.h>
+
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <limits>
+#include <random>
+#include <string_view>
+
+namespace {
+using Wide = unsigned __int128;
+
+std::uint64_t product(std::uint64_t value, std::uint64_t factor) {
+  return static_cast<std::uint64_t>(Wide(value) * factor);
+}
+
+std::uint64_t first(std::uint64_t value, unsigned bits) {
+  return static_cast<std::uint64_t>(Wide(value) * ((std::uint64_t{1} << bits) - 1)
+      + std::numeric_limits<std::uint64_t>::max());
+}
+
+std::uint64_t reference64(std::uint64_t value) {
+  value = first(value, 21);
+  value ^= value >> 24;
+  value = product(value, 265);
+  value ^= value >> 14;
+  value = product(value, 21);
+  value ^= value >> 28;
+  return product(value, 2147483649ULL);
+}
+
+std::uint32_t reference32(std::uint64_t value) {
+  value = first(value, 18);
+  value ^= value >> 31;
+  value = product(value, 21);
+  value ^= value >> 11;
+  value = product(value, 65);
+  value ^= value >> 22;
+  return static_cast<std::uint32_t>(value);
+}
+
+bool check(std::uint64_t value) {
+  constexpr std::uint64_t low56 = (std::uint64_t{1} << 56) - 1;
+  const auto packed = folly::detail::distributed_mutex::strip(value);
+  const auto expected = static_cast<std::uint64_t>(Wide(value) * 256);
+  return folly::hash::twang_mix64(value) == reference64(value)
+      && folly::hash::twang_32from64(value) == reference32(value)
+      && folly::hash::twang_unmix64(folly::hash::twang_mix64(value)) == value
+      && packed == expected && (packed & 255) == 0
+      && folly::detail::distributed_mutex::recover(packed) == (value & low56);
+}
+
+bool checkRotation(std::uint64_t value, std::uint64_t& checks, std::uint64_t& digest) {
+  if (folly::hash::SpookyHashV2::Rot64(value, 0) != value ||
+      folly::hash::SpookyHashV2::Rot64(value, 64) != value) {
+    return false;
+  }
+  for (unsigned bits = 1; bits < 64; ++bits) {
+    const Wide modulus = Wide{1} << 64;
+    const auto expected = static_cast<std::uint64_t>(
+        (Wide(value) * (Wide{1} << bits)) % modulus + Wide(value) / (Wide{1} << (64 - bits)));
+    const auto actual = folly::hash::SpookyHashV2::Rot64(value, bits);
+    if (actual != expected) return false;
+    ++checks;
+    digest ^= actual;
+  }
+  return true;
+}
+
+// seed_seq guarantees one 32-bit sequence for both output widths. All-one
+// seed words exercise the wide index addition; more than one output word
+// exercises the three-term narrowing in the final mixing pass.
+bool checkSeedWords() {
+  const std::array<std::uint32_t, 6> seeds{UINT32_MAX, 0, UINT32_MAX, 1, UINT32_MAX, 17};
+  std::seed_seq sequence(seeds.begin(), seeds.end());
+  std::array<std::uint32_t, 68> words{};
+  std::array<std::uint64_t, 68> wide{};
+  sequence.generate(words.begin(), words.end());
+  sequence.generate(wide.begin(), wide.end());
+  for (std::size_t i = 0; i < words.size(); ++i) {
+    if (wide[i] != words[i]) return false;
+  }
+  // The unmodified 17.0.6 implementation produces these words for the same input.
+  return words[0] == 2429959909U && words[1] == 1894649730U
+      && words[34] == 4006753950U && words[67] == 3576778638U;
+}
+
+bool checkPendingInserts() {
+  using folly::f14::detail::tlsPendingSafeInserts;
+  return !tlsPendingSafeInserts() && !tlsPendingSafeInserts(-1)
+      && tlsPendingSafeInserts(2) && tlsPendingSafeInserts(-1)
+      && !tlsPendingSafeInserts(-1) && !tlsPendingSafeInserts();
+}
+
+int rotations() {
+  std::uint64_t checks = 0, digest = 0;
+  for (std::uint64_t value = 0; value < 65536; ++value) {
+    if (!checkRotation(value, checks, digest)) return 1;
+  }
+  for (unsigned bit = 0; bit < 64; ++bit) {
+    const auto value = std::uint64_t{1} << bit;
+    if (!checkRotation(value, checks, digest) || !checkRotation(value - 1, checks, digest)
+        || !checkRotation(~value, checks, digest)) return 1;
+  }
+  for (auto value : {UINT64_MAX, std::uint64_t{16045690986535204963ULL}, std::uint64_t{0}}) {
+    if (!checkRotation(value, checks, digest)) return 1;
+  }
+  std::printf("rotations=%llu digest=%llu\n", static_cast<unsigned long long>(checks),
+      static_cast<unsigned long long>(digest));
+  return 0;
+}
+} // namespace
+
+int main(int argc, char** argv) {
+  if (argc == 2 && std::string_view(argv[1]) == "--rotations-only") return rotations();
+  if (argc != 1) return 2;
+  if (!checkSeedWords() || !checkPendingInserts()) return 1;
+  std::uint64_t checks = 0;
+  auto verify = [&](std::uint64_t value) {
+    ++checks;
+    return check(value);
+  };
+  if (!verify(0) || !verify(UINT64_MAX)) return 1;
+  for (unsigned bit = 0; bit < 64; ++bit) {
+    const auto value = std::uint64_t{1} << bit;
+    if (!verify(value) || !verify(value - 1) || !verify(~value)) return 1;
+  }
+  constexpr std::uint64_t low56 = (std::uint64_t{1} << 56) - 1;
+  for (std::uint64_t high = 0; high < 256; ++high) {
+    for (auto low : {std::uint64_t{0}, low56, low56 - 1}) {
+      if (!verify(high * (std::uint64_t{1} << 56) | low)) return 1;
+    }
+  }
+  std::uint64_t value = 0x123456789abcdef0ULL;
+  for (unsigned index = 0; index < 100000; ++index) {
+    value = static_cast<std::uint64_t>(Wide(value) * 6364136223846793005ULL + 1442695040888963407ULL);
+    if (!verify(value)) return 1;
+  }
+  const auto mask = static_cast<std::uint32_t>(-1);
+  if (mask != std::numeric_limits<std::uint32_t>::max()) return 1;
+  if (folly::detail::distributed_mutex::recover(
+          folly::detail::distributed_mutex::strip(UINT64_MAX)) != low56) return 1;
+  std::printf("checks=%llu masks=%u timestamp_sentinel=%llu\n",
+      static_cast<unsigned long long>(checks), mask, static_cast<unsigned long long>(low56));
+  return rotations();
+}

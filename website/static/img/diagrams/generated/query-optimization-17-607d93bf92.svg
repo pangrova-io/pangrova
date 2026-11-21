@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="697" height="209" viewBox="0 0 697 209" role="img">
+<rect width="697" height="209" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="695.5" height="207.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">Write Commit Flow:</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">  CommitTask.commit()</text>
+<path d="M70.8 76.0 L70.8 87.0 L81.8 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">      onCommitSuccess()</text>
+<path d="M89.60000000000001 95.0 L89.60000000000001 106.0 L100.60000000000001 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">        StatisticsCollector.collectIncremental(newDataFiles)</text>
+<path d="M108.4 114.0 L108.4 125.0 L119.4 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">          sample rows (default 1% or min 10000 rows)</text>
+<path d="M108.4 133.0 L108.4 144.0 L119.4 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">          update column stats (min, max, NDV, null_count, avg_size)</text>
+<path d="M108.4 152.0 L108.4 163.0 L119.4 157.5 z" fill="#D97706"/>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">          merge into table-level statistics</text>
+</g>
+</svg>

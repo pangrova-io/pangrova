@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+ <modelVersion>4.0.0</modelVersion>
+ <parent><groupId>org.pangrova</groupId><artifactId>pangrova-transport</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+ <artifactId>pangrova-transport-flight</artifactId><name>Pangrova Transport Flight</name>
+ <description>Role-independent Arrow Flight server and signed data ticket implementation</description>
+ <properties><module.name>org.pangrova.transport.flight</module.name></properties>
+ <dependencies>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+  <dependency><groupId>org.apache.arrow</groupId><artifactId>flight-core</artifactId></dependency>
+  <dependency><groupId>org.apache.arrow</groupId><artifactId>arrow-vector</artifactId></dependency>
+  <dependency><groupId>org.apache.arrow</groupId><artifactId>arrow-memory-netty</artifactId><scope>runtime</scope></dependency>
+  <dependency><groupId>io.grpc</groupId><artifactId>grpc-netty-shaded</artifactId></dependency>
+  <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></dependency>
+  <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope></dependency>
+ </dependencies>
+ <build><plugins>
+  <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId>
+   <executions><execution><id>transport-test-fixtures</id><goals><goal>test-jar</goal></goals><configuration><includes><include>org/pangrova/transport/flight/TransportServerAllocatorFixture.class</include></includes></configuration></execution></executions>
+  </plugin>
+  <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId>
+   <configuration><argLine>@{jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine></configuration>
+  </plugin>
+ </plugins></build>
+</project>

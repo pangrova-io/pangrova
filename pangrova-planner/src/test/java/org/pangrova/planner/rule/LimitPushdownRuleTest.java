@@ -4,8 +4,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlanResult;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlanResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
@@ -14,7 +14,6 @@ import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,11 +33,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class LimitPushdownRuleTest {
 
-    @BeforeEach
-    void setUp() {
-        LimitPushdownRule.resetFired();
-    }
-
     @Test
     void rule_isRegisteredAsRelOptRule() {
         assertThat(LimitPushdownRule.INSTANCE)
@@ -54,7 +48,6 @@ class LimitPushdownRuleTest {
         PlanResult result = planner.plan("SELECT id FROM orders LIMIT 10");
 
         assertThat(table.lastLimit.get()).isEqualTo(10L);
-        assertThat(LimitPushdownRule.didFire()).isTrue();
         // RESIDUAL: planner keeps the Sort to enforce the limit.
         String plan = result.plan().explain();
         assertThat(plan).containsIgnoringCase("Sort");
@@ -68,7 +61,6 @@ class LimitPushdownRuleTest {
         PlanResult result = planner.plan("SELECT id FROM orders_g LIMIT 25");
 
         assertThat(table.lastLimit.get()).isEqualTo(25L);
-        assertThat(LimitPushdownRule.didFire()).isTrue();
         // GUARANTEED: planner drops the Sort entirely; the connector strictly caps to N rows.
         String plan = result.plan().explain();
         assertThat(plan).doesNotContainIgnoringCase("Sort");
@@ -83,7 +75,6 @@ class LimitPushdownRuleTest {
 
         // The rule attempted to push but the connector returned empty — sort retained.
         assertThat(table.lastLimit.get()).isEqualTo(5L);
-        assertThat(LimitPushdownRule.didFire()).isFalse();
         String plan = result.plan().explain();
         assertThat(plan).containsIgnoringCase("Sort");
     }
@@ -102,8 +93,7 @@ class LimitPushdownRuleTest {
 
         PlanResult result = planner.plan("SELECT id FROM plain LIMIT 7");
 
-        assertThat(LimitPushdownRule.didFire()).isFalse();
-        assertThat(result).isNotNull();
+        assertThat(result.plan().explain()).containsIgnoringCase("Sort");
     }
 
     @Test
@@ -114,9 +104,8 @@ class LimitPushdownRuleTest {
         // ORDER BY .. LIMIT — top-N, deliberately handled by a different rule (not this one).
         PlanResult result = planner.plan("SELECT id FROM orders_t ORDER BY id LIMIT 3");
 
-        assertThat(LimitPushdownRule.didFire()).isFalse();
         assertThat(table.lastLimit.get()).isEqualTo(0L); // pushLimit never called
-        assertThat(result).isNotNull();
+        assertThat(result.plan().explain()).containsIgnoringCase("Sort");
     }
 
     private CalciteSchema buildSchema(String tableName, Table table) {

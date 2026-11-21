@@ -1,41 +1,41 @@
-# Website
+# Pangrova website
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
-
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+The Docusaurus site publishes `../docs` and `blog/`. Use Node.js 22 and pnpm 10,
+matching `.github/workflows/deploy-website.yml`. `pnpm-lock.yaml` is the dependency
+lockfile; do not introduce a second package-manager lockfile.
 
 ```bash
-yarn start
+cd website
+pnpm install --frozen-lockfile
+pnpm start
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
-
-## Build
+Before submitting a documentation or site change:
 
 ```bash
-yarn build
+pnpm run typecheck
+pnpm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+The build first runs `pnpm run check:images`: regression tests and a scan of
+repository Markdown image references. Local images must exist and use relative
+paths that also resolve in GitHub previews; external image URLs are not fetched.
+Search uses a hash in the index filename rather than the query string so the
+index resolves in both GitHub Pages and `pnpm serve` under `/pangrova/`.
+Broken routes, Markdown targets and anchors fail the build. Navigation is owned
+by `sidebars.ts`; documentation format is described in
+[the documentation guide](../docs/contributing/documentation.md).
 
-## Deployment
+`static/img/` is the shared image source for this site and the root README. The
+root README embeds `static/img/architecture-overview.png`; its editable source is
+`static/img/architecture-overview.svg`. Retain `static/.nojekyll`, which is a
+GitHub Pages deployment marker.
 
-Using SSH:
-
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+The official site is https://pangrova-io.github.io/pangrova/, deployed by
+`.github/workflows/deploy-website.yml` on every push to `main` that changes `docs/`
+or `website/`. For a private repository an organization owner must enable Pages once
+(Settings → Pages → Source: GitHub Actions), which requires a plan that
+includes Pages; the deployment token cannot create the site itself. Pull
+requests build and typecheck the site without deploying. Builds default to the
+`/pangrova/` base path; `PANGROVA_SITE_URL` and `PANGROVA_SITE_BASE_URL` override
+the URL and base path for another host. No `gh-pages` branch is used.

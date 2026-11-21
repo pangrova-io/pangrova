@@ -1,0 +1,30 @@
+# Classpath default coordinator config for E2E tests.
+# Used by ConfigLoadingE2ETest$ClasspathDefaultsMerge to verify
+# that CLI YAML values override classpath defaults.
+coordinator:
+  id: e2e-default-coordinator
+  host: 0.0.0.0
+  port: 8080
+  query:
+    timeout: 5m
+    max-concurrent: 100
+  worker:
+    heartbeat-timeout: 30s
+    max-retry: 3
+metadata:
+  enabled: true
+  cache:
+    l1-max-size: 10000
+    l1-ttl: 60s
+governance:
+  enabled: true
+resilience:
+  enabled: true
+streaming:
+  enabled: true
+tenant:
+  enabled: true
+indexing:
+  enabled: true
+security:
+  enabled: false

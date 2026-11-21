@@ -1,318 +1,263 @@
 package org.pangrova.connector.paimon.handle;
 
+import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.FileFormat;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.PaimonChangelogProducer;
+import org.pangrova.protocol.v2.PaimonMergeEngine;
+import org.pangrova.protocol.v2.PaimonReadMode;
+import org.pangrova.connector.api.metadata.table.ColumnMapping;
+import org.pangrova.connector.api.metadata.table.TypePromotion;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.v1.FileFormat;
-import org.pangrova.protocol.v1.PaimonChangelogProducer;
-import org.pangrova.protocol.v1.PaimonMergeEngine;
-import org.pangrova.protocol.v1.PaimonReadMode;
-import org.pangrova.protocol.v1.SplitInfo;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
-import org.pangrova.spi.connector.metadata.table.TypePromotion;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Unit tests for PaimonSplit.toSplitInfoProto() serialization.
- * Validates: Requirements R14.5, R19.3
- */
+/** Contract tests for Paimon's typed extension inside generic v2 DataSplit. */
 class PaimonSplitProtoSerializationTest {
 
     @Test
-    void serializesBasicFieldsCorrectly() throws Exception {
-        PaimonSplit split = createMinimalSplit("test_table");
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.getConnectorId()).isEqualTo("paimon");
-        assertThat(info.getFilePath()).isEqualTo("test_table");
-        assertThat(info.getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_ORC);
-        assertThat(info.getStartOffset()).isZero();
-        assertThat(info.getLength()).isEqualTo(100L);
-        assertThat(info.getTableName()).isEqualTo("test_table");
-    }
-
-    @Test
-    void serializesPaimonSplitInfoFields() throws Exception {
+    void commonEnvelopeAndTypedDetailPreserveCoreFields() throws Exception {
         PaimonSplit split = new PaimonSplit(
-                "orders", 0L, 500L,
-                3, List.of("id", "ts"), "DEDUPLICATE", "LOOKUP",
-                42L, 10L, 42L, "PRIMARY_KEY",
-                List.of(new PaimonLsmLevel(0, List.of("/l0/f1.parquet"), 200L)),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
+                "orders", 0, 500, 3, List.of("id", "ts"),
+                "DEDUPLICATE", "LOOKUP", 42, 10, 42, "PRIMARY_KEY",
+                List.of(new PaimonLsmLevel(0, List.of(lsmFile("/l0/f1.parquet", 200)), 200)),
+                false, false, Map.of(), false,
+                Map.of("dt", "2024-01-15"), List.of(), List.of(),
+                new PaimonPhysicalFile("/data/orders.parquet", "parquet", 4096, 500, 7),
+                new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit data = parse(split);
+        FileSplitDetail detail = DataSplitProtoCodec.fileDetail(data);
+        var paimon = detail.getPaimon();
 
-        assertThat(info.hasPaimonInfo()).isTrue();
-        var paimon = info.getPaimonInfo();
+        assertThat(data.getConnectorId()).isEqualTo("paimon");
+        assertThat(data.getSourceId()).isEqualTo("orders");
+        assertThat(data.getSourceSnapshot()).isEqualTo("42");
+        assertThat(data.getOpaqueLocation()).isEqualTo("/data/orders.parquet");
+        assertThat(data.getLength()).isEqualTo(4096);
+        assertThat(split.primaryFile().schemaId()).isEqualTo(7);
+        assertThat(DataSplitProtoCodec.stringPartitionValues(data))
+                .containsEntry("dt", "2024-01-15");
+        assertThat(detail.getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_PARQUET);
         assertThat(paimon.getReadMode()).isEqualTo(PaimonReadMode.PAIMON_READ_MODE_PRIMARY_KEY);
         assertThat(paimon.getBucketId()).isEqualTo(3);
         assertThat(paimon.getPrimaryKeysList()).containsExactly("id", "ts");
-        assertThat(paimon.getSnapshotId()).isEqualTo(42L);
-        assertThat(paimon.getFromSnapshotId()).isEqualTo(10L);
-        assertThat(paimon.getToSnapshotId()).isEqualTo(42L);
-        assertThat(paimon.getMergeEngine()).isEqualTo(PaimonMergeEngine.PAIMON_MERGE_DEDUPLICATE);
-        assertThat(paimon.getChangelogProducer()).isEqualTo(PaimonChangelogProducer.PAIMON_CHANGELOG_LOOKUP);
+        assertThat(paimon.getMergeEngine())
+                .isEqualTo(PaimonMergeEngine.PAIMON_MERGE_ENGINE_DEDUPLICATE);
+        assertThat(paimon.getChangelogProducer())
+                .isEqualTo(PaimonChangelogProducer.PAIMON_CHANGELOG_PRODUCER_LOOKUP);
+        assertThat(paimon.getLsmLevels(0).getFilesList()).extracting(file -> file.getOpaqueLocation())
+                .containsExactly("/l0/f1.parquet");
     }
 
     @Test
-    void serializesNeedsMergeFlag() throws Exception {
-        PaimonSplit split = createFullSplit(true, false, "", Map.of(), false);
+    void mergeDeletionVectorAggregationAndChangelogArePreserved() throws Exception {
+        PaimonSplit split = fullSplit("AGGREGATION", "FULL_COMPACTION", "INCREMENTAL");
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        var paimon = detail(split).getPaimon();
 
-        assertThat(info.getPaimonInfo().getNeedsMerge()).isTrue();
-    }
-
-    @Test
-    void serializesDeletionVectorFields() throws Exception {
-        PaimonSplit split = createFullSplit(
-                false, true, "/dv/bitmap-001.bin", Map.of(), false);
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        var paimon = info.getPaimonInfo();
+        assertThat(paimon.getNeedsMerge()).isTrue();
         assertThat(paimon.getDeletionVectorsEnabled()).isTrue();
-        assertThat(paimon.getDeletionVectorFilePath()).isEqualTo("/dv/bitmap-001.bin");
-        assertThat(paimon.getNeedsMerge()).isFalse();
+        var vector = paimon.getLsmLevels(0).getFiles(0).getScan().getDeletionVector();
+        assertThat(vector.getOpaqueLocation()).isEqualTo("/dv/bitmap.bin");
+        assertThat(vector.getByteOffset()).isEqualTo(123);
+        assertThat(vector.getByteLength()).isEqualTo(48);
+        assertThat(vector.getCardinality()).isEqualTo(2);
+        assertThat(vector.getPhysicalRows()).isEqualTo(1000);
+        assertThat(paimon.getAggregationSpecsMap()).containsEntry("amount", "SUM");
+        assertThat(paimon.getChangelogMode()).isTrue();
+        assertThat(paimon.getMergePolicy().getIgnoreDelete()).isFalse();
+        assertThat(paimon.getMergePolicy().getRemoveRecordOnDelete()).isTrue();
+        assertThat(paimon.getMergeEngine())
+                .isEqualTo(PaimonMergeEngine.PAIMON_MERGE_ENGINE_AGGREGATION);
+        assertThat(paimon.getChangelogProducer())
+                .isEqualTo(PaimonChangelogProducer.PAIMON_CHANGELOG_PRODUCER_FULL_COMPACTION);
+        assertThat(paimon.getReadMode())
+                .isEqualTo(PaimonReadMode.PAIMON_READ_MODE_INCREMENTAL);
     }
 
     @Test
-    void serializesAggregationSpecs() throws Exception {
-        Map<String, String> aggSpecs = Map.of("amount", "SUM", "count", "COUNT");
-        PaimonSplit split = createFullSplit(true, false, "", aggSpecs, false);
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.getPaimonInfo().getAggregationSpecsMap())
-                .containsEntry("amount", "SUM")
-                .containsEntry("count", "COUNT");
+    void allEnumMappingsUseV2ConnectorContract() throws Exception {
+        assertThat(detail(fullSplit("PARTIAL_UPDATE", "INPUT", "APPEND"))
+                .getPaimon().getMergeEngine())
+                .isEqualTo(PaimonMergeEngine.PAIMON_MERGE_ENGINE_PARTIAL_UPDATE);
+        assertThat(detail(fullSplit("FIRST_ROW", "NONE", "CHANGELOG"))
+                .getPaimon().getMergeEngine())
+                .isEqualTo(PaimonMergeEngine.PAIMON_MERGE_ENGINE_FIRST_ROW);
+        assertThat(detail(fullSplit("DEDUPLICATE", "LOOKUP", "PRIMARY_KEY"))
+                .getPaimon().getReadMode())
+                .isEqualTo(PaimonReadMode.PAIMON_READ_MODE_PRIMARY_KEY);
     }
 
     @Test
-    void serializesChangelogMode() throws Exception {
-        PaimonSplit split = createFullSplit(false, false, "", Map.of(), true);
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.getPaimonInfo().getChangelogMode()).isTrue();
-    }
-
-    @Test
-    void serializesPartitionValues() throws Exception {
+    void schemaEvolutionAndFileFormatAreTyped() throws Exception {
         PaimonSplit split = new PaimonSplit(
-                "partitioned_table", 0L, 100L,
-                0, List.of(), "DEDUPLICATE", "NONE",
-                1L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false,
-                Map.of("dt", "2024-01-15", "region", "us-east"),
-                List.of(), List.of(), "");
+                "vectors", 0, 100, -1, List.of(), "DEDUPLICATE", "NONE",
+                1, 0, 0, "APPEND", List.of(), false, false,
+                Map.of(), false, Map.of(),
+                List.of(new ColumnMapping(1, 2, "old", "new")),
+                List.of(new TypePromotion(2, "float", "double", "new")),
+                new PaimonPhysicalFile("/data/vectors.parquet", "parquet", 8192, 100, 0),
+                new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        FileSplitDetail detail = detail(split);
 
-        assertThat(info.getPaimonInfo().getPartitionValuesMap())
-                .containsEntry("dt", "2024-01-15")
-                .containsEntry("region", "us-east");
+        assertThat(detail.getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_PARQUET);
+        assertThat(detail.getSchemaEvolution().getColumnMappings(0).getTargetName())
+                .isEqualTo("new");
+        assertThat(detail.getSchemaEvolution().getTypePromotions(0).getTargetType())
+                .isEqualTo("double");
+        assertThat(detail.getPhysicalFileScan().getSchemaEvolution()).isEqualTo(detail.getSchemaEvolution());
     }
 
     @Test
-    void serializesSchemaEvolution() throws Exception {
-        List<ColumnMapping> mappings = List.of(
-                new ColumnMapping(1, 1, "old_id", "id"),
-                new ColumnMapping(2, 3, "old_name", "full_name"));
-        List<TypePromotion> promotions = List.of(
-                new TypePromotion(1, "int", "long"));
-
-        PaimonSplit split = new PaimonSplit(
-                "evolved_table", 0L, 100L,
-                -1, List.of(), "DEDUPLICATE", "NONE",
-                1L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                mappings, promotions, "");
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.hasSchemaEvolution()).isTrue();
-        assertThat(info.getSchemaEvolution().getColumnMappingsCount()).isEqualTo(2);
-        assertThat(info.getSchemaEvolution().getColumnMappings(0).getSourceName()).isEqualTo("old_id");
-        assertThat(info.getSchemaEvolution().getColumnMappings(0).getTargetName()).isEqualTo("id");
-        assertThat(info.getSchemaEvolution().getColumnMappings(1).getSourceFieldId()).isEqualTo(2);
-        assertThat(info.getSchemaEvolution().getColumnMappings(1).getTargetFieldId()).isEqualTo(3);
-
-        assertThat(info.getSchemaEvolution().getTypePromotionsCount()).isEqualTo(1);
-        assertThat(info.getSchemaEvolution().getTypePromotions(0).getFieldId()).isEqualTo(1);
-        assertThat(info.getSchemaEvolution().getTypePromotions(0).getSourceType()).isEqualTo("int");
-        assertThat(info.getSchemaEvolution().getTypePromotions(0).getTargetType()).isEqualTo("long");
+    void generatedV2MessageRoundTripsByteForByte() throws Exception {
+        byte[] bytes = fullSplit("DEDUPLICATE", "NONE", "APPEND").toSplitInfoProto();
+        assertThat(DataSplit.parseFrom(bytes).toByteArray()).isEqualTo(bytes);
     }
 
     @Test
-    void omitsSchemaEvolutionWhenEmpty() throws Exception {
-        PaimonSplit split = createMinimalSplit("table");
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.hasSchemaEvolution()).isFalse();
+    void trustsSnapshotFormatNotFileNameAndNeverSubstitutesRowsForBytes() throws Exception {
+        var original = fullSplit("DEDUPLICATE", "NONE", "APPEND");
+        var split = new PaimonSplit(original.tableName(), original.splitRegistryId(), original.rowCount(),
+                original.bucketId(), original.primaryKeys(), original.mergeEngine(), original.changelogProducer(),
+                original.snapshotId(), original.fromSnapshotId(), original.toSnapshotId(), original.readMode(),
+                original.lsmLevels(), original.needsMerge(), original.deletionVectorsEnabled(),
+                original.aggregationSpecs(), original.changelogMode(),
+                original.partitionValues(), original.columnMappings(), original.typePromotions(),
+                new PaimonPhysicalFile("/data/no-extension", "ORC", 56789, 1000, 3), original.mergePolicy());
+        assertThat(detail(split).getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_ORC);
+        assertThat(parse(split).getLength()).isEqualTo(56789);
+        assertThat(parse(split).getOpaqueLocation()).isEqualTo("/data/no-extension");
     }
 
     @Test
-    void serializesLsmLevels() throws Exception {
-        List<PaimonLsmLevel> levels = List.of(
-                new PaimonLsmLevel(0, List.of("/l0/a.parquet", "/l0/b.parquet"), 300L),
-                new PaimonLsmLevel(1, List.of("/l1/c.parquet"), 500L));
-
-        PaimonSplit split = new PaimonSplit(
-                "pk_table", 0L, 800L,
-                0, List.of("pk"), "DEDUPLICATE", "NONE",
-                5L, 0L, 0L, "PRIMARY_KEY", levels,
-                true, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.getPaimonInfo().getLsmLevelsCount()).isEqualTo(2);
-        var l0 = info.getPaimonInfo().getLsmLevels(0);
-        assertThat(l0.getLevel()).isZero();
-        assertThat(l0.getFilePathsList()).containsExactly("/l0/a.parquet", "/l0/b.parquet");
-        assertThat(l0.getTotalRecordCount()).isEqualTo(300L);
-        var l1 = info.getPaimonInfo().getLsmLevels(1);
-        assertThat(l1.getLevel()).isEqualTo(1);
-        assertThat(l1.getFilePathsList()).containsExactly("/l1/c.parquet");
-        assertThat(l1.getTotalRecordCount()).isEqualTo(500L);
+    void invalidPhysicalFileMetadataFailsInsteadOfAdvertisingOrc() {
+        assertThatThrownBy(() -> new PaimonPhysicalFile("", "parquet", 10, 1, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PaimonPhysicalFile("/file", "unknown", 10, 1, 0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unsupported");
+        assertThatThrownBy(() -> new PaimonPhysicalFile("/file", "parquet", 0, 1, 0))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void serializesMergeEngineVariants() throws Exception {
-        assertMergeEngine("PARTIAL_UPDATE", PaimonMergeEngine.PAIMON_MERGE_PARTIAL_UPDATE);
-        assertMergeEngine("AGGREGATION", PaimonMergeEngine.PAIMON_MERGE_AGGREGATION);
-        assertMergeEngine("FIRST_ROW", PaimonMergeEngine.PAIMON_MERGE_FIRST_ROW);
-        assertMergeEngine("DEDUPLICATE", PaimonMergeEngine.PAIMON_MERGE_DEDUPLICATE);
+    void lancePhysicalFileNeverAdvertisesDatasetManifestPartition() throws Exception {
+        var split = new PaimonSplit(
+                "vectors", 0, 100, -1, List.of(), "DEDUPLICATE", "NONE",
+                1, 0, 0, "APPEND", List.of(), false, false,
+                Map.of(), false, Map.of(), List.of(), List.of(),
+                new PaimonPhysicalFile("/data/vectors.lance", "lance", 4096, 100, 0),
+                new PaimonMergePolicy(false, false));
+        var detail = detail(split);
+        assertThat(detail.getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_LANCE);
+        assertThat(detail.hasScanPartition()).isFalse();
+        assertThat(detail.getPhysicalFileScan().getPhysicalRows()).isEqualTo(100);
+        assertThat(detail.getPhysicalFileScan().getRowEnd()).isEqualTo(100);
+        assertThat(parse(split).getLength()).isEqualTo(4096);
     }
 
     @Test
-    void serializesReadModeVariants() throws Exception {
-        assertReadMode("APPEND", PaimonReadMode.PAIMON_READ_MODE_APPEND);
-        assertReadMode("PRIMARY_KEY", PaimonReadMode.PAIMON_READ_MODE_PRIMARY_KEY);
-        assertReadMode("CHANGELOG", PaimonReadMode.PAIMON_READ_MODE_CHANGELOG);
-        assertReadMode("INCREMENTAL", PaimonReadMode.PAIMON_READ_MODE_INCREMENTAL);
+    void rejectsReadModeThatCannotBeSerializedIntoCanonicalV2() {
+        assertThatThrownBy(() -> fullSplit("DEDUPLICATE", "NONE", "FULL"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported Paimon read mode");
     }
 
     @Test
-    void serializesChangelogProducerVariants() throws Exception {
-        assertChangelogProducer("INPUT", PaimonChangelogProducer.PAIMON_CHANGELOG_INPUT);
-        assertChangelogProducer("LOOKUP", PaimonChangelogProducer.PAIMON_CHANGELOG_LOOKUP);
-        assertChangelogProducer("FULL_COMPACTION", PaimonChangelogProducer.PAIMON_CHANGELOG_FULL_COMPACTION);
-        assertChangelogProducer("NONE", PaimonChangelogProducer.PAIMON_CHANGELOG_NONE);
+    void allSixInputCollectionsAreOwnedAndCanonicalProtoDoesNotChange() throws Exception {
+        var level = new PaimonLsmLevel(0, List.of(lsmFile("/f1.parquet", 1000)), 1000);
+        var mapping = new ColumnMapping(1, 2, "old", "new");
+        var promotion = new TypePromotion(2, "INTEGER", "BIGINT", "new");
+        var primaryKeys = new ArrayList<>(List.of("id"));
+        var levels = new ArrayList<>(List.of(level));
+        var aggregations = new LinkedHashMap<>(Map.of("amount", "SUM"));
+        var partitions = new LinkedHashMap<>(Map.of("dt", "2024-06-01"));
+        var mappings = new ArrayList<>(List.of(mapping));
+        var promotions = new ArrayList<>(List.of(promotion));
+        var split = splitWithCollections(primaryKeys, levels, aggregations, partitions, mappings, promotions);
+        byte[] originalBytes = split.toSplitInfoProto();
+        var originalDetail = DataSplitProtoCodec.fileDetail(DataSplit.parseFrom(originalBytes));
+        assertThat(originalDetail.getPaimon().getPrimaryKeysList()).containsExactly("id");
+        assertThat(originalDetail.getSchemaEvolution().getColumnMappings(0).getTargetName()).isEqualTo("new");
+        assertThat(originalDetail.getSchemaEvolution().getTypePromotions(0).getTargetType()).isEqualTo("BIGINT");
+
+        primaryKeys.clear();
+        levels.clear();
+        aggregations.clear();
+        partitions.clear();
+        mappings.clear();
+        promotions.clear();
+
+        assertThat(split.primaryKeys()).containsExactly("id");
+        assertThat(split.lsmLevels()).containsExactly(level);
+        assertThat(split.aggregationSpecs()).containsExactlyEntriesOf(Map.of("amount", "SUM"));
+        assertThat(split.partitionValues()).containsExactlyEntriesOf(Map.of("dt", "2024-06-01"));
+        assertThat(split.columnMappings()).containsExactly(mapping);
+        assertThat(split.typePromotions()).containsExactly(promotion);
+        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
     }
 
     @Test
-    void protoRoundTripPreservesAllFields() throws Exception {
-        List<ColumnMapping> mappings = List.of(new ColumnMapping(1, 2, "src", "tgt"));
-        List<TypePromotion> promotions = List.of(new TypePromotion(1, "int", "long"));
+    void allSixCollectionAccessorsRejectMutationAndCanonicalProtoDoesNotChange() {
+        var split = splitWithCollections(List.of("id"),
+                List.of(new PaimonLsmLevel(0, List.of(lsmFile("/f1.parquet", 1000)), 1000)),
+                Map.of("amount", "SUM"), Map.of("dt", "2024-06-01"),
+                List.of(new ColumnMapping(1, 2, "old", "new")),
+                List.of(new TypePromotion(2, "INTEGER", "BIGINT", "new")));
+        byte[] originalBytes = split.toSplitInfoProto();
 
-        PaimonSplit split = new PaimonSplit(
-                "full_table", 0L, 1000L,
-                5, List.of("id", "ts"), "AGGREGATION", "FULL_COMPACTION",
-                99L, 50L, 99L, "PRIMARY_KEY",
-                List.of(new PaimonLsmLevel(0, List.of("/f1.parquet"), 400L)),
-                true, true, "/dv/bm.bin",
-                Map.of("val", "SUM"), true,
-                Map.of("dt", "2024-06-01"),
-                mappings, promotions, "");
-
-        byte[] bytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(bytes);
-
-        // Re-serialize and verify byte-level equality
-        byte[] roundTripped = info.toByteArray();
-        assertThat(roundTripped).isEqualTo(bytes);
+        assertThatThrownBy(() -> split.primaryKeys().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.lsmLevels().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.aggregationSpecs().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.partitionValues().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.columnMappings().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.typePromotions().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
     }
 
-    @Test
-    void omitsDeletionVectorFilePathWhenEmpty() throws Exception {
-        PaimonSplit split = createFullSplit(false, true, "", Map.of(), false);
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.getPaimonInfo().getDeletionVectorsEnabled()).isTrue();
-        assertThat(info.getPaimonInfo().getDeletionVectorFilePath()).isEmpty();
+    private static PaimonSplit splitWithCollections(List<String> primaryKeys, List<PaimonLsmLevel> levels,
+            Map<String, String> aggregations, Map<String, String> partitions,
+            List<ColumnMapping> mappings, List<TypePromotion> promotions) {
+        var original = fullSplit("AGGREGATION", "NONE", "PRIMARY_KEY");
+        return new PaimonSplit(original.tableName(), original.splitRegistryId(), original.rowCount(),
+                original.bucketId(), primaryKeys, original.mergeEngine(), original.changelogProducer(),
+                original.snapshotId(), original.fromSnapshotId(), original.toSnapshotId(), original.readMode(),
+                levels, original.needsMerge(), original.deletionVectorsEnabled(), aggregations,
+                original.changelogMode(), partitions, mappings, promotions,
+                original.primaryFile(), original.mergePolicy());
     }
 
-    @Test
-    void backwardCompatibleConstructorProducesValidProto() throws Exception {
-        PaimonSplit split = new PaimonSplit("legacy_table", 0L, 50L,
-                -1, List.of(), "DEDUPLICATE", "NONE",
-                0L, 0L, 0L, "FULL", List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-
-        assertThat(info.hasPaimonInfo()).isTrue();
-        var paimon = info.getPaimonInfo();
-        assertThat(paimon.getNeedsMerge()).isFalse();
-        assertThat(paimon.getDeletionVectorsEnabled()).isFalse();
-        assertThat(paimon.getChangelogMode()).isFalse();
-        assertThat(paimon.getAggregationSpecsMap()).isEmpty();
-        assertThat(paimon.getPartitionValuesMap()).isEmpty();
-    }
-
-    // -- helpers --
-
-    private static PaimonSplit createMinimalSplit(String tableName) {
-        return new PaimonSplit(tableName, 0L, 100L,
-                -1, List.of(), "DEDUPLICATE", "NONE",
-                0L, 0L, 0L, "FULL", List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-    }
-
-    private static PaimonSplit createFullSplit(
-            boolean needsMerge,
-            boolean dvEnabled,
-            String dvFilePath,
-            Map<String, String> aggSpecs,
-            boolean changelogMode) {
+    private static PaimonSplit fullSplit(String merge, String producer, String readMode) {
         return new PaimonSplit(
-                "test_table", 0L, 100L,
-                0, List.of("pk"), "DEDUPLICATE", "NONE",
-                1L, 0L, 0L, "PRIMARY_KEY", List.of(),
-                needsMerge, dvEnabled, dvFilePath, aggSpecs, changelogMode,
-                Map.of(), List.of(), List.of(), "");
+                "table", 0, 1_000, 5, List.of("id"), merge, producer,
+                99, 50, 99, readMode,
+                List.of(new PaimonLsmLevel(0, List.of(new PaimonLsmFile(
+                        new PaimonPhysicalFile("/f1.parquet", "parquet", 16384, 1000, 0), 0, 999,
+                        new PaimonDeletionVector("/dv/bitmap.bin", 123, 48, 2L, 1000), List.of(), List.of())), 1000)),
+                true, true, Map.of("amount", "SUM"), true,
+                Map.of("dt", "2024-06-01"), List.of(), List.of(),
+                new PaimonPhysicalFile("/f1.parquet", "parquet", 16384, 1000, 0),
+                new PaimonMergePolicy(false, true));
     }
 
-    private void assertMergeEngine(String engineName, PaimonMergeEngine expected) throws Exception {
-        PaimonSplit split = new PaimonSplit(
-                "t", 0L, 10L,
-                -1, List.of(), engineName, "NONE",
-                0L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-        assertThat(info.getPaimonInfo().getMergeEngine()).isEqualTo(expected);
+    private static DataSplit parse(PaimonSplit split) throws Exception {
+        return DataSplit.parseFrom(split.toSplitInfoProto());
     }
 
-    private void assertReadMode(String modeName, PaimonReadMode expected) throws Exception {
-        PaimonSplit split = new PaimonSplit(
-                "t", 0L, 10L,
-                -1, List.of(), "DEDUPLICATE", "NONE",
-                0L, 0L, 0L, modeName, List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-        assertThat(info.getPaimonInfo().getReadMode()).isEqualTo(expected);
+    private static PaimonLsmFile lsmFile(String path, long rows) {
+        return new PaimonLsmFile(new PaimonPhysicalFile(path, "parquet", 4096, rows, 0),
+                0, rows - 1, null, List.of(), List.of());
     }
 
-    private void assertChangelogProducer(String producerName, PaimonChangelogProducer expected) throws Exception {
-        PaimonSplit split = new PaimonSplit(
-                "t", 0L, 10L,
-                -1, List.of(), "DEDUPLICATE", producerName,
-                0L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false, Map.of(),
-                List.of(), List.of(), "");
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
-        assertThat(info.getPaimonInfo().getChangelogProducer()).isEqualTo(expected);
+    private static FileSplitDetail detail(PaimonSplit split) throws Exception {
+        return DataSplitProtoCodec.fileDetail(parse(split));
     }
 }

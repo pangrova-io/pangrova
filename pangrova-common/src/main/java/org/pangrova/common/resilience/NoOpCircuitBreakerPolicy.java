@@ -4,9 +4,10 @@ package org.pangrova.common.resilience;
  * Always-open circuit breaker policy — permits all requests unconditionally.
  * Package-private singleton backing {@link CircuitBreakerPolicy#noOp()}.
  */
-enum NoOpCircuitBreakerPolicy implements CircuitBreakerPolicy {
+final class NoOpCircuitBreakerPolicy implements CircuitBreakerPolicy {
+    static final NoOpCircuitBreakerPolicy INSTANCE = new NoOpCircuitBreakerPolicy();
 
-    INSTANCE;
+    private NoOpCircuitBreakerPolicy() {}
 
     @Override
     public boolean allowRequest(String target) {

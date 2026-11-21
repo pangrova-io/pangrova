@@ -1,7 +1,9 @@
 package org.pangrova.worker.result;
 
+import org.pangrova.worker.exception.BatchRejectedException;
+
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.resilience.backpressure.BackpressureController.BackpressureResult;
+import org.pangrova.worker.buffer.BackpressureController.BackpressureResult;
 import org.pangrova.worker.buffer.OutputBufferBackpressure;
 import org.pangrova.worker.buffer.OutputBufferManager;
 import org.slf4j.Logger;

@@ -1,0 +1,313 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/common.proto";
+import "pangrova/protocol/v2/connector.proto";
+import "pangrova/protocol/v2/execution_binding.proto";
+import "pangrova/protocol/v2/task.proto";
+
+enum ResultReadScope {
+  RESULT_READ_SCOPE_UNSPECIFIED = 0;
+  RESULT_READ_SCOPE_RESULT_STREAM = 1;
+}
+
+// Producer-issued authority for one live result stream. It is authenticated
+// with the producer's process-local transport key; a task ID is not a ticket.
+// Expiry is the admitted task deadline. This is not a durable retention lease.
+message ResultReadGrant {
+  SecurityContext security = 1;
+  TaskAttemptId attempt = 2;
+  ResultReadScope scope = 3;
+  uint64 expires_at_epoch_ms = 4;
+}
+
+// Immutable, bounded control-plane reference to one task-attempt-private Lance
+// transaction. The key is relative to the connector-bound dataset root and
+// must remain within its exact staging prefix; it is never an arbitrary URI.
+message LanceTransactionReference {
+  string relative_object_key = 1;
+  string generation = 2;
+  uint64 size_bytes = 3;
+  Checksum sha256 = 4;
+  string tenant_id = 5;
+  string write_id = 6;
+  TaskAttemptId task_attempt = 7;
+}
+
+// Task-attempt-private Lance transaction reference returned as commit_metadata
+// to ConnectorMetadata.finishDistributedWrite. Workers only produce this
+// bounded message; the connector is the sole publisher of the live manifest.
+message LanceWriteFragment {
+  uint32 contract_version = 1;
+  string dataset_uri = 2;
+  string write_id = 3;
+  TaskAttemptId task_attempt = 4;
+  LanceWriteOperation operation = 5;
+  uint64 read_version = 6;
+  bytes schema_fence_sha256 = 7;
+  LanceTransactionReference transaction = 8;
+  reserved 9; // Removed inline transaction checksum; reference checksum owns it.
+  uint64 rows_written = 10;
+  uint64 input_bytes = 11;
+}
+
+// Bounded immutable metadata from a successful Native physical-file task.
+// It is not a table commit. A connector validates the winning allocation and
+// objects before preparing its one authoritative snapshot publication.
+message PhysicalFileWriteFragment {
+  uint32 contract_version = 1;
+  string write_id = 2;
+  string generation = 3;
+  TaskAttemptId task_attempt = 4;
+  Checksum physical_schema_checksum = 5;
+  repeated PhysicalFileReceipt files = 6;
+  uint64 input_rows = 7;
+  uint64 input_bytes = 8;
+}
+
+message PhysicalFileReceipt {
+  PhysicalFileAllocation allocation = 1;
+  uint64 size_bytes = 2;
+  uint64 physical_rows = 3;
+  uint64 schema_id = 4;
+  FileFormat file_format = 5;
+  uint32 encoding_major = 6;
+  uint32 encoding_minor = 7;
+  Checksum object_checksum = 8;
+  sint64 min_sequence = 9;
+  sint64 max_sequence = 10;
+  repeated PhysicalColumnStatistics columns = 11;
+  optional TypedValue min_key = 12;
+  optional TypedValue max_key = 13;
+  uint32 level = 14;
+  uint64 delete_row_count = 15;
+}
+
+message PhysicalColumnStatistics {
+  int32 field_id = 1;
+  string column_name = 2;
+  // Presence distinguishes a collected zero from unavailable statistics.
+  optional uint64 null_count = 3;
+  optional TypedValue minimum = 4;
+  optional TypedValue maximum = 5;
+  string collection_policy = 6;
+}
+
+enum CompletionState {
+  COMPLETION_STATE_UNSPECIFIED = 0;
+  COMPLETION_STATE_COMPLETE = 1;
+  COMPLETION_STATE_PARTIAL = 2;
+  COMPLETION_STATE_FALLBACK_EXACT = 3;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_PENDING = 1;
+  TASK_STATE_RUNNING = 2;
+  TASK_STATE_FLUSHING = 3;
+  TASK_STATE_FINISHED = 4;
+  TASK_STATE_FAILED = 5;
+  TASK_STATE_CANCELLED = 6;
+}
+
+// The producer of terminal evidence. A Worker may reconcile a failed or
+// cancelled task when Native never emitted a usable terminal report; it may
+// never claim a successful Native completion.
+enum TaskReportOrigin {
+  TASK_REPORT_ORIGIN_UNSPECIFIED = 0;
+  TASK_REPORT_ORIGIN_NATIVE = 1;
+  TASK_REPORT_ORIGIN_WORKER_RECONCILED = 2;
+  // Exact successful Worker-JVM task execution; not Native evidence.
+  TASK_REPORT_ORIGIN_WORKER_EXECUTED = 3;
+}
+
+message CoverageReport {
+  CompletionState completion_state = 1;
+  uint64 expected_work_units = 2;
+  uint64 completed_work_units = 3;
+  repeated string failed_work_unit_ids = 4;
+  double coverage_ratio = 5;
+  repeated SourceSnapshotReport source_snapshots = 6;
+  repeated ArtifactFreshnessReport artifacts = 7;
+  repeated ExactFallbackReport exact_fallbacks = 8;
+  // Bounded proof that this failed/cancelled attempt has no trustworthy
+  // successful work-unit evidence for any unit in the fenced TaskRequest.
+  // It does not claim every split physically executed and failed.
+  // Only valid with zero completed units and no failed_work_unit_ids.
+  bool all_work_units_failed = 9;
+}
+
+// One immutable source relation pinned by the execution. This is repeated
+// because a normal SQL query may read several tables/snapshots.
+message SourceSnapshotReport {
+  string source_id = 1;
+  string snapshot_id = 2;
+  uint64 expected_work_units = 3;
+  uint64 completed_work_units = 4;
+  uint64 source_data_timestamp_ms = 5;
+}
+
+// Query-visible identity and freshness of an immutable artifact generation.
+// artifact_type is generic (index, embedding segment, cache shard, model asset,
+// export, ...); feature protocols must not redefine this structure.
+message ArtifactFreshnessReport {
+  string artifact_id = 1;
+  string artifact_type = 2;
+  string generation = 3;
+  string source_id = 4;
+  string source_snapshot = 5;
+  uint64 source_data_timestamp_ms = 6;
+  uint64 artifact_created_at_epoch_ms = 7;
+}
+
+// Evidence that one missing/unusable artifact work unit was evaluated exactly
+// on the same pinned source snapshot. Presence changes the overall completion
+// state to FALLBACK_EXACT; it never upgrades an approximate algorithm to exact.
+message ExactFallbackReport {
+  string work_unit_id = 1;
+  string capability_id = 2;
+  string reason_code = 3;
+  string source_id = 4;
+  string source_snapshot = 5;
+}
+
+message ApproximationReport {
+  string profile_id = 1;
+  string algorithm_capability_id = 2;
+  uint64 candidate_limit = 3;
+  uint64 exact_rescore_limit = 4;
+  double qualified_recall_at_k = 5;
+  uint32 recall_k = 6;
+}
+
+message ResourceUsage {
+  uint64 cpu_nanos = 1;
+  uint64 peak_native_memory_bytes = 2;
+  uint64 peak_jvm_heap_bytes = 3;
+  uint64 spill_bytes = 4;
+  uint64 shuffle_send_bytes = 5;
+  uint64 shuffle_receive_bytes = 6;
+  uint64 object_store_read_bytes = 7;
+  uint64 candidate_rows = 8;
+  uint64 candidate_bytes = 9;
+  reserved 10, 11;
+  reserved "provider_input_tokens", "provider_output_tokens";
+  uint64 media_bytes = 12;
+  uint64 object_store_write_bytes = 13;
+  uint64 provider_attempts = 14;
+  uint64 provider_request_bytes = 15;
+  // Entity bytes admitted before retention, including unsuccessful attempts.
+  uint64 provider_response_bytes = 16;
+  uint64 provider_items = 17;
+  // All bytes delivered to the HTTP subscriber, including a rejected final
+  // chunk. This is observation, not a retention grant; it may exceed that
+  // grant without invalidating the exact task's terminal failure evidence.
+  uint64 observed_provider_response_bytes = 18;
+  // Actual buffers copied at columnar layout adaptation boundaries. This is
+  // not allocator traffic or peak memory, and remains observed on failure.
+  uint64 columnar_conversion_copied_bytes = 19;
+}
+
+// Operator and task telemetry emitted by Native. This is part of the same v2
+// execution/result contract as TaskReport; JNI must not maintain a parallel
+// version-specific stats schema.
+message OperatorStats {
+  string operator_type = 1;
+  uint64 input_rows = 2;
+  uint64 output_rows = 3;
+  uint64 input_bytes = 4;
+  uint64 output_bytes = 5;
+  uint64 cpu_nanos = 6;
+  uint64 wall_nanos = 7;
+  string plan_node_id = 8;
+  uint64 memory_bytes = 9;
+  uint64 peak_memory_bytes = 10;
+  uint64 spill_bytes = 11;
+}
+
+message NativeTaskStats {
+  uint64 rows_read = 1;
+  uint64 bytes_read = 2;
+  uint64 rows_written = 3;
+  uint64 bytes_written = 4;
+  uint64 elapsed_time_ms = 5;
+  uint64 cpu_time_ms = 6;
+  uint64 memory_bytes = 7;
+  uint64 peak_memory_bytes = 8;
+  uint64 spill_bytes = 9;
+  uint64 cache_hit_bytes = 10;
+  uint64 cache_miss_bytes = 11;
+  repeated OperatorStats operator_stats = 12;
+  uint64 backpressure_wait_ms = 13;
+  uint64 cache_hit_count = 14;
+  uint64 cache_miss_count = 15;
+  uint64 cache_eviction_count = 16;
+  uint64 cache_admission_rejection_count = 17;
+  // Live drivers blocked on the actual output consumer, not accumulated wait time.
+  uint64 consumer_blocked_drivers = 18;
+  // Worker-local scalar index decisions before Velox split enqueue.
+  uint64 index_splits_evaluated = 19;
+  uint64 index_splits_skipped = 20;
+}
+
+// Generic report produced by one fenced background work page. Outputs are
+// immutable artifact objects; no feature-specific status or vector payload is
+// allowed on the coordinator control channel.
+message ArtifactWorkReport {
+  string job_id = 1;
+  string page_id = 2;
+  uint64 fencing_token = 3;
+  string source_id = 4;
+  string source_snapshot = 5;
+  string staging_generation = 6;
+  repeated ArtifactObject outputs = 7;
+  ResourceUsage usage = 8;
+  ExecutionError error = 9;
+  Checksum report_checksum = 10;
+}
+
+// Execution-owner evidence, not publication authority or result consumption.
+// Native publishes RELEASED only after its actual executor release/join/drain
+// succeeds. A Worker may copy that exact receipt when reconciling a failure.
+// NO_NATIVE_OWNER requires sealed creation admission before any Native owner
+// was created; a zero handle or a failed JNI call alone does not prove it.
+enum ExecutionDrainState {
+  EXECUTION_DRAIN_STATE_UNSPECIFIED = 0;
+  EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED = 1;
+  EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER = 2;
+  // The exact target incarnation physically exited or joined every execution owner.
+  EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED = 3;
+  // The Worker-JVM task released its source, sink and buffers after completion.
+  EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED = 4;
+}
+
+message TaskReport {
+  TaskAttemptId attempt = 1;
+  TaskState state = 2;
+  CoverageReport coverage = 3;
+  ApproximationReport approximation = 4;
+  ResourceUsage usage = 5;
+  ExecutionError error = 6;
+  string winning_attempt_id = 7;
+  Checksum output_manifest_checksum = 8;
+  ArtifactWorkReport artifact_work = 9;
+  TaskReportOrigin report_origin = 10;
+  // Actual producer statistics captured after join, before native Task deletion.
+  // Absent when admission/cancellation prevented execution from creating a Task.
+  NativeTaskStats native_task_stats = 11;
+  ExecutionDrainState execution_drain_state = 12;
+}
+
+message ExecutionEnvelope {
+  ProtocolVersion protocol = 1;
+  string query_or_job_id = 2;
+  CompletionState completion_state = 3;
+  CoverageReport coverage = 4;
+  ApproximationReport approximation = 5;
+  ResourceUsage usage = 6;
+  repeated TaskReport terminal_tasks = 7;
+  ExecutionError error = 8;
+}

@@ -1,3 +1,25 @@
+{{- $config := fromYaml .Values.config.coordinator -}}
+{{- if hasKey $config "Error" -}}
+{{- fail "config.coordinator must be valid YAML" -}}
+{{- end -}}
+{{- $security := get $config "security" | default dict -}}
+{{- $auth := get $security "auth" | default dict -}}
+{{- $authType := get $auth "type" | default "" | upper -}}
+{{- if ne (get $security "enabled" | toString | lower) "true" -}}
+{{- fail "config.coordinator security.enabled must be true for Worker control authentication" -}}
+{{- end -}}
+{{- if eq $authType "NOOP" -}}
+{{- if not .Values.developmentMode -}}
+{{- fail "NOOP accepts unauthenticated users; set developmentMode=true explicitly for development, or configure OAUTH2/LDAP" -}}
+{{- end -}}
+{{- else if not (has $authType (list "OAUTH2" "LDAP")) -}}
+{{- fail "config.coordinator security.auth.type must be OAUTH2 or LDAP, or explicit developmentMode=true with NOOP" -}}
+{{- end -}}
+{{- $coordinator := get $config "coordinator" | default dict -}}
+{{- $ha := get $coordinator "ha" | default dict -}}
+{{- if and (gt (int .Values.coordinator.replicas) 1) (ne (get $ha "enabled" | toString | lower) "true") -}}
+{{- fail "multiple Coordinator replicas require coordinator.ha.enabled=true and a verified shared HA topology" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +40,8 @@ spec:
         app: pangrova
         component: coordinator
     spec:
+      securityContext:
+        fsGroup: {{ .Values.coordinator.fsGroup }}
       containers:
         - name: coordinator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -37,6 +61,27 @@ spec:
               value: /opt/pangrova/logs
             - name: PANGROVA_JAVA_OPTS
               value: {{ .Values.coordinator.javaOpts | quote }}
+            - name: PANGROVA_INTERNAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalAuth.existingSecret | quote }}
+                  key: internal-auth-secret
+            - name: PANGROVA_DB_HOST
+              value: {{ required "metadata.host must name a reachable PostgreSQL endpoint" .Values.metadata.host | quote }}
+            - name: PANGROVA_DB_PORT
+              value: {{ .Values.metadata.port | quote }}
+            - name: PANGROVA_DB_NAME
+              value: {{ required "metadata.database must name an existing PostgreSQL database" .Values.metadata.database | quote }}
+            - name: PANGROVA_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "metadata.existingSecret must name a Secret with username/password" .Values.metadata.existingSecret | quote }}
+                  key: username
+            - name: PANGROVA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "metadata.existingSecret must name a Secret with username/password" .Values.metadata.existingSecret | quote }}
+                  key: password
           readinessProbe:
             httpGet:
               path: /v1/health
@@ -45,7 +90,7 @@ spec:
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10

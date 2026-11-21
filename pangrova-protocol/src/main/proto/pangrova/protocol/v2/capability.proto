@@ -1,0 +1,523 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/common.proto";
+import "substrait/type.proto";
+import "substrait/algebra.proto";
+
+enum CapabilityKind {
+  CAPABILITY_KIND_UNSPECIFIED = 0;
+  CAPABILITY_KIND_SCALAR = 1;
+  CAPABILITY_KIND_TABLE = 2;
+  CAPABILITY_KIND_RETRIEVAL_SOURCE = 3;
+  CAPABILITY_KIND_RETRIEVAL_MERGE = 4;
+  CAPABILITY_KIND_RERANK = 5;
+  CAPABILITY_KIND_MATERIALIZER = 6;
+  CAPABILITY_KIND_MODEL_INVOCATION = 7;
+  CAPABILITY_KIND_BACKGROUND_SINK = 8;
+}
+
+enum ExecutionPlacement {
+  EXECUTION_PLACEMENT_UNSPECIFIED = 0;
+  EXECUTION_PLACEMENT_NATIVE = 1;
+  EXECUTION_PLACEMENT_WORKER_LOCAL_GOVERNED_CALLBACK = 2;
+  EXECUTION_PLACEMENT_EXTERNAL_GOVERNED_SERVICE = 3;
+}
+
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  EXECUTION_MODE_SYNC = 1;
+  EXECUTION_MODE_ASYNC = 2;
+  EXECUTION_MODE_BATCH = 3;
+  EXECUTION_MODE_STREAMING = 4;
+}
+
+enum Modality {
+  MODALITY_UNSPECIFIED = 0;
+  MODALITY_TEXT = 1;
+  MODALITY_IMAGE = 2;
+  MODALITY_AUDIO = 3;
+  MODALITY_VIDEO = 4;
+  MODALITY_DOCUMENT = 5;
+  MODALITY_VECTOR = 6;
+  MODALITY_TABULAR = 7;
+}
+
+enum RetryClass {
+  RETRY_CLASS_UNSPECIFIED = 0;
+  RETRY_CLASS_NEVER = 1;
+  RETRY_CLASS_IDEMPOTENT = 2;
+  RETRY_CLASS_PROVIDER_IDEMPOTENCY_KEY = 3;
+}
+
+message CapabilityRef {
+  string capability_id = 1;
+  string semantic_version = 2;
+  bytes signature_sha256 = 3;
+  string implementation_build_id = 4;
+}
+
+message SignatureArgument {
+  string name = 1;
+  LogicalType type = 2;
+  bool nullable = 3;
+  bool variadic = 4;
+}
+
+message CapabilityLimits {
+  uint32 max_batch_items = 1;
+  uint64 max_input_bytes = 2;
+  uint64 max_output_bytes = 3;
+  uint64 max_candidate_rows = 4;
+  uint64 max_candidate_bytes = 5;
+  uint64 max_media_bytes = 6;
+  uint64 max_input_tokens = 7;
+  uint64 max_output_tokens = 8;
+  uint32 max_concurrency = 9;
+  // Hard upper bound on logical row-level model invocations admitted to one
+  // physical task. This is distinct from max_batch_items (one provider
+  // request) and makes scans containing AI expressions predictably bounded.
+  reserved 10;
+  reserved "max_invocations_per_task";
+  uint64 max_request_bytes = 11;
+  uint64 max_response_bytes = 12;
+  uint64 max_provider_attempts_per_task = 13;
+  uint64 max_provider_items_per_task = 14;
+}
+
+message CapabilityDescriptor {
+  CapabilityRef ref = 1;
+  CapabilityKind kind = 2;
+  ExecutionPlacement placement = 3;
+  repeated ExecutionMode execution_modes = 4;
+  repeated Modality modalities = 5;
+  repeated SignatureArgument arguments = 6;
+  substrait.NamedStruct output_schema = 7;
+  bool deterministic = 8;
+  RetryClass retry_class = 9;
+  string required_privilege = 10;
+  string egress_class = 11;
+  CapabilityLimits limits = 12;
+  bytes options_schema_sha256 = 13;
+  // Empty means this capability consumes no immutable artifacts. Otherwise a
+  // task binding must select one of these exact format identities.
+  repeated ArtifactFormatRef supported_artifact_formats = 14;
+}
+
+// Worker-local availability of one exact model object for one or more generic
+// execution capabilities. The model signature covers its public execution
+// descriptor (provider route, limits, modalities and capability contracts),
+// never credential material.
+message ModelCapabilityContract {
+  CapabilityRef capability = 1;
+  // Exact logical result type for this model/capability pair.  Generic Native
+  // functions may share one physical representation, but admission and result
+  // validation are bound to this model-specific contract.
+  LogicalType output_type = 2;
+  // SHA-256 of the SQL-bindable execution configuration for this
+  // model/capability pair. The digest includes the provider route, an opaque
+  // credential-reference digest, serving limits and operation-specific
+  // settings, but never credential material.
+  bytes binding_contract_sha256 = 3;
+}
+
+message ModelAvailability {
+  VersionedRef model = 1;
+  repeated ModelCapabilityContract capability_contracts = 2;
+  // Exact serving envelope for this model deployment. It is deliberately
+  // separate from the generic relation capability limit because two models
+  // behind the same Native relation can have different provider bounds.
+  CapabilityLimits limits = 3;
+}
+
+message CapabilityInventory {
+  ProtocolVersion protocol = 1;
+  repeated CapabilityDescriptor capabilities = 2;
+  repeated string supported_relation_type_urls = 3;
+  uint32 candidate_schema_version = 4;
+  uint32 result_envelope_version = 5;
+  string native_engine_version = 6;
+  repeated string supported_substrait_rel_types = 7;
+  repeated string supported_substrait_expression_types = 8;
+  reserved 9;
+  reserved "supported_substrait_functions";
+  repeated ModelAvailability models = 10;
+  repeated FunctionAvailability functions = 11;
+  FunctionCatalogManifest function_catalog = 12;
+}
+
+// Generic function contracts share canonical Substrait concrete types. This
+// parameter language describes registered signatures, not another type system.
+enum FunctionKind {
+  FUNCTION_KIND_UNSPECIFIED = 0;
+  FUNCTION_KIND_SCALAR = 1;
+  FUNCTION_KIND_AGGREGATE = 2;
+  FUNCTION_KIND_WINDOW = 3;
+}
+
+enum FunctionVariableKind {
+  FUNCTION_VARIABLE_KIND_UNSPECIFIED = 0;
+  FUNCTION_VARIABLE_KIND_TYPE = 1;
+  FUNCTION_VARIABLE_KIND_INTEGER = 2;
+  FUNCTION_VARIABLE_KIND_ENUM = 3;
+}
+
+enum FunctionFormulaOperation {
+  FUNCTION_FORMULA_OPERATION_UNSPECIFIED = 0;
+  FUNCTION_FORMULA_OPERATION_INTEGER = 1;
+  FUNCTION_FORMULA_OPERATION_VARIABLE = 2;
+  FUNCTION_FORMULA_OPERATION_NEGATE = 3;
+  FUNCTION_FORMULA_OPERATION_ADD = 4;
+  FUNCTION_FORMULA_OPERATION_SUBTRACT = 5;
+  FUNCTION_FORMULA_OPERATION_MULTIPLY = 6;
+  FUNCTION_FORMULA_OPERATION_DIVIDE = 7;
+  FUNCTION_FORMULA_OPERATION_REMAINDER = 8;
+  FUNCTION_FORMULA_OPERATION_MIN = 9;
+  FUNCTION_FORMULA_OPERATION_MAX = 10;
+  FUNCTION_FORMULA_OPERATION_EQUAL = 11;
+  FUNCTION_FORMULA_OPERATION_NOT_EQUAL = 12;
+  FUNCTION_FORMULA_OPERATION_LESS = 13;
+  FUNCTION_FORMULA_OPERATION_LESS_OR_EQUAL = 14;
+  FUNCTION_FORMULA_OPERATION_GREATER = 15;
+  FUNCTION_FORMULA_OPERATION_GREATER_OR_EQUAL = 16;
+  FUNCTION_FORMULA_OPERATION_CONDITIONAL = 17;
+}
+
+message FunctionTypeFormula {
+  FunctionFormulaOperation operation = 1;
+  sint64 integer_value = 2;
+  string variable_name = 3;
+  repeated FunctionTypeFormula operands = 4;
+}
+
+message FunctionTypeVariable {
+  string name = 1;
+  FunctionVariableKind kind = 2;
+  FunctionTypeFormula formula = 3;
+  bool known_types_only = 4;
+  bool orderable_types_only = 5;
+  bool comparable_types_only = 6;
+  // Enum parameters require an exact canonical type-parameter projection;
+  // their declaration is retained rather than guessed to be an integer.
+  string enum_constraint = 7;
+  // Actual input binding checks only a digit-only integer constraint. A
+  // formula that happens to evaluate to a literal is not that constraint.
+  optional int32 input_integer_constant = 8;
+}
+
+message FunctionTypePathStep {
+  uint32 field_number = 1;
+  optional uint32 repeated_index = 2;
+}
+
+message FunctionTypeSlot {
+  repeated FunctionTypePathStep path = 1;
+  oneof replacement {
+    FunctionTypeTemplate type = 2;
+    FunctionTypeFormula integer = 3;
+    string enum_variable = 4;
+  }
+}
+
+// Actual registered `any` input matches without assigning a type variable.
+// It is not a concrete result type or a replacement for an unknown SQL type.
+message FunctionAnyType {}
+
+// Lossless registered custom-type AST when the sole canonical bridge has no
+// projection. This is inventory evidence, never an executable SQL type.
+message FunctionOpaqueRegisteredType {
+  string name = 1;
+  repeated FunctionOpaqueRegisteredType parameters = 2;
+  bool variable_arity = 3;
+  optional string row_field_name = 4;
+}
+
+message FunctionTypeTemplate {
+  oneof root {
+    substrait.Type skeleton = 1;
+    string type_variable = 2;
+    FunctionAnyType any_type = 6;
+    FunctionOpaqueRegisteredType opaque_registered_type = 7;
+  }
+  repeated FunctionTypeSlot slots = 3;
+  repeated FunctionTypeFieldNameConstraint field_name_constraints = 4;
+  bool homogeneous_row = 5;
+}
+
+message FunctionTypeFieldNameConstraint {
+  // Ends at one struct child Type. Presence distinguishes an unconstrained
+  // row field from a field explicitly required to have an empty name.
+  repeated FunctionTypePathStep path = 1;
+  string name = 2;
+}
+
+message FunctionSignatureContract {
+  repeated FunctionTypeVariable variables = 1;
+  repeated FunctionTypeTemplate arguments = 2;
+  FunctionTypeTemplate output = 3;
+  FunctionTypeTemplate intermediate = 4;
+  repeated bool constant_arguments = 5;
+  bool variable_arity = 6;
+  // Preserve registered parameter evaluation order. Canonical field ordering
+  // is not evidence that derived variables were already assigned by runtime.
+  repeated string derived_parameter_order = 7;
+}
+
+enum FunctionResolutionPolicy {
+  FUNCTION_RESOLUTION_POLICY_UNSPECIFIED = 0;
+  // Actual Aggregate/Window registry vector order, never canonical sort order.
+  FUNCTION_RESOLUTION_POLICY_ORDERED_FIRST_MATCH = 1;
+  // The generated execution-selection contract selects an actual immutable
+  // entry; a logical signature inventory alone does not prove precedence.
+  FUNCTION_RESOLUTION_POLICY_SCALAR_RUNTIME_PRIORITY = 2;
+}
+
+// These families describe implementation selection, never SQL value types.
+enum FunctionImplementationFamily {
+  FUNCTION_IMPLEMENTATION_FAMILY_UNSPECIFIED = 0;
+  FUNCTION_IMPLEMENTATION_FAMILY_SPECIAL_FORM = 1;
+  FUNCTION_IMPLEMENTATION_FAMILY_VECTOR = 2;
+  FUNCTION_IMPLEMENTATION_FAMILY_SCALAR = 3;
+}
+
+message FunctionImplementationMetadata {
+  optional bool deterministic = 1;
+  optional bool default_null_behavior = 2;
+  optional bool supports_flattening = 3;
+  optional bool companion_function = 4;
+}
+
+// An actual native registration constraint, not an alternate concrete type.
+// UNKNOWN in a constraint matches any physical representation. Runtime tags
+// are interpreted only through the catalog's canonical type projection.
+message FunctionPhysicalTypePattern {
+  string runtime_tag = 1;
+  repeated FunctionPhysicalTypePattern children = 2;
+}
+
+// Traits of the actual projected runtime type, not guessed SQL categories.
+enum FunctionTypeTraitRule {
+  FUNCTION_TYPE_TRAIT_RULE_UNSPECIFIED = 0;
+  FUNCTION_TYPE_TRAIT_RULE_ALWAYS = 1;
+  FUNCTION_TYPE_TRAIT_RULE_NEVER = 2;
+  FUNCTION_TYPE_TRAIT_RULE_ALL_CHILDREN = 3;
+}
+
+// Descriptor-authorized canonical child field. A repeated terminal projects
+// each child independently; this is not homogeneous-row type unification.
+message FunctionTypeProjectionChildPath {
+  repeated uint32 field_numbers = 1;
+}
+
+message FunctionTypeParameterPath {
+  repeated FunctionTypePathStep path = 1;
+}
+
+message FunctionPhysicalTypeProjection {
+  repeated FunctionTypeVariable variables = 1;
+  FunctionTypeTemplate logical_type = 2;
+  FunctionPhysicalTypePattern physical_type = 3;
+  repeated FunctionTypeFormula predicates = 4;
+  // Canonical Type normalized through the same Native bridge for the runtime
+  // Type::equivalent relation. DECIMAL parameters remain exact; erased SQL
+  // length/temporal metadata is not spuriously compared as a runtime type.
+  FunctionTypeTemplate binding_type = 5;
+  FunctionTypeTraitRule known_type = 6;
+  FunctionTypeTraitRule orderable = 7;
+  FunctionTypeTraitRule comparable = 8;
+  repeated FunctionTypeProjectionChildPath recursive_children = 9;
+  // Exact actual runtime factory name from the same bridge declaration.
+  string native_type_name = 10;
+  // Exact Native integer TypeParameter order, generated from nativeArgument
+  // in the same factory declaration. Erased SQL metadata is not a parameter.
+  repeated FunctionTypeParameterPath native_integer_parameter_paths = 11;
+}
+
+message FunctionImplementationContract {
+  FunctionImplementationFamily family = 1;
+  FunctionSignatureContract signature = 2;
+  // Exact original traversal order; never a canonical signature sort order.
+  uint32 traversal_ordinal = 3;
+  optional uint32 priority = 4;
+  repeated FunctionPhysicalTypePattern argument_physical = 5;
+  FunctionPhysicalTypePattern output_physical = 6;
+  FunctionImplementationMetadata metadata = 7;
+  bytes contract_sha256 = 8;
+  // Generic generated type program owned by the actual special-form object.
+  // Empty on an opaque custom special means diagnostic-only, not executable.
+  string special_type_program = 9;
+  // Exact signature-less registered vector entry used by this actual special.
+  string vector_companion = 10;
+}
+
+// Full actual registry inventory. SQL definitions reference these identities;
+// unexposed Native/custom entries are preserved rather than renamed as SQL.
+message RegisteredFunctionContract {
+  string implementation_name = 1;
+  FunctionKind kind = 2;
+  repeated FunctionSignatureContract signatures = 3;
+  repeated FunctionImplementationContract implementations = 4;
+  FunctionResolutionPolicy resolution_policy = 5;
+  FunctionWindowProcess window_process = 6;
+  bool aggregate_window = 7;
+  string distinct_implementation = 8;
+  bytes contract_sha256 = 9;
+}
+
+// A real companion may have no FunctionSignature. This preserves its actual
+// entry metadata and owner dependency without inventing a callable signature.
+message RegisteredVectorCompanion {
+  string implementation_name = 1;
+  FunctionImplementationMetadata metadata = 2;
+  bytes contract_sha256 = 3;
+}
+
+message FunctionOptionContract {
+  string name = 1;
+  repeated string values = 2;
+  string default_value = 3;
+  // Behavior is defined by the sole binding declaration; e.g. Pangrova's
+  // null_treatment extension, not an invented standard Substrait option.
+  string behavior = 4;
+}
+
+enum FunctionNullability {
+  FUNCTION_NULLABILITY_UNSPECIFIED = 0;
+  FUNCTION_NULLABILITY_ANY_INPUT = 1;
+  FUNCTION_NULLABILITY_ALL_INPUTS = 2;
+  FUNCTION_NULLABILITY_NEVER = 3;
+  FUNCTION_NULLABILITY_ALWAYS = 4;
+  // The sole SQL semantic validator has supplied the exact concrete call
+  // output Type in the canonical plan. This is not an inference rule and
+  // does not authorize a required output containing NULL at execution.
+  FUNCTION_NULLABILITY_CANONICAL_DECLARED_OUTPUT = 5;
+}
+
+enum FunctionWindowProcess {
+  FUNCTION_WINDOW_PROCESS_UNSPECIFIED = 0;
+  FUNCTION_WINDOW_PROCESS_ROWS = 1;
+  FUNCTION_WINDOW_PROCESS_PARTITION = 2;
+}
+
+message FunctionNormalizedArgument {
+  uint32 ordinal = 1;
+  string name = 2;
+  FunctionTypeTemplate type = 3;
+  bool constant = 4;
+  bool optional = 5;
+  TypedValue default_value = 6;
+  repeated string enum_values = 7;
+}
+
+message FunctionReferenceContract {
+  string urn = 1;
+  string name = 2;
+  FunctionKind kind = 3;
+  bytes contract_sha256 = 4;
+}
+
+message FunctionRewriteArgument {
+  oneof source {
+    uint32 input_ordinal = 1;
+    uint32 node_ordinal = 2;
+    TypedValue literal = 3;
+  }
+}
+
+message FunctionRewriteNode {
+  FunctionReferenceContract target = 1;
+  repeated FunctionRewriteArgument arguments = 2;
+  // Direct actual registry dependency where no independent public SQL alias
+  // exists. Exactly one of target or implementation_name must be present.
+  string implementation_name = 3;
+}
+
+message FunctionRewrite {
+  repeated FunctionRewriteNode nodes = 1;
+  uint32 result_node_ordinal = 2;
+}
+
+message SubstraitFunctionDefinition {
+  FunctionReferenceContract ref = 1;
+  string implementation_name = 2;
+  reserved 3;
+  reserved "signatures";
+  FunctionNullability nullability = 4;
+  reserved 5, 6;
+  reserved "deterministic", "default_null_behavior";
+  repeated string sql_names = 7;
+  repeated string standard_operators = 8;
+  FunctionRewrite rewrite = 9;
+  repeated FunctionNormalizedArgument normalized_arguments = 10;
+  repeated FunctionNormalizedArgument governed_arguments = 11;
+  bytes semantics_sha256 = 12;
+  repeated substrait.AggregationPhase aggregate_phases = 13;
+  FunctionWindowProcess window_process = 14;
+  bool aggregate_window = 15;
+  FunctionResolutionPolicy resolution_policy = 16;
+  repeated FunctionOptionContract options = 17;
+  repeated substrait.AggregateFunction.AggregationInvocation invocations = 18;
+  reserved 19;
+  reserved "implementations";
+  // A declared structural lowering is not a registered callable function.
+  string structural_lowering = 20;
+  // Names the startup callback dependency; absence from the actual snapshot
+  // is diagnostic-only, never an available executable signature.
+  string registration_dependency = 21;
+}
+
+message FunctionCatalogManifest {
+  uint32 schema_version = 1;
+  bytes canonical_descriptor_sha256 = 2;
+  bytes binding_declaration_sha256 = 3;
+  bytes registration_sha256 = 4;
+  repeated SubstraitFunctionDefinition definitions = 5;
+  bytes manifest_sha256 = 6;
+  string implementation_build_id = 7;
+  // Identifies the sole generated evaluator used by SDK execution and Java.
+  bytes execution_selection_sha256 = 8;
+  repeated FunctionPhysicalTypeProjection physical_type_projections = 9;
+  repeated RegisteredFunctionContract registered_functions = 10;
+  repeated RegisteredVectorCompanion vector_companions = 11;
+}
+
+message FunctionAvailability {
+  FunctionReferenceContract ref = 1;
+  reserved 2, 3, 4, 6, 7;
+  reserved "implementation_name", "aggregate_phases", "window_process", "invocations", "options";
+  string implementation_build_id = 5;
+}
+
+message FunctionRequirement {
+  FunctionReferenceContract ref = 1;
+  repeated substrait.Type argument_types = 2;
+  substrait.Type output_type = 3;
+  substrait.Type intermediate_type = 4;
+  repeated uint32 constant_argument_ordinals = 5;
+  substrait.AggregationPhase aggregate_phase = 6;
+  FunctionWindowProcess window_process = 7;
+  // Stable expression path within the checksum-pinned fragment, not a name
+  // inferred from the selected result schema.
+  repeated uint32 expression_path = 8;
+  // All arguments in canonical flattened-preorder NamedStruct form. This
+  // preserves nested row names for exact registered named-row constraints;
+  // argument_types must exactly equal this schema's top-level types.
+  substrait.NamedStruct argument_schema = 9;
+  substrait.AggregateFunction.AggregationInvocation invocation = 10;
+  repeated substrait.FunctionOption options = 11;
+  // State input loses raw signature variables (e.g. DECIMAL SUM is VARBINARY).
+  // Final/intermediate calls must retain source-validated raw inputs rather
+  // than attempting to reconstruct them from the state representation.
+  substrait.NamedStruct original_raw_argument_schema = 12;
+  // Identifies the actual selected entry, not merely a name-level signature.
+  bytes selected_implementation_sha256 = 13;
+}
+
+message FunctionRequirements {
+  repeated FunctionRequirement calls = 1;
+  Checksum fragment_checksum = 2;
+  bytes definition_view_sha256 = 3;
+}

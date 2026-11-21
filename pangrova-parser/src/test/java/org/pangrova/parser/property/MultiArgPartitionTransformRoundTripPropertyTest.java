@@ -1,10 +1,10 @@
 package org.pangrova.parser.property;
 
 import net.jqwik.api.*;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
+import org.pangrova.parser.format.AstPrinter;
+import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
 
 import java.util.List;
 
@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class MultiArgPartitionTransformRoundTripPropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private final AstPrinter printer = new AstPrinter();
 
     @Property(tries = 10)

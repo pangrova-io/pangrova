@@ -3,10 +3,10 @@ package org.pangrova.protocol.rest.task;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Task execution statistics aligned with Protobuf TaskStats in
- * pangrova_native_protocol.proto.
+ * Task execution statistics mapped from the canonical Protobuf task status.
  *
  * <p>Field names mirror the Protobuf definition for 1:1 semantic mapping:
  * rowsRead/bytesRead (input), rowsWritten/bytesWritten (output),
@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <p>Transport-layer fields (compressedBytesTransferred, uncompressedBytesTransferred)
  * are REST-only — they track Arrow IPC compression efficiency at the transport
- * transport layer and have no Protobuf counterpart in the native protocol.</p>
+ * layer and have no Protobuf counterpart in the native protocol.</p>
  */
 public record TaskStats(
     @JsonProperty("rows_read") long rowsRead,
@@ -32,32 +32,14 @@ public record TaskStats(
     @JsonProperty("compressed_bytes_transferred") long compressedBytesTransferred,
     @JsonProperty("uncompressed_bytes_transferred") long uncompressedBytesTransferred,
     @JsonProperty("operator_stats") List<OperatorStats> operatorStats,
-    @JsonProperty("backpressure_wait_ms") long backpressureWaitMs
+    @JsonProperty("backpressure_wait_ms") long backpressureWaitMs,
+    @JsonProperty("cache_hit_count") long cacheHitCount,
+    @JsonProperty("cache_miss_count") long cacheMissCount,
+    @JsonProperty("cache_eviction_count") long cacheEvictionCount,
+    @JsonProperty("cache_admission_rejection_count") long cacheAdmissionRejectionCount
 ) {
-    /**
-     * Convenience constructor without transport stats, operator stats, and backpressure.
-     */
-    public TaskStats(long rowsRead, long bytesRead, long rowsWritten,
-                     long bytesWritten, long elapsedTimeMs, long cpuTimeMs,
-                     long memoryBytes, long peakMemoryBytes, long spillBytes,
-                     long cacheHitBytes, long cacheMissBytes) {
-        this(rowsRead, bytesRead, rowsWritten, bytesWritten, elapsedTimeMs,
-             cpuTimeMs, memoryBytes, peakMemoryBytes, spillBytes,
-             cacheHitBytes, cacheMissBytes, 0, 0, List.of(), 0);
-    }
-
-    /**
-     * Backward-compatible constructor without backpressure.
-     */
-    public TaskStats(long rowsRead, long bytesRead, long rowsWritten,
-                     long bytesWritten, long elapsedTimeMs, long cpuTimeMs,
-                     long memoryBytes, long peakMemoryBytes, long spillBytes,
-                     long cacheHitBytes, long cacheMissBytes,
-                     long compressedBytesTransferred, long uncompressedBytesTransferred,
-                     List<OperatorStats> operatorStats) {
-        this(rowsRead, bytesRead, rowsWritten, bytesWritten, elapsedTimeMs,
-             cpuTimeMs, memoryBytes, peakMemoryBytes, spillBytes,
-             cacheHitBytes, cacheMissBytes, compressedBytesTransferred,
-             uncompressedBytesTransferred, operatorStats, 0);
+    public TaskStats {
+        operatorStats = List.copyOf(Objects.requireNonNull(
+                operatorStats, "operatorStats must not be null"));
     }
 }

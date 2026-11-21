@@ -1,8 +1,9 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.types.value.TypedRow;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
@@ -14,9 +15,12 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.utils.TimeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +34,13 @@ final class PaimonProcedureExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaimonProcedureExecutor.class);
 
+    /** Paimon's own safe snapshot-retention window, used when the caller does not choose one. */
+    private static final int DEFAULT_SNAPSHOT_RETAIN_MAX = 30;
+    private static final int DEFAULT_SNAPSHOT_RETAIN_MIN = 10;
+
+    /** Orphan deletion never uses a cutoff younger than this, so in-flight writes stay safe. */
+    private static final long MIN_ORPHAN_AGE_MS = 24L * 60L * 60L * 1000L;
+
     private final Catalog catalog;
 
     PaimonProcedureExecutor(Catalog catalog) {
@@ -39,7 +50,7 @@ final class PaimonProcedureExecutor {
     /** Dispatches a procedure invocation to the matching handler. */
     List<TypedRow> execute(String procedureName, Map<String, String> arguments) {
         String tableName = arguments.getOrDefault("arg0", "");
-        return switch (procedureName.toLowerCase()) {
+        return switch (procedureName.toLowerCase(Locale.ROOT)) {
             case "compact" -> executeCompactProcedure(tableName);
             case "expire_snapshots" -> executeExpireSnapshotsProcedure(tableName, arguments);
             case "create_tag" -> executeCreateTagProcedure(tableName, arguments);
@@ -124,21 +135,44 @@ final class PaimonProcedureExecutor {
 
     private List<TypedRow> executeExpireSnapshotsProcedure(
             String tableName, Map<String, String> args) {
+        int retainMax = parseIntArgument(args, "1", "retain_max", DEFAULT_SNAPSHOT_RETAIN_MAX);
+        int retainMin = parseIntArgument(args, "2", "retain_min",
+                Math.min(DEFAULT_SNAPSHOT_RETAIN_MIN, retainMax));
+        if (retainMax < 1 || retainMin < 1 || retainMin > retainMax) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "expire_snapshots requires 1 <= retain_min <= retain_max, got retain_min="
+                            + retainMin + ", retain_max=" + retainMax);
+        }
+        boolean dryRun = parseBooleanArgument(args, "3", "dry_run");
         Table table = loadFreshTableByName(tableName);
-        int retainMax = Integer.parseInt(args.getOrDefault("retain_max", "1"));
         long startMs = System.currentTimeMillis();
         int expiredCount;
         try {
+            if (dryRun) {
+                expiredCount = estimateExpiredSnapshots(table, retainMax);
+                LOG.info("event=procedure_expire_snapshots_dry_run table={} retain_max={} "
+                        + "retain_min={} wouldExpire={}", tableName, retainMax, retainMin, expiredCount);
+                return List.of(TypedRow.builder()
+                        .putString("result", "expire_snapshots dry run")
+                        .putString("table", tableName)
+                        .putLong("retain_max", retainMax)
+                        .putLong("retain_min", retainMin)
+                        .putLong("expired_snapshots", expiredCount)
+                        .putString("dry_run", "true")
+                        .putLong("duration_ms", System.currentTimeMillis() - startMs)
+                        .build());
+            }
             org.apache.paimon.options.ExpireConfig expireConfig =
                     org.apache.paimon.options.ExpireConfig.builder()
                             .snapshotRetainMax(retainMax)
-                            .snapshotRetainMin(1)
+                            .snapshotRetainMin(retainMin)
                             .build();
             expiredCount = table.newExpireSnapshots()
                     .config(expireConfig)
                     .expire();
-            LOG.info("event=procedure_expire_snapshots_executed table={} retain_max={} expired={}",
-                    tableName, retainMax, expiredCount);
+            LOG.info("event=procedure_expire_snapshots_executed table={} retain_max={} "
+                            + "retain_min={} expired={}",
+                    tableName, retainMax, retainMin, expiredCount);
         } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Expire snapshots failed for table: " + tableName + " — " + e.getMessage(), e);
@@ -148,9 +182,17 @@ final class PaimonProcedureExecutor {
                 .putString("result", "expire_snapshots succeeded")
                 .putString("table", tableName)
                 .putLong("retain_max", retainMax)
+                .putLong("retain_min", retainMin)
                 .putLong("expired_snapshots", expiredCount)
+                .putString("dry_run", "false")
                 .putLong("duration_ms", durationMs)
                 .build());
+    }
+
+    /** Counts snapshots beyond the retained window without expiring anything. */
+    private static int estimateExpiredSnapshots(Table table, int retainMax) throws Exception {
+        long snapshots = ((FileStoreTable) table).snapshotManager().snapshotCount();
+        return (int) Math.max(0L, snapshots - retainMax);
     }
 
     private List<TypedRow> executeCreateTagProcedure(String tableName, Map<String, String> args) {
@@ -161,7 +203,26 @@ final class PaimonProcedureExecutor {
         }
         Table table = loadFreshTableByName(tableName);
         String tagName = args.get("arg1");
-        table.createTag(tagName);
+        if (args.size() > 4 || (args.containsKey("arg3") && !args.containsKey("arg2"))) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "create_tag accepts table_name, tag_name, optional snapshot_id and time_retained");
+        }
+        try {
+            java.time.Duration retention = args.containsKey("arg3")
+                    ? TimeUtils.parseDuration(args.get("arg3")) : null;
+            if (args.containsKey("arg2")) {
+                long snapshotId = Long.parseLong(args.get("arg2"));
+                if (snapshotId <= 0) {
+                    throw new IllegalArgumentException("snapshot_id must be positive");
+                }
+                table.createTag(tagName, snapshotId, retention);
+            } else {
+                table.createTag(tagName);
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid create_tag snapshot_id or time_retained", invalid);
+        }
         LOG.info("event=procedure_create_tag table={} tag={}", tableName, tagName);
         return List.of(TypedRow.builder()
                 .putString("result", "create_tag succeeded")
@@ -225,88 +286,52 @@ final class PaimonProcedureExecutor {
     }
 
     private List<TypedRow> executeMergeBranchProcedure(String tableName, Map<String, String> args) {
-        String branchName = args.getOrDefault("arg1", "");
-        LOG.info("event=procedure_merge_branch table={} branch={}", tableName, branchName);
-        return List.of(TypedRow.builder()
-                .putString("result", "merge_branch submitted")
-                .putString("table", tableName)
-                .putString("branch", branchName)
-                .build());
+        throw unsupportedProcedure("merge_branch", tableName);
     }
 
     private List<TypedRow> executeRepairProcedure(String tableName) {
-        Table table = loadFreshTableByName(tableName);
-        FileStoreTable fileStoreTable = (FileStoreTable) table;
-        try {
-            long repairedSnapshots = countSnapshotGaps(fileStoreTable);
-            LOG.info("event=procedure_repair_executed table={} gaps_found={}",
-                    tableName, repairedSnapshots);
-            return List.of(TypedRow.builder()
-                    .putString("result", "repair succeeded")
-                    .putString("table", tableName)
-                    .putLong("snapshot_gaps_found", repairedSnapshots)
-                    .build());
-        } catch (Exception e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Repair failed for table: " + tableName + " — " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Repair by validating snapshot consistency: counts missing snapshots
-     * between the earliest and latest snapshot ids.
-     */
-    private static long countSnapshotGaps(FileStoreTable fileStoreTable) {
-        org.apache.paimon.utils.SnapshotManager snapshotManager = fileStoreTable.snapshotManager();
-        org.apache.paimon.Snapshot latest = snapshotManager.latestSnapshot();
-        long repairedSnapshots = 0;
-        if (latest != null) {
-            // Verify snapshot chain integrity from earliest to latest
-            long earliest = snapshotManager.earliestSnapshotId();
-            for (long id = earliest; id <= latest.id(); id++) {
-                if (!snapshotManager.snapshotExists(id)) {
-                    repairedSnapshots++;
-                }
-            }
-        }
-        return repairedSnapshots;
+        throw unsupportedProcedure("repair", tableName);
     }
 
     private List<TypedRow> executeRewriteFileIndexProcedure(
             String tableName, Map<String, String> args) {
-        LOG.info("event=procedure_rewrite_file_index table={}", tableName);
-        return List.of(TypedRow.builder()
-                .putString("result", "rewrite_file_index submitted")
-                .putString("table", tableName)
-                .build());
+        throw unsupportedProcedure("rewrite_file_index", tableName);
     }
 
     private List<TypedRow> executeRemoveOrphanFilesProcedure(
             String tableName, Map<String, String> args) {
+        long now = System.currentTimeMillis();
+        Long requestedCutoff = parseLongArgumentOrNull(args, "1", "older_than_ms");
+        long cutoff = requestedCutoff == null ? now - MIN_ORPHAN_AGE_MS : requestedCutoff;
+        if (cutoff > now - MIN_ORPHAN_AGE_MS) {
+            throw new ConnectorException(
+                    PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "remove_orphan_files older_than_ms must be at least "
+                            + Duration.ofMillis(MIN_ORPHAN_AGE_MS).toHours()
+                            + " hours old so in-flight writes are never treated as orphans");
+        }
+        boolean dryRun = parseBooleanArgument(args, "2", "dry_run");
         Table table = loadFreshTableByName(tableName);
         if (!(table instanceof FileStoreTable fileStoreTable)) {
             throw new ConnectorException(
                     PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "remove_orphan_files requires a FileStoreTable: " + tableName);
         }
-        String olderThanMs = args.get("older_than_ms");
         try {
-            org.apache.paimon.operation.LocalOrphanFilesClean cleaner = olderThanMs != null
-                    ? new org.apache.paimon.operation.LocalOrphanFilesClean(
-                            fileStoreTable, Long.parseLong(olderThanMs))
-                    : new org.apache.paimon.operation.LocalOrphanFilesClean(fileStoreTable);
+            org.apache.paimon.operation.LocalOrphanFilesClean cleaner =
+                    new org.apache.paimon.operation.LocalOrphanFilesClean(
+                            fileStoreTable, cutoff, dryRun);
             org.apache.paimon.operation.CleanOrphanFilesResult result = cleaner.clean();
+            long candidates = result.getDeletedFileCount();
             return List.of(TypedRow.builder()
-                    .putString("result", "remove_orphan_files succeeded")
+                    .putString("result", dryRun
+                            ? "remove_orphan_files dry run" : "remove_orphan_files succeeded")
                     .putString("table", tableName)
-                    .putLong("deleted_file_count", result.getDeletedFileCount())
-                    .putLong("deleted_bytes", result.getDeletedFileTotalLenInBytes())
+                    .putLong("orphan_file_count", candidates)
+                    .putLong("deleted_file_count", dryRun ? 0L : candidates)
+                    .putLong("deleted_bytes", dryRun ? 0L : result.getDeletedFileTotalLenInBytes())
+                    .putString("dry_run", String.valueOf(dryRun))
                     .build());
-        } catch (NumberFormatException e) {
-            throw new ConnectorException(
-                    PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "remove_orphan_files: older_than_ms must be an epoch millis value, got: "
-                            + olderThanMs, e);
         } catch (Exception e) {
             throw new ConnectorException(
                     PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
@@ -316,30 +341,72 @@ final class PaimonProcedureExecutor {
 
     private List<TypedRow> executeResetConsumerProcedure(
             String tableName, Map<String, String> args) {
-        String consumerId = args.getOrDefault("arg1", "");
-        return List.of(TypedRow.builder()
-                .putString("result", "reset_consumer succeeded")
-                .putString("table", tableName)
-                .putString("consumer_id", consumerId)
-                .build());
+        throw unsupportedProcedure("reset_consumer", tableName);
     }
 
     private List<TypedRow> executeRescaleBucketProcedure(
             String tableName, Map<String, String> args) {
-        Table table = loadFreshTableByName(tableName);
-        int newBucketNum = Integer.parseInt(args.getOrDefault("arg1", "0"));
-        if (newBucketNum <= 0) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "rescale_bucket requires a positive bucket number, got: " + newBucketNum);
+        throw unsupportedProcedure("rescale_bucket", tableName);
+    }
+
+    /**
+     * Procedures listed in {@link #execute} but not implemented by Pangrova must fail loudly.
+     * Reporting "submitted" or "succeeded" for a no-op hides a maintenance gap from operators.
+     */
+    private static ConnectorException unsupportedProcedure(String procedure, String tableName) {
+        return new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                "Paimon procedure '" + procedure + "' is not implemented; refusing to report "
+                        + "success for table: " + tableName);
+    }
+
+    private static int parseIntArgument(
+            Map<String, String> args, String position, String alias, int defaultValue) {
+        String raw = args.get("arg" + position);
+        if (raw == null || raw.isBlank()) {
+            raw = args.get(alias);
         }
-        FileStoreTable fileStoreTable = (FileStoreTable) table;
-        fileStoreTable.copy(Map.of("bucket", String.valueOf(newBucketNum)));
-        LOG.info("event=procedure_rescale_bucket table={} new_bucket_num={}", tableName, newBucketNum);
-        return List.of(TypedRow.builder()
-                .putString("result", "rescale_bucket succeeded")
-                .putString("table", tableName)
-                .putLong("new_bucket_num", newBucketNum)
-                .build());
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid integer argument '" + alias + "': " + raw, e);
+        }
+    }
+
+    private static Long parseLongArgumentOrNull(
+            Map<String, String> args, String position, String alias) {
+        String raw = args.get("arg" + position);
+        if (raw == null || raw.isBlank()) {
+            raw = args.get(alias);
+        }
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid long argument '" + alias + "': " + raw, e);
+        }
+    }
+
+    private static boolean parseBooleanArgument(
+            Map<String, String> args, String position, String alias) {
+        String raw = args.get("arg" + position);
+        if (raw == null || raw.isBlank()) {
+            raw = args.get(alias);
+        }
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        if (!"true".equalsIgnoreCase(raw.trim()) && !"false".equalsIgnoreCase(raw.trim())) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid boolean argument '" + alias + "': " + raw);
+        }
+        return Boolean.parseBoolean(raw.trim());
     }
 
     private Table loadFreshTableByName(String qualifiedName) {
@@ -348,7 +415,7 @@ final class PaimonProcedureExecutor {
         String table = parts.length >= 2 ? parts[1] : parts[0];
         Identifier id = Identifier.create(schema, table);
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, e);

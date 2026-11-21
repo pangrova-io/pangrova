@@ -43,7 +43,7 @@ public final class RecentFileAccessTracker {
         this.recent = new LinkedHashMap<>(Math.min(capacity, 256), LOAD_FACTOR, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
-                return size() > capacity;
+                return super.size() > capacity;
             }
         };
     }

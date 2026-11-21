@@ -10,7 +10,8 @@ import java.util.Objects;
  *
  * <p>Produced by {@link RerankerInjectionRule} when the planner detects a RERANK BY
  * clause or a hybrid search pattern (vector + FTS without explicit RERANK BY).
- * Consumed by the Worker's reranker executors (RRF, Weighted, CrossEncoder, Cascade).</p>
+ * Bound by the control plane into canonical retrieval relations. Candidate
+ * generation, fusion and reranking execute in Native worker stages.</p>
  *
  * <p>The node is positioned below projections in the plan tree so that columns
  * needed for scoring (distance, BM25) remain available during reranking, even if
@@ -83,9 +84,11 @@ public record RerankerPlanNode(
      */
     public record LinearCombinationStrategy(double weight1, double weight2) implements RerankerStrategy {
         public LinearCombinationStrategy {
-            if (weight1 < 0 || weight2 < 0) {
+            if (!Double.isFinite(weight1) || !Double.isFinite(weight2)
+                    || weight1 <= 0 || weight2 <= 0) {
                 throw new IllegalArgumentException(
-                        "weights must be non-negative, got: w1=" + weight1 + ", w2=" + weight2);
+                        "weights must be finite and positive, got: w1="
+                                + weight1 + ", w2=" + weight2);
             }
         }
     }
@@ -142,6 +145,11 @@ public record RerankerPlanNode(
             Objects.requireNonNull(queryVector, "queryVector");
             Objects.requireNonNull(metric, "metric");
             queryVector = queryVector.clone();
+        }
+
+        @Override
+        public float[] queryVector() {
+            return queryVector.clone();
         }
     }
 

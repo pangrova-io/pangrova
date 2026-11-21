@@ -1,5 +1,8 @@
 package org.pangrova.operations.ddl;
 
+import org.pangrova.operations.enums.DdlJobState;
+import org.pangrova.operations.enums.DdlJobType;
+
 import java.time.Instant;
 import java.util.Objects;
 
@@ -8,7 +11,7 @@ import java.util.Objects;
  */
 public record DdlJob(
         String jobId,
-        DdlType type,
+        DdlJobType type,
         String ddlStatement,
         DdlJobState state,
         double progress,
@@ -23,20 +26,6 @@ public record DdlJob(
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
-    }
-
-    public enum DdlType {
-        METADATA_ONLY,
-        DATA_REWRITE,
-        TABLE_LOCK
-    }
-
-    public enum DdlJobState {
-        PENDING,
-        RUNNING,
-        COMPLETED,
-        FAILED,
-        CANCELLED
     }
 
     public DdlJob withState(DdlJobState newState) {

@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.v1.TaskType;
+import org.pangrova.protocol.v2.TaskKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -18,13 +18,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TaskTypeMapperTest {
 
     private static final List<String> ALL_REST_TASK_TYPES = List.of(
-            "COMPUTE", "OUTPUT", "WRITE");
+            "COMPUTE", "OUTPUT", "WRITE", "BACKGROUND_BUILD",
+            "BACKGROUND_VALIDATE", "BACKGROUND_EXPORT");
 
     @ParameterizedTest
     @CsvSource({
-            "COMPUTE, TASK_TYPE_READ",
-            "OUTPUT,  TASK_TYPE_READ",
-            "WRITE,   TASK_TYPE_WRITE"
+            "COMPUTE, TASK_KIND_READ",
+            "OUTPUT,  TASK_KIND_READ",
+            "WRITE,   TASK_KIND_WRITE",
+            "BACKGROUND_BUILD, TASK_KIND_BACKGROUND_BUILD",
+            "BACKGROUND_VALIDATE, TASK_KIND_BACKGROUND_VALIDATE",
+            "BACKGROUND_EXPORT, TASK_KIND_BACKGROUND_EXPORT"
     })
     void toProtoType_mapsAllRestTaskTypes(String restType, String expectedProto) {
         assertThat(TaskTypeMapper.toProtoType(restType).name()).isEqualTo(expectedProto.trim());
@@ -32,28 +36,28 @@ class TaskTypeMapperTest {
 
     @Test
     void toProtoType_computeMapsToRead() {
-        assertThat(TaskTypeMapper.toProtoType("COMPUTE")).isEqualTo(TaskType.TASK_TYPE_READ);
+        assertThat(TaskTypeMapper.toProtoType("COMPUTE")).isEqualTo(TaskKind.TASK_KIND_READ);
     }
 
     @Test
     void toProtoType_outputMapsToRead() {
-        assertThat(TaskTypeMapper.toProtoType("OUTPUT")).isEqualTo(TaskType.TASK_TYPE_READ);
+        assertThat(TaskTypeMapper.toProtoType("OUTPUT")).isEqualTo(TaskKind.TASK_KIND_READ);
     }
 
     @Test
     void toProtoType_writeMapsToWrite() {
-        assertThat(TaskTypeMapper.toProtoType("WRITE")).isEqualTo(TaskType.TASK_TYPE_WRITE);
+        assertThat(TaskTypeMapper.toProtoType("WRITE")).isEqualTo(TaskKind.TASK_KIND_WRITE);
     }
 
     @Test
     void everyRestTaskType_mapsToExactlyOneProtoType() {
         for (String restType : ALL_REST_TASK_TYPES) {
-            TaskType protoType = TaskTypeMapper.toProtoType(restType);
+            TaskKind protoType = TaskTypeMapper.toProtoType(restType);
             assertThat(protoType)
                     .as("REST taskType %s must map to exactly one Protobuf type", restType)
                     .isNotNull();
             assertThat(protoType.name())
-                    .startsWith("TASK_TYPE_");
+                    .startsWith("TASK_KIND_");
         }
     }
 

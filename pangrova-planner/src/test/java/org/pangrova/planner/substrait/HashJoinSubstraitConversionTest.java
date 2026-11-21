@@ -2,12 +2,15 @@ package org.pangrova.planner.substrait;
 
 import com.google.common.collect.ImmutableList;
 import io.substrait.plan.Plan;
-import io.substrait.relation.ExtensionMulti;
 import io.substrait.relation.Rel;
+import io.substrait.relation.physical.BroadcastExchange;
+import io.substrait.relation.physical.HashJoin;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.cost.join.BroadcastJoinConfig;
 import org.pangrova.planner.cost.join.HashJoinConfig;
+import org.pangrova.planner.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -31,6 +34,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that CBO-selected physical join operators (PangrovaHashJoin,
@@ -55,33 +59,41 @@ class HashJoinSubstraitConversionTest {
     }
 
     @Test
-    void hashJoinConvertsToExtensionMulti() {
+    void hashJoinConvertsToStandardHashJoin() {
         PangrovaHashJoin hashJoin = buildHashJoin(JoinRelType.INNER);
 
         Rel result = converter.visit(hashJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(HashJoinRelDetail.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ext.getDetail();
-        assertThat(detail.strategy()).isEqualTo("hash_join");
-        assertThat(detail.joinType()).isEqualTo("INNER");
-        assertThat(detail.leftKeys()).containsExactly(0);
-        assertThat(detail.rightKeys()).containsExactly(0);
+        assertThat(result).isInstanceOf(HashJoin.class);
+        HashJoin join = (HashJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(HashJoin.JoinType.INNER);
+        assertThat(join.getKeys()).hasSize(1);
     }
 
     @Test
-    void broadcastJoinConvertsToExtensionMulti() {
+    void broadcastJoinUsesStandardBroadcastExchangeOnBuildSide() {
         PangrovaBroadcastJoin broadcastJoin = buildBroadcastJoin(JoinRelType.LEFT);
 
         Rel result = converter.visit(broadcastJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(HashJoinRelDetail.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ext.getDetail();
-        assertThat(detail.strategy()).isEqualTo("broadcast_join");
-        assertThat(detail.joinType()).isEqualTo("LEFT");
+        assertThat(result).isInstanceOf(HashJoin.class);
+        HashJoin join = (HashJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(HashJoin.JoinType.LEFT);
+        assertThat(join.getRight()).isInstanceOf(BroadcastExchange.class);
+        assertThat(((BroadcastExchange) join.getRight()).getPartitionCount()).isZero();
+    }
+
+    @Test
+    void broadcastJoinWithoutPlannerVisibleExchangeIsRejected() {
+        RelNode left = buildInput(3);
+        RelNode right = buildInput(3);
+        PangrovaBroadcastJoin join = new PangrovaBroadcastJoin(new BroadcastJoinConfig(
+                cluster, left.getTraitSet(), left, right,
+                buildEquiCondition(left, right, 0, 0), Set.of(), JoinRelType.INNER));
+
+        assertThatThrownBy(() -> converter.visit(join))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planner-visible broadcast exchange");
     }
 
     @Test
@@ -123,6 +135,9 @@ class HashJoinSubstraitConversionTest {
         RelNode left = buildInput(3);
         RelNode right = buildInput(3);
         RexNode condition = buildEquiCondition(left, right, 0, 0);
+        right = new PangrovaExchange(cluster,
+                right.getTraitSet().replace(PangrovaDistribution.BROADCAST),
+                right, PangrovaDistribution.BROADCAST);
 
         return new PangrovaBroadcastJoin(new BroadcastJoinConfig(
                 cluster, left.getTraitSet(), left, right,

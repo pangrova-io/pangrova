@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# pangrova-cli.sh — Pangrova interactive SQL CLI client
+# pangrova-cli.sh — Pangrova interactive and batch SQL CLI client
 #
 # Usage:
 #   bin/pangrova-cli.sh [--host <host>] [--port <port>] [--catalog <name>] [options...]
@@ -18,8 +18,6 @@
 # ==============================================================================
 set -euo pipefail
 
-MAIN_CLASS="org.pangrova.client.cli.PangrovaCli"
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
@@ -29,14 +27,18 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Pangrova interactive SQL CLI client.
+Pangrova interactive and batch SQL CLI client.
 
 Connection Options:
   --host <host>              Coordinator host (default: localhost)
   --port <port>              Coordinator port (default: 8080)
   --catalog <name>           Default catalog to use for queries
   --schema <name>            Default schema within the catalog
-  --query-timeout <ms>       Query timeout in milliseconds
+  --query-timeout <duration> Query timeout, e.g. 30s, 5m or bare seconds
+  --token-env <name>       Read Bearer token from an existing environment variable
+  --file <path>             Execute one UTF-8 SQL statement; failures exit nonzero
+  --output <path>           New batch result output file (default: stdout)
+  --execution-receipt <path> New JSON receipt after FINISHED and result consumption
 
 All options are passed through to PangrovaCli.
 
@@ -50,7 +52,8 @@ Examples:
   $(basename "$0")
   $(basename "$0") --host coordinator.example.com --port 8080
   $(basename "$0") --host localhost --port 8080 --catalog my_iceberg
-  $(basename "$0") --catalog my_iceberg --schema main --query-timeout 60000
+  $(basename "$0") --catalog my_iceberg --schema main --query-timeout 30m
+  $(basename "$0") --file q01.sql --output results.txt --execution-receipt execution.json
   PANGROVA_COORDINATOR_URL=http://coordinator:8080 $(basename "$0") --catalog my_iceberg
 EOF
     exit 0
@@ -85,32 +88,22 @@ if [[ "$JAVA_VERSION" -lt 17 ]]; then
     exit 1
 fi
 
-# --- Build classpath ---
-CLASSPATH=""
-if [[ -d "$PANGROVA_HOME/lib" ]]; then
-    for jar in "$PANGROVA_HOME"/lib/*.jar; do
-        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-    done
+# --- Resolve the isolated executable; never mix embedded dependencies into lib/*.jar. ---
+CLI_DIRECTORY="$PANGROVA_HOME/cli"
+if [[ ! -d "$CLI_DIRECTORY" ]]; then
+    CLI_DIRECTORY="$PANGROVA_HOME/pangrova-client/pangrova-client-cli/target"
 fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "WARN: No lib/ directory, using Maven target/ (dev mode)" >&2
-    for module_dir in "$PANGROVA_HOME"/pangrova-*/target; do
-        if [[ -d "$module_dir" ]]; then
-            for jar in "$module_dir"/*.jar; do
-                [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-            done
-        fi
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "ERROR: No JARs found. Run 'mvn clean package -DskipTests' first." >&2
+CLI_JARS=()
+for jar in "$CLI_DIRECTORY"/pangrova-client-cli-*-exec.jar; do
+    [[ -f "$jar" ]] && CLI_JARS+=("$jar")
+done
+if [[ "${#CLI_JARS[@]}" -ne 1 ]]; then
+    echo "ERROR: Expected one CLI executable in $CLI_DIRECTORY; found ${#CLI_JARS[@]}. Build the CLI package." >&2
     exit 1
 fi
 
 # --- JVM options (lightweight for CLI) ---
-JAVA_OPTS="-Xms256m -Xmx512m"
+JAVA_OPTS="-Xms256m -Xmx512m --add-opens=java.base/java.nio=ALL-UNNAMED"
 
 # --- PANGROVA_COORDINATOR_URL: extract host and port if not in args ---
 URL_ARGS=()
@@ -138,4 +131,4 @@ if [[ -n "${PANGROVA_COORDINATOR_URL:-}" ]]; then
 fi
 
 # --- Start CLI (foreground, transparent passthrough) ---
-exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"
+exec "$JAVA" $JAVA_OPTS -jar "${CLI_JARS[0]}" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"

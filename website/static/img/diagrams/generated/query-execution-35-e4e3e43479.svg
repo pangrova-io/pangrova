@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="914" height="285" viewBox="0 0 914 285" role="img">
+<rect width="914" height="285" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="912.5" height="283.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">SQL: SELECT c.name, SUM(o.amount)</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">     FROM orders o JOIN customers c ON o.cid = c.id</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">     GROUP BY c.name</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">     ORDER BY SUM(o.amount) DESC</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">     LIMIT 100</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">Stage DAG:</text>
+<path d="M258.8 171.0 L258.8 182.0 L269.8 176.5 z" fill="#D97706"/>
+<path d="M381.0 171.0 L381.0 182.0 L392.0 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">  Stage 3: Scan(orders)   PartialAgg   Exchange(REPARTITION by cid)</text>
+<path d="M287.0 190.0 L287.0 201.0 L298.0 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">  Stage 2: Scan(customers)   Exchange(REPARTITION by id)</text>
+<path d="M503.2 209.0 L503.2 220.0 L514.2 214.5 z" fill="#D97706"/>
+<path d="M606.6 209.0 L606.6 220.0 L617.6 214.5 z" fill="#D97706"/>
+<path d="M710.0000000000001 209.0 L710.0000000000001 220.0 L721.0000000000001 214.5 z" fill="#D97706"/>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">  Stage 1: Exchange(orders) + Exchange(customers)   HashJoin   FinalAgg   Exchange(GATHER)</text>
+<path d="M296.4 228.0 L296.4 239.0 L307.4 233.5 z" fill="#D97706"/>
+<path d="M465.6 228.0 L465.6 239.0 L476.6 233.5 z" fill="#D97706"/>
+<path d="M578.4000000000001 228.0 L578.4000000000001 239.0 L589.4000000000001 233.5 z" fill="#D97706"/>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">  Stage 0: Exchange(GATHER)   MergeSort(desc)   TopN(100)   Output</text>
+</g>
+</svg>

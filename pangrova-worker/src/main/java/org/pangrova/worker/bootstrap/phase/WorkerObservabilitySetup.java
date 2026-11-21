@@ -1,33 +1,30 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import java.util.Map;
-import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.observability.config.ObservabilityConfig;
-import org.pangrova.observability.config.TelemetryInitializer;
-import org.pangrova.observability.logging.OtelLoggingProvider;
-import org.pangrova.observability.metrics.OtelMetricsProvider;
+import org.pangrova.observability.metrics.MetricsScope;
+import org.pangrova.observability.sdk.config.ObservabilityConfig;
+import org.pangrova.observability.sdk.config.TelemetryInitializer;
+import org.pangrova.observability.sdk.logging.otel.OtelLoggingProvider;
+import org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider;
 import org.pangrova.observability.noop.NoOpLoggingProvider;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.pangrova.observability.noop.NoOpTracingProvider;
-import org.pangrova.observability.tracing.OtelTracingProvider;
-import org.pangrova.spi.observability.LoggingProvider;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Encapsulates Worker observability initialization (NoOp or OTel).
- * Extracted from {@link WorkerBootstrap} to keep class size under 500 lines.
+ * Initializes Worker observability providers from deployment configuration.
  */
 public final class WorkerObservabilitySetup {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerObservabilitySetup.class);
 
     private TracingProvider tracingProvider;
-    private MetricsProvider metricsProvider;
+    private MetricsScope metricsProvider;
     private LoggingProvider loggingProvider;
     private TelemetryInitializer otelInitializer;
 
@@ -44,28 +41,20 @@ public final class WorkerObservabilitySetup {
 
     private void assignNoOpProviders() {
         tracingProvider = new NoOpTracingProvider();
-        metricsProvider = new NoOpMetricsProvider();
+        metricsProvider = new MetricsScope(new NoOpMetricsProvider());
         loggingProvider = new NoOpLoggingProvider();
     }
 
-    private void initOtelProviders(WorkerBootstrapConfig.ObservabilityBootstrapConfig bootCfg) {
-        ObservabilityConfig obsCfg = buildObservabilityConfig(bootCfg);
-        otelInitializer = new TelemetryInitializer(obsCfg);
+    private void initOtelProviders(ObservabilityConfig config) {
+        otelInitializer = new TelemetryInitializer(config);
         tracingProvider = new OtelTracingProvider(otelInitializer.getTracer());
-        metricsProvider = new OtelMetricsProvider(otelInitializer.getMeter());
+        metricsProvider = new MetricsScope(new OtelMetricsProvider(otelInitializer.getMeter()));
         loggingProvider = new OtelLoggingProvider();
-    }
-
-    private static ObservabilityConfig buildObservabilityConfig(
-            WorkerBootstrapConfig.ObservabilityBootstrapConfig bootCfg) {
-        PangrovaConfiguration pangrovaConfig = PangrovaConfiguration.fromYaml(Map.of(
-                "pangrova.observability.service-name", bootCfg.serviceName(),
-                "pangrova.observability.otlp-endpoint", bootCfg.otlpEndpoint()));
-        return new ObservabilityConfig(pangrovaConfig);
     }
 
     public TracingProvider tracingProvider() { return tracingProvider; }
     public MetricsProvider metricsProvider() { return metricsProvider; }
     public LoggingProvider loggingProvider() { return loggingProvider; }
+    public MetricsScope metricsScope() { return metricsProvider; }
     public TelemetryInitializer otelInitializer() { return otelInitializer; }
 }

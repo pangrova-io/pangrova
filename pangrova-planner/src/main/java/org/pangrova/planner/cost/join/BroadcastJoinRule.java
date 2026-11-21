@@ -6,9 +6,11 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
+import org.pangrova.planner.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.cost.distribution.PangrovaExchange;
 
 /**
- * Converts a logical join to a physical broadcast join when the build side
+ * Converts a logical join with equality keys to a physical broadcast hash join when the build side
  * is smaller than the broadcast threshold (10 MB by default).
  * The smaller side is broadcast to all nodes holding the probe side.
  *
@@ -31,12 +33,14 @@ public final class BroadcastJoinRule extends RelOptRule {
     @Override
     public boolean matches(RelOptRuleCall call) {
         Join join = call.rel(0);
+        if (join.analyzeCondition().leftKeys.isEmpty()) {
+            return false;
+        }
         RelMetadataQuery mq = call.getMetadataQuery();
-        double rightRows = join.getRight().estimateRowCount(mq);
-        double leftRows = join.getLeft().estimateRowCount(mq);
-
-        RelNode buildSide = (leftRows <= rightRows) ? join.getLeft() : join.getRight();
-        double buildRows = Math.min(leftRows, rightRows);
+        // The native HashJoin build input is the right side. Do not admit a
+        // join because the *left* is small and then broadcast a large right.
+        RelNode buildSide = join.getRight();
+        double buildRows = buildSide.estimateRowCount(mq);
         double buildRowBytes = estimateRowBytes(buildSide, mq);
 
         double estimatedBuildBytes = buildRows * buildRowBytes;
@@ -46,12 +50,18 @@ public final class BroadcastJoinRule extends RelOptRule {
     @Override
     public void onMatch(RelOptRuleCall call) {
         LogicalJoin join = call.rel(0);
+        RelNode buildInput = join.getRight();
+        RelNode broadcastInput = new PangrovaExchange(
+                join.getCluster(),
+                buildInput.getTraitSet().replace(PangrovaDistribution.BROADCAST),
+                buildInput,
+                PangrovaDistribution.BROADCAST);
         PangrovaBroadcastJoin broadcastJoin = new PangrovaBroadcastJoin(
                 new BroadcastJoinConfig(
                         join.getCluster(),
                         join.getTraitSet(),
                         join.getLeft(),
-                        join.getRight(),
+                        broadcastInput,
                         join.getCondition(),
                         join.getVariablesSet(),
                         join.getJoinType()));

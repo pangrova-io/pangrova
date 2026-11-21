@@ -17,9 +17,10 @@ import org.apache.calcite.plan.RelTraitSet;
  * <p>Usage: physical operators implement {@link PangrovaRel} and include
  * {@code PangrovaConvention.INSTANCE} in their traitSet.</p>
  */
-public enum PangrovaConvention implements Convention {
+public final class PangrovaConvention implements Convention {
+    public static final PangrovaConvention INSTANCE = new PangrovaConvention();
 
-    INSTANCE;
+    private PangrovaConvention() {}
 
     @Override
     public Class<?> getInterface() {
@@ -43,7 +44,7 @@ public enum PangrovaConvention implements Convention {
 
     @Override
     public void register(RelOptPlanner planner) {
-        // Singleton enum — no additional registration needed
+        // This convention adds no planner rules.
     }
 
     @Override

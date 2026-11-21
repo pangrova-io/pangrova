@@ -7,15 +7,16 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.stream.AlterStreamAction;
-import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
-import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;
-import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
-import org.pangrova.parser.ast.statement.stream.ShowStreamsStatement;
+import org.pangrova.parser.format.AstPrinter;
+import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.stream.AlterStreamAction;
+import org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.DropStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.ShowStreamsStatement;
 
 import java.util.Map;
 
@@ -31,10 +32,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class StreamDdlRoundTripPropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private final AstPrinter printer = new AstPrinter();
 
     // ── AlterStream round-trip ──
+
+    @Example
+    void preservesSourceProviderIndependentlyOfFormatAndProperties() {
+        var parsed = (CreateStreamStatement) parser.parse("""
+                CREATE STREAM changes FROM audit_feed ('channel'='orders')
+                FORMAT 'debezium-json' INTO catalog.db.target
+                """);
+        assertThat(parsed.sourceProvider()).isEqualTo("audit_feed");
+        assertThat(parser.parse(printer.print(parsed))).isEqualTo(parsed);
+    }
 
     /**
      * Property 2a: AlterStream SUSPEND round-trip.

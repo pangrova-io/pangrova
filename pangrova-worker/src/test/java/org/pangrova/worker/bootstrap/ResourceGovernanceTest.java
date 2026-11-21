@@ -1,5 +1,9 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
+import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -8,8 +12,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.worker.buffer.ResultExpirationScheduler;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.write.TestCatalogResourceResolver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -22,12 +26,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -49,7 +47,6 @@ class ResourceGovernanceTest {
     private static StubCoordinatorServer stubCoordinator;
 
     private WorkerBootstrap workerBootstrap;
-    private ScheduledExecutorService schedulerExecutor;
 
     @AfterEach
     void tearDownJUnit() {
@@ -122,34 +119,6 @@ class ResourceGovernanceTest {
     // -- Scenario tests --
 
     /**
-     * ResultExpirationScheduler schedules and fires expiration, and cancellation prevents it.
-     */
-    @Test
-    void resultExpirationSchedulerFunctional() throws Exception {
-        schedulerExecutor = Executors.newSingleThreadScheduledExecutor();
-        CountDownLatch expiredLatch = new CountDownLatch(1);
-        AtomicBoolean expiredFlag = new AtomicBoolean(false);
-
-        ResultExpirationScheduler scheduler = new ResultExpirationScheduler(
-                schedulerExecutor, Duration.ofMillis(100),
-                queryId -> {
-                    expiredFlag.set(true);
-                    expiredLatch.countDown();
-                });
-
-        scheduler.scheduleExpiration("query-expire");
-        boolean fired = expiredLatch.await(2, TimeUnit.SECONDS);
-        assertThat(fired).isTrue();
-        assertThat(scheduler.isExpired("query-expire")).isTrue();
-
-        // Cancel another query before expiration fires
-        scheduler.scheduleExpiration("query-cancel");
-        scheduler.cancelExpiration("query-cancel");
-        Thread.sleep(200);
-        assertThat(scheduler.isExpired("query-cancel")).isFalse();
-    }
-
-    /**
      * WorkerBootstrap lifecycle: start → verify started → shutdown → verify stopped.
      */
     @Test
@@ -205,27 +174,23 @@ class ResourceGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config), event -> {});
+        workerBootstrap.setCatalogResourceResolver(new TestCatalogResourceResolver(
+                (taskId) -> {
+                    throw new AssertionError("Resource governance test must not resolve a catalog");
+                }));
         workerBootstrap.start();
     }
 
     private void shutdownAll() {
         shutdownWorker();
-        shutdownScheduler();
     }
 
     private void shutdownWorker() {
         if (workerBootstrap != null) {
             workerBootstrap.shutdown();
             workerBootstrap = null;
-        }
-    }
-
-    private void shutdownScheduler() {
-        if (schedulerExecutor != null) {
-            schedulerExecutor.shutdownNow();
-            schedulerExecutor = null;
         }
     }
 

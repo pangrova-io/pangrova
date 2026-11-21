@@ -1,7 +1,7 @@
 package org.pangrova.worker.transport;
 
-import org.pangrova.spi.transport.DataTicket;
-import org.pangrova.spi.transport.ResultTooLargeException;
+import org.pangrova.protocol.transport.DataTicket;
+import org.pangrova.protocol.exception.ResultTooLargeException;
 import org.pangrova.worker.exchange.source.ColumnarBatchConsumer;
 import org.pangrova.worker.exchange.source.ExchangeBatchConsumer;
 import org.apache.arrow.flight.FlightStream;

@@ -1,0 +1,571 @@
+{
+  "schemaVersion": 1,
+  "kind": "tpc-workload",
+  "benchmark": "tpch",
+  "scaleFactor": 100,
+  "classification": "tpc-derived-engineering",
+  "targetSpecification": "3.0.1",
+  "generator": {
+    "url": "https://codeload.github.com/electrum/tpch-dbgen/tar.gz/32f1c1b92d1664dba542e927d23d86ffa57aa253",
+    "commit": "32f1c1b92d1664dba542e927d23d86ffa57aa253",
+    "sha256": "01d8a4fa0fff4be83a9f43dbdc5a69f560d34f5ff0b4dbff1fc3a5320baf6318",
+    "version": "2.14.0",
+    "binarySha256": "77d36fece0d53f4ac23398a8614d3b5ba173bc09b1121ef378151ef3d67e5a9b",
+    "parameters": {
+      "scaleFactor": 100,
+      "seed": 19620718,
+      "qualification": true
+    }
+  },
+  "statementParser": {
+    "name": "sqlparse",
+    "version": "0.5.3"
+  },
+  "queries": [
+    {
+      "id": "q01",
+      "template": "1.sql",
+      "templateSha256": "4895c6191f38412d6277b0954cb91c162295a534c719a8f43b609b88f15a7120",
+      "steps": [
+        {
+          "file": "q01.sql",
+          "sqlSha256": "79ad2026d35601fec2f108e9e73b87b513533f94c39e66dc57ac1c0cde06584f",
+          "result": true,
+          "projectionNames": [
+            "l_returnflag",
+            "l_linestatus",
+            "sum_qty",
+            "sum_base_price",
+            "sum_disc_price",
+            "sum_charge",
+            "avg_qty",
+            "avg_price",
+            "avg_disc",
+            "count_order"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q02",
+      "template": "2.sql",
+      "templateSha256": "6dc62b732151ee41c8fd4293fb866c2549c509c0b78666c5c614573ab61be81c",
+      "steps": [
+        {
+          "file": "q02.sql",
+          "sqlSha256": "8790a39d886d07593e8a3ff61c6e642e47962cd7285a9a3e80765d2c398e7caa",
+          "result": true,
+          "projectionNames": [
+            "s_acctbal",
+            "s_name",
+            "n_name",
+            "p_partkey",
+            "p_mfgr",
+            "s_address",
+            "s_phone",
+            "s_comment"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "TPC row-count directive expressed as LIMIT after ORDER BY",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q03",
+      "template": "3.sql",
+      "templateSha256": "e8489696d46d42ef555256d10200251a66a2aab279d6e06b415fbb1864ad187d",
+      "steps": [
+        {
+          "file": "q03.sql",
+          "sqlSha256": "a70ed1e3fc48f4121202d3d7bf9632d95e47c11b8758be6dfebef1611b4d454c",
+          "result": true,
+          "projectionNames": [
+            "l_orderkey",
+            "revenue",
+            "o_orderdate",
+            "o_shippriority"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "TPC row-count directive expressed as LIMIT after ORDER BY",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q04",
+      "template": "4.sql",
+      "templateSha256": "5b8cf823d09e4a1a566a235a7172b3fcfefaae00b904c9e2e8f348f54a310bad",
+      "steps": [
+        {
+          "file": "q04.sql",
+          "sqlSha256": "b2b4c82036127ab79249138dd7bb5158874bc61b2e7923452d0ef12dbe6e6dce",
+          "result": true,
+          "projectionNames": [
+            "o_orderpriority",
+            "order_count"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q05",
+      "template": "5.sql",
+      "templateSha256": "dae9bc188bade17eaf17bb51d9c3a4b035303999bf5bf9a1a56115a7646ff7af",
+      "steps": [
+        {
+          "file": "q05.sql",
+          "sqlSha256": "5c20ea54146111f9ffc798332d8e314729a1db551d3b6624747832edba720914",
+          "result": true,
+          "projectionNames": [
+            "n_name",
+            "revenue"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q06",
+      "template": "6.sql",
+      "templateSha256": "6906f7f0f39a2b9adcfba00cbe110b3af725ef63cf361f5bdd2021a965ccdaa6",
+      "steps": [
+        {
+          "file": "q06.sql",
+          "sqlSha256": "06077ee62c7dbf13b9cd21331aeb2e6404aa0c8b3bb172d5953c7ab48a70dd8e",
+          "result": true,
+          "projectionNames": [
+            "revenue"
+          ],
+          "order": "unordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "unordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q07",
+      "template": "7.sql",
+      "templateSha256": "1116f27777d26da38c32cfde3bd5ef446a8603cef1a4d547e7417d4fcc3cd158",
+      "steps": [
+        {
+          "file": "q07.sql",
+          "sqlSha256": "aec09cbe8a60b331c9435bf8b3ce2584dec0f66648f123107e7fb4aa30a443f4",
+          "result": true,
+          "projectionNames": [
+            "supp_nation",
+            "cust_nation",
+            "l_year",
+            "revenue"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q08",
+      "template": "8.sql",
+      "templateSha256": "90ee550767735a1358ce23f372c257fdf5e96907db98c11c480784c7764c863d",
+      "steps": [
+        {
+          "file": "q08.sql",
+          "sqlSha256": "34a726601be75d3559737c62af3a9e91511d0ae92ad1b1f687b906cb34c214ba",
+          "result": true,
+          "projectionNames": [
+            "o_year",
+            "mkt_share"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q09",
+      "template": "9.sql",
+      "templateSha256": "fa774d097eb36667e0579177933597ca8080990434ecccc9bffc1377a00ea109",
+      "steps": [
+        {
+          "file": "q09.sql",
+          "sqlSha256": "c10b9ce7f9841370f169c3ad47abbb6d8b00912d7c2f6934e1afc94a3396403f",
+          "result": true,
+          "projectionNames": [
+            "nation",
+            "o_year",
+            "sum_profit"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q10",
+      "template": "10.sql",
+      "templateSha256": "6f7855d44f82d403e2f54cf7cc8ff05755d6fe3ee9a1213929ee883a711fb54c",
+      "steps": [
+        {
+          "file": "q10.sql",
+          "sqlSha256": "46cda808b4ec9020678edcd65eabd7a4a83c51c7574d438f21f54747be4a63b8",
+          "result": true,
+          "projectionNames": [
+            "c_custkey",
+            "c_name",
+            "revenue",
+            "c_acctbal",
+            "n_name",
+            "c_address",
+            "c_phone",
+            "c_comment"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "TPC row-count directive expressed as LIMIT after ORDER BY",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q11",
+      "template": "11.sql",
+      "templateSha256": "0950051f2d32560664a74ffc141af60ff6441d73100be8124b6e1ed2b82acb99",
+      "steps": [
+        {
+          "file": "q11.sql",
+          "sqlSha256": "3eb1ff08c8c1f8106abaa28c3faef04f164fc767c0b611b8669e41e72d99814a",
+          "result": true,
+          "projectionNames": [
+            "ps_partkey",
+            "value"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q12",
+      "template": "12.sql",
+      "templateSha256": "d1e0db00676b4083bb2da8308499caca8ddeee213b3300fac32daf077e0e8fc8",
+      "steps": [
+        {
+          "file": "q12.sql",
+          "sqlSha256": "46e68767e54af918419a55ebf7cf2732c89ff036e5105e2dd0f119efc6e74611",
+          "result": true,
+          "projectionNames": [
+            "l_shipmode",
+            "high_line_count",
+            "low_line_count"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q13",
+      "template": "13.sql",
+      "templateSha256": "8c59e2cc930e8ea56935d6dffbbee74704cd849fa8b56db01c4c10b491e9294b",
+      "steps": [
+        {
+          "file": "q13.sql",
+          "sqlSha256": "70a650450ed52d0cbf20b8b1b6df1900aeccea7c64b63de036b10dd65d679088",
+          "result": true,
+          "projectionNames": [
+            "c_count",
+            "custdist"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q14",
+      "template": "14.sql",
+      "templateSha256": "aa4cc90172fed57e6271ee3fce4075fa760c781d94ab9b9b2f1a6fa318060527",
+      "steps": [
+        {
+          "file": "q14.sql",
+          "sqlSha256": "3bf48f6b7123759a78c9ddc72e7fd2791bd49325d6642f7d8e63a18db483d19e",
+          "result": true,
+          "projectionNames": [
+            "promo_revenue"
+          ],
+          "order": "unordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "unordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q15",
+      "template": "15.sql",
+      "templateSha256": "875fd17da198d89a2f8f3cf850c8a47433411187450c2108731628541f2f4599",
+      "steps": [
+        {
+          "file": "q15.sql",
+          "sqlSha256": "fab51fc841566851e547b5e5d97457a5983e4910418541d6ab2d231d19ce1a38",
+          "result": true,
+          "projectionNames": [
+            "s_suppkey",
+            "s_name",
+            "s_address",
+            "s_phone",
+            "total_revenue"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Q15 view lifecycle expressed as equivalent query-local CTE; review required",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q16",
+      "template": "16.sql",
+      "templateSha256": "6b3914910ad5ec13ba78811bda112ade48c76ee30724b4eacc954c4864e72d88",
+      "steps": [
+        {
+          "file": "q16.sql",
+          "sqlSha256": "42da2993c3964cc3a210689ffa4ad1f3613632512288c52528cbaee671f48959",
+          "result": true,
+          "projectionNames": [
+            "p_brand",
+            "p_type",
+            "p_size",
+            "supplier_cnt"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q17",
+      "template": "17.sql",
+      "templateSha256": "d72fbbaeddf82eddc3345c226576cea735d1ca317b3380272ef36681e0afd6c5",
+      "steps": [
+        {
+          "file": "q17.sql",
+          "sqlSha256": "fd601281e35bb2d4582190502eb353a3f81f59c397c18832bbf3febfed270b6b",
+          "result": true,
+          "projectionNames": [
+            "avg_yearly"
+          ],
+          "order": "unordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "unordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q18",
+      "template": "18.sql",
+      "templateSha256": "b0f6dda18fba36a44eb0d1515928f382bbbf3578f457ce145231c51b4da08a1f",
+      "steps": [
+        {
+          "file": "q18.sql",
+          "sqlSha256": "ea01ac316e87e7e234e0402343e9afbd1c69de11eca28b08e8ae297e442d0f3a",
+          "result": true,
+          "projectionNames": [
+            "c_name",
+            "c_custkey",
+            "o_orderkey",
+            "o_orderdate",
+            "o_totalprice",
+            null
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "TPC row-count directive expressed as LIMIT after ORDER BY",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q19",
+      "template": "19.sql",
+      "templateSha256": "8bbbf6721c26be96da5408e975f151ae72250d93c7058e0a41eff601a77e3a88",
+      "steps": [
+        {
+          "file": "q19.sql",
+          "sqlSha256": "12124a06303711a7e014cb923543b8d29317603e2f2e7e271110dcac9fbe56f2",
+          "result": true,
+          "projectionNames": [
+            "revenue"
+          ],
+          "order": "unordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "unordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q20",
+      "template": "20.sql",
+      "templateSha256": "57b0aa2a676b09e4370913f7aedf36600b4bacca07a6ad7428be8d0e60f110ff",
+      "steps": [
+        {
+          "file": "q20.sql",
+          "sqlSha256": "d586ef06b4737400ae16482941e1268717cb83ae30955f83d3a97c879453f6f2",
+          "result": true,
+          "projectionNames": [
+            "s_name",
+            "s_address"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q21",
+      "template": "21.sql",
+      "templateSha256": "87101670098f20e9a9bc10d2253b415438f9a2cc9b2787c7a220ae249c7d401d",
+      "steps": [
+        {
+          "file": "q21.sql",
+          "sqlSha256": "2c9f95906454dadfbcdfd88cc96aa7b8cf6c9b4012c01a301c4e4c1a701d66f5",
+          "result": true,
+          "projectionNames": [
+            "s_name",
+            "numwait"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "TPC row-count directive expressed as LIMIT after ORDER BY",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    },
+    {
+      "id": "q22",
+      "template": "22.sql",
+      "templateSha256": "80dcf492741a61b28aed98f342395dce73c5f585f49206bbf91c8ee4cc4d99a1",
+      "steps": [
+        {
+          "file": "q22.sql",
+          "sqlSha256": "54e91cf24b9bf2cc3bbe49244d0bcd73f39029c812508cdc8d4b104063885baa",
+          "result": true,
+          "projectionNames": [
+            "cntrycode",
+            "numcust",
+            "totacctbal"
+          ],
+          "order": "ordered"
+        }
+      ],
+      "adaptations": [
+        "Oracle ROWNUM directives removed; ANSI interval day precision omitted",
+        "Trailing line whitespace normalized without changing SQL tokens"
+      ],
+      "order": "ordered",
+      "semanticReview": "requires-reference-validation"
+    }
+  ],
+  "workloadId": "0550bb995c358083cb07970975de1a56a15ef78c534bfaf1e480d90dda6beb1b"
+}

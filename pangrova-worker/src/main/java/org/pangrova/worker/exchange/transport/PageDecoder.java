@@ -6,21 +6,21 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.util.Text;
 
 /**
  * Decodes columnar IPC stream bytes into typed {@link Page} instances.
  *
  * <p>Converts each row in the deserialized {@link VectorSchemaRoot} into a
- * {@link TypedRow} via {@link ColumnValue#of(Object)}, producing a fully
+ * {@link TypedRow} via {@code ColumnValue#of(Object)}, producing a fully
  * typed page suitable for the Java-side data path.</p>
  *
  * <p>Thread safety: stateless utility class, safe for concurrent use
@@ -146,7 +146,7 @@ public final class PageDecoder {
                 if (vector.isNull(row)) {
                     value = null;
                 } else {
-                    value = toJavaValue(vector.getObject(row));
+                    value = toJavaValue(vector.getObject(row), vector.getField());
                 }
                 builder.putRaw(columns.get(col), value);
             }
@@ -155,37 +155,52 @@ public final class PageDecoder {
         return rows;
     }
 
-    /**
-     * Converts columnar format-specific types to standard Java types compatible
-     * with {@link ColumnValue#of(Object)}. Recurses into struct values
-     * (Arrow {@code StructVector.getObject()} yields a {@code Map}) and list
-     * values so nested {@link Text} instances are normalized too — connector
-     * sinks expect {@link String}, not Arrow's {@code Text}.
-     */
-    private static Object toJavaValue(Object arrowValue) {
-        if (arrowValue == null) {
-            return null;
+    private static Object toJavaValue(Object value, Field field) {
+        if (value == null) return null;
+        if (value instanceof Text || value instanceof CharSequence && !(value instanceof String)) {
+            return value.toString();
         }
-        if (arrowValue instanceof Text text) {
-            return text.toString();
+        if (field.getType() instanceof ArrowType.Map) {
+            return toJavaMap(value, field);
         }
-        if (arrowValue instanceof java.util.Map<?, ?> map) {
-            java.util.Map<String, Object> converted =
-                    new java.util.LinkedHashMap<>(map.size());
-            for (java.util.Map.Entry<?, ?> entry : map.entrySet()) {
-                converted.put(
-                        String.valueOf(entry.getKey()),
-                        toJavaValue(entry.getValue()));
+        if (value instanceof java.util.Map<?, ?> struct) {
+            java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+            for (Field child : field.getChildren()) {
+                result.put(child.getName(), toJavaValue(struct.get(child.getName()), child));
             }
-            return converted;
+            return result;
         }
-        if (arrowValue instanceof List<?> list) {
-            List<Object> converted = new ArrayList<>(list.size());
-            for (Object element : list) {
-                converted.add(toJavaValue(element));
+        if (value instanceof List<?> list) {
+            if (field.getChildren().size() != 1) {
+                throw new IllegalArgumentException("Arrow list has no unique element field");
             }
-            return converted;
+            Field element = field.getChildren().get(0);
+            return list.stream().map(item -> toJavaValue(item, element)).toList();
         }
-        return arrowValue;
+        return value;
     }
+
+    private static java.util.Map<Object, Object> toJavaMap(Object value, Field field) {
+        if (!(value instanceof List<?> entries) || field.getChildren().size() != 1
+                || field.getChildren().get(0).getChildren().size() != 2) {
+            throw new IllegalArgumentException("Arrow MAP has invalid entries");
+        }
+        Field pair = field.getChildren().get(0);
+        Field keyField = pair.getChildren().get(0);
+        Field valueField = pair.getChildren().get(1);
+        java.util.Map<Object, Object> result = new java.util.LinkedHashMap<>();
+        for (Object entry : entries) {
+            if (!(entry instanceof java.util.Map<?, ?> item)) {
+                throw new IllegalArgumentException("Arrow MAP entry is not a key-value struct");
+            }
+            Object key = toJavaValue(item.get(keyField.getName()), keyField);
+            Object element = toJavaValue(item.get(valueField.getName()), valueField);
+            if (key == null || result.containsKey(key)) {
+                throw new IllegalArgumentException("Arrow MAP contains null or duplicate key");
+            }
+            result.put(key, element);
+        }
+        return result;
+    }
+
 }

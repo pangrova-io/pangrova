@@ -1,2 +1,0 @@
-org.pangrova.observability.logging.OtelLoggingProvider
-org.pangrova.observability.noop.NoOpLoggingProvider

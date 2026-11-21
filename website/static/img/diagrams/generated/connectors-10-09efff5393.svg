@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="961" height="1558" viewBox="0 0 961 1558" role="img">
+<rect width="961" height="1558" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="959.5" height="1556.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve"> * SplitConverter — converts an PangrovaReadExtension into a list of SplitInfo</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve"> * Each Connector implements its own SplitConverter</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">public interface SplitConverter {</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    String getSourceType();</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    /**</text>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">     * Expand a table-level read description into a list of file-level SplitInfo</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">     *</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">     * Responsibilities:</text>
+<path d="M277.59999999999997 247.0 L277.59999999999997 258.0 L288.59999999999997 252.5 z" fill="#D97706"/>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">     * 1. Resolve version   obtain file list</text>
+<path d="M296.4 266.0 L296.4 277.0 L307.4 271.5 z" fill="#D97706"/>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">     * 2. Partition pruning   filter out unneeded files</text>
+<path d="M287.0 285.0 L287.0 296.0 L298.0 290.5 z" fill="#D97706"/>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">     * 3. Schema Evolution   compute column_mappings</text>
+<path d="M352.8 304.0 L352.8 315.0 L363.8 309.5 z" fill="#D97706"/>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">     * 4. Delete File association   populate connector_info</text>
+<text x="34.0" y="332.7" fill="#1F2937" xml:space="preserve">     */</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">    List&lt;SplitInfo&gt; convert(PangrovaReadExtension extension, ConnectorSession session);</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">}</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">/**</text>
+<text x="34.0" y="427.7" fill="#1F2937" xml:space="preserve"> * Iceberg SplitConverter</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve"> */</text>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">public class IcebergSplitConverter implements SplitConverter {</text>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">    public String getSourceType() { return "iceberg"; }</text>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">    @Override</text>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">    public List&lt;SplitInfo&gt; convert(PangrovaReadExtension extension, ConnectorSession session) {</text>
+<text x="34.0" y="598.7" fill="#1F2937" xml:space="preserve">        long snapshotId = Long.parseLong(extension.getVersionId());</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">        Table table = catalog.loadTable(tableIdentifier);</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">        TableScan scan = table.newScan().useSnapshot(snapshotId);</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">        // Incremental Read</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve">        if (extension.getReadMode() == ReadMode.READ_MODE_INCREMENTAL) {</text>
+<text x="34.0" y="731.7" fill="#1F2937" xml:space="preserve">            long fromSnapshot = Long.parseLong(extension.getFromVersionId());</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">            long toSnapshot = Long.parseLong(extension.getToVersionId());</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve">            scan = table.newIncrementalAppendScan()</text>
+<text x="34.0" y="788.7" fill="#1F2937" xml:space="preserve">                .fromSnapshotExclusive(fromSnapshot)</text>
+<text x="34.0" y="807.7" fill="#1F2937" xml:space="preserve">                .toSnapshot(toSnapshot);</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">        List&lt;SplitInfo&gt; splits = new ArrayList&lt;&gt;();</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve">        for (FileScanTask task : scan.planFiles()) {</text>
+<text x="34.0" y="902.7" fill="#1F2937" xml:space="preserve">            SplitInfo.Builder builder = SplitInfo.newBuilder()</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">                .setSplitId(generateSplitId())</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve">                .setConnectorId("iceberg")</text>
+<text x="34.0" y="959.7" fill="#1F2937" xml:space="preserve">                .setFilePath(task.file().path().toString())</text>
+<text x="34.0" y="978.7" fill="#1F2937" xml:space="preserve">                .setStartOffset(task.start())</text>
+<text x="34.0" y="997.7" fill="#1F2937" xml:space="preserve">                .setLength(task.length())</text>
+<text x="34.0" y="1016.7" fill="#1F2937" xml:space="preserve">                .setFileFormat(toFileFormat(task.file().format()));</text>
+<path d="M531.4000000000001 1045.0 L531.4000000000001 1056.0 L542.4000000000001 1050.5 z" fill="#D97706"/>
+<text x="34.0" y="1054.7" fill="#1F2937" xml:space="preserve">            // Schema Evolution: compute file_schema   query_schema mapping</text>
+<text x="34.0" y="1073.7" fill="#1F2937" xml:space="preserve">            if (schemaChanged(task.file().schemaId(), extension.getSchemaVersion())) {</text>
+<text x="34.0" y="1092.7" fill="#1F2937" xml:space="preserve">                builder.setFileSchema(toArrowSchemaBytes(task.file().schema()));</text>
+<text x="34.0" y="1111.7" fill="#1F2937" xml:space="preserve">                builder.addAllColumnMappings(computeColumnMappings(</text>
+<text x="34.0" y="1130.7" fill="#1F2937" xml:space="preserve">                    task.file().schema(), extension.getArrowSchema()));</text>
+<text x="34.0" y="1149.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1187.7" fill="#1F2937" xml:space="preserve">            // Iceberg-specific info</text>
+<text x="34.0" y="1206.7" fill="#1F2937" xml:space="preserve">            IcebergSplitInfo.Builder icebergBuilder = IcebergSplitInfo.newBuilder()</text>
+<text x="34.0" y="1225.7" fill="#1F2937" xml:space="preserve">                .setSnapshotId(snapshotId)</text>
+<text x="34.0" y="1244.7" fill="#1F2937" xml:space="preserve">                .setReadMode(toIcebergReadMode(extension.getReadMode()))</text>
+<text x="34.0" y="1263.7" fill="#1F2937" xml:space="preserve">                .setDataSequenceNumber(task.file().dataSequenceNumber())</text>
+<text x="34.0" y="1282.7" fill="#1F2937" xml:space="preserve">                .setSpecId(task.file().specId());</text>
+<text x="34.0" y="1320.7" fill="#1F2937" xml:space="preserve">            // Delete Files</text>
+<text x="34.0" y="1339.7" fill="#1F2937" xml:space="preserve">            for (DeleteFile deleteFile : task.deletes()) {</text>
+<text x="34.0" y="1358.7" fill="#1F2937" xml:space="preserve">                icebergBuilder.addDeleteFiles(toDeleteFileInfo(deleteFile));</text>
+<text x="34.0" y="1377.7" fill="#1F2937" xml:space="preserve">            }</text>
+<text x="34.0" y="1415.7" fill="#1F2937" xml:space="preserve">            builder.setIcebergInfo(icebergBuilder.build());</text>
+<text x="34.0" y="1434.7" fill="#1F2937" xml:space="preserve">            splits.add(builder.build());</text>
+<text x="34.0" y="1453.7" fill="#1F2937" xml:space="preserve">        }</text>
+<text x="34.0" y="1472.7" fill="#1F2937" xml:space="preserve">        return splits;</text>
+<text x="34.0" y="1491.7" fill="#1F2937" xml:space="preserve">    }</text>
+<text x="34.0" y="1510.7" fill="#1F2937" xml:space="preserve">}</text>
+</g>
+</svg>

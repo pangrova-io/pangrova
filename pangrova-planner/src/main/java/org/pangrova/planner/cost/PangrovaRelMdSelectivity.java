@@ -1,5 +1,8 @@
 package org.pangrova.planner.cost;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.planner.metadata.PlanTable;
+
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
@@ -152,7 +155,7 @@ public final class PangrovaRelMdSelectivity
         if (!(firstOp instanceof RexInputRef inputRef)) {
             return null;
         }
-        String tableName = resolveTableName(input);
+        QualifiedTableName tableName = resolveTableName(input);
         String columnName = resolveColumnName(input, inputRef.getIndex());
         if (tableName == null || columnName == null) {
             return null;
@@ -202,8 +205,8 @@ public final class PangrovaRelMdSelectivity
         if (!(left instanceof RexInputRef leftRef) || !(right instanceof RexInputRef rightRef)) {
             return null;
         }
-        String leftTable = resolveTableName(join.getLeft());
-        String rightTable = resolveTableName(join.getRight());
+        QualifiedTableName leftTable = resolveTableName(join.getLeft());
+        QualifiedTableName rightTable = resolveTableName(join.getRight());
         String leftCol = resolveColumnName(join.getLeft(), leftRef.getIndex());
         int rightFieldCount = join.getLeft().getRowType().getFieldCount();
         String rightCol = resolveColumnName(join.getRight(), rightRef.getIndex() - rightFieldCount);
@@ -218,7 +221,7 @@ public final class PangrovaRelMdSelectivity
     private ColumnRef extractColumnRef(RelNode input, RexCall call) {
         for (RexNode operand : call.getOperands()) {
             if (operand instanceof RexInputRef ref) {
-                String tableName = resolveTableName(input);
+                QualifiedTableName tableName = resolveTableName(input);
                 String columnName = resolveColumnName(input, ref.getIndex());
                 if (tableName != null && columnName != null) {
                     return new ColumnRef(tableName, columnName);
@@ -237,10 +240,10 @@ public final class PangrovaRelMdSelectivity
         return null;
     }
 
-    private static String resolveTableName(RelNode node) {
+    private static QualifiedTableName resolveTableName(RelNode node) {
         if (node instanceof TableScan scan) {
-            List<String> names = scan.getTable().getQualifiedName();
-            return String.join(".", names);
+            List<String> names = PlanTable.require(scan).getQualifiedName();
+            return names.size() == 3 ? new QualifiedTableName(names.get(0), names.get(1), names.get(2)) : null;
         }
         if (!node.getInputs().isEmpty()) {
             return resolveTableName(node.getInput(0));
@@ -256,5 +259,5 @@ public final class PangrovaRelMdSelectivity
         return null;
     }
 
-    private record ColumnRef(String tableName, String columnName) {}
+    private record ColumnRef(QualifiedTableName tableName, String columnName) {}
 }

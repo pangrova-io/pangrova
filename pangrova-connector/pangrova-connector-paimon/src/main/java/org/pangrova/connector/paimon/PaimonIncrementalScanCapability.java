@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+import org.pangrova.connector.api.metadata.IncrementalScanCapability;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -69,26 +70,37 @@ public final class PaimonIncrementalScanCapability implements IncrementalScanCap
      * <p>Paimon snapshot IDs are sequential (1, 2, 3, ...), so the
      * numeric comparison {@code fromSnapshotId > toSnapshotId} is a
      * direct validity check. When {@code fromSnapshotId == toSnapshotId},
-     * no changes exist and the method returns {@code true}.</p>
+     * the method returns {@code true} only after verifying that the snapshot exists.</p>
      */
     @Override
     public boolean isAppendOnly(String tableName, long fromSnapshotId, long toSnapshotId) {
+        if (fromSnapshotId <= 0 || toSnapshotId <= 0) {
+            throw new IllegalArgumentException("Snapshot identifiers must be positive");
+        }
         if (fromSnapshotId > toSnapshotId) {
             throw new IllegalArgumentException(
                     "fromSnapshotId (" + fromSnapshotId
                             + ") must not be greater than toSnapshotId ("
                             + toSnapshotId + ")");
         }
+        Table table = loadTable(tableName);
+        SnapshotManager snapshots = ((FileStoreTable) table).snapshotManager();
+        requireSnapshotExists(snapshots, fromSnapshotId);
         if (fromSnapshotId == toSnapshotId) {
             return true;
         }
-
-        Table table = loadTable(tableName);
+        requireSnapshotExists(snapshots, toSnapshotId);
 
         if (table.primaryKeys().isEmpty()) {
             return isAppendOnlyByCommitKind(table, fromSnapshotId, toSnapshotId);
         }
         return isAppendOnlyByChangelogScan(table, fromSnapshotId, toSnapshotId, tableName);
+    }
+
+    private static void requireSnapshotExists(SnapshotManager snapshots, long snapshotId) {
+        if (!snapshots.snapshotExists(snapshotId)) {
+            throw new IllegalArgumentException("Snapshot not found: " + snapshotId);
+        }
     }
 
     /**
@@ -214,7 +226,7 @@ public final class PaimonIncrementalScanCapability implements IncrementalScanCap
     private Table loadTable(String tableName) {
         Identifier id = parseIdentifier(tableName);
         try {
-            Table table = catalog.getTable(id);
+            Table table = PaimonTableIdentity.loadFresh(catalog, id);
             if (!(table instanceof FileStoreTable)) {
                 throw new IllegalArgumentException(
                         "Table is not a FileStoreTable: " + tableName);

@@ -1,5 +1,7 @@
 package org.pangrova.planner.rule;
 
+import org.pangrova.planner.metadata.PlanTable;
+
 import java.util.Optional;
 
 import org.apache.calcite.plan.RelOptRule;
@@ -48,22 +50,9 @@ public final class LimitPushdownRule extends RelOptRule {
 
     public static final LimitPushdownRule INSTANCE = new LimitPushdownRule();
 
-    /** Tracks whether the rule has fired during optimization (for testing). */
-    private static volatile boolean lastFired;
-
     private LimitPushdownRule() {
         super(operand(LogicalSort.class, operand(LogicalTableScan.class, none())),
                 "LimitPushdownRule");
-    }
-
-    /** Returns true if the rule fired during the last optimization pass. */
-    public static boolean didFire() {
-        return lastFired;
-    }
-
-    /** Resets the fired state (call before optimization in tests). */
-    public static void resetFired() {
-        lastFired = false;
     }
 
     @Override
@@ -80,7 +69,7 @@ public final class LimitPushdownRule extends RelOptRule {
             return false;
         }
         LogicalTableScan scan = call.rel(1);
-        return scan.getTable().unwrap(ConnectorPushdownTable.class) != null;
+        return PlanTable.require(scan).unwrap(ConnectorPushdownTable.class) != null;
     }
 
     @Override
@@ -88,7 +77,7 @@ public final class LimitPushdownRule extends RelOptRule {
         LogicalSort sort = call.rel(0);
         LogicalTableScan scan = call.rel(1);
 
-        ConnectorPushdownTable pushdown = scan.getTable().unwrap(ConnectorPushdownTable.class);
+        ConnectorPushdownTable pushdown = PlanTable.require(scan).unwrap(ConnectorPushdownTable.class);
         if (pushdown == null) {
             return;
         }
@@ -103,9 +92,8 @@ public final class LimitPushdownRule extends RelOptRule {
             return;
         }
 
-        lastFired = true;
         LOG.info("event=limit_pushdown_applied table={} limit={} guaranteed={}",
-                scan.getTable().getQualifiedName(), limit, result.get().guaranteed());
+                PlanTable.require(scan).getQualifiedName(), limit, result.get().guaranteed());
 
         // The same RelOptTable now references a table whose connector handle
         // encodes the limit; the existing scan node still points at it, so we

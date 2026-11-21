@@ -1,5 +1,21 @@
 version: 2
 updates:
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"
+
+  - package-ecosystem: "cargo"
+    directory: "/pangrova-worker-native/lance-ffi"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
   - package-ecosystem: "maven"
     directory: "/"
     schedule:

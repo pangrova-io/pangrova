@@ -116,7 +116,7 @@ class YamlConfigLoaderPropertyTest {
 
         try {
             result.put("injected", "bad");
-            assertThat(true).as("map should be unmodifiable").isFalse();
+            throw new AssertionError("map should be unmodifiable");
         } catch (UnsupportedOperationException e) {
             // expected
         }

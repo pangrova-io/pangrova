@@ -1,62 +1,108 @@
 ---
 title: "Distributed Architecture"
+description: "Coordinator high availability, Worker architecture, fault tolerance, and service discovery"
 sidebar_label: "Distributed Architecture"
 ---
 
 # Pangrova — Distributed Architecture
+
+Cluster membership snapshots, process identities and lease values live in
+`pangrova-coordination-api`. Their persistence ports now live in the dedicated
+`pangrova-persistence-coordination-api`: `.api.membership`, `.api.lease` and
+`.api.admission`, with the real quorum extension in `.api.provider` in the same
+artifact. PostgreSQL and process-local Memory implementations are separate
+`pangrova-persistence-coordination-postgresql` and `pangrova-persistence-coordination-memory`
+artifacts. Core receives these contracts explicitly; it cannot select a Memory backend.
+
+`CoordinatorLeaseBootstrap` in Server discovers CoordinationProviderFactory registrations and selects the configured ID or alias.
+JDBC is the default. Each factory returns the lease and registry for a single authority.
+The Server rejects duplicate names and incompatible factory versions before opening a provider. The optional ZooKeeper provider consumes the narrow
+persistence API and Coordination values alongside its quorum SDK. The shared
+DataSource belongs to Server; PostgreSQL operations close borrowed connections,
+not the pool. The quorum provider owns its shared client close hook.
+
+Canonical schema initialization owns the admission reservation tables (V106).
+Creating a PostgreSQL reservation provider validates existing authority, never
+creates a parallel schema or resets active reservations. Test-only Memory admission
+slots remain in Testing Kit and are not advertised as a production provider.
+
+Coordination backend failures now propagate through the shared API error contract and the HA
+registry adapter. ZooKeeper errors do not become missing membership/lease or successful updates;
+CAS exhaustion and invalid payloads also fail explicitly. A lost mutation acknowledgement may
+mean the write committed and requires authoritative confirmation. HA startup failures roll back
+local scheduling; demotion precedes remote release, and close attempts all cleanup stages while
+preserving failures. Singleton maintenance uses its separate lease lifecycle.
+
+Query persistence has separate PostgreSQL and process-local Memory artifacts under
+`pangrova-persistence-query-*`. HA receives its anchor store explicitly and cannot replace
+that backend when binding the process authority. Task completion also requires an explicit
+write journal; Core cannot create an implicit Memory fallback. PostgreSQL write journal
+construction checks the canonical schema and performs no DDL. Memory provides no restart
+or multi-process durability.
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
+Worker withdrawal now uses the exact registered process. The internal authenticated
+`DELETE /v1/workers/{workerId}` request requires `Content-Type: application/json` and
+this body, using the values from that Worker's original registration:
+
+```json
+{
+  "admission_domain_id": "00000000-0000-0000-0000-000000000001",
+  "incarnation_id": "00000000-0000-0000-0000-000000000002"
+}
+```
+
+Missing identity is rejected. An already absent or replaced incarnation can be
+acknowledged as deregistered without removing the replacement. The real Worker
+registration client retains its attempted identity and sends this body after its
+existing task-owner shutdown sequence. The persistence port requires an atomic
+identity comparison; it has no unconditional logical-ID delete overload. The
+backend-neutral `WorkerRegistrationIdentity` value belongs to Coordination API;
+the `WorkerRegistry` port belongs to the dedicated Coordination Persistence API.
+
+Within one Coordinator, heartbeat, health evaluation and repeated registration of
+the same incarnation preserve DECOMMISSIONING. A removal decision using an old
+WorkerInfo snapshot cannot erase a newer local observation; the backend separately
+checks process identity. This is registration fencing, **not proof of safe physical
+scale-down**: persistent decommission/admission state and authoritative execution/output/reader
+inventory and drain are still pending.
+
+Heartbeat POST now requires `worker_execution_identity` with those same admission-domain and
+incarnation values. The registry atomically updates only that exact process; failure does not
+publish local metrics or tenant usage first. Missing registration yields `409/re-register`;
+another process owning the logical ID yields `409/fenced`. Automatic repair/retries use the
+separate authenticated `POST /v1/workers/refresh` endpoint, which inserts absence or refreshes
+that same identity, never replaces another process. The first registration attempt still uses
+`/v1/workers/register`; globally ordered initial admission is remaining work.
+
+A production Worker receiving `fenced` permanently closes new task reservation/publication and
+stops automatic heartbeat repair. Existing execution, status, cancellation, output release and
+shutdown keep their actual resource owners. Draining rejects canonical task submissions with
+503. This nonblocking admission seal is not a physical drain receipt or shutdown permit;
+readiness/admission integration and temporary-network-degradation policy remain separate work.
+
 > **Summary.** The Coordinator–Worker topology, multi-active high availability and leader election, worker registration and health checking, and shuffle durability.
+
+Worker registration in `JdbcWorkerRegistry` uses one transaction for its
+update-then-insert operation. SQL, runtime, and Error failures roll back before
+the connection is closed, and rollback failures remain suppressed on the
+original cause. Failure cleanup does not restore auto-commit. The existing
+unique-key retry rule remains unchanged, so a failed registration cannot become
+a committed replacement of the prior Worker identity merely through cleanup.
 
 ## 1. Coordinator High-Availability Architecture
 
 ### 1.1 Multi-Active Architecture Design
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Coordinator Cluster (Multi-Active)                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
-│  │  Coordinator-1  │  │  Coordinator-2  │  │  Coordinator-3  │             │
-│  │  (Active)       │  │  (Active)       │  │  (Active)       │             │
-│  │                 │  │                 │  │                 │             │
-│  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │             │
-│  │ │Query Handler│ │  │ │Query Handler│ │  │ │Query Handler│ │             │
-│  │ │SQL Parser   │ │  │ │SQL Parser   │ │  │ │SQL Parser   │ │             │
-│  │ │Optimizer    │ │  │ │Optimizer    │ │  │ │Optimizer    │ │             │
-│  │ │Scheduler    │ │  │ │Scheduler    │ │  │ │Scheduler    │ │             │
-│  │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │             │
-│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘             │
-│           │                    │                    │                       │
-│           └────────────────────┼────────────────────┘                       │
-│                                │                                            │
-│  ┌─────────────────────────────┴─────────────────────────────┐             │
-│  │                    Shared State Layer                      │             │
-│  │                                                            │             │
-│  │  ┌──────────────────┐  ┌──────────────────┐               │             │
-│  │  │    ZooKeeper     │  │   Redis Cluster  │               │             │
-│  │  │                  │  │                  │               │             │
-│  │  │ • Leader Election│  │ • Session Cache  │               │             │
-│  │  │ • Config Sync    │  │ • Metadata Cache │               │             │
-│  │  │ • Distributed    │  │ • Query Plan     │               │             │
-│  │  │   Lock           │  │   Cache          │               │             │
-│  │  └──────────────────┘  └──────────────────┘               │             │
-│  │                                                            │             │
-│  │  ┌──────────────────────────────────────────────────────┐ │             │
-│  │  │                PostgreSQL Cluster                      │ │             │
-│  │  │ • Query State Persistence                             │ │             │
-│  │  │ • Task Assignment History                             │ │             │
-│  │  │ • Audit Logs                                          │ │             │
-│  │  └──────────────────────────────────────────────────────┘ │             │
-│  └───────────────────────────────────────────────────────────┘             │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Coordinator Cluster (Multi-Active)](../../website/static/img/diagrams/generated/distributed-02-d0420bfe67.svg)
+
+> **Topology note.** The diagram shows the optional ZooKeeper/Redis topology. The
+> default bootstrap uses a JDBC lease in the metadata database (`pangrova_meta`);
+> Redis is an optional cache, not a consistency authority.
 
 ### 1.2 Coordinator Core Components
 
@@ -85,89 +131,43 @@ public class PangrovaCoordinator implements Lifecycle {
 
 ### 1.3 Query Lifecycle Management
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Query Lifecycle                             │
-├─────────────────────────────────────────────────────────────────┤
-│  Client Request                                                  │
-│       │                                                          │
-│       ▼                                                          │
-│  ┌─────────────┐                                                │
-│  │   QUEUED    │  → Query enqueued, waiting for resources         │
-│  └──────┬──────┘                                                │
-│         │         ╲                                              │
-│         ▼          ╲ (cancel / resource timeout)                 │
-│  ┌─────────────┐    ╲                                           │
-│  │  PLANNING   │  → SQL parse → optimize → generate execution plan │
-│  └──────┬──────┘    ╲                                           │
-│         │            ╲ (cancel / syntax error / permission)      │
-│         ▼             ╲                                          │
-│  ┌─────────────┐       ╲                                        │
-│  │ SCHEDULING  │  → Assign Splits → schedule Tasks                │
-│  └──────┬──────┘        ╲                                       │
-│         │                ╲ (cancel / no available Worker)        │
-│         ▼                 ▼                                      │
-│  ┌─────────────┐   ┌───────────┐                                │
-│  │  RUNNING    │   │ CANCELLED │  ← User cancel (POST /v1/query/{id}/cancel) │
-│  └──────┬──────┘   └───────────┘    or system cancel              │
-│         │          ╱                                             │
-│    ┌────┴────┐   ╱ (cancel during execution)                    │
-│    ▼         ▼ ╱                                                │
-│ ┌──────┐ ┌──────┐                                               │
-│ │FINISH│ │FAILED│  ← Unrecoverable error                          │
-│ └──────┘ └──────┘                                               │
-└─────────────────────────────────────────────────────────────────┘
-```
+`org.pangrova.query.lifecycle.QueryStateMachine` is the single owner of in-process
+query state. `QueryManager` lives in `org.pangrova.query.runtime` and coordinates
+admission, dispatch and lifecycle collaborators through explicit ports implemented
+by the Coordinator.
 
+![stateDiagram-v2](../../website/static/img/diagrams/generated/distributed-04-a15e638217.svg)
 
-**State Transition Table**:
+`FINISHED`, `FAILED` and `CANCELLED` are terminal. Cancellation cannot interrupt
+`FINISHING` publication through a nonexistent transition. The state owner reserves
+transitions under its monitor, runs durable recording and fencing callbacks outside
+that monitor, then publishes state and notifies listeners. Failed recording does not
+publish a terminal state. The actual issued Connector authority and operation scope
+are bound to that state owner; an ID lookup cannot replace the original scope.
 
-| From | To | Trigger |
-|------|----|---------|
-| QUEUED | PLANNING | Resources available, dequeued |
-| QUEUED | FAILED | Resource acquisition timeout |
-| QUEUED | CANCELLED | User cancel (`POST /v1/query/{id}/cancel`) |
-| PLANNING | SCHEDULING | Plan generated successfully |
-| PLANNING | FAILED | Syntax error, permission denied, optimizer failure |
-| PLANNING | CANCELLED | User cancel |
-| SCHEDULING | RUNNING | All Tasks dispatched |
-| SCHEDULING | FAILED | No available Worker (after retry exhaustion) |
-| SCHEDULING | CANCELLED | User cancel |
-| RUNNING | FINISH | All Tasks completed successfully |
-| RUNNING | FAILED | Unrecoverable task failure (§4.1) |
-| RUNNING | CANCELLED | User cancel or system-initiated cancel (e.g., quota exceeded) |
+Logical termination is separate from physical completion. `QueryTerminalCleanup`
+records terminal facts and publishes logical effects before cancellation/drain/cleanup.
+A failed physical release retains the query and its retry obligation. Task and operation
+exit notifications enqueue retry work and do not run journal I/O on the exit thread.
+`QueryRetentionScheduler` removes history only after both terminal publication and
+physical completion and while no completion is pending. Its executors and registry
+are borrowed from the process/query owners; stopping schedules does not close them.
 
-Terminal states: `FINISH`, `FAILED`, `CANCELLED`. No transitions out of terminal states.
+Readiness futures are observer-owned copies. Completing or cancelling a returned wait
+cannot manufacture an endpoint, dispatch a write or cancel another observer. Native
+write completion held for control-plane publication remains distinct from final query
+completion. These guarantees are covered by Query Core tests and actual Coordinator,
+journal and Native ownership tests; a class move alone is not execution evidence.
 
-### 1.4 Coordinator Module Structure
+### 1.4 Current Module Ownership
 
-```
-pangrova-coordinator/
-├── src/main/java/org/pangrova/coordinator/
-│   ├── PangrovaCoordinator.java           # Main entry point
-│   ├── CoordinatorConfig.java           # Configuration
-│   ├── server/                          # Service layer
-│   │   └── http/                        # HTTP REST API
-│   ├── query/                           # Query management
-│   │   ├── QueryManager.java
-│   │   ├── QueryStateMachine.java
-│   │   └── QueryTracker.java
-│   ├── scheduler/                       # Scheduler
-│   │   ├── SchedulerService.java
-│   │   ├── StageScheduler.java
-│   │   └── strategy/                    # Scheduling strategies
-│   ├── worker/                          # Worker management
-│   │   ├── WorkerManager.java
-│   │   └── WorkerRegistry.java
-│   ├── metadata/                        # Metadata management
-│   │   ├── MetadataService.java
-│   │   └── CatalogRegistry.java
-│   ├── ha/                              # High availability
-│   │   ├── HACoordinationService.java
-│   │   └── LeaderElection.java
-│   └── session/                         # Session management
-│       └── SessionManager.java
-```
+![pangrova-query/](../../website/static/img/diagrams/generated/distributed-05-4a0e165bc3.svg)
+
+Query Core depends on the Connector contract to manage the issued query scope; it
+has no Coordinator, Worker, Planner, Connector Runtime or persistence-provider dependency.
+Core lifecycle implementation classes are internal engine collaborators, not additional
+public API/SPI artifacts. Final target structure and outstanding work are tracked in the
+[modularization ADR](domain-modularization-adr.md) and its implementation ledger.
 
 ---
 
@@ -175,121 +175,17 @@ pangrova-coordinator/
 
 ### 2.1 Worker Internal Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Worker Node                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                         Java Layer (JVM)                               │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  HTTP Server    │  │  Task Manager   │  │ Memory Manager  │       │  │
-│  │  │  (Control)      │  │ • Task Queue    │  │ • Pool Mgmt     │       │  │
-│  │  │ • Task Submit   │  │ • Task Executor │  │ • Spill Control │       │  │
-│  │  │ • Status/Cancel │  │ • Progress Track│  │ • GC Tuning     │       │  │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │ Arrow Flight    │  │ Connector Mgr   │  │ Metrics Export  │       │  │
-│  │  │ (Data Plane)    │  │ • Plugin Load   │  │ • Prometheus    │       │  │
-│  │  │ • Shuffle/Result│  │ • ClassLoader   │  │ • OpenTelemetry │       │  │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │  │
-│  └───────────────────────────────┬───────────────────────────────────────┘  │
-│                                  │                                           │
-│                    JNI Bridge (Arrow C Data Interface)                       │
-│                                  │                                           │
-│  ┌───────────────────────────────┴───────────────────────────────────────┐  │
-│  │                         C++ Layer (Velox)                              │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  Velox Engine   │  │   Native I/O    │  │Shuffle Partitioner│     │  │
-│  │  │ • Plan Execute  │  │ • Parquet Read  │  │ • Partition     │       │  │
-│  │  │ • Vectorized    │  │ • ORC Read      │  │ • Serialize     │       │  │
-│  │  │ • SIMD Optimize │  │ • S3/HDFS       │  │ • In-Memory Only│       │  │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │  │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐       │  │
-│  │  │  Memory Pool    │  │   Spill Mgr     │  │ Expression Eval │       │  │
-│  │  │ • Arrow Buffer  │  │ • NVMe SSD      │  │ • Codegen       │       │  │
-│  │  │ • Shared Mem    │  │ • Arrow IPC     │  │ • SIMD          │       │  │
-│  │  └─────────────────┘  └─────────────────┘  └─────────────────┘       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Worker Node](../../website/static/img/diagrams/generated/distributed-06-cf3c9063b9.svg)
 
 ### 2.2 Read/Write Separation Design
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Read/Write Separation                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      READ PATH (C++ Velox)                           │   │
-│  │  Substrait Plan → Plan Parser → Velox Plan → Executor                │   │
-│  │       ↓                                                              │   │
-│  │  Native I/O (Parquet/ORC) ← Data Source Connector ← Split Info       │   │
-│  │       ↓                                                              │   │
-│  │  Arrow RecordBatch (Zero-Copy) → Arrow Flight → Next Stage           │   │
-│  │                                                                      │   │
-│  │  Characteristics: vectorization, SIMD, zero-copy, extreme performance │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                      WRITE PATH (Java)                               │   │
-│  │  Write Request → Transaction Manager → Data Writer → Committer       │   │
-│  │       ↓                                                              │   │
-│  │  Iceberg/Paimon SDK → Manifest Writer → Metadata Update              │   │
-│  │                                                                      │   │
-│  │  Characteristics: full transaction support, ACID, upstream-compatible │   │
-│  │                                                                      │   │
-│  │  Transaction boundary:                                               │   │
-│  │  ┌─ ACID BEGIN ──────────────────────────────────────────────────┐  │   │
-│  │  │ 1. Begin Transaction (Coordinator)                            │  │   │
-│  │  │ 2. Write Data Files (Worker Java TableWriter, parallel)         │  │   │
-│  │  │ 3. Report Write Results (Workers → Coordinator)               │  │   │
-│  │  │ 4. Commit Transaction (Coordinator, atomic operation)          │  │   │
-│  │  └─ ACID END ────────────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+![Read/Write Separation](../../website/static/img/diagrams/generated/distributed-07-4bb4d6e8ef.svg)
 
-Note: On the write path, the Worker-side Java `TableWriter` is responsible for flushing data files to storage and producing statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
+Note: On the write path, the Worker-side Java write path flushes data files through the connector page sink and produces statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
 
 ### 2.3 Worker Module Structure
 
-```
-pangrova-worker/
-├── src/main/java/org/pangrova/worker/
-│   ├── PangrovaWorker.java                # Main entry point
-│   ├── WorkerConfig.java                # Configuration
-│   ├── server/                          # Service layer
-│   │   ├── http/                        # HTTP REST API
-│   │   └── flight/                      # Arrow Flight service
-│   ├── task/                            # Task management
-│   │   ├── TaskManager.java
-│   │   └── TaskExecutor.java
-│   ├── execution/                       # Execution layer
-│   │   └── ExecutionManager.java
-│   ├── memory/                          # Native/JVM memory coordination
-│   │   ├── NativeMemoryCoordinator.java
-│   │   └── NativeSpillBridge.java
-│   ├── exchange/                        # Data exchange
-│   │   └── ExchangeManager.java
-│   ├── jni/                             # JNI bridge
-│   │   ├── NativeRuntime.java
-│   │   └── NativeLibraryLoader.java
-│   ├── connector/                       # Connector management
-│   │   └── ConnectorManager.java
-│   └── registry/                        # Service registration
-│       └── ServiceRegistry.java
-
-pangrova-worker-native/                    # C++ native layer
-├── CMakeLists.txt
-├── src/
-│   ├── jni/                             # JNI interface
-│   ├── velox/                           # Velox integration
-│   ├── io/                              # Native I/O
-│   ├── memory/                          # Memory management
-│   └── flight/                          # Arrow Flight
-├── include/                             # Header files
-└── test/                                # Tests
-```
+![pangrova-worker/](../../website/static/img/diagrams/generated/distributed-08-db04a5a66b.svg)
 
 ### 2.4 Worker Startup Sequence
 
@@ -300,8 +196,8 @@ public class PangrovaWorker implements Lifecycle {
 
     private final WorkerConfig config;
     private final NativeRuntime nativeBridge;
-    private final ResourceManager resourceManager;   // pangrova-resource; see 11 §3
-    private final ConnectorManager connectorManager;
+    private final ResourceManager resourceManager;   // pangrova-worker resource module; see 11 §3
+    private WorkerCatalogRuntime catalogs;
     private final TaskManager taskManager;
     private final HttpServer httpServer;
     private final FlightServer flightServer;
@@ -310,6 +206,9 @@ public class PangrovaWorker implements Lifecycle {
 
     @Override
     public void start() {
+        catalogs = WorkerCatalogRuntime.discover(config.coordinatorUrl(), config.internalAuthSecret(),
+                getClass().getClassLoader(), config.pluginDirectory());
+
         // Phase 1: Native Engine Initialization
         nativeBridge.loadLibrary();                  // 1. JNI System.loadLibrary("pangrova_native")
         nativeBridge.initializeVelox(config);         // 2. Velox engine init (thread pools, memory pools)
@@ -319,7 +218,6 @@ public class PangrovaWorker implements Lifecycle {
 
         // Phase 2: Java Layer Initialization
         resourceManager.initialize(config);           // 3. Memory pools (JVM Heap + Off-Heap + Native budget)
-        connectorManager.loadPlugins(config);         // 4. Connector plugins (ClassLoader isolation)
         taskManager.initialize();                     // 5. Task queue + executor threads
 
         // Phase 3: Network Services
@@ -340,7 +238,7 @@ public class PangrovaWorker implements Lifecycle {
         httpServer.stop();                            // 3. Stop control plane
         flightServer.stop();                          // 4. Stop data plane
         metricsExporter.stop();                       // 5. Flush final metrics
-        connectorManager.shutdown();                  // 6. Close connector resources
+        catalogs.close();                             // Close connectors and their plugin loaders after drain
         nativeBridge.shutdown();                      // 7. Release native memory pools, destroy Velox engine
         resourceManager.shutdown();                   // 8. Final memory cleanup
     }
@@ -349,42 +247,7 @@ public class PangrovaWorker implements Lifecycle {
 
 **Startup Sequence Diagram**
 
-```
-PangrovaWorker.start()
-    │
-    ├── Phase 1: Native Engine ──────────────────────────────────────────────
-    │   ├── loadLibrary()              ← JNI: System.loadLibrary("pangrova_native")
-    │   │                                 Failure → abort startup (fail-fast)
-    │   └── initializeVelox()          ← Create Velox MemoryPool, IO ThreadPool,
-    │                                     Compute ThreadPool, SpillManager
-    │                                     Internally calls NativeRuntime.nativeInit(configJson)
-    │                                     (see native-execution.md §5.3)
-    │                                     Failure → abort startup (fail-fast)
-
-
-    │
-    ├── Phase 2: Java Layer ─────────────────────────────────────────────────
-    │   ├── resourceManager.initialize() ← Set Native memory limit (resource-management.md §2)
-    │   │                                 Register JVM GC listener
-    │   ├── connectorManager.loadPlugins() ← Scan plugin directory, create isolated ClassLoader
-    │   │                                     (connectors.md §2.3)
-    │   └── taskManager.initialize()   ← Create Task queue, Pull Loop threads
-    │
-    ├── Phase 3: Network Services ───────────────────────────────────────────
-    │   ├── flightServer.start()       ← Bind Data Plane port (default 8082)
-    │   │                                 Now able to accept Shuffle/Result connections
-    │   ├── httpServer.start()         ← Bind Control Plane port (default 8080)
-    │   │                                 Now able to accept Task submissions
-    │   └── metricsExporter.start()    ← Prometheus /metrics endpoint ready
-    │
-    └── Phase 4: Cluster Registration ──────────────────────────────────────
-        ├── serviceRegistry.register() ← ZK creates /pangrova/workers/{workerId}
-        │                                 ephemeral node (§3.3)
-        │                                 Coordinator discovers this Worker via Watch
-        └── startHeartbeat()           ← Report resource status every 10s (§5.2)
-                                          Includes memory_pressure, running_task_count,
-                                          available_memory_bytes, cpu_usage
-```
+![PangrovaWorker.start()](../../website/static/img/diagrams/generated/distributed-10-4d9c63a637.svg)
 
 **Startup Sequence Constraints**
 
@@ -397,38 +260,7 @@ PangrovaWorker.start()
 
 **Coordination with Coordinator Startup**
 
-```
-Timeline →
-
-ZooKeeper          Coordinator                    Worker
-    │                  │                             │
-    │  ZK Ready        │                             │
-    ├─────────────────►│                             │
-    │                  │ start()                     │
-    │                  │ ├── haService.start()       │
-    │                  │ ├── metadataService.init()  │
-    │                  │ ├── workerManager.          │
-    │                  │ │   startDiscovery()        │
-    │                  │ │   (Watch /pangrova/workers) │
-    │                  │ └── httpServer.start()      │
-    │                  │                             │
-    │                  │                             │ start()
-    │                  │                             │ ├── Phase 1-3 (internal init)
-    │                  │                             │ └── Phase 4: register()
-    │                  │                             │     → ZK: create ephemeral node
-    │                  │  CHILD_ADDED event           │
-    │                  │◄─────────────────────────────┤
-    │                  │                             │
-    │                  │ Coordinator discovers Worker │
-    │                  │ Adds to scheduling candidates│
-    │                  │                             │
-    │                  │ Waiting for first Heartbeat  │
-    │                  │◄──────────────── heartbeat ──┤
-    │                  │                             │
-    │                  │ Worker state = ACTIVE        │
-    │                  │ Can schedule Task            │
-    │                  │                             │
-```
+![Timeline →](../../website/static/img/diagrams/generated/distributed-11-3d35316e01.svg)
 
 > **Cross-Reference**: For Native engine initialization details see [native-execution.md](./native-execution.md); for memory pool initialization see [resource-management.md §2](./resource-management.md); for Connector plugin loading see [connectors.md §2.3](./connectors.md); for heartbeat resource feedback see [§5.2](#52-scheduling-resource-closed-loop).
 
@@ -438,53 +270,13 @@ ZooKeeper          Coordinator                    Worker
 
 ### 3.1 Overall HA Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           High Availability Architecture                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                         Client Layer                                     │   │
-│  │  ┌─────────────┐                                                        │   │
-│  │  │ Load        │  • Health check • Failover • Session affinity (optional)│   │
-│  │  │ Balancer    │                                                        │   │
-│  │  └──────┬──────┘                                                        │   │
-│  └─────────┼────────────────────────────────────────────────────────────────┘   │
-│            ▼                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Coordinator Cluster (Multi-Active)                    │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                     │   │
-│  │  │Coordinator-1│  │Coordinator-2│  │Coordinator-3│                     │   │
-│  │  │   (Active)  │  │   (Active)  │  │   (Active)  │                     │   │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                     │   │
-│  │         └────────────────┼────────────────┘                             │   │
-│  │  ┌───────────────────────┴───────────────────────────────────────────┐ │   │
-│  │  │                    Shared State Layer                              │ │   │
-│  │  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │ │   │
-│  │  │  │     ZooKeeper    │  │      Redis       │  │   PostgreSQL     │  │ │   │
-│  │  │  │• Leader election │  │• Metadata cache  │  │• Query state     │  │ │   │
-│  │  │  │• Distributed lock│  │• Session state   │  │• Audit logs      │  │ │   │
-│  │  │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │ │   │
-│  │  └────────────────────────────────────────────────────────────────────┘ │   │
-│  └──────────────────────────────────────────────────────────────────────────┘   │
-│            ▼                                                                     │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Worker Cluster (Auto-Scaling)                         │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │   │
-│  │  │  Worker-1   │  │  Worker-2   │  │  Worker-3   │  │  Worker-N   │   │   │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘   │   │
-│  │         └────────────────┴────────────────┴────────────────┘          │   │
-│  │                          ┌────────▼────────┐                          │   │
-│  │                          │ Service Registry│                          │   │
-│  │                          │ (ZooKeeper)     │                          │   │
-│  │                          │ • Ephemeral Node│                          │   │
-│  │                          │ • Health check  │                          │   │
-│  │                          │ • Discovery     │                          │   │
-│  │                          └─────────────────┘                          │   │
-│  └──────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![High Availability Architecture](../../website/static/img/diagrams/generated/distributed-12-61eb15d77d.svg)
 
 ### 3.2 Query Ownership Management
+
+> The Curator-based example below illustrates the optional ZooKeeper
+> coordination backend. The default deployment persists leases and
+> ownership-relevant state in the metadata PostgreSQL authority.
 
 ```java
 /**
@@ -592,7 +384,14 @@ public class WorkerServiceRegistry {
 ```
 
 
-> **Detection Timing**: Heartbeat timeout (20s = 2× interval, see §5.2.3) is the Coordinator's fast detection mechanism — marks Worker as SUSPECT and stops scheduling. ZK session expiry (30s) is the final failure confirmation — ephemeral node deletion triggers Task rescheduling. The two mechanisms are complementary: heartbeat provides fast response, ZK provides eventual consistency guarantee.
+> **Detection timing:** Worker liveness uses the configured
+> `coordinator.worker.heartbeat-timeout` (30 seconds by default) against the
+> periodic Worker heartbeat (10 seconds by default). The default registry and
+> lease authority is JDBC/PostgreSQL. ZooKeeper membership, including the
+> ephemeral-node behavior sketched above, applies only when the ZooKeeper
+> coordination provider is explicitly selected; it is not the default failure
+> detector. Task rescheduling also depends on the affected stage and exchange
+> policy, not on node deletion alone.
 
 ### 3.4 Shared State Responsibility Matrix
 
@@ -610,9 +409,9 @@ public class WorkerServiceRegistry {
 
 
 **Key design decisions**:
-- ZooKeeper is the single source of consistency; all coordination operations that require strong consistency (leader election, distributed lock, service registry) uniformly use ZooKeeper
-- Redis is used only for caching and does not store any consistency-critical state. When Redis is unavailable, system functionality is unaffected — only performance degrades
-- Worker service registration uses a ZooKeeper Ephemeral Node; when a Worker crashes the node is automatically deleted, requiring no additional health-check mechanism
+- The metadata PostgreSQL authority is the default consistency source for leases, Worker registration, query state, and durable journals. ZooKeeper is an optional coordination backend for leader election and locks; it is not required by the default bootstrap.
+- Redis is optional and used only for caching; it stores no consistency-critical state. When Redis is unavailable, functionality is unaffected and only performance degrades.
+- Worker registration is persisted in the metadata authority. The optional ZooKeeper backend uses an ephemeral node; a Worker crash removes that node and triggers the same registration-loss handling.
 
 
 **Redis Consistency Refinement**: The "lossy" semantics for Redis apply to cached data only — cache misses result in re-computation, not data loss. However, cache *invalidation* operations (especially security-policy-triggered invalidations from [05 §3.3](./query-optimization.md)) must be treated as best-effort with a safety fallback: all Redis cache entries carry a mandatory TTL upper bound (default: 1 hour). On Redis restart, all Query Result Cache entries are purged (Redis configured with `save ""` to disable RDB persistence for cache databases). This ensures that stale cache entries from a previous security policy epoch cannot survive a Redis restart, preventing cross-security-boundary data leakage.
@@ -640,41 +439,7 @@ The Pangrova Coordinator cluster uses a **Full Multi-Active** model: all Coordin
 
 When a Coordinator crashes, the in-flight queries it owns must be taken over by other Coordinators. The migration flow is auto-detected via ZooKeeper ephemeral nodes and requires no Leader coordination.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                     Query Ownership Migration Flow                               │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Normal operation:                                                              │
-│  Coordinator-A creates ephemeral node: /pangrova/queries/{queryId}/owner          │
-│                                                                                  │
-│  Failure detection:                                                              │
-│  Coordinator-A crashes → ZK session expires → ephemeral node auto-deleted      │
-│                                                                                  │
-│  Competitive takeover:                                                           │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
-│  │ Coordinator-B   │  │ Coordinator-C   │  │ Coordinator-D   │                 │
-│  │ TreeCache        │  │ TreeCache        │  │ TreeCache        │                │
-│  │ watches /owner   │  │ watches /owner   │  │ watches /owner   │                 │
-│  │ node-deleted evt│  │ node-deleted evt│  │ node-deleted evt│                 │
-│  │       │         │  │       │         │  │       │         │                 │
-│  │       ▼         │  │       ▼         │  │       ▼         │                 │
-│  │ acquireOwnership│  │ acquireOwnership│  │ acquireOwnership│                 │
-│  │   (create ephemeral│  │   (create ephemeral│  │   (create ephemeral│                │
-│  │    node race)   │  │    node race)   │  │    node race)   │                 │
-│  │       │         │  │       │         │  │       │         │                 │
-│  │    ✓ success    │  │    ✗ failure   │  │    ✗ failure   │                 │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
-│                                                                                  │
-│  State recovery (Coordinator-B):                                                 │
-│  1. Load QueryCheckpoint from PostgreSQL (query state, Stage progress, Task assignment) │
-│  2. Check whether the Worker hosting each Task is alive (via ZK service registry) │
-│  3. Alive Worker → continue monitoring Task execution                           │
-│  4. Crashed Worker → reschedule unfinished Splits to other Workers              │
-│  5. Restore Shuffle location info; downstream Stage continues consuming         │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Ownership Migration Flow](../../website/static/img/diagrams/generated/distributed-15-1ea1964d9d.svg)
 
 **Detailed migration steps**:
 
@@ -707,61 +472,11 @@ When a Coordinator crashes, the in-flight queries it owns must be taken over by 
 
 ### 4.1 Task Retry Strategy
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           Task Fault Tolerance                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Task Failure Scenarios:                                                         │
-│  1. Worker crash → Detection: ZooKeeper Ephemeral Node deleted → reschedule all tasks on that Worker │
-│  2. Task execution failure → Detection: Worker reports failure → decide whether to retry per the retry policy │
-│  3. Network partition → Detection: heartbeat timeout → mark Worker as SUSPECT, wait for recovery or reschedule after timeout │
-│  4. Data-skew timeout → Detection: execution time exceeds threshold → speculative execution (Speculative Execution, see [§8](#8-speculative-execution-opt-003))    │
-
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  Retry Policy:                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Retryable errors: Worker crash, network timeout, transient I/O error, OOM │   │
-│  │  Non-retryable errors: syntax error, permission error, data-format error, user cancel │   │
-│  │  Retry parameters: maxRetries=3, retryBackoff=1s/2s/4s, retryTimeout=5min │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Task Fault Tolerance](../../website/static/img/diagrams/generated/distributed-16-96b45cc35f.svg)
 
 ### 4.2 Split-Level Retry
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Split-Level Retry Design                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Task-level retry is too coarse-grained; one Split failure causes the entire Task to rerun │
-│  Solution: support Split-level retry; completed Split results can be reused           │
-│                                                                                  │
-│  Task internal state:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Task-1 (10 Splits)                                                      │   │
-│  │  ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐                     │   │
-│  │  │Split-1│ │Split-2│ │Split-3│ │Split-4│ │Split-5│                     │   │
-│  │  │  ✓    │ │  ✓    │ │  ✗    │ │  ◐    │ │  ○    │  ...                │   │
-│  │  │DONE   │ │DONE   │ │FAILED │ │RUNNING│ │PENDING│                     │   │
-│  │  └───────┘ └───────┘ └───────┘ └───────┘ └───────┘                     │   │
-│  │                         │                                                │   │
-│  │                         ▼ Retry Split-3 only                            │   │
-│  │                    ┌───────┐                                            │   │
-│  │                    │Split-3│ → schedule to another Worker              │   │
-│  │                    │RETRY  │                                            │   │
-│  │                    └───────┘                                            │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Split state machine:                                                            │
-│  PENDING → RUNNING → DONE                                                       │
-│              ↓                                                                   │
-│           FAILED → RETRY → RUNNING → DONE                                       │
-│              ↓                                                                   │
-│           ABANDONED (retry count exceeded)                                      │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Split-Level Retry Design](../../website/static/img/diagrams/generated/distributed-17-c0d42254ac.svg)
 
 ```java
 /**
@@ -802,235 +517,26 @@ public class SplitRetryManager {
 }
 ```
 
-### 4.3 Shuffle Data Persistence
+### 4.3 Shuffle Buffering and Recovery Boundary
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Shuffle Persistence Architecture                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Cross-Worker fault tolerance: Shuffle data recoverable after a Worker crash  │
-│  • Low-latency first: the normal path adds no latency; persistence is asynchronous │
-│  • Configurable: choose persistence strategy per query/Stage level              │
-│                                                                                  │
-│  Persistence modes:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │  Mode              │ Latency│ Fault tol.     │ Use case                     │ │
-│  │─────────────────────────────────────────────────────────────────────────────│ │
-│  │  MEMORY_ONLY       │ Lowest │ None           │ Short queries, recomputable  │ │
-│  │  MEMORY_AND_DISK   │ Low    │ Worker process │ Medium queries               │ │
-│  │  MEMORY_AND_REMOTE │ Medium │ Cross-Worker   │ Long queries, critical tasks │ │
-│  │  REMOTE_ONLY       │ High   │ Fully durable  │ Very large Shuffle, resumable│ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+The current direct shuffle path is Native: a producer's Velox callback
+partitions and serializes pages into `SerializedShuffleQueue`; Native
+`FlightShuffleServer` serves each partition by signed ticket; the downstream
+Native `PangrovaExchangeSource` pulls it through Flight DoGet. Java carries
+task placement, identity, and lifecycle metadata, not data batches.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    MEMORY_AND_REMOTE Mode Data Flow                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Producer Worker (Stage N)                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Velox Pipeline Output                                                   │   │
-│  │         │                                                                │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │Shuffle Partitioner│                                                   │   │
-│  │  │ (Partitioner)   │                                                    │   │
-│  │  └────────┬────────┘                                                    │   │
-│  │           │                                                              │   │
-│  │     ┌─────┴─────┐                                                       │   │
-│  │     ▼           ▼                                                       │   │
-│  │  ┌──────┐  ┌──────────┐                                                │   │
-│  │  │Memory│  │Async S3  │  ← Async write, does not block the main path   │   │
-│  │  │Buffer│  │Writer    │                                                │   │
-│  │  └──┬───┘  └────┬─────┘                                                │   │
-│  │     │           │                                                       │   │
-│  │     │           ▼                                                       │   │
-│  │     │    ┌─────────────┐                                               │   │
-│  │     │    │ S3 Bucket   │                                               │   │
-│  │     │    │ /shuffle/   │                                               │   │
-│  │     │    │ {query_id}/ │                                               │   │
-│  │     │    │ {stage_id}/ │                                               │   │
-│  │     │    │ {part_id}/  │                                               │   │
-│  │     │    └─────────────┘                                               │   │
-│  │     ▼                                                                   │   │
-│  │  ┌──────────────┐                                                      │   │
-│  │  │ Arrow Flight │ ──────────────────────────────────────┐              │   │
-│  │  │ (Primary)    │                                       │              │   │
-│  │  └──────────────┘                                       │              │   │
-│  └─────────────────────────────────────────────────────────┼───────────────┘   │
-│                                                             │                   │
-│  Consumer Worker (Stage N+1)                                ▼                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  ┌──────────────────┐                                                   │   │
-│  │  │ Shuffle Reader   │                                                   │   │
-│  │  │                  │                                                   │   │
-│  │  │ 1. Try Flight    │ ← Read from memory first (low latency)           │   │
-│  │  │ 2. Fallback S3   │ ← Read from S3 when Producer is down             │   │
-│  │  └──────────────────┘                                                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-```java
-/**
- * Shuffle persistence manager
- */
-public class ShufflePersistenceManager {
-
-    private final S3AsyncClient s3Client;
-    private final String shuffleBucket;
-    private final ExecutorService asyncWriteExecutor;
-
-    /**
-     * Asynchronously persist Shuffle data to S3
-     *
-     *
-     * Data lifecycle: ShuffleDrainThread pulls a batch from Native via
-     * nativeGetShuffleBatch() (Arrow C Data zero-copy). The batch is then:
-     * (1) Synchronously serialized to Arrow IPC bytes (deep copy) on the
-     *     ShuffleDrainThread — this decouples the batch lifetime from S3 write.
-     * (2) The IPC bytes are submitted to asyncWriteExecutor for S3 upload.
-     * (3) The original VectorSchemaRoot is enqueued into ShuffleBuffer for
-     *     Flight Server streaming (normal path).
-     * This ensures the S3 write does not hold a reference to the original
-     * batch after serialization, avoiding use-after-free on Flight send.
-     */
-    public CompletableFuture<ShuffleLocation> persistAsync(
-            QueryId queryId, StageId stageId, int partitionId,
-            VectorSchemaRoot data) {
-
-        String s3Key = String.format("shuffle/%s/%s/%d/%s.arrow",
-            queryId, stageId, partitionId, UUID.randomUUID());
-
-        return CompletableFuture.supplyAsync(() -> {
-            // Serialize to Arrow IPC format
-            byte[] arrowBytes = serializeToArrowIpc(data);
-
-            // Upload to S3
-            s3Client.putObject(
-                PutObjectRequest.builder()
-                    .bucket(shuffleBucket)
-                    .key(s3Key)
-                    .build(),
-                AsyncRequestBody.fromBytes(arrowBytes)
-            ).join();
-
-            return new ShuffleLocation(ShuffleLocationType.S3, s3Key);
-        }, asyncWriteExecutor);
-    }
-
-    /**
-     * Recover Shuffle data from S3
-     */
-    public VectorSchemaRoot recover(ShuffleLocation location, BufferAllocator allocator) {
-        byte[] arrowBytes = s3Client.getObject(
-            GetObjectRequest.builder()
-                .bucket(shuffleBucket)
-                .key(location.getPath())
-                .build(),
-            AsyncResponseTransformer.toBytes()
-        ).join().asByteArray();
-
-        return deserializeFromArrowIpc(arrowBytes, allocator);
-    }
-}
-
-/**
- * Shuffle reader - supports failover
- */
-public class FaultTolerantShuffleReader {
-
-    private final FlightClient flightClient;
-    private final ShufflePersistenceManager persistenceManager;
-    private final ShuffleLocationRegistry locationRegistry;
-
-    public VectorSchemaRoot read(QueryId queryId, StageId stageId, int partitionId) {
-        ShuffleLocation location = locationRegistry.getLocation(queryId, stageId, partitionId);
-
-        // 1. Try primary path (Arrow Flight from producer worker)
-        if (location.getType() == ShuffleLocationType.WORKER) {
-            try {
-                return readFromFlight(location.getWorkerId(), queryId, stageId, partitionId);
-            } catch (FlightRuntimeException e) {
-                if (isWorkerUnavailable(e)) {
-                    log.warn("Producer worker unavailable, falling back to S3");
-                    // Fall through to S3 recovery
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        // 2. Fallback to S3
-        ShuffleLocation s3Location = locationRegistry.getS3Location(queryId, stageId, partitionId);
-        if (s3Location != null) {
-            return persistenceManager.recover(s3Location, allocator);
-        }
-
-        throw new ShuffleDataLostException(
-            "Shuffle data lost: query=%s, stage=%s, partition=%d",
-            queryId, stageId, partitionId);
-    }
-}
-```
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Shuffle Cleanup Strategy                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Cleanup timing:                                                                 │
-│  • Query completes successfully: immediately clean all Shuffle data of the query │
-│  • Query failed/cancelled: clean immediately                                     │
-│  • Query timeout: clean                                                          │
-│  • Scheduled cleanup: hourly scan, clean orphan data older than 24 hours         │
-│                                                                                  │
-│  S3 lifecycle policy:                                                            │
-│  • Objects under the shuffle/ prefix are auto-deleted after 7 days (safety net)  │
-│  • Configured via S3 Lifecycle Rules                                             │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+`ShuffleBufferStore` bounds resident pages and may spill to an unlinked local
+temporary file while the producer process is alive. That spill is not a durable
+cross-Worker checkpoint. Successful producers flush buffered partitions and
+commit clean EOF before reporting `FINISHED`; failed or cancelled producers
+abort the stream, and consumers reject incomplete input. If a Worker is lost,
+the Coordinator must retry the affected stage from its source snapshot rather
+than silently returning partial results. This section does not claim S3-backed
+shuffle recovery or a Java shuffle-persistence manager implementation.
 
 ### 4.4 Query Checkpoint
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Query Checkpoint Design                                  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: after Coordinator failover, Running query state may be lost            │
-│  Solution: periodically Checkpoint query execution progress to durable storage   │
-│                                                                                  │
-│  Checkpoint contents:                                                            │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  QueryCheckpoint {                                                       │   │
-│  │    queryId, state, startTime,                                           │   │
-│  │    stages: [{stageId, state, completedSplits, totalSplits}],            │   │
-│  │    tasks: [{taskId, workerId, state, splitStates}],                     │   │
-│  │    shuffleLocations: [{stageId, partitionId, workerId, path}]           │   │
-│  │  }                                                                       │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Checkpoint strategy:                                                            │
-│  • Trigger timing: Stage completion, Task state change, periodic (30s)           │
-│  • Storage location: PostgreSQL (query_checkpoints table)                        │
-│  • Retention policy: kept for 1 hour after query completion, for auditing        │
-│                                                                                  │
-│  Failure recovery flow:                                                          │
-│  1. New Coordinator starts, loads Checkpoints of unfinished queries              │
-│  2. Check whether the Worker hosting each Task is alive                          │
-│  3. Alive → keep monitoring; down → reschedule unfinished Splits                 │
-│  4. Restore Shuffle location info; downstream Stage can keep consuming           │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Query Checkpoint Design](../../website/static/img/diagrams/generated/distributed-19-e9448521fa.svg)
 
 ---
 
@@ -1038,37 +544,7 @@ public class FaultTolerantShuffleReader {
 
 ### 5.1 Resource Queue & Scheduling
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Resource Queue & Scheduling                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: no priority control on contention; large queries may starve small ones │
-│  Solution: introduce resource queues + fair scheduler                            │
-│                                                                                  │
-│  Resource queue hierarchy:                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                         Root Queue (100%)                                │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │   │   │
-│  │  │  │  Production   │  │  Development  │  │    System     │       │   │   │
-│  │  │  │    (60%)      │  │    (30%)      │  │    (10%)      │       │   │   │
-│  │  │  │               │  │               │  │               │       │   │   │
-│  │  │  │ ┌───┐ ┌───┐  │  │ ┌───┐ ┌───┐  │  │ ┌───────────┐ │       │   │   │
-│  │  │  │ │ETL│ │BI │  │  │ │Ad │ │Test│  │  │ │  Admin    │ │       │   │   │
-│  │  │  │ │40%│ │20%│  │  │ │hoc│ │   │  │  │ │  Queries  │ │       │   │   │
-│  │  │  │ └───┘ └───┘  │  │ └───┘ └───┘  │  │ └───────────┘ │       │   │   │
-│  │  │  └───────────────┘  └───────────────┘  └───────────────┘       │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Scheduling strategy:                                                            │
-│  • Fair Scheduling: fair in-queue allocation; small queries not starved          │
-│  • Preemption: high-priority queues can preempt low-priority queues              │
-│  • Elasticity: idle queue resources can be borrowed by other queues              │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Resource Queue & Scheduling](../../website/static/img/diagrams/generated/distributed-20-19841dded1.svg)
 
 ```java
 /**
@@ -1084,7 +560,7 @@ public class ResourceQueue {
 
     /** Match query to queue by user/source/tags */
     public static ResourceQueue matchQueue(QueryContext context) {
-        // 1. Check explicit queue hint: SET SESSION resource_queue = 'etl'
+        // 1. Check the request's explicit queue hint
         // 2. Match by user group
         // 3. Match by query source (jdbc/cli/bi-tool)
         // 4. Default queue
@@ -1144,28 +620,7 @@ The Scheduler applies these methods in priority order: historical → plan-based
 
 #### 5.2.2 Scheduling Decision Flow
 
-```
-Coordinator Scheduler receives a new Task:
-    │
-    ▼
-Iterate the candidate Worker list (obtained from the ZooKeeper Service Registry)
-    │
-    ├─ Worker state = SUSPECT / DEAD → skip
-    │
-    ├─ Worker memory_pressure = CRITICAL → skip
-    │
-    ├─ Worker memory_pressure = HIGH
-    │       │
-    │       ├─ Task estimated memory < 1GB → allow scheduling
-    │       └─ Task estimated memory >= 1GB → skip
-    │
-    ├─ Worker memory_pressure = MEDIUM / NONE / LOW → allow scheduling
-    │  (NONE and LOW have identical scheduling behavior; see [06 §3](./resource-management.md) for canonical enum)
-    │
-    ▼
-From the allowed Workers, select the best Worker by the Fair Scheduling strategy
-(considering running_task_count, available_memory_bytes, cpu_usage)
-```
+![Coordinator Scheduler receives a new Task:](../../website/static/img/diagrams/generated/distributed-22-a698e9e8b1.svg)
 
 #### 5.2.3 Feedback Latency Tolerance
 
@@ -1185,42 +640,7 @@ The Coordinator tolerates at most **20 seconds** of Worker state staleness. This
 
 
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Unified Memory Management                                │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Problem: Native and JVM memory are split; the two sides cannot coordinate       │
-│  Solution: unified memory budget; Native memory placed under JVM control         │
-│                                                                                  │
-│  Worker memory layout (authoritative definition: 06 §2 / §12.4):                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │                    Worker Total Memory: 64 GB                            │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Reserved: 4 GB                                                   │   │   │
-│  │  │  • JVM Heap, Metadata Cache, System Overhead                    │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐   │   │
-│  │  │  Root Memory Arbitrator: 60 GB (Java manages budget)            │   │   │
-│  │  │  ┌───────────────────────────────────────────────────────────┐ │   │   │
-│  │  │  │  Query Pools: 50 GB (dynamic, split across queries)        │ │   │   │
-│  │  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐                      │ │   │   │
-│  │  │  │  │ Task-1  │ │ Task-2  │ │ Task-3  │                      │ │   │   │
-│  │  │  │  └─────────┘ └─────────┘ └─────────┘                      │ │   │   │
-│  │  │  └───────────────────────────────────────────────────────────┘ │   │   │
-│  │  │  ┌───────────────────────────────────────────────────────────┐ │   │   │
-│  │  │  │  System Pool: 10 GB (reserved)                             │ │   │   │
-│  │  │  └───────────────────────────────────────────────────────────┘ │   │   │
-│  │  └─────────────────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-│  Coordination mechanism:                                                         │
-│  1. Java layer sets the memory limit via TaskRequest.resource_limit at Task start│
-│  2. Native-layer Velox MemoryArbitrator arbitrates and Spills within the limit   │
-│  3. The Java layer polls memory usage via nativeGetTaskStats()                   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Unified Memory Management](../../website/static/img/diagrams/generated/distributed-23-c51fea08df.svg)
 
 
 
@@ -1313,30 +733,7 @@ Speculative execution detects straggler tasks and races duplicate copies on heal
 
 ### 8.1 Architecture
 
-```
-┌──────────────────────────────────────────────────────┐
-│                   Coordinator                         │
-│                                                       │
-│  ┌─────────────────┐    ┌──────────────────────────┐ │
-│  │ TaskDuration     │───▶│ StragglerDetector        │ │
-│  │ Tracker          │    │ (median × multiplier)    │ │
-│  │ (per-stage stats)│    └───────────┬──────────────┘ │
-│  └─────────────────┘                │                 │
-│                                     ▼                 │
-│                          ┌──────────────────────────┐ │
-│                          │ SpeculativeTaskLauncher   │ │
-│                          │ (launch duplicate on      │ │
-│                          │  different Worker)        │ │
-│                          └───────────┬──────────────┘ │
-│                                     ▼                 │
-│                          ┌──────────────────────────┐ │
-│                          │ DuplicateTaskResolver     │ │
-│                          │ (first-to-finish wins,    │ │
-│                          │  cancel loser, dedup      │ │
-│                          │  shuffle output)          │ │
-│                          └──────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
-```
+![Coordinator](../../website/static/img/diagrams/generated/distributed-25-edc5a2c878.svg)
 
 ### 8.2 Pseudocode
 
@@ -1414,18 +811,7 @@ Enhances the scheduler to consider cache state when assigning splits to Workers,
 
 ### 9.1 Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  CacheAffinityScheduler (Coordinator)                         │
-│                                                               │
-│  ConsistentHashRing ──┐                                       │
-│  (split → Worker       │──▶ SoftAffinitySelector              │
-│   default affinity)    │    (prefer cached Worker,            │
-│                        │     fallback to least-loaded)        │
-│  WorkerCacheRegistry ──┘                                      │
-│  (bloom filter of cached files from heartbeat)                │
-└──────────────────────────────────────────────────────────────┘
-```
+![CacheAffinityScheduler (Coordinator)](../../website/static/img/diagrams/generated/distributed-29-0de90a8b4e.svg)
 
 ### 9.2 Pseudocode
 
@@ -1468,9 +854,9 @@ class WorkerCacheReporter:
 
 | Aspect | Current | With Locality-Aware Scheduling |
 |--------|---------|-------------------------------|
-| Cache hit rate | ~30% (random) | ~80%+ (locality-aware) |
-| Scan latency | S3 fetch per split | 3-5x reduction for cached data |
-| Scheduling latency | Minimal | +~0.1ms per task (bloom filter + scoring) |
+| Cache hit rate | Depends on workload and existing placement | Potentially higher for repeated scans; requires measurement |
+| Scan latency | Remote fetch per uncached split | May fall on cache hits; no fixed reduction is established |
+| Scheduling latency | Minimal | Adds bloom/report and scoring work per task |
 | Load balance | Optimal | Slightly less balanced; configurable weights + max imbalance cap (1.5x) |
 
 ### 9.4 Migration Path
@@ -1486,37 +872,34 @@ class WorkerCacheReporter:
 
 ## 10. Worker Performance Scoring & Graceful Degradation (OPT-013)
 
+**Implementation status (module refactoring):** the diagrams and pseudocode below
+describe the broader design, not a completed capability inventory. Actual placement
+uses Scheduler Core eligibility checks. The Coordinator selects the factory named by
+`coordinator.query.placement-provider` from Java services registered under
+`org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory`. Missing IDs,
+duplicate IDs and incompatible factory API versions fail startup. The default
+`load-balanced` implementation ranks the current
+memory-pressure and CPU snapshot, with concurrent rotation of ties. Disk/network
+latencies are not supplied on this path, and scoring thresholds do not currently
+drive blacklisting. The old FairShareStrategy (retired) and common-factor score multiplier
+have been removed: multiplying every candidate by the same share did not provide
+tenant fairness. The optional Java `WeightedFairScheduler` still has its own queue
+and lifecycle; its existence is not proof that distributed query execution uses
+weighted CPU allocation. Those integrations remain unimplemented.
+
+Failed-task retries use `coordinator.worker.max-retry`. The query stage owns the
+budget for each original task and its replacements. The launcher looks up the
+original query and an alternative worker before requesting a slot through
+`TaskRetryAdmission`. The DAG records the replacement's route before submission
+and refunds the reservation if dispatch fails. A speculative duplicate follows a
+separate path controlled by `coordinator.speculation.enabled`. The experimental
+`SchedulerControlLoop` and `RetryBudget` contracts have isolated tests only.
+
 This section introduces a composite Worker Performance Score and a weighted fair CPU scheduler, replacing the current binary health model (alive/dead) with multi-dimensional performance awareness.
 
 ### 10.1 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Worker Performance Scoring                          │
-│                                                                  │
-│  Worker Heartbeat (enhanced)                                     │
-│    ├─ memory_pressure (existing)                                 │
-│    ├─ cpu_utilization (new)                                      │
-│    ├─ p99_disk_latency_ms (new)                                  │
-│    └─ p99_network_latency_ms (new)                               │
-│              │                                                   │
-│              ▼                                                   │
-│  ┌──────────────────────────┐                                    │
-│  │ WorkerPerformanceScorer  │                                    │
-│  │  memory  × 0.3           │                                    │
-│  │  cpu     × 0.3           │     Score > 0.4 → normal           │
-│  │  io      × 0.2           │──▶  Score 0.2–0.4 → deprioritize  │
-│  │  network × 0.2           │     Score < 0.2 → blacklist        │
-│  └──────────────────────────┘                                    │
-│              │                                                   │
-│              ▼                                                   │
-│  Coordinator StageScheduler                                      │
-│    → prefer high-score Workers for task assignment               │
-│                                                                  │
-│  Worker-side: WeightedFairScheduler                              │
-│    interactive (weight 3.0) > batch (1.0) > background (0.5)    │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Worker Performance Scoring](../../website/static/img/diagrams/generated/distributed-33-88c5717eb2.svg)
 
 **Problem**: Worker health is binary (alive/dead based on heartbeat). A Worker with degraded NVMe SSD (10× slower reads) or noisy neighbor (CPU throttled) continues receiving tasks at the same rate as healthy Workers. No CPU fairness exists between interactive and batch queries.
 

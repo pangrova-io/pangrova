@@ -1,6 +1,6 @@
 ---
 title: "Aggregate"
-description: "COUNT, SUM, AVG, MIN, MAX, STDDEV, APPROX_COUNT_DISTINCT"
+description: "COUNT, SUM, AVG, MIN, MAX, MAX_BY, MIN_BY, STDDEV, APPROX_COUNT_DISTINCT"
 ---
 
 # Aggregate Functions
@@ -31,8 +31,12 @@ FROM prod.analytics.orders;
 ## SUM
 
 ```sql
-SUM(numeric_expr) → same as input type (or DECIMAL for integer overflow)
+SUM(numeric_expr) → planner-derived numeric result type
 ```
+
+`TINYINT`, `SMALLINT`, and `INTEGER` inputs are promoted to `BIGINT`.
+The result type is fixed during planning; overflow does not dynamically switch
+an integer result to `DECIMAL`.
 
 **Example:**
 
@@ -80,6 +84,39 @@ FROM prod.analytics.orders;
 
 ---
 
+## MAX_BY / MIN_BY
+
+```sql
+MAX_BY(value, key) → type of value
+MIN_BY(value, key) → type of value
+```
+
+`MAX_BY` returns the value associated with the largest key; `MIN_BY` uses the
+smallest key. `ARG_MAX` and `ARG_MIN` are aliases. Keys must be orderable.
+NULL keys are ignored. A NULL value associated with the selected key remains
+NULL; it is not replaced by another row's value. Empty input and groups whose
+keys are all NULL return NULL.
+
+Values can be complete rows, preserving fields from the same selected record:
+
+```sql
+SELECT tenant_id,
+       MAX_BY(ROW(event_id, status), event_time) AS latest_event
+FROM prod.analytics.events
+GROUP BY tenant_id;
+```
+
+Tied keys may select any one matching record. For a deterministic tie-breaker,
+use non-NULL row-key fields with a secondary field that uniquely orders ties:
+
+```sql
+SELECT MAX_BY(event_id, ROW(event_time, event_id)) AS latest_event_id
+FROM prod.analytics.events
+WHERE event_time IS NOT NULL AND event_id IS NOT NULL;
+```
+
+---
+
 ## STDDEV_POP / STDDEV_SAMP
 
 ```sql
@@ -119,7 +156,7 @@ Returns an arbitrary non-NULL value from the group. Useful when a column is func
 **Example:**
 
 ```sql
-SELECT user_id, ANY_VALUE(name) AS user_name, COUNT(*) AS order_count
+SELECT o.user_id, ANY_VALUE(u.name) AS user_name, COUNT(*) AS order_count
 FROM prod.analytics.orders o
 JOIN prod.analytics.users u ON o.user_id = u.user_id
 GROUP BY o.user_id;
@@ -151,7 +188,9 @@ GROUP BY user_id;
 APPROX_COUNT_DISTINCT(expr) → BIGINT
 ```
 
-Approximate distinct count using HyperLogLog. Faster than `COUNT(DISTINCT)` for large datasets with ~2% error.
+Approximate distinct count using HyperLogLog. Accuracy and resource use depend
+on the implementation and workload; this is not an exact count or a guarantee
+of a particular speedup or per-query error bound.
 
 **Example:**
 

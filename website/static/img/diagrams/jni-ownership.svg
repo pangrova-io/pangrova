@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="t d">
+<title id="t">JNI ownership boundary</title>
+<desc id="d">Java control, JNI bridging, C++ execution, memory ownership, and errors.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="900" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">JNI ownership boundary</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Handles and buffers have one owner; errors and lifecycle cross the bridge explicitly.</text>
+<rect x="60" y="140" width="1080" height="200" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="172" font-size="19" font-weight="700" fill="#7C3AED">JAVA LAYER</text>
+<rect x="90" y="195" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="195" width="5" height="110" rx="2.5" fill="#7C3AED"/>
+<text x="110" y="223" font-size="16.5" font-weight="700" fill="#111827">Task lifecycle</text>
+<text x="110" y="247" font-size="13.5" fill="#64748B">Admission · cancellation · drain</text>
+<text x="110" y="268" font-size="13.5" fill="#64748B">Handle registry</text>
+<rect x="440" y="195" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="195" width="5" height="110" rx="2.5" fill="#0D9488"/>
+<text x="460" y="223" font-size="16.5" font-weight="700" fill="#111827">Connector callbacks</text>
+<text x="460" y="247" font-size="13.5" fill="#64748B">Page sinks and governed providers</text>
+<text x="460" y="268" font-size="13.5" fill="#64748B">Resource callbacks</text>
+<rect x="790" y="195" width="310" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="790" y="195" width="5" height="110" rx="2.5" fill="#D97706"/>
+<text x="810" y="223" font-size="16.5" font-weight="700" fill="#111827">Result transport</text>
+<text x="810" y="247" font-size="13.5" fill="#64748B">Arrow Flight results</text>
+<text x="810" y="268" font-size="13.5" fill="#64748B">Terminal reporting</text>
+<line x1="600" y1="340" x2="600" y2="380" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="610.0" y="364.0" font-size="14" font-weight="600" fill="#7C3AED">canonical v2 Protobuf / Arrow</text>
+<rect x="60" y="380" width="1080" height="200" rx="18" fill="#F7FEFC" stroke="#0D9488" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="412" font-size="19" font-weight="700" fill="#0D9488">JNI BRIDGE</text>
+<rect x="90" y="435" width="470" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="435" width="5" height="110" rx="2.5" fill="#0D9488"/>
+<text x="110" y="463" font-size="16.5" font-weight="700" fill="#111827">Execution binding</text>
+<text x="110" y="487" font-size="13.5" fill="#64748B">Task request parsing</text>
+<text x="110" y="508" font-size="13.5" fill="#64748B">Handle and incarnation validation</text>
+<rect x="600" y="435" width="500" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="600" y="435" width="5" height="110" rx="2.5" fill="#7C3AED"/>
+<text x="620" y="463" font-size="16.5" font-weight="700" fill="#111827">Error and lifecycle projection</text>
+<text x="620" y="487" font-size="13.5" fill="#64748B">Typed error mapping</text>
+<text x="620" y="508" font-size="13.5" fill="#64748B">Owner-released receipts</text>
+<line x1="600" y1="580" x2="600" y2="620" stroke="#D97706" stroke-width="2.4" marker-end="url(#arrowAmber)"/>
+<rect x="60" y="620" width="1080" height="200" rx="18" fill="#FFFCF5" stroke="#D97706" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="652" font-size="19" font-weight="700" fill="#D97706">C++ LAYER</text>
+<rect x="90" y="675" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="90" y="675" width="5" height="110" rx="2.5" fill="#D97706"/>
+<text x="110" y="703" font-size="16.5" font-weight="700" fill="#111827">Velox execution</text>
+<text x="110" y="727" font-size="13.5" fill="#64748B">Operators and memory governor</text>
+<text x="110" y="748" font-size="13.5" fill="#64748B">Task-scoped allocations</text>
+<rect x="440" y="675" width="320" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="675" width="5" height="110" rx="2.5" fill="#D97706"/>
+<text x="460" y="703" font-size="16.5" font-weight="700" fill="#111827">Native shuffle / Flight</text>
+<text x="460" y="727" font-size="13.5" fill="#64748B">Arrow batches and tickets</text>
+<text x="460" y="748" font-size="13.5" fill="#64748B">Process-shared services</text>
+<rect x="790" y="675" width="310" height="110" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="790" y="675" width="5" height="110" rx="2.5" fill="#0D9488"/>
+<text x="810" y="703" font-size="16.5" font-weight="700" fill="#111827">Spill and storage</text>
+<text x="810" y="727" font-size="13.5" fill="#64748B">Anonymous disk segments</text>
+<text x="810" y="748" font-size="13.5" fill="#64748B">Owner-controlled cleanup</text>
+<text x="600" y="870" font-size="14" fill="#64748B" text-anchor="middle">The Java heap never becomes the authority for native memory; a borrowed buffer is valid only for its documented callback window.</text>
+</g>
+</svg>

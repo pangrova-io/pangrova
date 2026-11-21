@@ -1,248 +1,141 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.task.memory.MemoryRefs;
-
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import org.pangrova.protocol.rest.config.WriteConfig;
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.TaskStats;
-import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.spill.SpillManager;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-import org.pangrova.spi.execution.TaskDescriptor;
-
-import org.pangrova.worker.execution.SimulatedTaskExecutor;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.FileFormat;
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskState;
+import org.pangrova.protocol.v2.WriteTaskOptions;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
+
+import java.util.List;
+
 /**
- * Verifies TaskStatusReport is enriched with real stats, writeResult, and
- * monotonically increasing reportSequence (REQ-M4, REQ-M5, REQ-M6).
- *
- * <p>Uses SimulatedTaskExecutor — a real TaskExecutor SPI implementation.</p>
+ * Actual TaskManager reports; the observer only records production emissions. Successful connector
+ * write/identical receipt resend oracles require the real connector E2E migration.
  */
+@Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskStatusReportEnrichmentTest {
-
-    private static final String WORKER_ID = "enrichment-test-worker";
-
     @Test
-    void finishedReportContainsNonNullStatsAndIncreasingSequence() throws InterruptedException {
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(3);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        SubmitTaskRequest request = buildComputeRequest("q-stats-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
-
-        List<TaskStatusReport> reports = reporter.reports();
-        assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
-
-        // RUNNING report: stats non-null, sequence starts at 1
-        TaskStatusReport running = reports.get(0);
-        assertThat(running.state()).isEqualTo("RUNNING");
-        assertThat(running.stats()).isNotNull();
-        assertThat(running.reportSequence()).isEqualTo(1);
-
-        // FINISHED report: stats non-null with elapsed > 0, sequence > running
-        TaskStatusReport finished = reports.get(1);
-        assertThat(finished.state()).isEqualTo("FINISHED");
-        assertThat(finished.stats()).isNotNull();
-        assertThat(finished.stats().elapsedTimeMs()).isGreaterThanOrEqualTo(0);
-        assertThat(finished.reportSequence()).isGreaterThan(running.reportSequence());
-    }
-
-    @Test
-    void finishedReportContainsOutputRowsFromBuffer() throws InterruptedException {
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        int batchCount = 5;
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(batchCount);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        SubmitTaskRequest request = buildComputeRequest("q-rows-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
-
-        List<TaskStatusReport> reports = reporter.reports();
-        TaskStatusReport finished = findReport(reports, "FINISHED");
-        assertThat(finished).isNotNull();
-
-        TaskStats stats = finished.stats();
-        assertThat(stats).isNotNull();
-        // In native transport mode (completion monitor path), batch counting
-        // happens on the native side. SimulatedTaskExecutor does not increment
-        // Java-side counters via the completion monitor path.
-        assertThat(stats.elapsedTimeMs()).isGreaterThanOrEqualTo(0);
-    }
-
-    @Test
-    void writeTaskReportContainsWriteResult() throws InterruptedException {
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(2);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        SubmitTaskRequest request = buildWriteRequest("q-write-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
-
-        List<TaskStatusReport> reports = reporter.reports();
-        TaskStatusReport finished = findReport(reports, "FINISHED");
-        assertThat(finished).isNotNull();
-        assertThat(finished.writeResult()).isNotNull();
-        // Write tasks use the completion monitor path,
-        // so outputBatches is not incremented by Java-side batch pulling.
-        // The native engine handles writes autonomously; totalRows reflects
-        // what TaskInfo.outputBatches() reports at completion time.
-        assertThat(finished.writeResult().totalRows()).isEqualTo(0);
-    }
-
-    @Test
-    void computeTaskReportHasNullWriteResult() throws InterruptedException {
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        SubmitTaskRequest request = buildComputeRequest("q-compute-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
-
-        List<TaskStatusReport> reports = reporter.reports();
-        TaskStatusReport finished = findReport(reports, "FINISHED");
-        assertThat(finished).isNotNull();
-        assertThat(finished.writeResult()).isNull();
-    }
-
-    @Test
-    void sequenceIsMonotonicallyIncreasingAcrossReports() throws InterruptedException {
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        SubmitTaskRequest request = buildComputeRequest("q-seq-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
-
-        List<TaskStatusReport> reports = reporter.reports();
-        assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
-        for (int i = 1; i < reports.size(); i++) {
-            assertThat(reports.get(i).reportSequence())
-                    .isGreaterThan(reports.get(i - 1).reportSequence());
+    void finishedReportContainsNonNullStatsAndIncreasingSequence() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = new ActualTaskManagerFixture(runtime, "enrichment-stats")) {
+            var info = tasks.submit(runtime.valuesRequest(false));
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
+            var reports = taskReports(tasks, info);
+            assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
+            var running = reports.get(0);
+            assertThat(running.state()).isEqualTo("RUNNING");
+            assertThat(running.stats()).isNotNull();
+            assertThat(running.reportSequence()).isEqualTo(1);
+            var finished = tasks.terminalReport(info);
+            assertThat(finished.stats()).isNotNull();
+            assertThat(finished.stats().elapsedTimeMs()).isGreaterThanOrEqualTo(0);
+            assertThat(finished.reportSequence()).isGreaterThan(running.reportSequence());
+            assertThat(TaskReport.parseFrom(finished.canonicalTaskReport()).getState())
+                    .isEqualTo(TaskState.TASK_STATE_FINISHED);
+            assertThat(finished.stats().operatorStats()).isNotEmpty();
+            assertThat(info.executorHandle()).isZero();
         }
     }
 
-    // --- Helpers ---
-
-    private TaskManager buildTaskManager(SimulatedTaskExecutor executor,
-                                         RecordingTaskStatusReporter reporter) {
-        ResourceManager rm = createTestResourceManager();
-        TaskManagerContext deps = new TaskManagerContext(
-                reporter, executor,
-                new MemoryRefs(rm),
-                TransportRefs.empty(),
-                java.util.concurrent.Executors.newCachedThreadPool(r -> {
-                    Thread t = new Thread(r, "test-completion-monitor");
-                    t.setDaemon(true);
-                    return t;
-                }));
-        return new TaskManager(deps, WORKER_ID, 0.0);
+    @Test
+    void finishedReportContainsOutputRowsFromActualNativeOutput() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = new ActualTaskManagerFixture(runtime, "enrichment-rows")) {
+            var request =
+                    runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
+                            true, ActualNativeTaskPlans.values(5, 2)));
+            var info = tasks.submit(request);
+            assertThat(tasks.consume(info).rows()).isEqualTo(10);
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
+            // Output rows are the terminal relation cardinality, not source/each-operator sums.
+            tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
+            var finished = taskReports(tasks, info).get(taskReports(tasks, info).size() - 1);
+            assertThat(finished.stats()).isNotNull();
+            assertThat(finished.stats().operatorStats())
+                    .filteredOn(operator -> operator.operatorType().equals("PartitionedOutput"))
+                    .singleElement()
+                    .satisfies(operator -> assertThat(operator.inputRows()).isEqualTo(10));
+            assertThat(TaskReport.parseFrom(finished.canonicalTaskReport()).hasNativeTaskStats())
+                    .isTrue();
+        }
     }
 
-    private ResourceManager createTestResourceManager() {
-        MemoryArbitrator arb = new MemoryArbitrator(4L * 1024 * 1024 * 1024, 256L * 1024 * 1024);
-        return new ResourceManager(arb, new ThreadBudgetTracker(8, 4, 2), new SpillManager());
+    @Test
+    void writeTaskWithoutConnectorRuntimeFailsClosed() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = new ActualTaskManagerFixture(runtime, "enrichment-unbound-write")) {
+            var request =
+                    runtime.valuesRequest(false).toBuilder().setTaskKind(TaskKind.TASK_KIND_WRITE);
+            request.getExecutionOptionsBuilder()
+                    .setWrite(
+                            WriteTaskOptions.newBuilder()
+                                    .setTargetTable("unbound.default.items")
+                                    .setWriteMode("INSERT")
+                                    .setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
+                                    .setTargetFileSize(128_000_000));
+            var info = tasks.submit(request.build());
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FAILED);
+            assertThat(taskReports(tasks, info))
+                    .noneMatch(report -> report.state().equals("FINISHED"));
+            var failure = tasks.terminalReport(info);
+            assertThat(failure.error()).isNotNull();
+            assertThat(failure.canonicalTaskReport()).isNotEmpty();
+            assertThat(TaskReport.parseFrom(failure.canonicalTaskReport()).getState())
+                    .isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(info.executorHandle()).isZero();
+            assertThat(info.allocatedBufferMemory()).isZero();
+        }
     }
 
-    private SubmitTaskRequest buildComputeRequest(String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02});
-        return SubmitTaskRequest.builder()
-                .taskId("t-1")
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
+    @Test
+    void computeTaskReportHasNullWriteResult() {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = new ActualTaskManagerFixture(runtime, "enrichment-compute")) {
+            var info = tasks.submit(runtime.valuesRequest(false));
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
+            assertThat(tasks.terminalReport(info).writeResult()).isNull();
+        }
     }
 
-    private SubmitTaskRequest buildWriteRequest(String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02});
-        WriteConfig wc = new WriteConfig("db.table", "INSERT", List.of(), "parquet", 128_000_000);
-        return SubmitTaskRequest.builder()
-                .taskId("t-w-1")
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(wc)
-                .build();
-    }
-
-    private TaskDescriptor toDescriptor(SubmitTaskRequest request) {
-        PlanFragment fragment = new PlanFragment() {
-            @Override
-            public PlanNodeId getId() { return new PlanNodeId("test-node"); }
-            @Override
-            public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
-        };
-        return new TaskDescriptor(
-                new QueryId(request.queryId()), fragment, List.of(),
-                request.sessionProperties() != null ? request.sessionProperties() : Map.of());
-    }
-
-    private TaskStatusReport findReport(List<TaskStatusReport> reports, String state) {
-        return reports.stream()
-                .filter(r -> state.equals(r.state()))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private void awaitTerminalState(TaskManager manager, String taskId)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(5);
-        while (System.currentTimeMillis() < deadline) {
-            var state = manager.getTaskState(taskId);
-            if (state.isPresent() && isTerminal(state.get())) {
-                return;
+    @Test
+    void sequenceIsMonotonicallyIncreasingAcrossReports() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+                var tasks = new ActualTaskManagerFixture(runtime, "enrichment-sequence")) {
+            var info = tasks.submit(runtime.valuesRequest(true));
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.RUNNING);
+            tasks.manager().statusCollector.reportStatus(info, "RUNNING", null);
+            assertThat(tasks.consume(info).values()).containsExactly(42L);
+            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
+            tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
+            var reports = taskReports(tasks, info);
+            assertThat(reports).hasSizeGreaterThanOrEqualTo(3);
+            for (int i = 1; i < reports.size(); i++) {
+                assertThat(reports.get(i).reportSequence())
+                        .isGreaterThan(reports.get(i - 1).reportSequence());
             }
-            Thread.sleep(10);
         }
     }
 
-    private boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED
-                || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    private static List<TaskStatusReport> taskReports(
+            ActualTaskManagerFixture tasks, TaskInfo info) {
+        return tasks.reports().reports().stream()
+                .filter(
+                        report ->
+                                report.taskId()
+                                        .equals(
+                                                info.request()
+                                                        .taskRequest()
+                                                        .getAttempt()
+                                                        .getTaskId()))
+                .toList();
     }
 }
