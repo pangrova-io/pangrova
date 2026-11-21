@@ -10,7 +10,7 @@ sidebar_label: "Testing Framework"
 
 ## 1. Testing Framework Overview
 
-![Testing levels: unit, module integration, end-to-end, native and sanitizer, benchmark and chaos suites, all using real dependencies](/img/diagrams/testing-levels.svg)
+![Testing levels: unit, module integration, end-to-end, native and sanitizer, benchmark and chaos suites, all using real dependencies](../../website/static/img/diagrams/testing-levels.svg)
 
 **Policy:** use a layered real-environment strategy; mocks, stubs, and test doubles are prohibited; verify complete data flow rather than isolated components.
 
@@ -98,7 +98,7 @@ suite is skipped and does not count as REST catalog validation.
 
 ### 3.1 Fuzzer Architecture
 
-![Fuzzer Architecture](/img/diagrams/generated/testing-02-125d73529a.svg)
+![Fuzzer Architecture](../../website/static/img/diagrams/generated/testing-02-125d73529a.svg)
 
 
 ### 3.2 Expression Fuzzer
@@ -405,7 +405,7 @@ private:
 
 ## 4. Reference Implementation Comparison
 
-![Reference Implementation Comparison](/img/diagrams/generated/testing-07-28a702fedb.svg)
+![Reference Implementation Comparison](../../website/static/img/diagrams/generated/testing-07-28a702fedb.svg)
 
 ```cpp
 // ReferenceEngine.h - reference implementation engine
@@ -465,7 +465,7 @@ private:
 
 ## 5. Performance Testing Framework
 
-![Performance Testing Framework](/img/diagrams/generated/testing-09-ec8d291802.svg)
+![Performance Testing Framework](../../website/static/img/diagrams/generated/testing-09-ec8d291802.svg)
 
 ```java
 // PerformanceBenchmark.java - performance benchmark
@@ -681,7 +681,7 @@ generation, use
 
 ## 9. CI/CD Integration
 
-![CI/CD Testing Pipeline](/img/diagrams/generated/testing-13-b122378b69.svg)
+![CI/CD Testing Pipeline](../../website/static/img/diagrams/generated/testing-13-b122378b69.svg)
 
 ```yaml
 # .github/workflows/test.yml - example CI test configuration
@@ -749,11 +749,11 @@ jobs:
 
 ## 10. Testing Best Practices
 
-![Testing Best Practices](/img/diagrams/generated/testing-15-4794d0e6ce.svg)
+![Testing Best Practices](../../website/static/img/diagrams/generated/testing-15-4794d0e6ce.svg)
 
 ## 11. Testing Module Structure
 
-![pangrova-testing/](/img/diagrams/generated/testing-16-156170721d.svg)
+![pangrova-testing/](../../website/static/img/diagrams/generated/testing-16-156170721d.svg)
 
 Suite selection is preserved after the merge: E2E runs through `-Pe2e`/`full-regression`,
 the smoke suite through `-Dgroups=smoke`, and the chaos suite through `-Dgroups=chaos`
@@ -765,11 +765,11 @@ or its class names. No suite is selected by module identity any more.
 
 ### 12.1 TPC-H Benchmark Targets
 
-![TPC-H Performance Targets](/img/diagrams/generated/testing-17-a992681317.svg)
+![TPC-H Performance Targets](../../website/static/img/diagrams/generated/testing-17-a992681317.svg)
 
 ### 12.2 TPC-DS Benchmark Targets
 
-![TPC-DS Performance Targets](/img/diagrams/generated/testing-18-780e06b5b1.svg)
+![TPC-DS Performance Targets](../../website/static/img/diagrams/generated/testing-18-780e06b5b1.svg)
 
 ### 12.3 Performance Benchmark Execution Specification
 
@@ -791,7 +791,7 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 
 #### 12.3.2 Execution Procedure
 
-![1. Environment Setup](/img/diagrams/generated/testing-19-cc5c0946e2.svg)
+![1. Environment Setup](../../website/static/img/diagrams/generated/testing-19-cc5c0946e2.svg)
 
 #### 12.3.3 Pass/Fail Criteria
 
@@ -846,7 +846,7 @@ when measurements are missing, uncalibrated, or scale-mismatched.
 
 #### 12.3.6 Regression Detection Rules
 
-![For each query Q:](/img/diagrams/generated/testing-20-96bf89dbf0.svg)
+![For each query Q:](../../website/static/img/diagrams/generated/testing-20-96bf89dbf0.svg)
 
 Regression is evaluated on p50 latency from 3 consecutive runs. If variance across runs exceeds 15%, the result is marked `UNSTABLE` and requires re-run.
 
@@ -920,11 +920,11 @@ This section defines the end-to-end integration test scenarios that verify cross
 
 #### IT-01: Single-table scan end-to-end
 
-![Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client](/img/diagrams/generated/testing-22-a63ebf982b.svg)
+![Goal: verify the complete data flow SQL → Calcite → Substrait → Native Velox → Arrow Flight → Client](../../website/static/img/diagrams/generated/testing-22-a63ebf982b.svg)
 
 #### IT-02: Distributed Join + Shuffle
 
-![Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness](/img/diagrams/generated/testing-23-49a1b1af7a.svg)
+![Goal: verify Shuffle data exchange between multiple Workers and HashJoin correctness](../../website/static/img/diagrams/generated/testing-23-49a1b1af7a.svg)
 
 #### IT-03: Output Task result return
 
@@ -1085,7 +1085,7 @@ Pass criteria:
 
 ### 13.3 Integration Test Infrastructure
 
-![Integration Test Infrastructure](/img/diagrams/generated/testing-30-acd2d636b4.svg)
+![Integration Test Infrastructure](../../website/static/img/diagrams/generated/testing-30-acd2d636b4.svg)
 
 ### 13.4 CI Integration
 

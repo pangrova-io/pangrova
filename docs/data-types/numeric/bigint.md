@@ -31,7 +31,7 @@ cast can lose precision or fail, so validate ranges before narrowing.
 |-----------|---------------|--------------|
 | Apache Iceberg | `LONG` | `BIGINT` |
 | Apache Paimon | `BIGINT` | `BIGINT` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Arrow signed 64-bit integer | `BIGINT` |
 
 Timestamps, snapshot identifiers, row counts, and byte offsets in Pangrova metadata use
 64-bit values; do not narrow them to `INTEGER` in application code.

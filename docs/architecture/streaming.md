@@ -45,15 +45,16 @@ it does not make source acknowledgement and lake publication one transaction.
 
 The Pangrova streaming module is a **declarative incremental data transformation** engine.
 CDC-related components exist, but complete incremental transformation and automatic
-materialized-view refresh remain incomplete. The default continuous-query refresh
-callback only logs a tick, and continuous-query materialization returns unsupported.
-Stream task registration is conditional. Dynamic-table and materialized-view DDL,
-refresh, scheduling, recovery, and GC are served by the unified materialization
-kernel when durable metadata publication is configured: refreshes claim a durable
-lease, execute Native CTAS, and publish an immutable generation through CAS; a
-restart reconciles reserved attempts from the write-commit journal, and GC is
-fenced by reader pins. That lifecycle does not establish exactly-once CDC output or
-continuous-query materialization.
+materialized-view refresh remain incomplete. Stream task registration is conditional.
+Dynamic-table, continuous-query, and materialized-view DDL, refresh, scheduling,
+recovery, and GC are served by the unified materialization kernel when durable
+metadata publication is configured: refreshes claim a durable lease, execute Native
+CTAS, and publish an immutable generation through CAS; a restart reconciles reserved
+attempts from the write-commit journal, and GC is fenced by reader pins.
+`CREATE CONTINUOUS QUERY ... REFRESH EVERY <interval>` creates a dynamic table whose
+target lag is the declared interval; refresh is interval-driven and full, not
+watermark-gated. That lifecycle does not establish exactly-once CDC output or
+incremental continuous-query materialization.
 
 **Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
 sketches below describe design or component contracts unless explicitly identified
@@ -127,7 +128,7 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ## 1. Unified Batch-Streaming Architecture Overview
 
-![Streaming and CDC pipeline: source, CdcSourceReader, format decoding, pipeline buffering, checkpoint state, two-phase commit, connector page-sink writes, and catalog publication](/img/diagrams/streaming-pipeline.svg)
+![Streaming and CDC pipeline: source, CdcSourceReader, format decoding, pipeline buffering, checkpoint state, two-phase commit, connector page-sink writes, and catalog publication](../../website/static/img/diagrams/streaming-pipeline.svg)
 
 ---
 
@@ -135,13 +136,13 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ### 2.1 CDC Architecture
 
-![CDC Ingestion Architecture](/img/diagrams/generated/streaming-01-97804f6e4b.svg)
+![CDC Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-01-97804f6e4b.svg)
 
 ### 2.2 Unified Write Architecture
 
 **Earlier unified-write proposal (retired).** CDC writes and client writes were to share the retired `TableWriter` batch component, with CDC adding a parsing layer. That hierarchy had no production factory, consumer or close owner and was removed. The coordinator CDC runtime writes through `CdcWriteSink` and `ConnectorPageSinkCdcWriter`; SQL writes use the Worker `NativeWriteExecutor` with the connector page sink. The coordinator owns transaction orchestration and metadata commit and does not write data files.
 
-![Unified Write Architecture](/img/diagrams/generated/streaming-02-acec7a6186.svg)
+![Unified Write Architecture](../../website/static/img/diagrams/generated/streaming-02-acec7a6186.svg)
 
 ### 2.3 CDC Ingestion Loop
 
@@ -229,7 +230,18 @@ The production relational DML path uses Native Workers to produce fragments for
 one Coordinator-owned, fenced catalog publication. It does not use a Coordinator
 row writer for `INSERT VALUES` or other relational DML.
 
-The current CDC bootstrap is different:
+When the Coordinator hosts both streaming and query roles, the streaming scheduler
+disables its local pipeline and the supervised CDC Worker runtime owns execution:
+
+```text
+StreamingBootstrap
+  -> CdcWorkerRuntime (leader-gated)
+  -> CdcTaskPlanner (bounded topic/partition ranges)
+  -> Worker CDC_INGEST tasks (Kafka read + connector fragment staging)
+  -> WriteCommitJournal intent -> connector publication -> source-offset ack
+```
+
+A streaming-only Coordinator still instantiates the local path:
 
 ```text
 StreamingBootstrap
@@ -238,11 +250,12 @@ StreamingBootstrap
   -> ConnectorPageSinkCdcWriter (Coordinator-local)
 ```
 
-`StreamingBootstrap.createWriteSink()` explicitly reports that Worker dispatch is
-unavailable. An illustrative Native CDC design does not change
-that instantiated path. The CDC sink is not covered by the relational distributed
-write journal. See [Distributed Write](distributed-writes.md) for the current
-publication and repair boundary.
+The local path is not covered by the relational distributed write journal. The Worker
+path journals its intent and fences publication and offset acknowledgement on streaming
+leadership. A live test drives real Kafka through two Worker CDC backends, injects a backend
+failure, and verifies the retry publishes to Paimon exactly once with offsets acknowledged only
+after publication; process-level Worker crash qualification is still required. See
+[Distributed Write](distributed-writes.md) for the current publication and repair boundary.
 
 Schedulers start paused until maintenance leadership is acquired. A dedicated
 control loop reconciles persisted stream states every five seconds, and immediately
@@ -642,7 +655,7 @@ record's format.
 3. **Running tasks = maxConcurrentTasks, queue full**: Drop the lowest priority task in the queue. If the new task has higher priority than the dropped task, enqueue the new task; otherwise, drop the new task itself.
 4. **All slots busy + queue full + new task is lowest priority**: Log warning and discard the new task. Metric `maintenance.tasks.dropped` incremented.
 
-![/**](/img/diagrams/generated/streaming-10-1d154be9af.svg)
+![/**](../../website/static/img/diagrams/generated/streaming-10-1d154be9af.svg)
 
 ---
 
@@ -650,7 +663,7 @@ record's format.
 
 ### 3.1 Incremental Query Architecture
 
-![Incremental Query Architecture](/img/diagrams/generated/streaming-11-87b42b7b70.svg)
+![Incremental Query Architecture](../../website/static/img/diagrams/generated/streaming-11-87b42b7b70.svg)
 
 ### 3.2 Incremental Query SQL
 
@@ -757,7 +770,7 @@ public class ChangelogReader {
 
 ### 4.1 Mini-Batch Writes
 
-![Streaming Ingestion Architecture](/img/diagrams/generated/streaming-14-b4057e93e3.svg)
+![Streaming Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-14-b4057e93e3.svg)
 
 ### 4.2 Streaming Ingestion API
 
@@ -859,7 +872,7 @@ public class StreamingWriter implements AutoCloseable {
 
 ### 5.1 Watermark Concept
 
-![Watermark Management](/img/diagrams/generated/streaming-16-46c1b624f0.svg)
+![Watermark Management](../../website/static/img/diagrams/generated/streaming-16-46c1b624f0.svg)
 
 ### 5.2 Table-Level Watermark
 
@@ -934,7 +947,7 @@ public class WatermarkTracker {
 
 ### 6.1 Upsert Modes
 
-![Upsert Modes](/img/diagrams/generated/streaming-19-fa582e3445.svg)
+![Upsert Modes](../../website/static/img/diagrams/generated/streaming-19-fa582e3445.svg)
 
 ### 6.2 Upsert SQL
 
@@ -1174,7 +1187,12 @@ See [14 §7](./observability.md) for structured logging format.
 > **Write Interface Hierarchy**: `CdcWriteSink` owns the CDC commit handoff and `ConnectorPageSinkCdcWriter` persists through the connector page sink. SQL writes use the Worker `NativeWriteExecutor` with `ConnectorPageSink`. The former `TableWriter` batch hierarchy was retired; §2.6 keeps its sketch as history. `DataWriter` (02 §6) is deprecated.
 
 
-> **CDC Consumer Deployment**: CDC Consumer runs as an embedded component within Worker processes (default) or as standalone processes. The deployment model is defined here in §3. For cluster-level deployment topology, see [distributed.md §2](./distributed.md). CDC Consumer instances register with ZooKeeper for partition assignment coordination.
+> **CDC execution boundary:** The current streaming bootstrap creates a
+> Coordinator-local `ConnectorPageSinkCdcWriter`; it does not run CDC consumers in
+> Workers and does not require ZooKeeper for partition assignment. ZooKeeper is an
+> optional coordination backend, not a CDC dependency. Distributed native CDC
+> ingestion, atomic source-offset/catalog publication, and exactly-once delivery
+> remain unimplemented. See [Current Capability Status](../getting-started/capability-status.md).
 
 
 > **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.

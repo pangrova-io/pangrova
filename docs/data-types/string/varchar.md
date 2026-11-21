@@ -50,7 +50,7 @@ the documented literal formats.
 |-----------|---------------|--------------|
 | Apache Iceberg | `STRING` | `STRING` → `VARCHAR` (unbounded) |
 | Apache Paimon | `VarChar(MAX_LENGTH)` | `VARCHAR` |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Arrow UTF-8 string | Declared `VARCHAR` signature retained in managed catalog metadata |
 
 ## Example
 

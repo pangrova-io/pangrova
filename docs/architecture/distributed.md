@@ -98,7 +98,7 @@ a committed replacement of the prior Worker identity merely through cleanup.
 
 ### 1.1 Multi-Active Architecture Design
 
-![Coordinator Cluster (Multi-Active)](/img/diagrams/generated/distributed-02-d0420bfe67.svg)
+![Coordinator Cluster (Multi-Active)](../../website/static/img/diagrams/generated/distributed-02-d0420bfe67.svg)
 
 > **Topology note.** The diagram shows the optional ZooKeeper/Redis topology. The
 > default bootstrap uses a JDBC lease in the metadata database (`pangrova_meta`);
@@ -132,10 +132,11 @@ public class PangrovaCoordinator implements Lifecycle {
 ### 1.3 Query Lifecycle Management
 
 `org.pangrova.query.lifecycle.QueryStateMachine` is the single owner of in-process
-query state. `QueryManager` currently remains in Coordination Core and coordinates
-admission, dispatch and lifecycle collaborators; that remaining migration is not complete.
+query state. `QueryManager` lives in `org.pangrova.query.runtime` and coordinates
+admission, dispatch and lifecycle collaborators through explicit ports implemented
+by the Coordinator.
 
-![stateDiagram-v2](/img/diagrams/generated/distributed-04-a15e638217.svg)
+![stateDiagram-v2](../../website/static/img/diagrams/generated/distributed-04-a15e638217.svg)
 
 `FINISHED`, `FAILED` and `CANCELLED` are terminal. Cancellation cannot interrupt
 `FINISHING` publication through a nonexistent transition. The state owner reserves
@@ -160,7 +161,7 @@ journal and Native ownership tests; a class move alone is not execution evidence
 
 ### 1.4 Current Module Ownership
 
-![pangrova-query/](/img/diagrams/generated/distributed-05-4a0e165bc3.svg)
+![pangrova-query/](../../website/static/img/diagrams/generated/distributed-05-4a0e165bc3.svg)
 
 Query Core depends on the Connector contract to manage the issued query scope; it
 has no Coordinator, Worker, Planner, Connector Runtime or persistence-provider dependency.
@@ -174,17 +175,17 @@ public API/SPI artifacts. Final target structure and outstanding work are tracke
 
 ### 2.1 Worker Internal Architecture
 
-![Worker Node](/img/diagrams/generated/distributed-06-cf3c9063b9.svg)
+![Worker Node](../../website/static/img/diagrams/generated/distributed-06-cf3c9063b9.svg)
 
 ### 2.2 Read/Write Separation Design
 
-![Read/Write Separation](/img/diagrams/generated/distributed-07-4bb4d6e8ef.svg)
+![Read/Write Separation](../../website/static/img/diagrams/generated/distributed-07-4bb4d6e8ef.svg)
 
 Note: On the write path, the Worker-side Java write path flushes data files through the connector page sink and produces statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
 
 ### 2.3 Worker Module Structure
 
-![pangrova-worker/](/img/diagrams/generated/distributed-08-db04a5a66b.svg)
+![pangrova-worker/](../../website/static/img/diagrams/generated/distributed-08-db04a5a66b.svg)
 
 ### 2.4 Worker Startup Sequence
 
@@ -246,7 +247,7 @@ public class PangrovaWorker implements Lifecycle {
 
 **Startup Sequence Diagram**
 
-![PangrovaWorker.start()](/img/diagrams/generated/distributed-10-4d9c63a637.svg)
+![PangrovaWorker.start()](../../website/static/img/diagrams/generated/distributed-10-4d9c63a637.svg)
 
 **Startup Sequence Constraints**
 
@@ -259,7 +260,7 @@ public class PangrovaWorker implements Lifecycle {
 
 **Coordination with Coordinator Startup**
 
-![Timeline →](/img/diagrams/generated/distributed-11-3d35316e01.svg)
+![Timeline →](../../website/static/img/diagrams/generated/distributed-11-3d35316e01.svg)
 
 > **Cross-Reference**: For Native engine initialization details see [native-execution.md](./native-execution.md); for memory pool initialization see [resource-management.md §2](./resource-management.md); for Connector plugin loading see [connectors.md §2.3](./connectors.md); for heartbeat resource feedback see [§5.2](#52-scheduling-resource-closed-loop).
 
@@ -269,7 +270,7 @@ public class PangrovaWorker implements Lifecycle {
 
 ### 3.1 Overall HA Architecture
 
-![High Availability Architecture](/img/diagrams/generated/distributed-12-61eb15d77d.svg)
+![High Availability Architecture](../../website/static/img/diagrams/generated/distributed-12-61eb15d77d.svg)
 
 ### 3.2 Query Ownership Management
 
@@ -383,7 +384,14 @@ public class WorkerServiceRegistry {
 ```
 
 
-> **Detection Timing**: Heartbeat timeout (20s = 2× interval, see §5.2.3) is the Coordinator's fast detection mechanism — marks Worker as SUSPECT and stops scheduling. ZK session expiry (30s) is the final failure confirmation — ephemeral node deletion triggers Task rescheduling. The two mechanisms are complementary: heartbeat provides fast response, ZK provides eventual consistency guarantee.
+> **Detection timing:** Worker liveness uses the configured
+> `coordinator.worker.heartbeat-timeout` (30 seconds by default) against the
+> periodic Worker heartbeat (10 seconds by default). The default registry and
+> lease authority is JDBC/PostgreSQL. ZooKeeper membership, including the
+> ephemeral-node behavior sketched above, applies only when the ZooKeeper
+> coordination provider is explicitly selected; it is not the default failure
+> detector. Task rescheduling also depends on the affected stage and exchange
+> policy, not on node deletion alone.
 
 ### 3.4 Shared State Responsibility Matrix
 
@@ -431,7 +439,7 @@ The Pangrova Coordinator cluster uses a **Full Multi-Active** model: all Coordin
 
 When a Coordinator crashes, the in-flight queries it owns must be taken over by other Coordinators. The migration flow is auto-detected via ZooKeeper ephemeral nodes and requires no Leader coordination.
 
-![Query Ownership Migration Flow](/img/diagrams/generated/distributed-15-1ea1964d9d.svg)
+![Query Ownership Migration Flow](../../website/static/img/diagrams/generated/distributed-15-1ea1964d9d.svg)
 
 **Detailed migration steps**:
 
@@ -464,11 +472,11 @@ When a Coordinator crashes, the in-flight queries it owns must be taken over by 
 
 ### 4.1 Task Retry Strategy
 
-![Task Fault Tolerance](/img/diagrams/generated/distributed-16-96b45cc35f.svg)
+![Task Fault Tolerance](../../website/static/img/diagrams/generated/distributed-16-96b45cc35f.svg)
 
 ### 4.2 Split-Level Retry
 
-![Split-Level Retry Design](/img/diagrams/generated/distributed-17-c0d42254ac.svg)
+![Split-Level Retry Design](../../website/static/img/diagrams/generated/distributed-17-c0d42254ac.svg)
 
 ```java
 /**
@@ -528,7 +536,7 @@ shuffle recovery or a Java shuffle-persistence manager implementation.
 
 ### 4.4 Query Checkpoint
 
-![Query Checkpoint Design](/img/diagrams/generated/distributed-19-e9448521fa.svg)
+![Query Checkpoint Design](../../website/static/img/diagrams/generated/distributed-19-e9448521fa.svg)
 
 ---
 
@@ -536,7 +544,7 @@ shuffle recovery or a Java shuffle-persistence manager implementation.
 
 ### 5.1 Resource Queue & Scheduling
 
-![Resource Queue & Scheduling](/img/diagrams/generated/distributed-20-19841dded1.svg)
+![Resource Queue & Scheduling](../../website/static/img/diagrams/generated/distributed-20-19841dded1.svg)
 
 ```java
 /**
@@ -612,7 +620,7 @@ The Scheduler applies these methods in priority order: historical → plan-based
 
 #### 5.2.2 Scheduling Decision Flow
 
-![Coordinator Scheduler receives a new Task:](/img/diagrams/generated/distributed-22-a698e9e8b1.svg)
+![Coordinator Scheduler receives a new Task:](../../website/static/img/diagrams/generated/distributed-22-a698e9e8b1.svg)
 
 #### 5.2.3 Feedback Latency Tolerance
 
@@ -632,7 +640,7 @@ The Coordinator tolerates at most **20 seconds** of Worker state staleness. This
 
 
 
-![Unified Memory Management](/img/diagrams/generated/distributed-23-c51fea08df.svg)
+![Unified Memory Management](../../website/static/img/diagrams/generated/distributed-23-c51fea08df.svg)
 
 
 
@@ -725,7 +733,7 @@ Speculative execution detects straggler tasks and races duplicate copies on heal
 
 ### 8.1 Architecture
 
-![Coordinator](/img/diagrams/generated/distributed-25-edc5a2c878.svg)
+![Coordinator](../../website/static/img/diagrams/generated/distributed-25-edc5a2c878.svg)
 
 ### 8.2 Pseudocode
 
@@ -803,7 +811,7 @@ Enhances the scheduler to consider cache state when assigning splits to Workers,
 
 ### 9.1 Architecture
 
-![CacheAffinityScheduler (Coordinator)](/img/diagrams/generated/distributed-29-0de90a8b4e.svg)
+![CacheAffinityScheduler (Coordinator)](../../website/static/img/diagrams/generated/distributed-29-0de90a8b4e.svg)
 
 ### 9.2 Pseudocode
 
@@ -846,9 +854,9 @@ class WorkerCacheReporter:
 
 | Aspect | Current | With Locality-Aware Scheduling |
 |--------|---------|-------------------------------|
-| Cache hit rate | ~30% (random) | ~80%+ (locality-aware) |
-| Scan latency | S3 fetch per split | 3-5x reduction for cached data |
-| Scheduling latency | Minimal | +~0.1ms per task (bloom filter + scoring) |
+| Cache hit rate | Depends on workload and existing placement | Potentially higher for repeated scans; requires measurement |
+| Scan latency | Remote fetch per uncached split | May fall on cache hits; no fixed reduction is established |
+| Scheduling latency | Minimal | Adds bloom/report and scoring work per task |
 | Load balance | Optimal | Slightly less balanced; configurable weights + max imbalance cap (1.5x) |
 
 ### 9.4 Migration Path
@@ -891,7 +899,7 @@ This section introduces a composite Worker Performance Score and a weighted fair
 
 ### 10.1 Architecture
 
-![Worker Performance Scoring](/img/diagrams/generated/distributed-33-88c5717eb2.svg)
+![Worker Performance Scoring](../../website/static/img/diagrams/generated/distributed-33-88c5717eb2.svg)
 
 **Problem**: Worker health is binary (alive/dead based on heartbeat). A Worker with degraded NVMe SSD (10× slower reads) or noisy neighbor (CPU throttled) continues receiving tasks at the same rate as healthy Workers. No CPU fairness exists between interactive and batch queries.
 

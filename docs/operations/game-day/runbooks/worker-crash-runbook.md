@@ -5,7 +5,10 @@ description: "Diagnose and recover from worker process crashes"
 
 # Runbook: Worker Crash Recovery
 
-**Use this runbook when:** A worker node's heartbeat has been missed for > 15 seconds, the worker process has exited, or the Coordinator has marked a worker as DEAD.
+**Use this runbook when:** A Worker has exceeded the configured heartbeat timeout
+(30 seconds by default), its process has exited, or the Coordinator reports it
+unavailable. Detection also depends on the monitoring sweep; 15 seconds is not
+the default failure threshold.
 
 | Field | Value |
 |-------|-------|
@@ -18,7 +21,7 @@ description: "Diagnose and recover from worker process crashes"
 
 ## Decision Tree
 
-![Worker down?](/img/diagrams/generated/worker-crash-runbook-01-a12eb391fa.svg)
+![Worker down?](../../../../website/static/img/diagrams/generated/worker-crash-runbook-01-a12eb391fa.svg)
 
 ---
 

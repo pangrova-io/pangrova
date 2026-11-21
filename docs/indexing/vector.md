@@ -93,11 +93,14 @@ recall, slower search.
 
 | Criterion | HNSW | IVFPQ |
 |-----------|------|-------|
-| Recall@10 | 95–99% | 85–95% |
-| Memory per 100K vectors (dim=768) | ~12MB (graph-only) | ~2.3MB |
+| Recall | Depends on data, metric, and search parameters | Depends on data, quantization, and probe count |
+| Memory drivers | Graph links and retained vectors | PQ codes, codebooks, and retained retrieval data |
 | Supported durable format metric | L2, COSINE, INNER_PRODUCT | L2, COSINE, INNER_PRODUCT |
 | Update model | Immutable generation rebuild | Immutable generation rebuild |
-| Best for | High recall, < 10M vectors | Memory-constrained, > 10M vectors |
+| Typical trade-off | More graph exploration for recall | More compression with quantization error |
+
+No qualified comparative benchmark establishes fixed recall percentages, memory
+figures, or dataset-size cutoffs. Measure these on the intended workload.
 
 **Recommendation:** default to HNSW. Use IVF-PQ when memory is constrained.
 DiskANN keeps the full-precision vectors in a companion on-disk file and rereads
@@ -108,8 +111,10 @@ snapshot-pinned generations; refreshes never mutate a serving artifact in place.
 
 ## ANN Query Pattern
 
-The planner recognizes `ORDER BY <distance> LIMIT k` over a `VECTOR` column as an
-ANN search and routes it through the vector index:
+An eligible `ORDER BY <distance> LIMIT k` query over a `VECTOR` column can use ANN
+when a compatible index is bound. Without that binding it can remain an exact
+SQL scan. The following patterns use `...` as a placeholder for the remaining
+coordinates; replace it with a complete vector matching the column dimension:
 
 ```sql
 SELECT id, content, l2_distance(embedding, ARRAY[0.1, 0.2, ...]) AS distance

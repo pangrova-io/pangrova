@@ -15,13 +15,13 @@ sidebar_label: "Resource Management"
 
 ## 1. Resource Management Architecture Overview
 
-![Memory arbitration: NodePool and MemoryArbitrator reservations for tasks, shuffle, and native cache, with admission, spilling, and backpressure](/img/diagrams/memory-arbitration.svg)
+![Memory arbitration: NodePool and MemoryArbitrator reservations for tasks, shuffle, and native cache, with admission, spilling, and backpressure](../../website/static/img/diagrams/memory-arbitration.svg)
 
 ## 2. Memory Management Hierarchy
 
 
 
-![Memory Hierarchy Architecture](/img/diagrams/generated/resource-management-01-e62b0f0306.svg)
+![Memory Hierarchy Architecture](../../website/static/img/diagrams/generated/resource-management-01-e62b0f0306.svg)
 
 
 ## 3. Java-Layer Resource Manager
@@ -314,7 +314,7 @@ private:
 
 ## 6. Spill Manager
 
-![Spill Manager Architecture](/img/diagrams/generated/resource-management-05-97349245d1.svg)
+![Spill Manager Architecture](../../website/static/img/diagrams/generated/resource-management-05-97349245d1.svg)
 
 ### 6.1 Spill Trigger Decision Algorithm
 
@@ -322,7 +322,7 @@ Spill triggering is performed cooperatively by the Java-layer `MemoryArbitrator`
 
 **Decision flow**:
 
-![Spill Trigger Decision Flow](/img/diagrams/generated/resource-management-06-69293c2067.svg)
+![Spill Trigger Decision Flow](../../website/static/img/diagrams/generated/resource-management-06-69293c2067.svg)
 
 **SpillCandidate selection algorithm**:
 
@@ -1174,7 +1174,7 @@ class MemoryReclaimer:
 
 | Aspect | Current (Hard Limit Only) | Proposed (Soft/Hard + Overflow) |
 |--------|---------------------------|----------------------------------|
-| Performance | Premature spill when Worker has free memory; 30–50% unnecessary spill I/O for mixed workloads | Tasks borrow idle memory; spill only when Worker is truly under pressure; 30–50% spill reduction |
+| Performance | Fixed per-task limits may cause spill while other capacity is idle | Proposed borrowing may reduce spill; the effect and contention costs require workload measurements |
 | Complexity | Simple — hard limit per task | Medium — soft/hard limits, overflow pool accounting, reclaim protocol |
 | Risk | Low — hard limits prevent OOM | Medium — overcommit can cause cascading spill if many tasks borrow simultaneously; hard limit remains as OOM guard |
 | Memory utilization | Low for mixed workloads (idle tasks hold unused memory) | High — unused memory is available to active tasks |
