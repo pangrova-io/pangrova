@@ -933,6 +933,10 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "OFF" ]]; then
+    # Arrow still verifies the pinned archive's SHA-256 in its ExternalProject.
+    export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"
+  fi
   mkdir -p "$WORK_DIR" "$DEPS_PREFIX"
 
   if [[ "$SKIP_DEPS" != "1" ]]; then

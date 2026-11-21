@@ -212,6 +212,10 @@ the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
 component Velox declares. `log_setup` is a target within the `log` component, not a
 valid B2 component selector.
 
+Direct and sanitizer builds use the LZ4 codeload archive for Arrow Flight
+when no `ARROW_LZ4_URL` override is provided. Arrow checks the fixed archive
+SHA-256. The production Docker builder preseeds the same verified archive.
+
 ## Disk and Cache Budget
 
 A cold dependency and Velox tree is roughly 30 GB. A standard Ubuntu or macOS
