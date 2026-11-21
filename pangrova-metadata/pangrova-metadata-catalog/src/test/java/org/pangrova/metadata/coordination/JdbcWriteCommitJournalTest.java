@@ -3,6 +3,7 @@ package org.pangrova.metadata.coordination;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
+import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
@@ -120,7 +121,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 "coord-A",
                 "process-A",
                 7L,
-                null, null));
+                null, null, null));
 
         WriteCommitEntry reloaded = journal.getEntry("q-replay").orElseThrow();
         assertThat(reloaded.fragments()).hasSize(2);
@@ -135,6 +136,61 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         assertThat(reloaded.ownerId()).isEqualTo("coord-A");
         assertThat(reloaded.ownerIncarnation()).isEqualTo("process-A");
         assertThat(reloaded.executionFencingToken()).isEqualTo(7L);
+    }
+
+    @Test
+    void cdcSourceIdentityRoundTripsAndIsImmutable() throws SQLException {
+        CdcSourceIdentity source = new CdcSourceIdentity("stream-orders", "epoch-7",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 1, 40, 50),
+                        new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20)));
+        WriteCommitEntry entry = cdcEntry(source);
+
+        journal.recordIntent(entry);
+        WriteCommitEntry reloaded = journal.getEntry(entry.queryId()).orElseThrow();
+
+        assertThat(reloaded.cdcSource()).isEqualTo(source);
+        assertThat(reloaded.cdcSource().ranges()).containsExactly(
+                new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20),
+                new CdcSourceIdentity.OffsetRange("orders", 1, 40, 50));
+        assertThat(journal.replayPendingEntries(Set.of(entry.queryId()))).singleElement()
+                .extracting(WriteCommitEntry::cdcSource).isEqualTo(source);
+
+        assertThatThrownBy(() -> {
+            try (Connection connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement(
+                            "UPDATE write_commit_journal SET cdc_stream_id='other' WHERE query_id=?")) {
+                statement.setString(1, entry.queryId());
+                statement.executeUpdate();
+            }
+        }).hasStackTraceContaining("CDC write identity is immutable");
+    }
+
+    @Test
+    void cdcSourceIdentityRequiresACompleteRangeArray() {
+        CdcSourceIdentity source = new CdcSourceIdentity("stream-orders", "epoch-7",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 10, 20)));
+        WriteCommitEntry entry = cdcEntry(source);
+        journal.recordIntent(entry);
+
+        assertThatThrownBy(() -> {
+            try (Connection connection = dataSource.getConnection();
+                    var statement = connection.prepareStatement(
+                            "INSERT INTO write_commit_journal (query_id,catalog_name,table_name,state,"
+                                    + "timestamp_ms,fragments,write_mode,idempotency_key,tenant_id,"
+                                    + "base_snapshot_id,write_output_binding,commit_fingerprint,principal,"
+                                    + "deferred_authorization_scope,execution_fencing_token,"
+                                    + "cdc_stream_id,cdc_source_epoch,cdc_offset_ranges) "
+                                    + "SELECT ?,catalog_name,table_name,state,timestamp_ms,fragments,"
+                                    + "write_mode,idempotency_key,tenant_id,base_snapshot_id,"
+                                    + "write_output_binding,?,principal,deferred_authorization_scope,"
+                                    + "execution_fencing_token,cdc_stream_id,cdc_source_epoch,'[]' "
+                                    + "FROM write_commit_journal WHERE query_id=?")) {
+                statement.setString(1, "q-invalid-cdc");
+                statement.setString(2, "0".repeat(64));
+                statement.setString(3, entry.queryId());
+                statement.executeUpdate();
+            }
+        }).hasStackTraceContaining("chk_write_cdc_binding");
     }
 
     @Test
@@ -319,6 +375,20 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         assertThat(journal.getEntry("does-not-exist")).isEmpty();
     }
 
+    private static WriteCommitEntry cdcEntry(CdcSourceIdentity source) {
+        List<byte[]> fragments = List.of(new byte[]{1, 2, 3});
+        String fingerprint = WriteCommitFingerprint.compute(
+                new WriteCommitFingerprint.Intent("q-cdc", "tenant-a", "iceberg", "analytics.events",
+                        "INSERT", 42L, new byte[]{42}, "alice",
+                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(),
+                        null, source), fragments);
+        return new WriteCommitEntry(
+                "q-cdc", "iceberg", "analytics.events", WriteCommitState.PENDING,
+                System.currentTimeMillis(), fragments, "INSERT", fingerprint, "tenant-a", "alice",
+                org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(),
+                42L, new byte[]{42}, fingerprint, null, null, 0L, null, null, source);
+    }
+
     private static WriteCommitEntry entry(
             String queryId, String catalog, String table,
             WriteCommitState state, long timestampMs) {
@@ -354,6 +424,6 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 null,
                 null,
                 0L,
-                null, null);
+                null, null, null);
     }
 }

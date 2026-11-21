@@ -1,5 +1,4 @@
 package org.pangrova.testing.property;
-
 import org.pangrova.testing.testkit.TestProjectPaths;
 
 import net.jqwik.api.Arbitraries;

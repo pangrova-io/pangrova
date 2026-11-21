@@ -1,15 +1,16 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.query.runtime.QueryManager;
+
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
-import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.query.lifecycle.QueryStateJournalPort;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
@@ -34,7 +35,7 @@ public record TaskStatusReceiverContext(
         SpeculativeTaskLauncher speculativeLauncher,
         DuplicateTaskResolver duplicateResolver,
         TaskDispatcher taskDispatcher,
-        QueryStateJournal stateJournal,
+        QueryStateJournalPort stateJournal,
         CatalogRegistry catalogRegistry,
         NativeWriteCommitTracker writeCommitTracker,
         StageCompletionCallback stageCompletionCallback,
@@ -52,7 +53,7 @@ public record TaskStatusReceiverContext(
             SpeculativeTaskLauncher speculativeLauncher,
             DuplicateTaskResolver duplicateResolver,
             TaskDispatcher taskDispatcher,
-            QueryStateJournal stateJournal,
+            QueryStateJournalPort stateJournal,
             CatalogRegistry catalogRegistry,
             NativeWriteCommitTracker writeCommitTracker,
             StageCompletionCallback stageCompletionCallback,

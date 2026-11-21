@@ -21,6 +21,7 @@ import org.pangrova.common.file.CopyFileCommitBinding;
 public final class WriteCommitFingerprint {
 
     private static final String CONTRACT_VERSION = "pangrova-distributed-write-v4";
+    private static final String CDC_CONTRACT_VERSION = "pangrova-distributed-write-v5-cdc";
 
     private WriteCommitFingerprint() {
     }
@@ -50,7 +51,8 @@ public final class WriteCommitFingerprint {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream out = new DataOutputStream(bytes)) {
-                writeString(out, CONTRACT_VERSION);
+                CdcSourceIdentity cdcSource = intent.cdcSource();
+                writeString(out, cdcSource == null ? CONTRACT_VERSION : CDC_CONTRACT_VERSION);
                 writeString(out, intent.executionId());
                 writeString(out, intent.tenantId());
                 writeString(out, intent.catalogName());
@@ -72,6 +74,17 @@ public final class WriteCommitFingerprint {
                     writeString(out, copyFile.claimDigest());
                     writeString(out, copyFile.tableUuid());
                 }
+                if (cdcSource != null) {
+                    writeString(out, cdcSource.streamId());
+                    writeString(out, cdcSource.sourceEpoch());
+                    out.writeInt(cdcSource.ranges().size());
+                    for (CdcSourceIdentity.OffsetRange range : cdcSource.ranges()) {
+                        writeString(out, range.topic());
+                        out.writeInt(range.partition());
+                        out.writeLong(range.startOffset());
+                        out.writeLong(range.endOffset());
+                    }
+                }
                 out.writeInt(fragmentDigests.size());
                 for (byte[] fragmentDigest : fragmentDigests) {
                     out.write(fragmentDigest);
@@ -87,7 +100,16 @@ public final class WriteCommitFingerprint {
     public record Intent(String executionId, String tenantId, String catalogName, String tableName,
                          String writeMode, long baseSnapshotId, byte[] writeOutputBinding,
                          String principal, WriteAuthorizationReceipt authorizationReceipt,
-                         CopyFileCommitBinding copyFile) {
+                         CopyFileCommitBinding copyFile, CdcSourceIdentity cdcSource) {
+
+        /** Ordinary non-CDC intent. */
+        public Intent(String executionId, String tenantId, String catalogName, String tableName,
+                      String writeMode, long baseSnapshotId, byte[] writeOutputBinding,
+                      String principal, WriteAuthorizationReceipt authorizationReceipt,
+                      CopyFileCommitBinding copyFile) {
+            this(executionId, tenantId, catalogName, tableName, writeMode, baseSnapshotId,
+                    writeOutputBinding, principal, authorizationReceipt, copyFile, null);
+        }
         /** Copies the exact allocation and authority content before hashing. */
         public Intent {
             if (principal == null || principal.isBlank()) {

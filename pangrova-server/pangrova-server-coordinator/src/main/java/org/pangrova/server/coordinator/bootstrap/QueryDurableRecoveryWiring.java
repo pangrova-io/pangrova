@@ -20,7 +20,7 @@ import javax.sql.DataSource;
 
 import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;

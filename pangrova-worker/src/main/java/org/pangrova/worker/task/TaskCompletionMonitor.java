@@ -139,6 +139,11 @@ public final class TaskCompletionMonitor {
         }
         var parsed = requireCanonicalTaskReport(info.request().taskRequest(), status);
         info.setTerminalTaskReport(status);
+        if (isWorkerExecuted(info.request().taskRequest())) {
+            info.setTerminalCommitFragments(
+                    deps.taskExecutor().getTaskCommitFragments(handle));
+            return;
+        }
         captureTaskStats(info, handle, parsed);
         if (parsed.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
             throw new IllegalStateException(
@@ -189,7 +194,7 @@ public final class TaskCompletionMonitor {
             org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
         if (status == null || status.length == 0) {
             throw new IllegalStateException(
-                    "Native task completed without a canonical TaskReport: "
+                    "Task completed without a canonical TaskReport: "
                             + request.getAttempt().getTaskId());
         }
         org.pangrova.protocol.v2.TaskReport parsed;
@@ -197,9 +202,13 @@ public final class TaskCompletionMonitor {
             parsed = org.pangrova.protocol.v2.TaskReport.parseFrom(status);
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
             throw new IllegalStateException(
-                    "Native task returned a malformed canonical TaskReport: "
+                    "Task returned a malformed canonical TaskReport: "
                             + request.getAttempt().getTaskId(),
                     malformed);
+        }
+        if (isWorkerExecuted(request)) {
+            requireWorkerExecutedReport(request, parsed);
+            return parsed;
         }
         if (!parsed.getUnknownFields().asMap().isEmpty()
                 || !parsed.getAttempt().equals(request.getAttempt())
@@ -217,6 +226,43 @@ public final class TaskCompletionMonitor {
                     "Native canonical TaskReport violates its terminal task authority");
         }
         return parsed;
+    }
+
+    private static void requireWorkerExecutedReport(
+            org.pangrova.protocol.v2.TaskRequest request,
+            org.pangrova.protocol.v2.TaskReport parsed) {
+        if (parsed.getUnknownFields().asMap().isEmpty()
+                && parsed.getAttempt().equals(request.getAttempt())
+                && !parsed.hasNativeTaskStats()) {
+            if (parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                    && !parsed.hasError()
+                    && parsed.getReportOrigin()
+                            == org.pangrova.protocol.v2.TaskReportOrigin
+                                    .TASK_REPORT_ORIGIN_WORKER_EXECUTED
+                    && parsed.getExecutionDrainState()
+                            == org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED) {
+                return;
+            }
+            if ((parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                    || parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED)
+                    && parsed.hasError()
+                    && parsed.getReportOrigin()
+                            == org.pangrova.protocol.v2.TaskReportOrigin
+                                    .TASK_REPORT_ORIGIN_WORKER_RECONCILED
+                    && parsed.getExecutionDrainState()
+                            == org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER) {
+                return;
+            }
+        }
+        throw new IllegalStateException(
+                "Worker-executed canonical TaskReport violates its JVM completion authority");
+    }
+
+    static boolean isWorkerExecuted(org.pangrova.protocol.v2.TaskRequest request) {
+        return request.getTaskKind()
+                == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST;
     }
 
     void onTaskCompleted(

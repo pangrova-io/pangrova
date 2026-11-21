@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;

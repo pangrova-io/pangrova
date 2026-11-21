@@ -45,7 +45,7 @@ import org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;

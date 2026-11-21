@@ -39,7 +39,7 @@ class QueryDispatcherStageLineageTest {
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.noop.NoOpTracingProvider()),
                 new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
+                        new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, null, 0L);
@@ -74,7 +74,7 @@ class QueryDispatcherStageLineageTest {
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.noop.NoOpTracingProvider()),
                 new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
+                        new org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, emitter, 0L);

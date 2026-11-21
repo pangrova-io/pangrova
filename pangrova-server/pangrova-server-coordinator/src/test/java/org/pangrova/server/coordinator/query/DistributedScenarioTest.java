@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.query;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
@@ -42,7 +42,7 @@ import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.submission.QuerySubmissionResult;

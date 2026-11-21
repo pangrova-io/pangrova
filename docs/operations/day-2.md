@@ -33,7 +33,7 @@ The examples of APIs, SQL syntax and infrastructure workflows below describe the
 
 ## 1. Operations Architecture Overview
 
-![Operations Architecture](/img/diagrams/generated/day-2-01-73b5013709.svg)
+![Operations Architecture](../../website/static/img/diagrams/generated/day-2-01-73b5013709.svg)
 
 ---
 
@@ -41,11 +41,11 @@ The examples of APIs, SQL syntax and infrastructure workflows below describe the
 
 ### 2.1 Upgrade Architecture
 
-![Protocol-Epoch Upgrade Architecture](/img/diagrams/generated/day-2-02-04f3eb8acb.svg)
+![Protocol-Epoch Upgrade Architecture](../../website/static/img/diagrams/generated/day-2-02-04f3eb8acb.svg)
 
 ### 2.2 Upgrade Flow
 
-![Rolling upgrade and rollback: plan, drain, replace, validate, resume or roll back](/img/diagrams/upgrade-flow.svg)
+![Rolling upgrade and rollback: plan, drain, replace, validate, resume or roll back](../../website/static/img/diagrams/upgrade-flow.svg)
 
 ```java
 /**
@@ -175,7 +175,7 @@ public class VersionCompatibilityChecker {
 
 ### 3.1 Online DDL Architecture
 
-![Online DDL Architecture](/img/diagrams/generated/day-2-05-015c1622ad.svg)
+![Online DDL Architecture](../../website/static/img/diagrams/generated/day-2-05-015c1622ad.svg)
 
 ### 3.2 Asynchronous DDL Execution
 
@@ -299,7 +299,7 @@ ORDER BY created_at DESC;
 
 ### 4.1 Disaster Recovery Architecture
 
-![Disaster Recovery Architecture](/img/diagrams/generated/day-2-08-b737e9fb7c.svg)
+![Disaster Recovery Architecture](../../website/static/img/diagrams/generated/day-2-08-b737e9fb7c.svg)
 
 ### 4.2 Metadata Replication
 
@@ -451,7 +451,7 @@ Disaster recovery flow for each shared-state component:
 
 ### 5.1 Scaling Architecture
 
-![Auto Scaling Architecture](/img/diagrams/generated/day-2-11-1ff21c14da.svg)
+![Auto Scaling Architecture](../../website/static/img/diagrams/generated/day-2-11-1ff21c14da.svg)
 
 ### 5.2 Scaling Policy
 
@@ -666,7 +666,7 @@ Auto-scaling changes Worker count, which affects resource scheduling. This secti
 
 ### 6.1 Configuration Management Architecture
 
-![Config Hot Reload Architecture](/img/diagrams/generated/day-2-15-666961cf79.svg)
+![Config Hot Reload Architecture](../../website/static/img/diagrams/generated/day-2-15-666961cf79.svg)
 
 ### 6.2 Dynamic Configuration Service
 
@@ -851,7 +851,9 @@ bin/pangrova-stop.sh --help
 ```
 
 The reference rolling-upgrade script stops the rollout before stopping a node if
-that node's library backup fails. Resolve the backup failure before retrying.
+it cannot create a fresh library backup. If `lib.backup/` already exists, inspect
+and move it aside before retrying. A failed copy can leave a partial backup there
+for inspection.
 
 ## 8. System Bootstrap Sequence
 
@@ -859,11 +861,11 @@ This section defines the complete bootstrap sequence for an Pangrova cluster, fr
 
 ### 8.1 Bootstrap Phase Overview
 
-![System Bootstrap Sequence](/img/diagrams/generated/day-2-20-f20477f797.svg)
+![System Bootstrap Sequence](../../website/static/img/diagrams/generated/day-2-20-f20477f797.svg)
 
 ### 8.2 Startup Sequence Diagram
 
-![Timeline →](/img/diagrams/generated/day-2-21-e3b38f8436.svg)
+![Timeline →](../../website/static/img/diagrams/generated/day-2-21-e3b38f8436.svg)
 
 ### 8.3 Health Check Endpoints
 
@@ -914,7 +916,7 @@ actual database, ZooKeeper, and object-store clients.
 
 ### 9.1 Failure Classification and Response
 
-![Incident Response Matrix](/img/diagrams/generated/day-2-23-915f5d0e04.svg)
+![Incident Response Matrix](../../website/static/img/diagrams/generated/day-2-23-915f5d0e04.svg)
 
 ### 9.1.1 Error-code routing
 
@@ -952,13 +954,13 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 
 > **Related error code**: `TRANSPORT-0001` (`TRANSPORT_CONNECTION_FAILED`) — see [resilience.md §2.2](../architecture/resilience.md)
 
-![Coordinator Failure Recovery SOP](/img/diagrams/generated/day-2-24-e5c80b2ae9.svg)
+![Coordinator Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-24-e5c80b2ae9.svg)
 
 ### 9.3 Worker Failure Recovery
 
 > **Related error codes**: `WORKER-0002` (`WORKER_LOST`), `NATIVE-0004` (`NATIVE_INIT_FAILED`), `NATIVE-0001` (`NATIVE_JNI_EXCEPTION`) — see [resilience.md §2.2](../architecture/resilience.md)
 
-![Worker Failure Recovery SOP](/img/diagrams/generated/day-2-25-e0cc15c18e.svg)
+![Worker Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-25-e0cc15c18e.svg)
 
 ### 9.4 Query Timeout/OOM Recovery
 
@@ -966,7 +968,7 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 >
 > Diagnostic tip: If the error code is `RESOURCE-0001`, check Native layer memory first (the `pangrova.native.memory_used_bytes` metric), because a Native OOM is mapped to this error code by the Native-to-Java error path documented in [resilience.md §3.3](../architecture/resilience.md).
 
-![Query Timeout/OOM Recovery SOP](/img/diagrams/generated/day-2-26-013b7a09eb.svg)
+![Query Timeout/OOM Recovery SOP](../../website/static/img/diagrams/generated/day-2-26-013b7a09eb.svg)
 
 ### 9.5 Storage Failure Recovery
 
@@ -974,7 +976,7 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 >
 > Diagnostic tip: If the error code is `STORAGE_ERROR` and originates from the Native layer (NativeError error_code 200-299, error_type=`IO_ERROR`), it indicates a read failure in the Native I/O layer; check S3/HDFS connectivity and credentials.
 
-![Storage Failure Recovery SOP](/img/diagrams/generated/day-2-27-a66dae51c0.svg)
+![Storage Failure Recovery SOP](../../website/static/img/diagrams/generated/day-2-27-a66dae51c0.svg)
 
 ### 9.6 Failure Recovery Checklist
 

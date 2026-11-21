@@ -47,6 +47,7 @@ import static org.pangrova.common.util.Preconditions.requireText;
  * @param executionFencingToken backend-issued execution token (0 without HA)
  * @param publication confirmed external publication, persisted before catalog visibility (nullable)
  * @param copyFile exact COPY claim generation, absent for ordinary distributed writes
+ * @param cdcSource exact CDC stream ownership and offset interval, absent for non-CDC writes
  */
 @Stable(since = "1.0")
 public record WriteCommitEntry(
@@ -68,7 +69,8 @@ public record WriteCommitEntry(
         String ownerIncarnation,
         long executionFencingToken,
         NativeWriteFinalization publication,
-        CopyFileCommitBinding copyFile) {
+        CopyFileCommitBinding copyFile,
+        CdcSourceIdentity cdcSource) {
 
     public WriteCommitEntry {
         requireText(queryId, "queryId");
@@ -100,7 +102,8 @@ public record WriteCommitEntry(
         }
         String expectedFingerprint = WriteCommitFingerprint.compute(
                 new WriteCommitFingerprint.Intent(queryId, tenantId, catalogName, tableName, writeMode,
-                        baseSnapshotId, writeOutputBinding, principal, authorizationReceipt, copyFile), fragments);
+                        baseSnapshotId, writeOutputBinding, principal, authorizationReceipt, copyFile,
+                        cdcSource), fragments);
         if (!expectedFingerprint.equals(commitFingerprint)) {
             throw new IllegalArgumentException(
                     "commitFingerprint does not match the immutable write intent");
@@ -146,7 +149,8 @@ public record WriteCommitEntry(
         return new WriteCommitEntry(queryId, catalogName, tableName, state, timestampMs, fragments,
                 writeMode, idempotencyKey, tenantId, principal, authorizationReceipt,
                 baseSnapshotId, writeOutputBinding,
-                commitFingerprint, ownerId, ownerIncarnation, executionFencingToken, confirmed, copyFile);
+                commitFingerprint, ownerId, ownerIncarnation, executionFencingToken, confirmed, copyFile,
+                cdcSource);
     }
 
     /** Applies a monotonic lifecycle transition without dropping the immutable replay identity. */
@@ -158,14 +162,25 @@ public record WriteCommitEntry(
         return new WriteCommitEntry(queryId, catalogName, tableName, next, timestamp, fragments,
                 writeMode, idempotencyKey, tenantId, principal, authorizationReceipt,
                 baseSnapshotId, writeOutputBinding, commitFingerprint, ownerId,
-                ownerIncarnation, executionFencingToken, publication, copyFile);
+                ownerIncarnation, executionFencingToken, publication, copyFile, cdcSource);
     }
 
     /** Returns the exact connector commit context persisted with this intent. */
     public DistributedWriteCommitContext commitContext() {
+        org.pangrova.connector.api.commit.CdcSourceCommitIdentity connectorCdc =
+                cdcSource == null ? null
+                        : new org.pangrova.connector.api.commit.CdcSourceCommitIdentity(
+                                cdcSource.streamId(), cdcSource.sourceEpoch(),
+                                cdcSource.ranges().stream()
+                                        .map(range ->
+                                                new org.pangrova.connector.api.commit
+                                                        .CdcSourceCommitIdentity.OffsetRange(
+                                                        range.topic(), range.partition(),
+                                                        range.startOffset(), range.endOffset()))
+                                        .toList());
         return new DistributedWriteCommitContext(
                 queryId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
-                principal, authorizationReceipt, copyFile);
+                principal, authorizationReceipt, copyFile, connectorCdc);
     }
 
     /**

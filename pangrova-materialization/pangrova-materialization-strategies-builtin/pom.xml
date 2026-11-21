@@ -15,7 +15,7 @@
     <description>Built-in partition-replace and refresh strategies</description>
 
     <properties>
-        <module.name>org.pangrova.materialization.strategies.builtin</module.name>
+        <module.name>org.pangrova.materialization.strategy</module.name>
     </properties>
 
     <dependencies>

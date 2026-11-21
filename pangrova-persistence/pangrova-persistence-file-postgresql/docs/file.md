@@ -48,14 +48,11 @@ is shared within the contract artifact. Existing digest encoding stays unchanged
 API's value helper delegates to the same encoding implementation. There are no forwarding
 classes for the former PostgreSQL nested value FQNs.
 
-```mermaid
-graph LR
-  Server[Server assembly] --> PG[File PostgreSQL]
-  Server --> Core[Coordinator resource / binder]
-  Core --> API[File Persistence API]
-  PG --> API
-  PG --> Fence[JDBC authority / execution fence]
-```
+| Owner | Depends on |
+| --- | --- |
+| Server assembly | File PostgreSQL, Coordinator resource/binder |
+| Coordinator resource/binder | File persistence API |
+| File PostgreSQL | File persistence API, JDBC authority/execution fence |
 
 Coordinator Core carries the File PostgreSQL artifact only in test scope. A production
 closure gate enforces that File/Coordinator/Worker Core and the File contract cannot

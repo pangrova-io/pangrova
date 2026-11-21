@@ -6,8 +6,8 @@ import org.pangrova.transport.http.client.ManagedHttpClient;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
@@ -17,7 +17,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
@@ -130,8 +130,14 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
             queryExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
                     .newSingleThreadExecutor("report-fixture-query-admission");
             queries = new QueryManager(new QueryManagerContext(execution, TestObservability.TRACING,
-                    null, null, null, null, null, null, null, null, journal, null, null,
-                    AsyncSubmitConfig.defaultEnabled(), queryExecutor, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                    null, null,
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                            null, null, null, execution, null),
+                    org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                            journal, null),
+                    null, AsyncSubmitConfig.defaultEnabled(), queryExecutor,
+                    new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
             queries.setLocalCoordinatorId("report-coordinator");
             worker.connect(execution, tracker, workers, queries);
         }

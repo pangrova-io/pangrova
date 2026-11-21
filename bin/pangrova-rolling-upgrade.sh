@@ -179,7 +179,9 @@ upgrade_node() {
 
     # Step 1: Backup current lib/ (only binaries, not logs or config)
     log "  Backing up lib/ on ${host}..."
-    run_ssh "$host" "cp -r ${PANGROVA_HOME}/lib ${PANGROVA_HOME}/lib.backup" 2>/dev/null || {
+    # Reserve a fresh destination. cp into an existing backup would nest lib/
+    # and leave rollback pointing at an older or incomplete snapshot.
+    run_ssh "$host" "mkdir '${PANGROVA_HOME}/lib.backup' && cp -Rp '${PANGROVA_HOME}/lib/.' '${PANGROVA_HOME}/lib.backup/'" || {
         log "  ERROR: lib/ backup failed on ${host}; aborting before stopping the node."
         return 1
     }

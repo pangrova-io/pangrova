@@ -3,7 +3,7 @@ package org.pangrova.security.authorization;
 import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
 
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 

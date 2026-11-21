@@ -258,6 +258,6 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                 "coordinator-a",
                 "process-a",
                 7L,
-                null, null);
+                null, null, null);
     }
 }

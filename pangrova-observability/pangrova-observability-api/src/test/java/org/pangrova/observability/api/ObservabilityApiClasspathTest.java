@@ -17,8 +17,9 @@ class ObservabilityApiClasspathTest {
     void contractsLinkWithoutRuntimeOrCentralSpi() throws Exception {
         URL types = org.pangrova.observability.api.tracing.TracingProvider.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Experimental.class.getProtectionDomain().getCodeSource().getLocation();
+        URL slf4j = org.slf4j.Logger.class.getProtectionDomain().getCodeSource().getLocation();
         Path classes = Path.of(types.toURI());
-        try (var loader = new URLClassLoader(new URL[]{types, common}, ClassLoader.getPlatformClassLoader());
+        try (var loader = new URLClassLoader(new URL[]{types, common, slf4j}, ClassLoader.getPlatformClassLoader());
              var files = Files.walk(classes.resolve("org/pangrova/observability"))) {
             List<Path> classFiles = files.filter(path -> path.toString().endsWith(".class")).toList();
             assertThat(classFiles).isNotEmpty();
@@ -45,7 +46,7 @@ class ObservabilityApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.query.api.enums.QueryState", "org.pangrova.query.api.event.QueryCompletedEvent",
-                    "org.pangrova.connector.api.plugin.Connector", "io.opentelemetry.api.OpenTelemetry", "org.pangrova.query.event.QueryEventDispatcher", "org.pangrova.observability.noop.NoOpTracingProvider", "org.slf4j.Logger",
+                    "org.pangrova.connector.api.plugin.Connector", "io.opentelemetry.api.OpenTelemetry", "org.pangrova.query.event.QueryEventDispatcher", "org.pangrova.observability.noop.NoOpTracingProvider",
                     "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {

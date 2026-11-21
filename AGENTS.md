@@ -71,8 +71,11 @@ implementation, wiring, and tests.
 2. Make the smallest root-cause change consistent with existing abstractions.
 3. Add or update tests for changed behavior.
 4. Run the validation selected above; report what ran, results, and real blockers.
-5. Update `docs/` when behavior, configuration, or build steps change. Update
-   `.pangrova/rules/` only when architecture constraints or repository policy change.
+5. For every new or changed feature, check and update the affected documentation
+   under `docs/` in the same change: user workflows, SQL/API contracts,
+   configuration, architecture, and operations. Do not leave a feature
+   undocumented. Update `.pangrova/rules/` only when architecture constraints or
+   repository policy change.
 6. Before ending a session, run `.pangrova/scripts/clean-dev-artifacts.sh` and
    confirm `.pangrova/scripts/check-dev-artifacts.sh` passes.
 

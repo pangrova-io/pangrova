@@ -57,11 +57,23 @@ final class StreamingBootstrap implements AutoCloseable {
 
     private final StreamDdlExecutor ddlExecutor;
     private final StreamScheduler scheduler;
+    private final StreamStateStore stateStore;
+    private final StreamOffsetStore offsetStore;
+    private final CdcSourceRegistry sources;
+    private final String coordinatorId;
     private final ScheduledExecutorService reconciliationExecutor;
+    private CdcWorkerRuntime workerRuntime;
+    private boolean leaderActive;
 
-    StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler) {
+    StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler,
+                       StreamStateStore stateStore, StreamOffsetStore offsetStore,
+                       CdcSourceRegistry sources, String coordinatorId) {
         this.ddlExecutor = ddlExecutor;
         this.scheduler = scheduler;
+        this.stateStore = stateStore;
+        this.offsetStore = offsetStore;
+        this.sources = sources;
+        this.coordinatorId = coordinatorId;
         scheduler.stopAll();
         reconciliationExecutor = ManagedExecutorFactory.newSingleThreadScheduledExecutor("stream-reconciliation");
         reconciliationExecutor.scheduleWithFixedDelay(this::reconcileSafely, 5, 5, TimeUnit.SECONDS);
@@ -106,7 +118,7 @@ final class StreamingBootstrap implements AutoCloseable {
         StreamDdlExecutor ddlExecutor = new StreamDdlExecutor(ddlDeps);
 
         LOG.info("event=streaming_bootstrap_built");
-        return new StreamingBootstrap(ddlExecutor, scheduler);
+        return new StreamingBootstrap(ddlExecutor, scheduler, stateStore, offsetStore, sources, coordinatorId);
     }
 
     /**
@@ -114,7 +126,9 @@ final class StreamingBootstrap implements AutoCloseable {
      * The periodic pass also discovers DDL accepted by another coordinator.
      */
     void onLeaderElected() {
+        leaderActive = true;
         scheduler.resume();
+        if (workerRuntime != null) workerRuntime.setActive(true);
         reconciliationExecutor.execute(this::reconcileSafely);
         LOG.info("event=streaming_leader_elected");
     }
@@ -124,6 +138,8 @@ final class StreamingBootstrap implements AutoCloseable {
      * Called when this coordinator loses HA leadership.
      */
     void onLeadershipLost() {
+        leaderActive = false;
+        if (workerRuntime != null) workerRuntime.setActive(false);
         scheduler.stopAll();
         LOG.info("event=streaming_leadership_lost");
     }
@@ -145,6 +161,30 @@ final class StreamingBootstrap implements AutoCloseable {
 
     StreamScheduler getScheduler() {
         return scheduler;
+    }
+
+    StreamStateStore stateStore() { return stateStore; }
+    StreamOffsetStore offsetStore() { return offsetStore; }
+    CdcSourceRegistry sourceRegistry() { return sources; }
+    String coordinatorId() { return coordinatorId; }
+
+    /** Prevents the local pipeline scheduler from starting; Worker dispatch owns execution. */
+    void enableWorkerDispatch() { scheduler.enableWorkerDispatch(); }
+
+    /** Attaches the supervised Worker runtime and activates it when this process is leader. */
+    void attachWorkerRuntime(CdcWorkerRuntime runtime) {
+        workerRuntime = runtime;
+        runtime.start();
+        runtime.setActive(leaderActive);
+    }
+
+    /** Creates the connector session used by Worker-dispatched CDC writes for a stream. */
+    static ConnectorSession sessionFor(StreamState state) {
+        if (state.tenantId().isBlank()) {
+            throw new IllegalArgumentException("CDC stream tenant identity must not be blank");
+        }
+        QualifiedTableName ref = QualifiedTableName.resolve(List.of(state.targetTable().split("\\.")));
+        return new StreamConnectorSession(ref.catalog(), ref.schema(), state.tenantId());
     }
 
     StreamDdlExecutor getDdlExecutor() {

@@ -75,7 +75,7 @@ final class GeneratedAuthorityTestFixtures {
         String fingerprint = WriteCommitFingerprint.compute(intent, List.of(new byte[]{1}));
         journal.recordIntent(new WriteCommitEntry("generated-write", "lake", "sales.documents",
                 WriteCommitState.PENDING, 1_000L, List.of(new byte[]{1}), "INSERT", fingerprint,
-                "tenant-a", "alice", receipt, 40L, new byte[]{42}, fingerprint, null, null, 0, null, null));
+                "tenant-a", "alice", receipt, 40L, new byte[]{42}, fingerprint, null, null, 0, null, null, null));
         journal.markCommitted("generated-write");
         return fingerprint;
     }

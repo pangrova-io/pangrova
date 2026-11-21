@@ -17,7 +17,7 @@ sidebar_label: "Connector Design"
 
 ### 1.1 Overall Architecture
 
-![Connector Plugin Architecture](/img/diagrams/generated/connectors-01-7ad796f0cc.svg)
+![Connector Plugin Architecture](../../website/static/img/diagrams/generated/connectors-01-7ad796f0cc.svg)
 
 ### 1.2 Core SPI Interfaces
 
@@ -64,7 +64,7 @@ Factory compatibility/role negotiation and generic Plugin Runtime extraction rem
 separate work. The design diagrams below are conceptual; their version/conflict-management
 boxes do not constitute evidence that those target capabilities are implemented.
 
-![// ConnectorFactory - connector factory](/img/diagrams/generated/connectors-02-a5448245bc.svg)
+![// ConnectorFactory - connector factory](../../website/static/img/diagrams/generated/connectors-02-a5448245bc.svg)
 
 For planning, a named table lookup calls the connector's `getTableHandle` and
 `getTableMetadata` for that table only. Calcite table-name enumeration calls
@@ -80,7 +80,7 @@ state so an external drop or recreation is visible immediately.
 
 ### 2.1 ClassLoader Hierarchy
 
-![ClassLoader Hierarchy](/img/diagrams/generated/connectors-03-38480fcbc0.svg)
+![ClassLoader Hierarchy](../../website/static/img/diagrams/generated/connectors-03-38480fcbc0.svg)
 
 ### 2.2 PluginClassLoader Implementation
 
@@ -173,11 +173,11 @@ still pins its own immutable metadata and source identity through the query life
 
 ### 3.1 Design Goals
 
-![Protocol Abstraction Goals](/img/diagrams/generated/connectors-05-e4151d28e6.svg)
+![Protocol Abstraction Goals](../../website/static/img/diagrams/generated/connectors-05-e4151d28e6.svg)
 
 ### 3.2 Protocol Layer Architecture
 
-![Protocol Layer Architecture](/img/diagrams/generated/connectors-06-2512adf421.svg)
+![Protocol Layer Architecture](../../website/static/img/diagrams/generated/connectors-06-2512adf421.svg)
 
 ### 3.3 Responsibility Boundary Between PangrovaReadExtension and DataSplit
 
@@ -189,7 +189,7 @@ Pangrova's read protocol is split into two layers:
 | JNI transport layer | `DataSplit` | canonical v2 `task.proto` (single authority) | Snapshot-pinned generic execution input for one source range, executed directly by Native | Java SplitManager → canonical TaskRequest → Native task parser |
 
 Conversion flow:
-![PangrovaReadExtension (table-level, Planner phase)](/img/diagrams/generated/connectors-07-599361ec6d.svg)
+![PangrovaReadExtension (table-level, Planner phase)](../../website/static/img/diagrams/generated/connectors-07-599361ec6d.svg)
 
 PangrovaReadExtension is an intermediate Planner representation and is not
 passed directly to Native. Native receives only canonical `DataSplit` values;
@@ -236,11 +236,11 @@ enum ReadMode {
 
 The conversion from PangrovaReadExtension (Planner layer) → SplitInfo (execution layer) is performed by the Java SplitManager:
 
-![PangrovaReadExtension → SplitInfo Conversion Mapping](/img/diagrams/generated/connectors-09-0523c1826f.svg)
+![PangrovaReadExtension → SplitInfo Conversion Mapping](../../website/static/img/diagrams/generated/connectors-09-0523c1826f.svg)
 
 ### 3.5 Java SplitManager Conversion Interface
 
-![/**](/img/diagrams/generated/connectors-10-09efff5393.svg)
+![/**](../../website/static/img/diagrams/generated/connectors-10-09efff5393.svg)
 
 ---
 
@@ -248,7 +248,7 @@ The conversion from PangrovaReadExtension (Planner layer) → SplitInfo (executi
 
 ### 4.1 Module Structure
 
-![pangrova-connector/pangrova-connector-iceberg/](/img/diagrams/generated/connectors-11-0c220e0261.svg)
+![pangrova-connector/pangrova-connector-iceberg/](../../website/static/img/diagrams/generated/connectors-11-0c220e0261.svg)
 
 ### 4.2 Core Implementation
 
@@ -403,19 +403,19 @@ production caller reaches must not be described as supported.
 
 ### 6.1 Federation Query Architecture
 
-![Federation Query Architecture](/img/diagrams/generated/connectors-14-174ddd2c7d.svg)
+![Federation Query Architecture](../../website/static/img/diagrams/generated/connectors-14-174ddd2c7d.svg)
 
 ### 6.2 Connector Type Classification
 
-![Connector Type Classification](/img/diagrams/generated/connectors-15-b18cd8e136.svg)
+![Connector Type Classification](../../website/static/img/diagrams/generated/connectors-15-b18cd8e136.svg)
 
 ### 6.3 Cross-Source Join Optimization
 
-![Cross-Source Join Optimization](/img/diagrams/generated/connectors-16-74332bf683.svg)
+![Cross-Source Join Optimization](../../website/static/img/diagrams/generated/connectors-16-74332bf683.svg)
 
 ### 6.4 Federation Query Execution Flow
 
-![Federation Query Execution Flow](/img/diagrams/generated/connectors-17-3e8b960cef.svg)
+![Federation Query Execution Flow](../../website/static/img/diagrams/generated/connectors-17-3e8b960cef.svg)
 
 ---
 
