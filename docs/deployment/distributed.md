@@ -89,10 +89,31 @@ pangrova hard nproc 65536
 EOF
 ```
 
-### 1.4 Build Pangrova from Source
+### 1.4 Install Pangrova
 
-The host-based instructions below use a built source checkout at
-`/opt/pangrova` on each node. Use the same source revision on all nodes. Follow
+For a Linux x86_64 release that includes a host distribution, download
+`pangrova-VERSION-linux-x86_64.tar.gz` and `SHA256SUMS` from that release.
+Verify the archive against its entry in `SHA256SUMS` before extraction. Extract
+it into a fresh directory and use that directory as `/opt/pangrova` in the
+following steps. Use the same version and `sourceRevision` from
+`manifest.json` on every node. The archive includes the Coordinator, Worker,
+and standalone classpaths, the CLI, configuration templates, and the matching
+JNI bundle. The other platforms have separately identified Native assets and
+classifier JARs.
+
+Raw Native libraries are named `libpangrova_native-CLASSIFIER.EXT`. Release
+staging checks the architecture of every matrix library, verifies that each
+classifier JAR contains the same JNI bytes, and publishes SHA-256 checksums
+for the archives, classifier JARs and raw libraries.
+
+Maintainers can run the Release workflow manually with a version to assemble and
+verify unpublished assets from the selected source revision. The workflow
+checks the extracted Linux archive in standalone and separate-process modes.
+Tagged releases publish the verified outputs after checking the transfer
+checksums.
+
+For a source installation, use a built checkout at `/opt/pangrova` on each
+node and the same source revision on all nodes. Follow
 [Build from Source](../getting-started/quickstart.md#build-from-source) for the
 pinned Iceberg SDK, native runtime, and Maven packages. Keep the checkout,
 module `target/` outputs, and Maven runtime dependencies available to the
@@ -101,11 +122,9 @@ resolved dependency paths. Copying just the JARs or a native library is not
 sufficient. Make the checkout's `logs/` writable by the service user, or set
 `PANGROVA_LOG_DIR` to a writable location.
 
-The release workflow does not assemble a runnable `pangrova-<version>.tar.gz`.
-For a container-based evaluation instead, see
-[Docker Deployment](docker.md#docker--build-image-from-source) for the
-Buildx/Bake source build and Compose instructions. That path is separate from
-the host-based setup below and does not qualify HA or production readiness.
+For a disposable Docker evaluation of a published release, see the
+[version-pinned preview](../getting-started/quickstart.md#version-pinned-docker-preview).
+The preview runs the standalone Iceberg check in an isolated network.
 
 ```bash
 # Create directories

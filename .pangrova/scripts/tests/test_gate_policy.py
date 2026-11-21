@@ -504,6 +504,9 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertIn('needs: [native-build, validation]', release)
         self.assertIn('name: release-native-bundle-', release)
         self.assertNotIn('runner: macos-13', self.workflow + release)
+        self.assertIn('workflow_dispatch:', release)
+        self.assertIn('if: github.event_name == \'push\' && startsWith(github.ref, \'refs/tags/v\')', release)
+        self.assertLess(release.index('pangrova-preview.sh verify'), release.index('softprops/action-gh-release'))
 
     def test_reference_generator_is_manual_and_no_longer_a_pr_engine_gate(self):
         reference = (ROOT / '.github/workflows/nightly-operator-fuzzer.yml').read_text()

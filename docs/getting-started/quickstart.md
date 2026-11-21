@@ -191,17 +191,43 @@ The response includes a `query_id` and `state`. See [REST API](clients/rest-api.
 bin/pangrova-stop.sh --all
 ```
 
+## Run the Iceberg Trial in One Command
+
+After the [source build](#build-from-source) and [standalone startup](#start-standalone-mode),
+run from the checkout root with Python 3.10+:
+
+```bash
+python3 examples/iceberg-smoke.py --local-standalone-port 8080 --token-env PANGROVA_TRIAL_TOKEN
+```
+
+Use the port of a **disposable, host-local standalone instance** with an active
+Worker and no catalogs. Set `PANGROVA_TRIAL_TOKEN` to a bearer token for a
+trial principal with active tenant membership and permission to create and
+drop catalogs and tables, create schemas, and insert and select rows. Enable
+`tenant.enabled` for the trial so writes can verify the principal's membership.
+The script generates the catalog name per run. Keep the shared Coordinator and
+Worker internal authentication secret configured, and run the Coordinator,
+Worker, and CLI on the same local filesystem.
+
+The script checks each batch statement and verifies both aggregate rows. It
+drops the table and catalog it confirmed it created, then removes the temporary
+warehouse, including its schema directory. Expect
+`Iceberg trial passed: click=2, purchase=1`. If a
+catalog change or cleanup cannot be confirmed, the script reports the generated
+catalog name and keeps the diagnostic files for inspection.
+
 ## End-to-End Example: Query Iceberg Data
 
-Run this example in the CLI against a **local standalone instance** as described
-above. It uses three sample rows, a local warehouse, and no cloud credentials.
-Use an isolated development instance: the example creates and later drops a
-catalog, schema, and table. From the checkout root, you can run the
+Run this example in the CLI against a **local standalone instance** with the
+authorized trial principal described above. It uses three sample rows, a local
+warehouse, and no cloud credentials.
+Use an isolated development instance. The example creates a catalog, schema,
+and table. From the checkout root, you can run the
 [SQL fixture](https://github.com/pangrova-io/pangrova/blob/main/examples/iceberg-smoke.sql)
 in one pass:
 
 ```bash
-bin/pangrova-cli.sh --host localhost --port 8080 < examples/iceberg-smoke.sql
+bin/pangrova-cli.sh --host localhost --port 8080 --token-env PANGROVA_TRIAL_TOKEN < examples/iceberg-smoke.sql
 ```
 
 Check the output for errors and the two expected rows below. Piped input runs
@@ -282,11 +308,53 @@ VACUUM local_iceberg.demo.events;
 
 ```sql
 DROP TABLE local_iceberg.demo.events;
-DROP SCHEMA local_iceberg.demo;
 DROP CATALOG local_iceberg;
 ```
 
+After both statements succeed, remove the local warehouse directory if you
+created it solely for this example. The schema directory lives inside it.
+
 ## Docker Quick Start
+
+### Version-pinned Docker preview
+
+The preview uses a published Linux x86_64 host distribution. Use a Linux x86_64
+machine with AVX2, FMA, F16C, LZCNT and BMI2, a local Docker Engine, Bash, curl,
+tar, sha256sum, and
+network access to GitHub Releases, Docker Hub, and the preview image's package
+repositories. Allow memory for the 2 GiB standalone Java heap, native execution,
+and PostgreSQL, and disk space for the image layers and expanded archive.
+
+Download `pangrova-preview.sh` and `SHA256SUMS` from the chosen
+[GitHub release](https://github.com/pangrova-io/pangrova/releases). Verify the
+launcher using its checksum and set `VERSION` to that release's version
+without `v`. Set `ARCHIVE_SHA256` to the checksum listed for
+`pangrova-VERSION-linux-x86_64.tar.gz`. Run:
+
+```bash
+bash pangrova-preview.sh start "$VERSION" "$ARCHIVE_SHA256"
+```
+
+The launcher verifies the archive, starts PostgreSQL and standalone on a private
+Docker network, provisions an ephemeral OAuth2 identity and tenant, and runs the
+Iceberg trial inside the runtime container. It prints the source revision and
+elapsed time. A successful run prints `click=2, purchase=1` and verifies the
+catalog and warehouse cleanup. The launcher removes its containers, network,
+image tag, and temporary extraction directory on exit.
+
+Release validation runs the same check on the assembled archive in both
+standalone and separate Coordinator and Worker processes before uploading it.
+
+If an interruption prevents Docker cleanup, use the printed preview ID:
+
+```bash
+bash pangrova-preview.sh stop "$TRIAL_ID"
+```
+
+The stop command selects resources by the preview ID and ownership label.
+Docker's shared image layers and build cache remain available for later trials.
+This evaluation covers the standalone Iceberg path on Linux x86_64. Use the
+[deployment guides](../deployment/index.md) for service deployment.
 
 The Docker Compose profile is for isolated development only: it publishes
 service ports and uses a development authentication mode that accepts
@@ -344,10 +412,9 @@ docker compose down
 
 ## Packaged Runtime Layout
 
-The release workflow does not assemble a runnable binary tarball. For the
-current launch paths, use the [source build](#build-from-source) or the
-[Docker image build](../deployment/docker.md#docker--build-image-from-source).
-If you stage a packaged runtime, the launchers expect this layout:
+Linux x86_64 host archives use this layout. The release lists SHA-256
+checksums and the archive includes a manifest with its version, source commit,
+and JNI classifier.
 
 | Directory | Purpose |
 |-----------|---------|

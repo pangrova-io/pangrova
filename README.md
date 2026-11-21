@@ -82,7 +82,8 @@ compiles external dependencies and can take substantial time. Standalone mode
 runs a Coordinator and Worker in one JVM for development and evaluation, not as
 a production deployment recommendation.
 
-Then run the [three-row Iceberg example](docs/getting-started/quickstart.md#end-to-end-example-query-iceberg-data).
+Then run the [one-command Iceberg trial](docs/getting-started/quickstart.md#run-the-iceberg-trial-in-one-command)
+or follow the [three-row SQL example](docs/getting-started/quickstart.md#end-to-end-example-query-iceberg-data).
 The [SQL fixture](examples/iceberg-smoke.sql) creates a local events table and
 aggregates it to two clicks and one purchase. The Quickstart also covers
 [Docker setup](docs/getting-started/quickstart.md#docker-quick-start), liveness
