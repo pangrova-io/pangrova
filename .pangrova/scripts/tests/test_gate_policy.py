@@ -398,6 +398,8 @@ class RuntimeScopeTest(unittest.TestCase):
         velox = native_caches['Cache Velox build layer']
         for path in ('_build/release/_deps', '_build/release/lib', 'CMakeCache.txt'):
             self.assertIn(path, velox)
+        self.assertIn("'pangrova-worker-native/patches/velox-*.patch'", velox)
+        self.assertNotIn("'pangrova-worker-native/patches/*'", velox)
         ccache = native_caches['Cache compiler results']
         self.assertIn('${{ github.sha }}', ccache)
         self.assertIn('restore-keys:', ccache)

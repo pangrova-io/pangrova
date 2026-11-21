@@ -11,10 +11,6 @@ on:
   push:
     paths:
       - 'pangrova-worker-native/dependency-versions.txt'
-      - 'pangrova-worker-native/patches/**'
-      - 'pangrova-worker-native/bin/setup-native-build-env.sh'
-      - 'pangrova-worker-native/bin/setup-native-asan-env.sh'
-      - '.github/actions/setup-native-build/action.yml'
       - '.github/workflows/native-deps-baseline.yml'
 
 permissions:
@@ -71,7 +67,7 @@ jobs:
             ~/.pangrova/velox/_build/release/_deps
             ~/.pangrova/velox/_build/release/lib
             ~/.pangrova/velox/_build/release/CMakeCache.txt
-          key: pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/*', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
+          key: pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
 
       - name: Cache compiler results
         uses: actions/cache@v4
