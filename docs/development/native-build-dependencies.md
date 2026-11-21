@@ -84,9 +84,11 @@ miss:
 
 Three dependency contracts are enforced at configure time:
 
-- Ubuntu's `libgflags-dev` ships only a non-PIC static archive. `FindVelox.cmake`
-  resolves the runtime shared `libgflags.so.2.2` for every gflags link so
-  `libpangrova_native.so` never embeds non-relocatable code.
+- Ubuntu's packaged static gflags archive is not position-independent. Linux
+  development and sanitizer builds link the shared library, including Folly's
+  configuration-specific CMake imports. The production image builds Velox's
+  pinned gflags version as PIC and links its static archive from the production
+  dependency prefix.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
@@ -182,11 +184,6 @@ embedded dependencies (OpenTelemetry, simdjson) as position-independent code and
 selects `ld.lld` when it is installed; lld inserts range-extension thunks and the
 link also passes `--undefined-version` because the JNI version script names
 optional entry points. CI installs `lld` on Linux for this purpose.
-
-On Linux, Native and sanitizer builds use the shared gflags library for
-Folly's transitive link. Both the default and configuration-specific CMake
-import locations select it, so a Release link does not pull Ubuntu's
-non-position-independent static archive into the JNI shared library.
 
 When Velox resolves the AWS SDK, Thrift, stemmer or the s2n archive from one
 dependency prefix, native builds link them beside the AWS CRT: Linux wraps the
