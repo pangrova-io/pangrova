@@ -57,7 +57,7 @@ if [[ "$OS" == "Darwin" ]]; then
   fi
   HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
   OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
-  if [[ -z "$OPENSSL_PREFIX" ]]; then
+  if [[ ! -f "$OPENSSL_PREFIX/include/openssl/ssl.h" ]]; then
     # Arrow's bundled thrift still calls APIs removed in OpenSSL 4 (SSLv3_method,
     # ASN1_STRING_data); build the whole dependency stack against OpenSSL 3.
     HOMEBREW_NO_AUTO_UPDATE=1 "$PANGROVA_BREW" install openssl@3
@@ -200,6 +200,11 @@ configure_compiler() {
   [[ "$SDKROOT" == /* && "$SDKROOT" != "/" && -d "$SDKROOT/usr/include" ]] \
     || die "macOS SDK headers not found at $SDKROOT"
   export SDKROOT
+  [[ -f "$OPENSSL_PREFIX/include/openssl/ssl.h" ]] \
+    || die "OpenSSL 3 headers not found at $OPENSSL_PREFIX"
+  # Arrow's Thrift ExternalProject runs during dependency installation, before
+  # the Velox configure. Export the root for every CMake subprocess.
+  export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
   [[ -n "$BISON_PREFIX" && -d "$BISON_PREFIX/bin" ]] && export PATH="$BISON_PREFIX/bin:$PATH"
   [[ -n "$FLEX_PREFIX" && -d "$FLEX_PREFIX/bin" ]] && export PATH="$FLEX_PREFIX/bin:$PATH"
@@ -321,7 +326,7 @@ build_grpc() {
     ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a)
   fi
   if [[ "$OS" == "Darwin" ]]; then
-    ssl_args+=("-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
+    ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
   fi
   checkout_dependency https://github.com/grpc/grpc.git "$GRPC_VERSION" "$src"
   # Package providers supply abseil, protobuf, and zlib. Only the providers
@@ -481,9 +486,8 @@ build_velox() {
     }
 
     install_arrow() {
-      # Arrow only builds its bundled thrift when ARROW_WITH_THRIFT is on.
-      # Thrift's SSL transport no longer compiles against OpenSSL 3.5+ const
-      # return types and Parquet is off, so nothing in this install uses it.
+      # Arrow 18 also enables Boost discovery through Thrift, which supplies
+      # the Boost::process target required to build Velox's ArrowTesting archive.
       wget_and_untar \
         https://github.com/apache/arrow/archive/apache-arrow-"${ARROW_VERSION}".tar.gz arrow
       (
@@ -499,7 +503,7 @@ build_velox() {
       ) || exit 1
       cmake_install_dir arrow/cpp \
         -DARROW_PARQUET=OFF \
-        -DARROW_WITH_THRIFT=OFF \
+        -DARROW_WITH_THRIFT=ON \
         -DARROW_WITH_LZ4=ON \
         -DARROW_WITH_SNAPPY=ON \
         -DARROW_WITH_ZLIB=ON \
@@ -673,10 +677,6 @@ build_velox() {
     if [[ -n "$OPENSSL_PREFIX" ]]; then
       velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
       velox_prefix_path+=";$OPENSSL_PREFIX"
-      # Arrow's ExternalProject sub-builds do not inherit -D flags; the
-      # environment is what keeps their find_package(OpenSSL) on openssl@3
-      # instead of Homebrew's default openssl@4.
-      export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
     fi
     [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
@@ -857,7 +857,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
