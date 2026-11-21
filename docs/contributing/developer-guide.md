@@ -670,6 +670,17 @@ public class QueryExecutorTest {
 }
 ```
 
+### 5.2 Mutation Testing
+
+After installing the reactor dependencies, use the `mutation` profile on the
+module you want to measure. PIT selects classes from that module's build output.
+
+```bash
+mvn -pl :pangrova-scheduler-policy -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+```
+
+The report is written to the selected module's `target/pit-reports/` directory.
+
 ## 6. Code Submission Conventions
 
 ### 6.1 Commit Message Format
