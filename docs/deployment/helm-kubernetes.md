@@ -86,6 +86,9 @@ the ID from the Coordinator configuration. For multiple replicas, use
 `coordinator.identityMode: podUid`, and provide a complete `config.coordinator`
 YAML with `coordinator.ha.enabled: true` and **without** a `coordinator.id` key.
 The chart rejects any fixed ID in this mode, including its embedded default.
+Define the HA setting only in the nested `coordinator` → `ha` → `enabled`
+mapping. The chart rejects dotted override keys for this setting when rendering
+multiple replicas because the Java loader flattens them to the same property.
 Compose this file from the current configuration rather than replacing
 authentication, TLS or shared JDBC settings with development defaults.
 

@@ -42,6 +42,14 @@ for id in coordinator-1 explicit-site-node null; do
   awk -v id="$id" '{print} /^coordinator:$/ {print "  id: " id}' \
     "$work/ha.yml" >"$work/$id.yml"
 done
+cp "$work/ha.yml" "$work/dotted-id.yml"
+printf '%s\n' 'coordinator.id: explicit-site-node' >>"$work/dotted-id.yml"
+cp "$work/ha.yml" "$work/dotted-ha.yml"
+printf '%s\n' 'coordinator.ha.enabled: false' >>"$work/dotted-ha.yml"
+cp "$work/ha.yml" "$work/dotted-ha-map.yml"
+printf '%s\n' 'coordinator.ha:' '  enabled: false' >>"$work/dotted-ha-map.yml"
+awk '/^security:$/ {print "  ha.enabled: false"} {print}' \
+  "$work/ha.yml" >"$work/nested-dotted-ha.yml"
 
 # Single-replica customers keep their configured ID by default.
 render --set-file "config.coordinator=$work/explicit-site-node.yml" >"$work/single"
@@ -60,10 +68,15 @@ expect_failure 'multiple Coordinator replicas require coordinator.identityMode=p
   --set coordinator.replicas=2 --set-file "config.coordinator=$work/ha.yml"
 expect_failure 'requires removing coordinator.id from config.coordinator' \
   --set coordinator.identityMode=podUid
-for id in coordinator-1 explicit-site-node null; do
+for id in coordinator-1 explicit-site-node null dotted-id; do
   expect_failure 'requires removing coordinator.id from config.coordinator' \
     --set coordinator.replicas=2 --set coordinator.identityMode=podUid \
     --set-file "config.coordinator=$work/$id.yml"
+done
+for config in dotted-ha dotted-ha-map nested-dotted-ha; do
+  expect_failure 'require nested coordinator.ha.enabled without a dotted override' \
+    --set coordinator.replicas=2 --set coordinator.identityMode=podUid \
+    --set-file "config.coordinator=$work/$config.yml"
 done
 
 # Keep the identity policy through a deliberate scale-down to one Pod.
