@@ -142,5 +142,4 @@ public final class DAGStagePlanBinder {
         return RetrievalPlanBinder.bindTypedCapabilities(
                 serialized, queryId, stageId, artifacts);
     }
-
 }

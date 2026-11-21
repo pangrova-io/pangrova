@@ -68,5 +68,6 @@ The `tpch-performance` PR check verifies complete derived workloads, real Parque
 conversion, evidence/comparison rejection paths and the production REST client over
 HTTP and Flight fixtures; fixture maxima are never P99. `nightly-tpc-benchmark.yml`
 owns exclusive-host SF100/SF1000 campaigns with reviewed baselines; missing
-configuration, capacity or cleanup is a failed outcome. See
+configuration, capacity or cleanup is a failed outcome, and its unattended schedule
+is skipped until `TPC_BENCHMARK_CONFIG_DIR` provisions the dedicated fleet. See
 `docs/testing/tpc-benchmark-methodology.md`.

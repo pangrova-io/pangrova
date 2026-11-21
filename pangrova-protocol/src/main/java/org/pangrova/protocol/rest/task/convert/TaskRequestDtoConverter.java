@@ -75,6 +75,7 @@ public final class TaskRequestDtoConverter {
             case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
             case TASK_KIND_BACKGROUND_VALIDATE -> "BACKGROUND_VALIDATE";
             case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
+            case TASK_KIND_CDC_INGEST -> "CDC_INGEST";
             default -> throw new IllegalArgumentException(
                     "Unsupported canonical task kind: " + kind);
         };

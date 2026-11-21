@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
@@ -35,7 +36,7 @@ import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;
@@ -45,7 +46,7 @@ import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.policy.GroupRoleMapping;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;

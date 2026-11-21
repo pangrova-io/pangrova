@@ -286,6 +286,12 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return (CreateDynamicTableStatement) extDdl.visitCreateDynamicTable(ctx.createDynamicTable());
     }
     @Override
+    public Statement visitCreateContinuousQueryStatement(
+            PangrovaSqlParser.CreateContinuousQueryStatementContext ctx) {
+        return (org.pangrova.parser.api.ast.CreateContinuousQueryStatement)
+                extDdl.visitCreateContinuousQuery(ctx.createContinuousQuery());
+    }
+    @Override
     public Statement visitAlterDynamicTableStatement(PangrovaSqlParser.AlterDynamicTableStatementContext ctx) {
         return (AlterDynamicTableStatement) extDdl.visit(ctx.alterDynamicTable());
     }

@@ -106,7 +106,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 if (refreshed) deleteRemovedFileStatistics(store, files);
                 yield refreshed;
             }
-            case DELETE -> {
+            case DELETE, MERGE -> {
                 markIndexesStale(store, files);
                 yield true;
             }

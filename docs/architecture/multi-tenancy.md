@@ -15,7 +15,7 @@ sidebar_label: "Multi-Tenancy"
 
 ## 1. Multi-Tenancy Architecture Overview
 
-![Tenant isolation: identity, admission, placement, execution, and audit all use the same current ACTIVE tenant](/img/diagrams/tenant-isolation.svg)
+![Tenant isolation: identity, admission, placement, execution, and audit all use the same current ACTIVE tenant](../../website/static/img/diagrams/tenant-isolation.svg)
 
 ---
 
@@ -114,7 +114,7 @@ CREATE TABLE tenant_users (
 
 ### 3.1 Resource Pool Architecture
 
-![Resource Pool Architecture](/img/diagrams/generated/multi-tenancy-03-5140e0a9b5.svg)
+![Resource Pool Architecture](../../website/static/img/diagrams/generated/multi-tenancy-03-5140e0a9b5.svg)
 
 ### 3.2 Resource Pool Configuration
 
@@ -207,7 +207,7 @@ public class ResourcePoolManager {
 
 ### 4.1 Quota Check
 
-![/**](/img/diagrams/generated/multi-tenancy-05-828ca26808.svg)
+![/**](../../website/static/img/diagrams/generated/multi-tenancy-05-828ca26808.svg)
 
 ### 4.2 Quota Alerting
 

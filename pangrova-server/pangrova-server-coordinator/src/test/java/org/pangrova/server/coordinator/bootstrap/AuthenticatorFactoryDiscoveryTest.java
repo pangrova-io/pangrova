@@ -5,7 +5,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.api.authentication.AuthenticatorFactory;
-import org.pangrova.security.auth.builtin.BypassAuthenticator;
+import org.pangrova.security.auth.BypassAuthenticator;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
 
 import java.util.List;

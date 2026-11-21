@@ -1,0 +1,29 @@
+--- a/folly/lang/Exception.cpp
++++ b/folly/lang/Exception.cpp
+@@ -228,7 +228,7 @@
+   _Unwind_Exception unwindHeader;
+ };
+ 
+-#if _LIBCPP_VERSION < 180000 || !_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION
++#if 1 // Pangrova: keep the pre-libc++18 exception path
+ static const uint64_t kOurExceptionClass = 0x434C4E47432B2B00; // CLNGC++\0
+ #endif
+ 
+@@ -257,7 +257,7 @@
+ 
+ namespace __cxxabiv1 {
+ 
+-#if _LIBCPP_VERSION < 180000 || !_LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION
++#if 1 // Pangrova: keep the pre-libc++18 exception path
+ static const uint64_t kOurExceptionClass = 0x474E5543432B2B00; // GNUCC++\0
+ #endif
+ 
+@@ -788,7 +788,7 @@
+     make_exception_ptr_with_arg_ const& arg, void* func) noexcept {
+   void* object = abi::__cxa_allocate_exception(arg.size);
+   auto type = const_cast<std::type_info*>(arg.type);
+-#if _LIBCPP_VERSION >= 180000 && _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION
++#if 0 // Pangrova: __cxa_init_primary_exception needs macOS 14+
+   (void)abi::__cxa_init_primary_exception(object, type, arg.dtor);
+   cxxabi_with_cxa_exception(object, [&](auto exception) {
+     exception->referenceCount = 1;

@@ -9,7 +9,7 @@
     <artifactId>pangrova-security-auth-builtin</artifactId>
     <name>pangrova-security-auth-builtin</name>
     <properties>
-        <module.name>org.pangrova.security.auth.builtin</module.name>
+        <module.name>org.pangrova.security.auth</module.name>
     </properties>
     <dependencies>
         <dependency>

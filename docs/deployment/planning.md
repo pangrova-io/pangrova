@@ -21,7 +21,7 @@ decision points, sizing guidance, and prerequisites shared by all deployment met
 
 A Pangrova cluster has two roles:
 
-- **Coordinator** — parses and plans SQL, authorizes/admit queries, schedules fragments,
+- **Coordinator** — parses and plans SQL, authorizes and admits queries, schedules fragments,
   serves control/catalog APIs, and performs final catalog publication. Final query
   aggregation and result streaming belong to an Output Worker. Multiple Coordinators
   need configured leases/fencing and an available durable state store.

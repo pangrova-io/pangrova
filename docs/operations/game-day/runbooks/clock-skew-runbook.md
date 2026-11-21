@@ -18,7 +18,7 @@ description: "Diagnose and recover from coordinator or metadata clock skew"
 
 ## Decision Tree
 
-![Clock skew suspected?](/img/diagrams/generated/clock-skew-runbook-01-b2725cdb20.svg)
+![Clock skew suspected?](../../../../website/static/img/diagrams/generated/clock-skew-runbook-01-b2725cdb20.svg)
 
 ---
 

@@ -243,6 +243,7 @@ coordinator:
   id: "${HOSTNAME:-coordinator-1}"
   host: "0.0.0.0"
   port: 8080
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
   ha:
     enabled: true
     # Leader election uses the metadata DataSource; no separate HA database.

@@ -69,6 +69,9 @@ configuration key:
 4. Lowercase the result
 
 Example: `PANGROVA_COORDINATOR_PORT=9090` overrides `coordinator.port`.
+This mapping does not convert underscores to hyphens. For hyphenated keys such as
+`coordinator.internal-auth-secret`, use an explicit YAML environment placeholder
+as shown in [Security configuration](security.md#internal-authentication-coordinator--worker).
 
 ---
 
@@ -93,7 +96,7 @@ Environment variables understood by the launch scripts in `bin/`:
 | `PANGROVA_CONF_DIR` | `$PANGROVA_HOME/etc` | Configuration directory |
 | `PANGROVA_LOG_DIR` | `$PANGROVA_HOME/logs` | Log and PID file directory |
 | `PANGROVA_JAVA_OPTS` | — | Override all JVM options |
-| `PANGROVA_ROLE` | — | Node role for the unified `pangrova.sh` launcher |
+| `PANGROVA_ROLE` | — | Logback role property; process selection uses the explicit `pangrova.sh start <role>` argument |
 | `PANGROVA_COORDINATOR_URL` | — | Coordinator URL (worker registration, CLI) |
 | `JAVA_HOME` | (system) | Path to a JDK 17+ installation |
 

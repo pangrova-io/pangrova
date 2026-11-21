@@ -4,7 +4,7 @@ import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import org.pangrova.query.api.exception.QueryRejectedException;
@@ -27,7 +27,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.common.client.error.ErrorDetail;

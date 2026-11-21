@@ -17,8 +17,6 @@ import org.pangrova.streaming.cdc.CdcPipelineLoop;
 import org.pangrova.streaming.cdc.CdcPipelineLoopContext;
 import org.pangrova.streaming.cdc.CdcPipelineRuntimeHooks;
 import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
-import org.pangrova.streaming.query.ContinuousQueryConsumer;
-import org.pangrova.streaming.query.ContinuousQueryExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,15 +95,13 @@ public final class StreamScheduler implements AutoCloseable {
 
     private final StreamSchedulerContext deps;
     private final ConcurrentHashMap<String, PipelineEntry> activePipelines = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Duration> continuousQueries = new ConcurrentHashMap<>();
     private final ExecutorService pipelineExecutor;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     /** BUG-D16 fix: prevents new pipelines from starting between stopAll and resume. */
     private final AtomicBoolean paused = new AtomicBoolean(false);
+    private volatile boolean workerDispatch;
     private final String coordinatorId;
     private final Object lifecycleLock = new Object();
-    /** Optional consumer that drives execution of registered continuous queries. */
-    private volatile ContinuousQueryConsumer continuousQueryConsumer;
 
     /** Creates a scheduler with the durable identity of its coordinator process. */
     public StreamScheduler(StreamSchedulerContext deps, String coordinatorId) {
@@ -126,36 +122,11 @@ public final class StreamScheduler implements AutoCloseable {
         return coordinatorId;
     }
 
-    /**
-     * Starts the continuous query consumer that polls the registration map and
-     * activates refresh loops. Idempotent — calling more than once has no effect.
-     *
-     * @param executor      executor that performs the actual incremental refresh per CQ
-     * @param scanInterval  how often to scan the registration map for new entries
-     */
-    public synchronized void startContinuousQueryConsumer(
-            ContinuousQueryExecutor executor, Duration scanInterval) {
-        if (closed.get()) {
-            throw new IllegalStateException("Stream scheduler is closed");
-        }
-        if (continuousQueryConsumer != null) {
-            return;
-        }
-        Objects.requireNonNull(executor, "executor must not be null");
-        Objects.requireNonNull(scanInterval, "scanInterval must not be null");
-        continuousQueryConsumer = new ContinuousQueryConsumer(
-                continuousQueries, executor, scanInterval);
-        continuousQueryConsumer.start();
-        LOG.info("event=continuous_query_consumer_started scanInterval={}", scanInterval);
-    }
-
-    /** Returns the active continuous query consumer for inspection/testing. */
-    public ContinuousQueryConsumer continuousQueryConsumer() {
-        return continuousQueryConsumer;
-    }
-
     /** Reserves a local slot before claiming a new durable attempt or allocating source resources. */
     public void start(StreamState state) {
+        if (workerDispatch) {
+            return;
+        }
         PipelineEntry entry = new PipelineEntry(state);
         synchronized (lifecycleLock) {
             if (closed.get() || paused.get()
@@ -357,6 +328,12 @@ public final class StreamScheduler implements AutoCloseable {
                 .toArray(Runnable[]::new));
     }
 
+    /** Selects Worker-dispatched execution; no local pipeline is started. */
+    public void enableWorkerDispatch() {
+        workerDispatch = true;
+        stopAll();
+    }
+
     /** Accepts new work again after leadership is regained. */
     public void resume() {
         synchronized (lifecycleLock) {
@@ -371,13 +348,7 @@ public final class StreamScheduler implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        ContinuousQueryConsumer consumer;
-        synchronized (this) {
-            consumer = continuousQueryConsumer;
-            continuousQueryConsumer = null;
-        }
-        ResourceCloser.closeAll(null, this::stopAll,
-                ResourceCloser.present(consumer, ContinuousQueryConsumer::close), pipelineExecutor::shutdownNow);
+        ResourceCloser.closeAll(null, this::stopAll, pipelineExecutor::shutdownNow);
         LOG.info("event=stream_scheduler_closed");
     }
 
@@ -387,43 +358,6 @@ public final class StreamScheduler implements AutoCloseable {
 
     public int activeCount() {
         return activePipelines.size();
-    }
-
-    /**
-     * Registers a continuous query for watermark-based auto-refresh.
-     * Subscribes to {@link WatermarkTracker} for the source table and triggers
-     * incremental refresh when watermark advances beyond the threshold.
-     *
-     * @param cqName          continuous query name
-     * @param refreshInterval refresh interval (how often to check watermark advance)
-     */
-    public void registerContinuousQuery(String cqName, Duration refreshInterval) {
-        if (closed.get() || paused.get()) {
-            LOG.warn("event=continuous_query_rejected cqName={} reason={}",
-                    cqName, closed.get() ? "scheduler_closed" : "scheduler_paused");
-            return;
-        }
-        continuousQueries.put(cqName, refreshInterval);
-        LOG.info("event=continuous_query_registered cqName={} refreshInterval={}", cqName, refreshInterval);
-    }
-
-    /**
-     * Unregisters a continuous query.
-     *
-     * @param cqName continuous query name
-     */
-    public void unregisterContinuousQuery(String cqName) {
-        Duration removed = continuousQueries.remove(cqName);
-        if (removed != null) {
-            LOG.info("event=continuous_query_unregistered cqName={}", cqName);
-        }
-    }
-
-    /**
-     * Returns the number of registered continuous queries.
-     */
-    public int continuousQueryCount() {
-        return continuousQueries.size();
     }
 
     private static int parseIntProperty(Map<String, String> props, String key, int defaultValue) {

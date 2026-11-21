@@ -9,7 +9,7 @@ import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.config.TableControlSettings;
 import org.pangrova.metadata.security.TableControlColumnMaskStore;
 import org.pangrova.metadata.security.TableControlRowPolicyStore;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;

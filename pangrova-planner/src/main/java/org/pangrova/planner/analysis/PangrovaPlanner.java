@@ -470,9 +470,11 @@ public final class PangrovaPlanner {
             rel = DecorrelationSupport.safeDecorrelate(rel);
             rel = SubqueryRelationalExpansion.expand(rel);
             rel = DerivedQueryExpansion.expand(rel, parserFactory, catalogReader, operatorTable);
-            return InlineInsertValuesNormalizer.normalize(
-                    org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
-                            rel, validated, operatorTable));
+            rel = org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
+                    rel, validated, operatorTable);
+            rel = org.pangrova.planner.embedding.QueryTextVectorRewrite.rewrite(
+                    rel, operatorTable);
+            return InlineInsertValuesNormalizer.normalize(rel);
         } catch (Exception e) {
             throw new PlannerException(
                     PangrovaErrorCode.PLANNER_OPTIMIZATION_FAILURE,

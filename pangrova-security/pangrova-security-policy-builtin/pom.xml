@@ -9,7 +9,7 @@
     <artifactId>pangrova-security-policy-builtin</artifactId>
     <name>pangrova-security-policy-builtin</name>
     <properties>
-        <module.name>org.pangrova.security.policy.builtin</module.name>
+        <module.name>org.pangrova.security.policy</module.name>
     </properties>
     <dependencies>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file</artifactId></dependency>

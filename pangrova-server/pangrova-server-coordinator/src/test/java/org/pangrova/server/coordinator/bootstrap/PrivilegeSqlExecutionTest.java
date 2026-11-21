@@ -25,7 +25,7 @@ import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 

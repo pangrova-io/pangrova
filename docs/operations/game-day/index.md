@@ -7,7 +7,10 @@ description: "Process, scenarios, runbooks, and reporting rules for resilience e
 
 ## Overview
 
-Game days are scheduled monthly exercises where the team intentionally injects faults into the Pangrova cluster to validate resilience, runbooks, and recovery procedures. The goal is to discover weaknesses before they manifest in production.
+This is a proposed staging-exercise playbook, not a record of completed exercises
+or an established operating schedule. Obtain the environment owner's approval,
+confirm the exact fault targets and rollback steps, and use an isolated staging
+cluster. The RTO values below are exercise targets, not measured guarantees.
 
 ## Schedule
 
@@ -82,6 +85,20 @@ Each scenario has a corresponding runbook for live incident response. Runbooks a
 | GD-004: Network Partition (Split Brain) | [network-partition-runbook.md](runbooks/network-partition-runbook.md) | Critical |
 | GD-005: Disk Full on Worker | [disk-full-runbook.md](runbooks/disk-full-runbook.md) | Medium |
 | GD-006: Clock Skew | [clock-skew-runbook.md](runbooks/clock-skew-runbook.md) | Medium |
+
+## Measurement boundary
+
+`measure-recovery-time.sh` records HTTP submission status and request latency; it
+does not poll a query to completion or consume its Arrow results. Its percentiles
+and recovery times therefore measure submission availability, not SQL latency,
+result correctness, or full workload recovery. Validate recovery separately with
+the [CLI batch path](../../getting-started/clients/cli.md#script-mode), consuming
+results and confirming `FINISHED` before recording SQL success.
+
+The current script uses Bash 4+ syntax and GNU-style millisecond `date` output;
+do not assume it runs with stock macOS Bash/date. Use only trusted, fixed endpoint,
+token, query, and output arguments. No fault-injection command in these guides
+should run outside an explicitly approved exercise.
 
 ## Tools
 
