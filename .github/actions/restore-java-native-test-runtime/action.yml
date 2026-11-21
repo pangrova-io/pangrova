@@ -1,0 +1,19 @@
+name: Restore Java Native test runtime
+description: Unpack the Linux Native test tool and shared dependencies from this workflow run
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: java-native-test-runtime-linux-x86_64
+        path: ${{ runner.temp }}/java-native-test-download
+
+    - name: Restore executable test runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        runtime_dir=$(mktemp -d "$RUNNER_TEMP/java-native-test-runtime.XXXXXXXX")
+        tar -xzf "$RUNNER_TEMP/java-native-test-download/java-native-test-runtime.tar.gz" -C "$runtime_dir"
+        test -x "$runtime_dir/pangrova_lance_fixture_tool"
+        test -x "$runtime_dir/libexec/pangrova_lance_fixture_tool"
+        echo "PANGROVA_JAVA_NATIVE_TEST_RUNTIME=$runtime_dir" >> "$GITHUB_ENV"
