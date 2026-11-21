@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
+import org.pangrova.coordinator.metadata.NativeDatasetWorkerUnavailableException;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
@@ -38,6 +39,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <ul>
  *   <li>{@code COMMITTED} — handle rehydrated and the (idempotent) commit succeeded;</li>
  *   <li>{@code ABORTED} — the connector committed an exact durable abort barrier;</li>
+ *   <li>{@code DEFERRED} — the next Native dataset operation is waiting for a Worker;</li>
  *   <li>{@code QUARANTINED} — the connector cannot rehydrate, the identity is unparseable/legacy,
  *       the catalog is unknown, or the outcome is otherwise ambiguous (manual intervention).</li>
  * </ul>
@@ -109,6 +111,10 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             LOG.info("event=write_commit_reconciled queryId={} table={} mode={} outcome=COMMITTED",
                     entry.queryId(), table, entry.writeMode());
             return WriteRecoveryOutcome.COMMITTED;
+        } catch (NativeDatasetWorkerUnavailableException unavailable) {
+            LOG.info("event=write_commit_reconcile queryId={} table={} outcome=DEFERRED reason=worker_unavailable",
+                    entry.queryId(), table);
+            return WriteRecoveryOutcome.DEFERRED;
         } catch (UnsupportedOperationException e) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=connector_cannot_decode", entry.queryId(), table);

@@ -224,10 +224,6 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(30, TimeUnit.SECONDS);
         }
         processes.startCoordinatorAndFirstWorker();
-        if (!streamingOnly) {
-            processes.startSecondWorker();
-            assertThat(processes.pid("local-worker-1")).isNotEqualTo(processes.pid("local-worker-2"));
-        }
         if (iceberg) {
             processes.createSourceCatalog();
         } else {
@@ -240,8 +236,15 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         processes.query("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR"
                 + key + ")", ResultProtocol.GRPC_TLS);
         if (iceberg) {
-            processes.query("INSERT INTO spec_catalog.default.orders VALUES (42, 'cdc-visible'), (99, 'unrelated')",
+            var seed = processes.query(
+                    "INSERT INTO spec_catalog.default.orders VALUES (42, 'cdc-visible'), (99, 'unrelated')",
                     ResultProtocol.GRPC_TLS);
+            await("setup INSERT releases its execution anchor before the Worker fault")
+                    .atMost(Duration.ofSeconds(45)).until(() -> executionReleased(processes, seed.queryId()));
+        }
+        if (!streamingOnly) {
+            processes.startSecondWorker();
+            assertThat(processes.pid("local-worker-1")).isNotEqualTo(processes.pid("local-worker-2"));
         }
         processes.query("CREATE STREAM orders_stream FROM KAFKA ("
                 + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
@@ -288,12 +291,17 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 assertThat(payload(processes)).contains("cdc-updated").doesNotContain("cdc-visible");
             }
 
+            long updatedSnapshot = streamingOnly ? paimonSnapshot(processes) : 0;
+            String updateFingerprint = streamingOnly ? journalFingerprint(processes, "COMMITTED", 2) : null;
+            if (streamingOnly) rejectOffsetAcknowledgement(processes);
             producer.send(new ProducerRecord<>(topic, null,
                     "{\"op\":\"d\",\"before\":{\"id\":42,\"payload\":\"cdc-updated\"}}")).get(30, TimeUnit.SECONDS);
-            awaitPublication(processes, 3);
             if (streamingOnly) {
+                verifyOffsetRecovery(processes, updateFingerprint);
+                assertThat(paimonSnapshot(processes)).isEqualTo(updatedSnapshot + 1);
                 assertThat(paimonPayloads(processes)).isEmpty();
             } else {
+                awaitPublication(processes, 3);
                 assertThat(payload(processes)).contains("0 rows");
             }
         }
@@ -318,7 +326,6 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             var lost = withheld.get();
             assertThat(lost.writeResult().commitFragments()).isNotEmpty();
             if (iceberg) {
-                assertThat(payload(processes)).contains("cdc-visible").doesNotContain("cdc-updated");
                 assertThat(icebergSnapshotCount(processes)).isEqualTo(1);
             }
             processes.crashWorker(lost.workerId());
@@ -336,11 +343,23 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             });
         }
         if (iceberg) {
-            assertThat(payload(processes)).contains("cdc-updated", "1 row").doesNotContain("cdc-visible");
+            assertThat(processes.query("SELECT payload FROM spec_catalog.default.orders ORDER BY id",
+                    ResultProtocol.GRPC_TLS).output()).contains("cdc-updated", "unrelated", "2 rows")
+                    .doesNotContain("cdc-visible");
             assertThat(icebergSnapshotCount(processes)).isEqualTo(2);
         } else {
             assertThat(paimonPayloads(processes)).containsExactly("cdc-visible");
             assertThat(paimonSnapshot(processes)).isEqualTo(1L);
+        }
+    }
+
+    private static boolean executionReleased(IndependentLocalProcesses processes, String queryId) throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("SELECT 1 FROM execution_anchor WHERE execution_id=?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                return !rows.next();
+            }
         }
     }
 

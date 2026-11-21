@@ -433,8 +433,14 @@ minting a new fingerprint.
 
 When a SQL query ends with an unresolved PENDING write, PostgreSQL expires
 its execution anchor instead of deleting it. A successor can claim the original
-execution under a new fencing token and confirm the same intent. A durable
-quarantine decision ends automatic recovery for that fingerprint.
+execution under a new fencing token and confirm the same intent. If a Native
+dataset operation cannot start because no Worker is registered, the Coordinator
+yields that claim for a later recovery scan and continues handling other
+executions. A durable quarantine decision ends automatic recovery for that
+fingerprint.
+Lance preparation gives priority to a registered Worker incarnation that
+produced one of the winning staging fragments. This allows the replacement
+attempt to publish while the original Worker's heartbeat entry expires.
 
 An UPDATE batch must publish its delete and insert fragments in **one** target-table
 snapshot/commit operation (Iceberg's

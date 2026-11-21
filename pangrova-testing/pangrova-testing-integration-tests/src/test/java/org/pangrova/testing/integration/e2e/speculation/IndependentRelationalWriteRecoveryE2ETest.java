@@ -8,6 +8,9 @@ import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
+import org.pangrova.protocol.v2.RuntimeCommand;
+import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 
@@ -166,9 +169,28 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
                     .untilAsserted(() -> assertThat(publishedRows(processes, target, table))
                             .isEqualTo(ProcessInputSnapshot.ROW_COUNT));
             assertThat(originalReport.response().get()).isNull();
+            if (target == Target.LANCE) {
+                assertThat(preparedOnWinner(processes, copy.workerId(), copyAttempt.getQueryOrJobId())).isTrue();
+            }
             scenario.complete(true);
             assertThat(publishedRows(processes, target, table)).isEqualTo(ProcessInputSnapshot.ROW_COUNT);
         }
+    }
+
+    private static boolean preparedOnWinner(IndependentSpeculationProcesses processes, String winnerId,
+            String queryId) throws java.io.IOException {
+        var winner = processes.workers().stream().filter(worker -> worker.workerId().equals(winnerId))
+                .findFirst().orElseThrow();
+        for (var transfer : winner.http().transfers()) {
+            if (!transfer.path().getPath().equals("/v1/native-dataset/control")) continue;
+            var command = RuntimeCommand.parseFrom(transfer.body());
+            if (command.getCommandType() == RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE
+                    && command.getPayload().unpack(PrepareDistributedWriteRequest.class).getExecutionId().equals(queryId)
+                    && transfer.response().get() != null && transfer.response().get().statusCode() == 200) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void execute(IndependentSpeculationProcesses processes, String sql) throws Exception {
