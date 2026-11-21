@@ -54,6 +54,12 @@ final class IcebergOutputHandles {
                 staticPartitions, null);
     }
 
+    /** Builds an output handle for a CDC MERGE distributed write. */
+    static ConnectorOutputTableHandle forMerge(IcebergTableHandle handle, Table icebergTable) {
+        return build(handle.schemaName(), handle.tableName(), icebergTable,
+                IcebergOutputTableHandle.MODE_MERGE);
+    }
+
     /** Builds an output handle for a DELETE distributed write. */
     static ConnectorOutputTableHandle forDelete(IcebergTableHandle handle, Table icebergTable) {
         int formatVersion = IcebergFormatVersions.extract(icebergTable);
@@ -154,6 +160,7 @@ final class IcebergOutputHandles {
             case IcebergOutputTableHandle.MODE_INSERT -> IcebergOutputTableHandle.MODE_INSERT;
             case IcebergOutputTableHandle.MODE_OVERWRITE -> IcebergOutputTableHandle.MODE_OVERWRITE;
             case IcebergOutputTableHandle.MODE_DELETE -> IcebergOutputTableHandle.MODE_DELETE;
+            case IcebergOutputTableHandle.MODE_MERGE -> IcebergOutputTableHandle.MODE_MERGE;
             default -> throw new IllegalArgumentException(
                     "Unsupported distributed write recovery mode: " + writeMode);
         };

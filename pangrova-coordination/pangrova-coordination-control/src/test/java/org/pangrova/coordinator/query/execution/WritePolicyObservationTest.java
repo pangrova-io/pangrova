@@ -77,7 +77,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         }
         rowPolicies = new JdbcRowPolicyStore(dataSource);
         masks = new JdbcColumnMaskStore(dataSource);
-        var authority = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(grants, roles,
+        var authority = new org.pangrova.security.policy.authorization.DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(rowPolicies), new ColumnMaskingProcessor(masks));
         compiler = compiler(dataSource);
         security = new SecurityPolicyApplier(compiler, new AccessControlEnforcer(authority),

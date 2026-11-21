@@ -5,7 +5,9 @@ description: "Diagnose and recover from metadata-store network partitions"
 
 # Runbook: Metadata Store Partition
 
-**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata store (pangrova_meta), causing DDL failures, metadata cache fallback, or circuit breaker trips.
+**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata
+authority (`pangrova_meta`), causing authorization, admission, metadata, or DDL
+failures. Cached metadata does not replace live authorization or durable state.
 
 | Field | Value |
 |-------|-------|
@@ -18,7 +20,7 @@ description: "Diagnose and recover from metadata-store network partitions"
 
 ## Decision Tree
 
-![Metadata store unreachable?](/img/diagrams/generated/metadata-partition-runbook-01-fabc3f4253.svg)
+![Metadata store unreachable?](../../../../website/static/img/diagrams/generated/metadata-partition-runbook-01-fabc3f4253.svg)
 
 ---
 

@@ -21,6 +21,11 @@ final class CanonicalExecutionDrainReports {
                     throw invalid("Worker-reconciled TaskReport needs a structured error");
                 }
             }
+            case TASK_REPORT_ORIGIN_WORKER_EXECUTED -> {
+                if (status.getState() != TaskState.TASK_STATE_FINISHED || status.hasError()) {
+                    throw invalid("Worker-JVM execution report must be a successful terminal report");
+                }
+            }
             case TASK_REPORT_ORIGIN_UNSPECIFIED, UNRECOGNIZED ->
                     throw invalid("terminal TaskReport has no valid report origin");
             default -> throw invalid("terminal TaskReport has no valid report origin");
@@ -36,6 +41,13 @@ final class CanonicalExecutionDrainReports {
                 if (status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
                         || !unsuccessful(status) || status.hasNativeTaskStats()) {
                     throw invalid("No-owner receipt violates its sealed Worker admission authority");
+                }
+            }
+            case EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED -> {
+                if (status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED
+                        || status.getState() != TaskState.TASK_STATE_FINISHED
+                        || status.hasError() || status.hasNativeTaskStats()) {
+                    throw invalid("Worker-JVM completion receipt contradicts its execution authority");
                 }
             }
             case EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED -> {

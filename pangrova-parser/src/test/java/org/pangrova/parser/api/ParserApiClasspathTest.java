@@ -47,7 +47,7 @@ class ParserApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.antlr.v4.runtime.tree.ParseTree", "com.github.benmanes.caffeine.cache.Caffeine",
-                    "org.pangrova.coordinator.query.QueryManager", "org.apache.calcite.rel.type.RelDataType")) {
+                    "org.pangrova.query.runtime.QueryManager", "org.apache.calcite.rel.type.RelDataType")) {
                 assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);
             }
         }

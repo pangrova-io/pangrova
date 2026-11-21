@@ -14,7 +14,7 @@ import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityDescriptor;
 import org.pangrova.protocol.v2.CapabilityInventory;

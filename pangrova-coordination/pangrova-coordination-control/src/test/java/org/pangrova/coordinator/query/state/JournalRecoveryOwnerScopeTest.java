@@ -10,15 +10,15 @@ import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import java.util.List;
 import java.util.Set;
 
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -205,7 +205,13 @@ class JournalRecoveryOwnerScopeTest {
                 null, null, 0, null, null, null, null, null, null, journal, null, null, null, null);
         var dispatcher = new QueryDispatcher(dispatcherContext, null, null);
         return new QueryManager(new QueryManagerContext(dispatcher,
-                org.pangrova.testing.testkit.constants.TestObservability.TRACING, null, null, null, null, null,
-                null, null, null, journal, null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                org.pangrova.testing.testkit.constants.TestObservability.TRACING, null, null,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
+                        null, null, null, dispatcher, null),
+                org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
+                        journal, null),
+                null,
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 }

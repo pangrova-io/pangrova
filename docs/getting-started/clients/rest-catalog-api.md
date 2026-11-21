@@ -99,19 +99,19 @@ curl http://localhost:8080/v1/namespaces/analytics/views
 
 ## Authentication
 
-When security is enabled, obtain a bearer token from the OAuth2 token endpoint and
-pass it on every request:
+When OAuth2 security is enabled, obtain a signed bearer token from the configured
+external identity provider and pass it on every request. The token must satisfy
+that provider's issuer, signature, and audience checks.
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:8080/v1/oauth/tokens \
-  -d 'grant_type=client_credentials&client_id=<id>&client_secret=<secret>' \
-  | jq -r .access_token)
-
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/v1/namespaces
+curl -H "Authorization: Bearer $PANGROVA_TOKEN" \
+  https://coordinator.example.com:8080/v1/namespaces
 ```
 
-See [Security Configuration](../../configuration/security.md) for
-authentication setup.
+The local `/v1/oauth/tokens` resource does not issue signed JWTs or register its
+opaque token values with the production authenticator. Do not use it as a
+replacement for the configured identity provider. See
+[Security Configuration](../../configuration/security.md) for authentication setup.
 
 ## Error Handling
 

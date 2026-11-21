@@ -71,7 +71,8 @@ public record PaimonOutputTableHandle(
         public WriteSemantics {
             overwritePartition = Map.copyOf(overwritePartition);
             physicalAllocation = java.util.Objects.requireNonNull(physicalAllocation, "physicalAllocation");
-            if (!List.of("INSERT", "OVERWRITE", "DELETE").contains(mode) || baseSnapshotId < -1) {
+            if (!List.of("INSERT", "OVERWRITE", "DELETE", "MERGE").contains(mode)
+                    || baseSnapshotId < -1) {
                 throw new IllegalArgumentException("Invalid Paimon write mode or source snapshot");
             }
         }
@@ -96,6 +97,12 @@ public record PaimonOutputTableHandle(
     @Override
     public OptionalLong writeBaseSnapshotId() {
         return baseSnapshotId() < 0 ? OptionalLong.empty() : OptionalLong.of(baseSnapshotId());
+    }
+
+    @Override
+    public Optional<org.pangrova.connector.api.metadata.table.TableIdentity> tableIdentity() {
+        return Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
+                "PAIMON", tableUuid, tableLocation, schemaFingerprint));
     }
 
     @Override

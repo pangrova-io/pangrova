@@ -139,7 +139,8 @@ std::string list(const Type& type, const arrow::Field& field, const std::string&
   const auto dimensionName = constraintName("dimension", path);
   if (constraints.contains(dimensionName)) {
     const auto& dimension = consume(constraints, consumed, dimensionName);
-    const auto& elementType = consume(constraints, consumed, constraintName("element_type", path));
+    const std::string elementTypeName = constraintName("element_type", path);
+    const auto& elementType = consume(constraints, consumed, elementTypeName);
     if (physical.id() != arrow::Type::FIXED_SIZE_LIST || !dimension.string_value().empty() ||
         dimension.integer_value() < 1 || dimension.integer_value() > 65535 ||
         static_cast<const arrow::FixedSizeListType&>(physical).list_size() != dimension.integer_value() ||
@@ -160,7 +161,8 @@ std::string row(const Type& type, const arrow::Field& field, const std::string& 
   std::set<std::string> names;
   for (int index = 0; index < physical.num_fields(); ++index) {
     const std::string childPath = path.empty() ? std::to_string(index) : path + '.' + std::to_string(index);
-    const auto& name = consume(constraints, consumed, "field_name@" + childPath);
+    const std::string fieldName = "field_name@" + childPath;
+    const auto& name = consume(constraints, consumed, fieldName);
     const auto& child = *physical.field(index);
     if (name.integer_value() != 0 || name.string_value().empty() || name.string_value() != child.name() ||
         !names.insert(name.string_value()).second) mismatch();

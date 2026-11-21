@@ -1,4 +1,6 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.runtime.QueryManagerContext;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;

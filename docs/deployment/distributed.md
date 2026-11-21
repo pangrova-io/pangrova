@@ -16,7 +16,7 @@ failure-test evidence before accepting a deployment.
 
 ## Architecture Overview
 
-![Deployment topology: load balancer, leader and follower Coordinators, PostgreSQL leases, Workers, and object storage](/img/diagrams/distributed-topology.svg)
+![Deployment topology: load balancer, leader and follower Coordinators, PostgreSQL leases, Workers, and object storage](../../website/static/img/diagrams/distributed-topology.svg)
 
 **Example topology for evaluation**: 2 Coordinators + 3 Workers + PostgreSQL + object storage. A single database remains an availability dependency; this is not a qualified minimum production configuration.
 
@@ -89,14 +89,25 @@ pangrova hard nproc 65536
 EOF
 ```
 
-### 1.4 Install Pangrova Distribution
+### 1.4 Build Pangrova from Source
+
+The host-based instructions below use a built source checkout at
+`/opt/pangrova` on each node. Use the same source revision on all nodes. Follow
+[Build from Source](../getting-started/quickstart.md#build-from-source) for the
+pinned Iceberg SDK, native runtime, and Maven packages. Keep the checkout,
+module `target/` outputs, and Maven runtime dependencies available to the
+`pangrova` service user: the launchers use the packaged module JARs and their
+resolved dependency paths. Copying just the JARs or a native library is not
+sufficient. Make the checkout's `logs/` writable by the service user, or set
+`PANGROVA_LOG_DIR` to a writable location.
+
+The release workflow does not assemble a runnable `pangrova-<version>.tar.gz`.
+For a container-based evaluation instead, see
+[Docker Deployment](docker.md#docker--build-image-from-source) for the
+Buildx/Bake source build and Compose instructions. That path is separate from
+the host-based setup below and does not qualify HA or production readiness.
 
 ```bash
-# Download or build the distribution
-tar -xzf pangrova-<version>.tar.gz -C /opt/
-ln -sf /opt/pangrova-<version> /opt/pangrova
-chown -R pangrova:pangrova /opt/pangrova
-
 # Create directories
 mkdir -p /var/log/pangrova /mnt/spill/pangrova /etc/pangrova/tls /etc/pangrova/catalog
 chown -R pangrova:pangrova /var/log/pangrova /mnt/spill/pangrova /etc/pangrova

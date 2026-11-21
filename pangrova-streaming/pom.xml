@@ -20,5 +20,6 @@
         <module>pangrova-streaming-pipeline</module>
         <module>pangrova-streaming-source-kafka</module>
         <module>pangrova-streaming-formats-builtin</module>
+        <module>pangrova-streaming-worker</module>
     </modules>
 </project>

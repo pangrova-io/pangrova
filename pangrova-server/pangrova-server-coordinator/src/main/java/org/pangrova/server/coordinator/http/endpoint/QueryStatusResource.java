@@ -12,7 +12,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.common.client.error.ErrorDetail;
 

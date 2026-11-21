@@ -217,7 +217,7 @@ We follow Apache Gravitino's Catalog Federation approach, with the following sim
 
 ### 1.4 Relationship to the Existing Architecture
 
-![Metadata Management Integration Map](/img/diagrams/generated/metadata-01-8d161b5b5a.svg)
+![Metadata Management Integration Map](../../website/static/img/diagrams/generated/metadata-01-8d161b5b5a.svg)
 
 ---
 
@@ -225,13 +225,13 @@ We follow Apache Gravitino's Catalog Federation approach, with the following sim
 
 ### 2.1 Overall Architecture
 
-![Metadata architecture: callers, catalog registry and federation, tiered metadata cache, table and schema projections, synchronization, and PostgreSQL persistence](/img/diagrams/metadata-layers.svg)
+![Metadata architecture: callers, catalog registry and federation, tiered metadata cache, table and schema projections, synchronization, and PostgreSQL persistence](../../website/static/img/diagrams/metadata-layers.svg)
 
 ### 2.2 Namespace Model
 
 Following Gravitino's four-level namespace, Pangrova simplifies to three levels (dropping Metalake, since Pangrova is single-engine):
 
-![Namespace Model](/img/diagrams/generated/metadata-02-27a9f0a3cb.svg)
+![Namespace Model](../../website/static/img/diagrams/generated/metadata-02-27a9f0a3cb.svg)
 
 ### 2.3 Catalog Type System
 
@@ -291,13 +291,13 @@ properties. `ConnectorSession` (defined in [connectors.md §1.2](./connectors.md
 is the Connector SPI session object passed to all `ConnectorMetadata` methods. The
 `toConnectorSession()` method bridges these two layers.
 
-![/**](/img/diagrams/generated/metadata-04-14c6a0c9b4.svg)
+![/**](../../website/static/img/diagrams/generated/metadata-04-14c6a0c9b4.svg)
 
 ### 3.1 MetadataService — Unified Entry Point
 
 
 
-![/**](/img/diagrams/generated/metadata-05-ac67715250.svg)
+![/**](../../website/static/img/diagrams/generated/metadata-05-ac67715250.svg)
 
 ### 3.2 CatalogRegistry — Catalog Registration and Lifecycle
 
@@ -311,11 +311,11 @@ replaces a local handle when the stored incarnation or revision changes.
 
 
 
-![/**](/img/diagrams/generated/metadata-06-e8c86da86f.svg)
+![/**](../../website/static/img/diagrams/generated/metadata-06-e8c86da86f.svg)
 
 ### 3.3 CatalogHandle — Catalog Abstraction Handle
 
-![/**](/img/diagrams/generated/metadata-07-3e5be5a351.svg)
+![/**](../../website/static/img/diagrams/generated/metadata-07-3e5be5a351.svg)
 
 ### 3.4 Catalog Health Checks
 
@@ -464,7 +464,7 @@ entry point applies these guarantees when explicitly subscribed; no automatic su
 
 ### 3.7 SchemaEvolutionValidator — Schema Change Validation
 
-![/**](/img/diagrams/generated/metadata-10-7164a01099.svg)
+![/**](../../website/static/img/diagrams/generated/metadata-10-7164a01099.svg)
 
 
 ### 3.8 FederatedCatalog SPI — External Catalog Federation Interface
@@ -1100,7 +1100,7 @@ public class TracedMetadataService implements MetadataService {
 
 ### 7.3 Grafana Dashboard Recommendations
 
-![Metadata Management Dashboard](/img/diagrams/generated/metadata-20-37c55d388c.svg)
+![Metadata Management Dashboard](../../website/static/img/diagrams/generated/metadata-20-37c55d388c.svg)
 
 
 ---
@@ -1111,7 +1111,7 @@ Configuration examples use YAML. Only keys listed in the
 [configuration key reference](../configuration/reference.md) are part of the
 verified typed runtime surface.
 
-![# metadata-config.yaml](/img/diagrams/generated/metadata-21-6760835c35.svg)
+![# metadata-config.yaml](../../website/static/img/diagrams/generated/metadata-21-6760835c35.svg)
 
 
 ---
@@ -1232,7 +1232,7 @@ public record ValidationResult(boolean compatible, List<String> errors, List<Str
 
 ### 10.2 Error Handling Strategy
 
-![Error Handling Strategy](/img/diagrams/generated/metadata-24-f8f4d3d991.svg)
+![Error Handling Strategy](../../website/static/img/diagrams/generated/metadata-24-f8f4d3d991.svg)
 
 
 ---

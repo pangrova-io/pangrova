@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.property.query;
+import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.testing.testkit.TestProjectPaths;
 
@@ -64,11 +65,10 @@ class QueryPackageSplitEquivalencePropertyTest {
     /**
      * Remaining Coordinator orchestration, pending its separate domain migration.
      */
-    private static final Set<String> EXPECTED_ROOT_CLASSES = Set.of(
-            "QueryManager.java"
-    );
+    private static final Set<String> EXPECTED_ROOT_CLASSES = Set.of();
 
     private static final Map<String, String> DOMAIN_OWNERS = Map.ofEntries(
+            Map.entry("QueryManager.java", "runtime"),
             Map.entry("StatementClassifier.java", "statement"),
             Map.entry("StatementTableTargets.java", "statement"),
             Map.entry("SessionTableNames.java", "session"),

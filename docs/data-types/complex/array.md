@@ -40,7 +40,7 @@ an untyped empty array has no element type to infer.
 |-----------|---------------|--------------|
 | Apache Iceberg | Iceberg `LIST` with the declared element type | `ARRAY` with preserved element type |
 | Apache Paimon | Paimon `ARRAY` | `ARRAY` with preserved element type |
-| Lance | Not declared by the managed connector | Not declared |
+| Lance | Canonical Arrow list schema, subject to Native validation | `ARRAY` with its persisted element-type signature |
 
 Element nullability follows the declared element type. A `NULL` array is distinct from an
 empty array; `labels[1]` on an empty array returns `NULL`.

@@ -128,7 +128,11 @@ public final class CanonicalTaskRequests {
         requireTaskKind(request);
         validateCopySourceStagingCommand(request);
         requireSecurityContext(request.getSecurity());
-        requireValidPlanChecksum(request);
+        if (request.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST) {
+            validateCdcIngest(request);
+        } else {
+            requireValidPlanChecksum(request);
+        }
         requireDeadline(request.getDeadlineEpochMs());
         StageResourceGrants.validate(request.getResourceGrant());
         validateSerializedOutputGrant(request);
@@ -202,6 +206,46 @@ public final class CanonicalTaskRequests {
                 || !security.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException(
                     "TaskRequest tenant and principal are required");
+        }
+    }
+
+    private static void validateCdcIngest(TaskRequest request) {
+        if (!request.hasCdcIngest()) {
+            throw new IllegalArgumentException("CDC ingest task requires its exact bounded source binding");
+        }
+        if (!request.getSubstraitPlan().isEmpty() || request.getSplitsCount() != 0
+                || request.getOperatorBindingsCount() != 0 || request.getExchangeInputsCount() != 0
+                || request.getInitialRuntimeFiltersCount() != 0) {
+            throw new IllegalArgumentException(
+                    "CDC ingest task cannot carry a plan, splits, operators, exchanges or runtime filters");
+        }
+        var cdc = request.getCdcIngest();
+        if (cdc.getStreamId().isBlank() || cdc.getTenantId().isBlank()
+                || cdc.getSourceOwnershipEpoch().isBlank() || cdc.getSourceProvider().isBlank()
+                || cdc.getFormatId().isBlank() || cdc.getTargetTableUuid().isBlank()
+                || cdc.getCommitIntentId().isBlank() || cdc.getBaseSnapshotId() < -1) {
+            throw new IllegalArgumentException("CDC ingest task is missing its durable source/write identity");
+        }
+        if (!cdc.getTenantId().equals(request.getSecurity().getTenantId())) {
+            throw new IllegalArgumentException("CDC ingest tenant differs from the task security tenant");
+        }
+        if (cdc.getRangesCount() == 0) {
+            throw new IllegalArgumentException("CDC ingest task requires at least one bounded source range");
+        }
+        for (var range : cdc.getRangesList()) {
+            if (range.getTopic().isBlank() || range.getPartition() < 0
+                    || range.getStartOffset() < 0 || range.getEndOffset() <= range.getStartOffset()) {
+                throw new IllegalArgumentException("CDC ingest range is not a bounded topic partition interval");
+            }
+        }
+        if (!cdc.hasWrite()) {
+            throw new IllegalArgumentException("CDC ingest task requires its exact connector write binding");
+        }
+        var checksum = cdc.getCommitIdentitySha256();
+        if (cdc.getCommitIdentitySha256().getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
+                || checksum.getDigest().size() != SHA256_BYTES
+                || !checksum.getUnknownFields().asMap().isEmpty()) {
+            throw new IllegalArgumentException("CDC ingest commit identity must be canonical SHA-256");
         }
     }
 

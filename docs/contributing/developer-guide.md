@@ -16,7 +16,7 @@ sidebar_label: "Developer Guide"
 
 ### 1.1 System Requirements
 
-![Development Environment Requirements](/img/diagrams/generated/developer-guide-01-91bf919dfb.svg)
+![Development Environment Requirements](../../website/static/img/diagrams/generated/developer-guide-01-91bf919dfb.svg)
 
 ### 1.2 Quick Start
 
@@ -173,7 +173,7 @@ The command is a no-op outside a Pangrova checkout and never blocks session end.
 
 ### 2.1 Module Structure Convention
 
-![pangrova-{module}/](/img/diagrams/generated/developer-guide-07-df85bc009e.svg)
+![pangrova-{module}/](../../website/static/img/diagrams/generated/developer-guide-07-df85bc009e.svg)
 
 ### 2.2 Code Conventions
 
@@ -269,7 +269,7 @@ public class QueryExecutor {
 
 ### 3.1 Connector Development Flow
 
-![Connector Development Flow](/img/diagrams/generated/developer-guide-10-8ed8d9500b.svg)
+![Connector Development Flow](../../website/static/img/diagrams/generated/developer-guide-10-8ed8d9500b.svg)
 
 ### 3.2 Connector Implementation Example
 

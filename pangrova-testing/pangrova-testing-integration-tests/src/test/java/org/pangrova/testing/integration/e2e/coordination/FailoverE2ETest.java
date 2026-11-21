@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;

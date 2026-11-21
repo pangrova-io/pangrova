@@ -8,7 +8,7 @@ import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.coordination.api.heartbeat.CacheCatalogSummary;

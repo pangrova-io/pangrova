@@ -24,7 +24,7 @@ import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerReg
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain;

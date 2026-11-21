@@ -47,6 +47,16 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
     }
 
     @Override
+    public org.pangrova.connector.api.data.ConnectorCdcPageSink createCdcPageSink(
+            ConnectorTransactionHandle transaction,
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputTableHandle) {
+        PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
+        Table freshTable = loadFreshTable(handle);
+        return new PaimonCdcPageSink(freshTable, handle.schemaName(), handle.tableName(), tempDir);
+    }
+
+    @Override
     public ConnectorPageSink createOverwritePageSink(
             ConnectorTransactionHandle transaction,
             ConnectorSession session,

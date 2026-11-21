@@ -148,7 +148,11 @@ final class PaimonDistributedWriteFinisher {
         if (eventType == null) {
             throw invalidFragment("Paimon distributed commit has no typed fragments");
         }
-        if (eventType != expectedEventType(handle.mode())) {
+        if ("MERGE".equals(handle.mode())) {
+            if (eventType != CommitEventType.MERGE) {
+                throw invalidFragment("Paimon CDC merge requires a MERGE fragment");
+            }
+        } else if (eventType != expectedEventType(handle.mode())) {
             throw invalidFragment("Paimon fragment operation differs from the bound write mode");
         }
         return new DeserializedFragments(allMessages, eventType);
@@ -159,6 +163,7 @@ final class PaimonDistributedWriteFinisher {
             case "INSERT" -> CommitEventType.APPEND;
             case "OVERWRITE" -> CommitEventType.OVERWRITE;
             case "DELETE" -> CommitEventType.DELETE;
+            case "MERGE" -> CommitEventType.MERGE;
             default -> throw invalidFragment("Unsupported Paimon write mode");
         };
     }

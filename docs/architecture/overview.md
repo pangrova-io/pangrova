@@ -41,11 +41,15 @@ See the [SQL reference](../sql-reference/index.md) for statement-specific bounda
 
 ## 3. Component Topology
 
-![Pangrova topology: clients, Coordinator, durable control state, Workers, Native execution, connector layer, lakehouse storage, and platform services](/img/architecture-overview.png)
+![Pangrova topology: clients, Coordinator, durable control state, Workers, Native execution, connector layer, lakehouse storage, and platform services](../../website/static/img/architecture-overview.png)
 
-The diagram describes the main relational execution path. The current CDC bootstrap
-uses a Coordinator-local connector page-sink writer; it is a known migration gap
-from the Worker/Native boundary, not evidence that distributed CDC is complete.
+The diagram describes the main relational execution path. When a Coordinator hosts
+both streaming and query roles, the streaming scheduler disables its local pipeline and
+dispatches bounded CDC ingest tasks to Workers; the Coordinator retains journal
+publication and source-offset acknowledgement. A streaming-only Coordinator still uses
+a Coordinator-local connector page-sink writer. Live acceptance coverage drives real Kafka
+through two Worker CDC backends into one Paimon merge with an injected backend failure and a
+retried exactly-once publication; process-level Worker crash qualification is still required.
 
 Coordinator leases use JDBC by default; ZooKeeper is an optional backend.
 Durable metadata/journal storage and external catalogs remain availability
@@ -283,8 +287,9 @@ Query contracts are now owned by `pangrova-query`'s `.api` packages; QueryState
 and StageState are the single domain state values. Query Core owns the migrated
 stage state transitions and the audit/profile services, while backend selection
 belongs to Server Coordinator. Query API does not depend on the central SPI,
-Protocol, Planner, or any backend. The remaining query orchestration migration
-inside Coordinator is incomplete; actual support and follow-up items are governed
+Protocol, Planner, or any backend. QueryManager now runs in `pangrova-query`'s
+runtime package behind explicit ports; the `PlanFragment`-bound stage binder and
+split seam remain in Coordinator. Actual support and follow-up items are governed
 by the [Roadmap](../getting-started/roadmap.md) and current tests.
 
 Connector contracts are now owned exclusively by the `.api` packages of

@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.resilience;
 
-import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;

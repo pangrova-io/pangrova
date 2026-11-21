@@ -19,20 +19,26 @@ class TaskExecutorControlContractTest {
         assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods()))
                 .allSatisfy(method -> assertThat(method.getReturnType())
                         .isIn(long.class, void.class, boolean.class, byte[].class,
-                                java.util.Optional.class));
+                                java.util.Optional.class, java.util.List.class));
     }
 
     @Test
-    void allEightControlsRequireActualImplementationAndExposeNoDataPull() {
+    void allControlsRequireActualImplementationAndExposeNoDataPull() {
         var methods = TaskExecutor.class.getDeclaredMethods();
-        assertThat(methods).hasSize(8);
+        assertThat(methods).hasSize(10);
         assertThat(Arrays.stream(methods).map(java.lang.reflect.Method::getName))
                 .containsExactlyInAnyOrder("createTask", "startTask", "releaseTask", "cancelTask",
-                        "executeCommand", "isFinished", "getTaskStatus", "getTaskStats")
+                        "executeCommand", "isFinished", "getTaskStatus", "getTaskStats",
+                        "isWorkerExecuted", "getTaskCommitFragments")
                 .doesNotContain("getNextBatchResult", "getShuffleBatchResult");
         assertThat(methods).allSatisfy(method -> {
-            assertThat(java.lang.reflect.Modifier.isAbstract(method.getModifiers())).isTrue();
-            assertThat(method.isDefault()).isFalse();
+            if (method.getName().equals("isWorkerExecuted")
+                    || method.getName().equals("getTaskCommitFragments")) {
+                assertThat(method.isDefault()).isTrue();
+            } else {
+                assertThat(java.lang.reflect.Modifier.isAbstract(method.getModifiers())).isTrue();
+                assertThat(method.isDefault()).isFalse();
+            }
         });
     }
 }

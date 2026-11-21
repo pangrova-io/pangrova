@@ -72,22 +72,40 @@ jobs:
           cp native-output/libpangrova_native.${{ matrix.platform.lib-ext }} native-lib/
 
       # --- Direct build (macOS — no Docker) ---
-      - name: Cache native deps + Velox
+      - name: Cache dependency archives
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+
+      - name: Cache native dependency prefixes
         if: "!matrix.platform.docker-build"
         uses: actions/cache@v4
         with:
           path: |
             ~/.pangrova/native-deps
             ~/.pangrova/velox/deps-install
-            ~/.pangrova/velox/archive-cache
-          key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-v1-deps-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+
+      - name: Cache Velox build layer
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/velox/_build/release/_deps
+            ~/.pangrova/velox/_build/release/lib
+            ~/.pangrova/velox/_build/release/CMakeCache.txt
+          key: pangrova-v1-velox-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
 
       - name: Cache compiler results (macOS)
         if: "!matrix.platform.docker-build"
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Set up native build tools (macOS)
         if: "!matrix.platform.docker-build"
