@@ -196,6 +196,10 @@ Velox's Arrow ExternalProject install and falls back to the AWS dependency
 prefix, so builds whose Velox used dependency sources instead of the
 ExternalProject layout still link.
 
+The macOS bootstrap installs the version of Snappy pinned by Velox into its
+dependency prefix. Velox uses that prefix's CMake package for the Hive/DWIO
+codecs, and the JNI link consumes the static archive from the same prefix.
+
 On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
 `$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
 formula's `opt` prefix and adds it to Folly's configure. OpenSSL 4.0 makes

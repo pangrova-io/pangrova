@@ -358,6 +358,19 @@ build_grpc() {
   step "gRPC installed to $DEPS_PREFIX"
 }
 
+ensure_darwin_snappy() {
+  local prefix="$1"
+  local config="$prefix/lib/cmake/Snappy/SnappyConfig.cmake"
+  local archive="$prefix/lib/libsnappy.a"
+  if [[ -f "$config" && -f "$archive" && -f "$prefix/include/snappy.h" ]]; then
+    return
+  fi
+
+  run_and_time install_snappy
+  [[ -f "$config" && -f "$archive" && -f "$prefix/include/snappy.h" ]] \
+    || die "Pinned Snappy package is incomplete at $prefix"
+}
+
 build_velox() {
   log "Building Velox $VELOX_REF"
   local GRPC_VERSION="$GRPC_VERSION"
@@ -607,6 +620,8 @@ build_velox() {
     }
 
     MACOS_VELOX_DEPS=""
+    # Hive/DWIO needs a CMake package and a static archive for the JNI link.
+    ensure_darwin_snappy "$INSTALL_PREFIX"
     BUILD_FAISS=false
     if [[ ! -f "$INSTALL_PREFIX/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
       run_and_time install_aws_deps
@@ -668,22 +683,23 @@ build_velox() {
       rm -rf _build/release
     fi
   fi
-  local velox_ssl_args=()
+  local velox_platform_args=()
   if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
-    velox_ssl_args+=(-DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
-    velox_ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a -DOPENSSL_USE_STATIC_LIBS=TRUE)
+    velox_platform_args+=(-DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
+    velox_platform_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a -DOPENSSL_USE_STATIC_LIBS=TRUE)
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
+    velox_platform_args+=("-DSnappy_DIR=$INSTALL_PREFIX/lib/cmake/Snappy")
     if [[ -n "$OPENSSL_PREFIX" ]]; then
-      velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+      velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
       velox_prefix_path+=";$OPENSSL_PREFIX"
       # Arrow's ExternalProject sub-builds do not inherit -D flags; the
       # environment is what keeps their find_package(OpenSSL) on openssl@3
       # instead of Homebrew's default openssl@4.
       export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
     fi
-    [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
   cmake -B _build/release -GNinja $CMAKE_LAUNCHER_FLAGS \
@@ -695,7 +711,7 @@ build_velox() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    ${velox_ssl_args[@]+"${velox_ssl_args[@]}"} \
+    ${velox_platform_args[@]+"${velox_platform_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
