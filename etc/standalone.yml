@@ -37,6 +37,7 @@ coordinator:
 
   # ---- Query ----
   query:
+    placement-provider: load-balanced
     # Query timeout
     # Dev mode: can be more lenient
     timeout: "5m"
@@ -44,6 +45,12 @@ coordinator:
     # Maximum concurrent queries
     # Dev mode: smaller value is fine
     max-concurrent: 20
+
+  # Per-task byte grant. Zero disables task spilling; positive values also
+  # require worker.spill.directory on each executing Worker.
+  task:
+    spill:
+      max-bytes: 0
 
   # ---- Worker Management ----
   worker:
@@ -124,7 +131,8 @@ worker:
     scheduler: 1
 
   # ---- Spill ----
-  # The directory is the switch: leaving it unset disables engine-level spill.
+  # Leaving the directory unset disables Worker-local spilling. Tasks also need
+  # a positive coordinator.task.spill.max-bytes grant.
   # Paths below are examples, not defaults — code-side defaults derive from
   # ${java.io.tmpdir}, which is NOT /tmp on macOS.
   # spill:
@@ -156,10 +164,6 @@ worker:
 # Shared Configuration Sections
 # ====================================================================
 
-# ---- State Store ----
-# Dev mode: in-memory state store
-state-store:
-  type: IN_MEMORY
 
 # ---- Metadata ----
 metadata:

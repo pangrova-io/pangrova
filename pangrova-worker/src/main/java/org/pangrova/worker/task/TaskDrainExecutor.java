@@ -13,37 +13,37 @@
  */
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.enums.TaskState;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * Handles drain, cleanup, and bulk cancel operations for the task registry.
- * Extracted from TaskManager to keep each class under the 500-line limit.
+ * Stops new registrations and waits for the exact tracked tasks to finish before forcing cancellation.
  */
 final class TaskDrainExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskDrainExecutor.class);
     private static final int DEFAULT_DRAIN_TIMEOUT_SECONDS = 30;
 
-    private final ConcurrentHashMap<String, TaskInfo> tasks;
+    private final WorkerTaskRegistry tasks;
     private final TaskLifecycleManager lifecycleManager;
     private final Consumer<String> cancelTask;
 
-    private volatile CountDownLatch drainLatch;
+    private final Object terminalChanges = new Object();
     private volatile boolean draining;
 
-    TaskDrainExecutor(ConcurrentHashMap<String, TaskInfo> tasks,
-                      TaskLifecycleManager lifecycleManager,
-                      Consumer<String> cancelTask) {
+    TaskDrainExecutor(
+            WorkerTaskRegistry tasks,
+            TaskLifecycleManager lifecycleManager,
+            Consumer<String> cancelTask) {
         this.tasks = tasks;
         this.lifecycleManager = lifecycleManager;
         this.cancelTask = cancelTask;
@@ -53,10 +53,14 @@ final class TaskDrainExecutor {
         return draining;
     }
 
+    void beginDraining() {
+        tasks.closeAdmissions();
+        draining = true;
+    }
+
     void signalTerminalTransition() {
-        var latch = drainLatch;
-        if (latch != null) {
-            latch.countDown();
+        synchronized (terminalChanges) {
+            terminalChanges.notifyAll();
         }
     }
 
@@ -65,17 +69,14 @@ final class TaskDrainExecutor {
     }
 
     void drainAndWait(int timeoutSeconds) {
-        draining = true;
-        List<String> nonTerminalTaskIds = collectNonTerminalTaskIds();
-        int running = nonTerminalTaskIds.size();
-        LOG.info("event=task_manager_draining count={} timeoutSeconds={}", running, timeoutSeconds);
-        if (running == 0) {
-            return;
+        beginDraining();
+        Set<String> pending = new HashSet<>();
+        for (TaskInfo info : tasks.values()) {
+            if (!isTerminal(info.getState())) pending.add(info.taskId());
         }
-        var latch = new CountDownLatch(running);
-        this.drainLatch = latch;
-        releaseAlreadyTerminal(latch, nonTerminalTaskIds);
-        awaitDrainLatch(latch, timeoutSeconds);
+        LOG.info("event=task_manager_draining count={} timeoutSeconds={}", pending.size(), timeoutSeconds);
+        if (pending.isEmpty()) return;
+        awaitTerminalTasks(pending, timeoutSeconds);
         int forceCancelled = forceCancelNonTerminal();
         if (forceCancelled > 0) {
             LOG.warn("event=drain_force_cancelled count={}", forceCancelled);
@@ -83,45 +84,42 @@ final class TaskDrainExecutor {
         LOG.info("event=task_manager_drained");
     }
 
-    private static boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    private static boolean isTerminal(TaskState state) {
+        return state == TaskState.FINISHED
+                || state == TaskState.FAILED
+                || state == TaskState.CANCELLED;
     }
 
-    private static boolean isActive(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.RECEIVED || state == TaskManager.TaskState.INITIALIZING
-                || state == TaskManager.TaskState.RUNNING || state == TaskManager.TaskState.FINISHING;
+    private static boolean isActive(TaskState state) {
+        return state == TaskState.RECEIVED
+                || state == TaskState.INITIALIZING
+                || state == TaskState.RUNNING
+                || state == TaskState.FINISHING
+                || state == TaskState.CANCELLING;
     }
 
-    private List<String> collectNonTerminalTaskIds() {
-        List<String> ids = new ArrayList<>();
-        for (TaskInfo info : tasks.values()) {
-            if (!isTerminal(info.getState())) {
-                ids.add(info.taskId());
+    private void awaitTerminalTasks(Set<String> pending, int timeoutSeconds) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        synchronized (terminalChanges) {
+            while (true) {
+                pending.removeIf(id -> {
+                    TaskInfo info = tasks.get(id);
+                    return info == null || isTerminal(info.getState());
+                });
+                if (pending.isEmpty()) return;
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    LOG.warn("event=drain_timeout remaining={}", pending.size());
+                    return;
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(terminalChanges, remaining);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    LOG.warn("event=drain_interrupted");
+                    return;
+                }
             }
-        }
-        return ids;
-    }
-
-    private void releaseAlreadyTerminal(CountDownLatch latch, List<String> taskIds) {
-        for (String taskId : taskIds) {
-            TaskInfo info = tasks.get(taskId);
-            if (info != null && isTerminal(info.getState())) {
-                latch.countDown();
-            }
-        }
-    }
-
-    private void awaitDrainLatch(CountDownLatch latch, int timeoutSeconds) {
-        try {
-            if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
-                LOG.warn("event=drain_timeout remaining={}", latch.getCount());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=drain_interrupted");
-        } finally {
-            this.drainLatch = null;
         }
     }
 
@@ -138,7 +136,7 @@ final class TaskDrainExecutor {
 
     int cancelAllRunningTasks() {
         int cancelled = 0;
-        for (var entry : tasks.entrySet()) {
+        for (var entry : tasks.entries()) {
             if (isActive(entry.getValue().getState())) {
                 cancelTask.accept(entry.getKey());
                 cancelled++;
@@ -152,13 +150,28 @@ final class TaskDrainExecutor {
 
     private int releaseTerminalExecutorsCount() {
         int released = 0;
+        Throwable failure = null;
         if (lifecycleManager != null) {
-            for (var entry : tasks.entrySet()) {
+            for (var entry : tasks.entries()) {
                 if (isTerminal(entry.getValue().getState())) {
-                    lifecycleManager.releaseFinishedTaskExecutor(entry.getValue());
-                    released++;
+                    try {
+                        lifecycleManager.releaseFinishedTaskExecutor(entry.getValue());
+                        released++;
+                    } catch (RuntimeException | Error rejected) {
+                        if (failure == null) {
+                            failure = rejected;
+                        } else if (failure != rejected) {
+                            failure.addSuppressed(rejected);
+                        }
+                    }
                 }
             }
+        }
+        if (failure instanceof Error fatal) {
+            throw fatal;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
         }
         return released;
     }
@@ -173,12 +186,40 @@ final class TaskDrainExecutor {
     }
 
     int cleanupTerminalTasks(Duration retention) {
-        return TaskCleanupScheduler.cleanupTerminalTasks(tasks, retention, info -> {});
+        return TaskCleanupScheduler.cleanupTerminalTasks(
+                tasks, retention, this::releaseTerminalTask, this::resultResourcesDrained);
     }
 
-    void startPeriodicCleanup(ScheduledExecutorService executor,
-                              Duration retention, Duration interval,
-                              Consumer<TaskInfo> removeIndex) {
-        TaskCleanupScheduler.startPeriodicCleanup(executor, tasks, retention, interval, removeIndex);
+    boolean resultResourcesDrained(TaskInfo info) {
+        return lifecycleManager != null && lifecycleManager.resultResourcesDrained(info);
+    }
+
+    void releaseTerminalTask(TaskInfo info) {
+        if (lifecycleManager != null) {
+            lifecycleManager.releaseFinishedTaskExecutor(info);
+        } else if (info.executorHandle() != 0
+                || info.allocatedMemory() != 0
+                || info.allocatedBufferMemory() != 0
+                || info.taskMemoryPool() != null) {
+            throw new IllegalStateException(
+                    "Terminal task owns resources without a release authority");
+        }
+    }
+
+    void startPeriodicCleanup(
+            ScheduledExecutorService executor,
+            Duration retention,
+            Duration interval,
+            Consumer<TaskInfo> removeIndex) {
+        TaskCleanupScheduler.startPeriodicCleanup(
+                executor,
+                tasks,
+                retention,
+                interval,
+                info -> {
+                    releaseTerminalTask(info);
+                    removeIndex.accept(info);
+                },
+                this::resultResourcesDrained);
     }
 }

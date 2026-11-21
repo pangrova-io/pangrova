@@ -4,20 +4,20 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.x     | ✅ Security updates |
+| Current `main` / `0.1.0-SNAPSHOT` | Development fixes; no stable release support window yet |
 
 ## Reporting a Vulnerability
 
 **Please do not report security vulnerabilities through public issues.**
 
-Send an email to [security@pangrova-project.org] with:
+Send an email to [sunxiaojian926@gmail.com](mailto:sunxiaojian926@gmail.com) with:
 
 1. Vulnerability description
 2. Steps to reproduce
 3. Impact assessment
 4. Possible fix (if any)
 
-We will acknowledge receipt within 48 hours and provide an initial assessment within 7 days.
+We aim to acknowledge receipt within 48 hours and provide an initial assessment within 7 days.
 
 ## Disclosure Policy
 
@@ -29,7 +29,7 @@ We will acknowledge receipt within 48 hours and provide an initial assessment wi
 
 When using Pangrova:
 
-1. Always use the latest stable version
+1. Use a revision whose relevant validation checks have passed
 2. Enable authentication and authorization
 3. Use TLS for encrypted communication
 4. Regularly audit access logs

@@ -1,5 +1,7 @@
 package org.pangrova.protocol.validation;
 
+import org.pangrova.protocol.exception.ProtoValidationException;
+
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 
@@ -30,6 +32,14 @@ public final class ProtoValidator {
     /** Field-name suffixes whose values must be non-negative. */
     private static final List<String> NON_NEGATIVE_FIELD_SUFFIXES = List.of(
             "_bytes", "_count", "_ms", "_nanos");
+    /** Presence rules are explicit; optional identifiers must never become required by naming. */
+    private static final Set<String> REQUIRED_FIELDS = Set.of(
+            "pangrova.protocol.v2.TaskAttemptId.query_or_job_id",
+            "pangrova.protocol.v2.TaskAttemptId.task_id",
+            "pangrova.protocol.v2.DataSplit.split_id",
+            "pangrova.protocol.v2.DataSplit.connector_id",
+            "pangrova.protocol.v2.DataSplit.opaque_location",
+            "pangrova.protocol.v2.TaskRequest.substrait_plan");
 
     private ProtoValidator() {}
 
@@ -69,6 +79,14 @@ public final class ProtoValidator {
                     : path + "." + field.getName();
 
             if (field.isRepeated()) {
+                if (!field.isMapField()
+                        && field.getJavaType() == Descriptors.FieldDescriptor.JavaType.MESSAGE) {
+                    @SuppressWarnings("unchecked")
+                    List<Message> values = (List<Message>) message.getField(field);
+                    for (int index = 0; index < values.size(); index++) {
+                        validateMessage(values.get(index), fieldPath + "[" + index + "]", violations);
+                    }
+                }
                 continue;
             }
 
@@ -129,13 +147,13 @@ public final class ProtoValidator {
     }
 
     /**
-     * Determines if a field is considered "required" based on naming conventions.
-     * Fields named *_id, task_id, query_id, plan_fragment are required.
+     * Determines whether a scalar is required at the canonical boundary.
+     * The list is explicit because many {@code *_id} values are optional
+     * references; name-based inference made valid v2 messages impossible.
      */
     private static boolean isRequiredField(Descriptors.FieldDescriptor field) {
-        String name = field.getName();
-        return name.endsWith("_id") || name.equals("plan_fragment")
-                || name.equals("file_path") || name.equals("connector_id");
+        return REQUIRED_FIELDS.contains(
+                field.getContainingType().getFullName() + "." + field.getName());
     }
 
     /**

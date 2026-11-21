@@ -86,7 +86,6 @@ final class IcebergSnapshotPinManager implements QuerySnapshotRegistry {
         });
     }
 
-    @Override
     public void cleanupQuery(String queryId) {
         activeQueryIds.remove(queryId);
         // Remove all entries for this query (compound keys start with queryId|)

@@ -1,12 +1,15 @@
 package org.pangrova.worker.http.endpoint;
 
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.common.client.error.ErrorDetail;
+import org.pangrova.security.api.exception.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,23 +31,71 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerExceptionMapper.class);
 
+    @Context private UriInfo requestUri;
+
     @Override
     public Response toResponse(Exception exception) {
         int status = resolveHttpStatus(exception);
         String errorCode = resolveErrorCode(exception, status);
         String errorType = resolveErrorType(status);
-        String message = resolveMessage(exception);
+        // A malformed private task envelope can be rejected during JSON decoding,
+        // before TaskResource sees it. Do not log parser source text or echo it.
+        boolean privateTaskRequest = requestUri != null
+                && requestUri.getPath().matches("/?v1/task(/copy-stage)?/?");
+        String message = privateTaskRequest
+                ? "Task submission request rejected" : resolveMessage(exception);
 
-        logException(status, errorCode, message, exception);
+        if (privateTaskRequest) {
+            LOG.warn("Task submission request rejected: status={} errorCode={}", status, errorCode);
+        } else {
+            logException(status, errorCode, message, exception);
+        }
 
         ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
-        return Response.status(status)
+        Response.ResponseBuilder response = exception instanceof WebApplicationException webException
+                ? Response.fromResponse(webException.getResponse()) : Response.status(status);
+        return response.header("Content-Length", null).header("Content-Encoding", null)
                 .type(MediaType.APPLICATION_JSON_TYPE)
                 .entity(detail)
                 .build();
     }
 
     private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof WebApplicationException webException) {
+            return webException.getResponse().getStatus();
+        }
+        if (exception instanceof PangrovaException failure) {
+            Integer fileStatus = switch (failure.getErrorCode()) {
+                case FILE_OBJECT_NOT_FOUND -> 404;
+                case FILE_OBJECT_PRECONDITION_FAILED -> 412;
+                case FILE_PATH_INVALID -> 400;
+                case FILE_UPLOAD_STATE_INVALID -> 409;
+                case FILE_LIMIT_EXCEEDED -> 413;
+                case FILE_STORAGE_UNAVAILABLE, FILE_STORAGE_NOT_CONFIGURED -> 503;
+                case ACCESS_DENIED -> 403;
+                default -> null;
+            };
+            if (fileStatus != null) {
+                return fileStatus;
+            }
+        }
+        if (exception instanceof org.pangrova.worker.exception.ControlEpochFenceException fence) {
+            return switch (fence.reason()) {
+                case CONTROL_PLANE_NOT_READY -> 503;
+                case EPOCH_AHEAD -> 425;
+                default -> 409;
+            };
+        }
+        if (exception instanceof org.pangrova.worker.exception.ExecutionOwnerFenceException) {
+            return 409;
+        }
+        if (exception instanceof org.pangrova.worker.exception.TaskAdmissionException admission) {
+            return switch (admission.reason()) {
+                case EXPIRED -> 408;
+                case IDENTITY_CONFLICT, SEALED -> 409;
+                case CAPACITY, CLOSED -> 503;
+            };
+        }
         if (exception instanceof IllegalArgumentException) {
             return 400;
         }
@@ -65,6 +116,13 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
             case 400 -> "BAD_REQUEST";
             case 403 -> "ACCESS_DENIED";
             case 404 -> "NOT_FOUND";
+            case 405 -> "METHOD_NOT_ALLOWED";
+            case 408 -> "ADMISSION_EXPIRED";
+            case 409 -> "ADMISSION_CONFLICT";
+            case 412 -> "PRECONDITION_FAILED";
+            case 416 -> "RANGE_NOT_SATISFIABLE";
+            case 425 -> "CONTROL_EPOCH_AHEAD";
+            case 503 -> "SERVICE_UNAVAILABLE";
             default -> "INTERNAL_ERROR";
         };
     }

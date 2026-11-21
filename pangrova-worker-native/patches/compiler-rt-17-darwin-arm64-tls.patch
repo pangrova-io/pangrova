@@ -1,0 +1,24 @@
+--- a/lib/sanitizer_common/sanitizer_mac.cpp
++++ b/lib/sanitizer_common/sanitizer_mac.cpp
+@@ -556,7 +556,7 @@
+   asm("movl %%gs:0,%0" : "=r"(segbase));
+ #elif defined(__aarch64__)
+   asm("mrs %x0, tpidrro_el0" : "=r"(segbase));
+-  segbase &= 0x07ul;  // clearing lower bits, cpu id stored there
++  segbase &= ~0x07ul;  // clearing lower bits, cpu id stored there
+ #endif
+   return segbase;
+ }
+@@ -567,6 +567,12 @@
+ uptr TlsSize() {
+ #if defined(__x86_64__) || defined(__i386__)
+   return 1024 * sizeof(uptr);
++#elif defined(__aarch64__) && SANITIZER_OSX
++  // macOS arm64 TSD has 256 reserved slots and PTHREAD_KEYS_MAX public slots.
++  // The TPIDRRO_EL0 base is the actual TSD base, not pthread_self().
++  // Apple libpthread-485.60.2/src/types_internal.h and actual key 767 stores
++  // corroborate this platform-specific span; do not apply it to iOS/DriverKit.
++  return (256 + PTHREAD_KEYS_MAX) * sizeof(uptr);
+ #else
+   return 0;
+ #endif

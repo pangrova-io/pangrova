@@ -3,7 +3,7 @@ package org.pangrova.planner.property.substrait;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import io.substrait.plan.Plan;
 import net.jqwik.api.*;
-import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * should produce a valid Substrait Plan without losing operator semantics.</p>
  */
 @Tag("Feature: full-pipeline-audit-fix")
-@Tag("Property 3: RelNode → Substrait 映射完整性")
+@Tag("Property 3: RelNode → Substrait mapping completeness")
 class SubstraitConverterPropertyTest {
 
     private final SubstraitConverter converter = new SubstraitConverter();

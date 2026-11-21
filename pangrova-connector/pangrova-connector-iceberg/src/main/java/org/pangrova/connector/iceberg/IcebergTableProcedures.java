@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.TableProcedure;
+import org.pangrova.connector.api.metadata.TableProcedure;
 
 import java.util.List;
 
@@ -27,20 +27,25 @@ final class IcebergTableProcedures {
                             "Schema-qualified table name (schema.table)"))),
             procedure("expire_snapshots",
                     "Atomically expires old snapshots and cleans orphaned data/manifest files "
-                            + "using Iceberg's ExpireSnapshots API.",
+                            + "using Iceberg's ExpireSnapshots API. Supports dry_run.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.optional("retain_last",
-                                    "Number of latest snapshots to retain", "1"),
+                                    "Number of latest snapshots to retain", "10"),
                             TableProcedure.PropertyDefinition.optional("older_than_millis",
-                                    "Expire snapshots older than this epoch (ms)", null))),
+                                    "Expire snapshots older than this epoch (ms)", null),
+                            TableProcedure.PropertyDefinition.optional("dry_run",
+                                    "Report what would expire without committing", "false"))),
             procedure("remove_orphan_files",
                     "Walks the table location and deletes files not reachable from any "
-                            + "snapshot or manifest. Requires a FileIO that supports prefix listing.",
+                            + "snapshot or manifest. Requires a FileIO that supports prefix listing. "
+                            + "The cutoff must be at least 24 hours old; supports dry_run.",
                     List.of(TableProcedure.PropertyDefinition.required("table_name",
                                     "Schema-qualified table name (schema.table)"),
                             TableProcedure.PropertyDefinition.optional("older_than_millis",
-                                    "Only delete files older than this epoch (ms)", null))),
+                                    "Only delete files older than this epoch (ms)", null),
+                            TableProcedure.PropertyDefinition.optional("dry_run",
+                                    "Report orphans without deleting them", "false"))),
             procedure("rewrite_manifests",
                     "Compacts small manifest files into larger ones for better planning "
                             + "performance.",

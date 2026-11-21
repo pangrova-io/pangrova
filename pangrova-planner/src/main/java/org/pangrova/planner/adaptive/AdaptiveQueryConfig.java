@@ -37,8 +37,8 @@ public record AdaptiveQueryConfig(
         if (targetPartitionBytes <= 0) {
             throw new IllegalArgumentException("targetPartitionBytes must be positive, got: " + targetPartitionBytes);
         }
-        if (skewPartitionThresholdRatio <= 0) {
-            throw new IllegalArgumentException("skewPartitionThresholdRatio must be positive, got: "
+        if (!Double.isFinite(skewPartitionThresholdRatio) || skewPartitionThresholdRatio <= 1.0) {
+            throw new IllegalArgumentException("skewPartitionThresholdRatio must be finite and > 1.0, got: "
                     + skewPartitionThresholdRatio);
         }
         if (skewPartitionMinBytes < 0) {

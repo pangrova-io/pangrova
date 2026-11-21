@@ -3,9 +3,16 @@ package org.pangrova.worker.memory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.pangrova.worker.resource.memory.NodeMemoryPool;
+import org.pangrova.worker.resource.memory.RootMemoryPool;
+import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -18,6 +25,123 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NativeMemoryCoordinatorTest {
 
     private static final long MAX_BYTES = 1024 * 1024;  // 1MB
+
+    @Test
+    void actualNativeGrowthChargesNodeAndGlobalBudgetsExactlyOnce() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(1024, 0);
+        NodeMemoryPool node = new RootMemoryPool("root-native", 768)
+                .createNodePool("node-native", 768);
+        var coordinator = new NativeMemoryCoordinator(1024, arbitrator, node, null);
+
+        assertEquals(512, coordinator.reserve(512));
+        assertEquals(512, node.getUsedBytes());
+        assertEquals(512, arbitrator.getUsedMemory());
+        assertEquals(0, coordinator.reserve(300));
+        assertEquals(512, node.getUsedBytes());
+        assertEquals(512, arbitrator.getUsedMemory());
+
+        coordinator.unreserve(512);
+        assertEquals(0, node.getUsedBytes());
+        assertEquals(0, arbitrator.getUsedMemory());
+    }
+
+    @Test
+    void concurrentNativeGrowthAndReleaseLeaveBothLedgersBalanced() throws Exception {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(1024, 0);
+        NodeMemoryPool node = new RootMemoryPool("root-concurrent-native", 768)
+                .createNodePool("node-concurrent-native", 768);
+        var coordinator = new NativeMemoryCoordinator(768, arbitrator, node, null);
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            var tasks = new java.util.ArrayList<Future<?>>();
+            for (int thread = 0; thread < 8; thread++) {
+                tasks.add(pool.submit(() -> {
+                    for (int iteration = 0; iteration < 500; iteration++) {
+                        long granted = coordinator.reserve(32);
+                        if (granted > 0) {
+                            coordinator.unreserve(granted);
+                        }
+                    }
+                }));
+            }
+            for (Future<?> task : tasks) {
+                task.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(0, coordinator.currentReservation());
+        assertEquals(0, node.getUsedBytes());
+        assertEquals(0, arbitrator.getUsedMemory());
+        assertEquals(0, node.getDoubleReleaseCount());
+    }
+
+    @Test
+    void resetBudgetReleasesOnlyNativeCallbackReservation() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(MAX_BYTES, 0);
+        RootMemoryPool root = new RootMemoryPool("root", MAX_BYTES);
+        NodeMemoryPool serviceNode = root.createNodePool("service-node", MAX_BYTES / 2);
+        NodeMemoryPool taskNode = root.createNodePool("task-node", MAX_BYTES / 2);
+        try (ShuffleServiceMemoryLease service = ShuffleServiceMemoryLease.reserve(
+                "worker", 100, 200, serviceNode, arbitrator)) {
+            assertEquals(150, taskNode.tryReserve(150));
+            assertEquals(150, arbitrator.reserve(taskNode, 150));
+            var coordinator = new NativeMemoryCoordinator(MAX_BYTES, arbitrator);
+            assertEquals(80, coordinator.reserve(80));
+            assertEquals(530, arbitrator.getUsedMemory());
+
+            coordinator.resetBudget();
+
+            assertEquals(0, coordinator.currentReservation());
+            assertEquals(450, arbitrator.getUsedMemory());
+            assertEquals(300, serviceNode.getUsedBytes());
+            assertEquals(150, taskNode.getUsedBytes());
+            assertEquals(300, arbitrator.snapshot().get(serviceNode.getName()));
+            assertEquals(150, arbitrator.snapshot().get(taskNode.getName()));
+            arbitrator.release(taskNode, 150);
+            taskNode.free(150);
+        }
+        assertEquals(0, arbitrator.getUsedMemory());
+    }
+
+    @Test
+    void concurrentReserveCannotCrossLocalCapWhileFirstRequestIsInArbitration() throws Exception {
+        CountDownLatch firstEnteredArbitrator = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicBoolean first = new AtomicBoolean(true);
+        MemoryArbitrator arbitrator = new MemoryArbitrator(1000, 0) {
+            @Override
+            public long reserve(long bytes) {
+                if (first.compareAndSet(true, false)) {
+                    firstEnteredArbitrator.countDown();
+                    try {
+                        if (!releaseFirst.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("first arbitration did not resume");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                }
+                return super.reserve(bytes);
+            }
+        };
+        var coordinator = new NativeMemoryCoordinator(100, arbitrator);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Long> firstGrant = pool.submit(() -> coordinator.reserve(70));
+            assertTrue(firstEnteredArbitrator.await(5, TimeUnit.SECONDS));
+            Future<Long> secondGrant = pool.submit(() -> coordinator.reserve(70));
+            assertEquals(0, secondGrant.get(5, TimeUnit.SECONDS));
+            releaseFirst.countDown();
+            assertEquals(70, firstGrant.get(5, TimeUnit.SECONDS));
+            assertEquals(70, coordinator.currentReservation());
+            assertEquals(70, arbitrator.getUsedMemory());
+        } finally {
+            releaseFirst.countDown();
+            pool.shutdownNow();
+        }
+    }
 
     @Test
     void reserveWithinBudgetReturnsRequestedBytes() {

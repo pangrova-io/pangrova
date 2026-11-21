@@ -11,60 +11,15 @@
     </parent>
 
     <artifactId>pangrova-governance</artifactId>
+    <packaging>pom</packaging>
     <name>Pangrova Governance</name>
     <description>Data lineage, quality rules, tag-based security policy</description>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.openlineage</groupId>
-            <artifactId>openlineage-java</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.cronutils</groupId>
-            <artifactId>cron-utils</artifactId>
-        </dependency>
-
-        <!-- Test -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.jqwik</groupId>
-            <artifactId>jqwik</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <modules>
+        <module>pangrova-governance-api</module>
+        <module>pangrova-governance-runtime</module>
+        <module>pangrova-governance-lineage-log</module>
+        <module>pangrova-governance-lineage-openlineage</module>
+        <module>pangrova-governance-quality-sql</module>
+    </modules>
 </project>

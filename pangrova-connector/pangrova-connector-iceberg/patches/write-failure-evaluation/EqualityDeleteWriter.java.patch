@@ -1,0 +1,63 @@
+--- a/core/src/main/java/org/apache/iceberg/deletes/EqualityDeleteWriter.java
++++ b/core/src/main/java/org/apache/iceberg/deletes/EqualityDeleteWriter.java
+@@ -43,6 +43,8 @@
+   private final int[] equalityFieldIds;
+   private final SortOrder sortOrder;
+   private DeleteFile deleteFile = null;
++  private boolean failed;
++  private boolean appenderClosed;
+ 
+   public EqualityDeleteWriter(
+       FileAppender<T> appender,
+@@ -65,7 +67,13 @@
+ 
+   @Override
+   public void write(T row) {
+-    appender.add(row);
++    Preconditions.checkState(!failed && !appenderClosed, "Cannot write after failure or close");
++    try {
++      appender.add(row);
++    } catch (RuntimeException | Error failure) {
++      failed = true;
++      throw failure;
++    }
+   }
+ 
+   @Override
+@@ -76,7 +84,19 @@
+   @Override
+   public void close() throws IOException {
+     if (deleteFile == null) {
+-      appender.close();
++      if (!appenderClosed) {
++        try {
++          appender.close();
++          appenderClosed = true;
++        } catch (IOException | RuntimeException | Error failure) {
++          failed = true;
++          throw failure;
++        }
++      }
++      if (failed) {
++        return;
++      }
++      try {
+       this.deleteFile =
+           FileMetadata.deleteFileBuilder(spec)
+               .ofEqualityDeletes(equalityFieldIds)
+@@ -90,10 +110,15 @@
+               .withSplitOffsets(appender.splitOffsets())
+               .withSortOrder(sortOrder)
+               .build();
++      } catch (RuntimeException | Error failure) {
++        failed = true;
++        throw failure;
++      }
+     }
+   }
+ 
+   public DeleteFile toDeleteFile() {
++    Preconditions.checkState(!failed, "Cannot publish a failed writer");
+     Preconditions.checkState(deleteFile != null, "Cannot create delete file from unclosed writer");
+     return deleteFile;
+   }

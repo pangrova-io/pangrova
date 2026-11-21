@@ -35,10 +35,20 @@ struct NativeRuntimeConfig {
   int64_t ram_cache_bytes = 8L * 1024 * 1024 * 1024;
   int64_t ssd_cache_bytes = 100L * 1024 * 1024 * 1024;
   std::string ssd_cache_path;
+  int64_t artifact_cache_bytes = 0;
+  std::string artifact_cache_path;
+  int64_t artifact_index_memory_bytes = 0;
   // Spill configuration.
   bool spill_enabled = false;
   std::string spill_directory;
   int64_t max_spill_bytes = 0;  // 0 = unlimited
+  // Native Flight shuffle service is not started unless all of these are
+  // explicitly supplied by the Worker and prebooked in its shared arbiter.
+  uint64_t shuffle_retention_bytes = 0;
+  uint64_t shuffle_transit_bytes = 0;
+  uint64_t shuffle_spill_bytes = 0;
+  uint32_t shuffle_spill_files = 0;
+  std::string shuffle_spill_directory;
   // Parallel execution.
   int32_t num_drivers = 1;
   // Configurable thread pool sizes (0 = use computed defaults).
@@ -74,10 +84,18 @@ struct NativeRuntimeConfig {
   double pressure_threshold_medium = 0.0;
   double pressure_threshold_high = 0.0;
   double pressure_threshold_critical = 0.0;
+
+  // Mutual TLS for all Native data-plane servers and clients.
+  bool transport_tls_enabled = false;
+  std::string transport_tls_certificate_chain_path;
+  std::string transport_tls_private_key_path;
+  std::string transport_tls_root_ca_path;
+  std::string transport_tls_identity;
 };
 
 // Parses NativeConfig protobuf bytes into NativeRuntimeConfig.
-// Returns defaults when data is empty or unparseable.
+// Returns defaults when data is empty. Throws when a non-empty payload is not
+// a valid canonical v2 RuntimeInitConfig or violates a security invariant.
 NativeRuntimeConfig parseNativeConfig(const std::vector<uint8_t>& data);
 
 // Initializes the full native runtime: memory, file systems,
@@ -102,6 +120,11 @@ facebook::velox::cache::AsyncDataCache* globalAsyncDataCache();
 udf::NativeUdfRegistry* globalUdfRegistry();
 velox::TableFunctionRegistry* globalTableFunctionRegistry();
 std::shared_ptr<folly::Executor> globalExecutor();
+// Event-base executor for Native I/O timers and nonblocking continuations.
+std::shared_ptr<folly::Executor> globalIoExecutor();
+// Dedicated pool for synchronous Native data-plane reads. Both executors are
+// drained before Velox memory is destroyed.
+std::shared_ptr<folly::Executor> globalBlockingIoExecutor();
 
 // Build a config properties map from NativeRuntimeConfig
 // for filesystem authentication (S3/HDFS/GCS).

@@ -12,7 +12,8 @@ public record WriteConfig(
     @JsonProperty("write_mode") String writeMode,
     @JsonProperty("partition_spec") List<String> partitionSpec,
     @JsonProperty("file_format") String fileFormat,
-    @JsonProperty("target_file_size") long targetFileSize
+    @JsonProperty("target_file_size") long targetFileSize,
+    @JsonProperty("output_binding_base64") String outputBindingBase64
 ) {
 
     public WriteConfig {

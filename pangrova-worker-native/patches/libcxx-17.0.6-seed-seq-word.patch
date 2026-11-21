@@ -1,0 +1,55 @@
+--- a/__random/seed_seq.h
++++ b/__random/seed_seq.h
+@@ -106,9 +106,9 @@
+         {
+             result_type __r = 1664525 * _Tp(__first[0] ^ __first[__p]
+                                                       ^  __first[__n - 1]);
+-            __first[__p] += __r;
+-            __r += __s;
+-            __first[__q] += __r;
++            __first[__p] = static_cast<result_type>(__first[__p] + __r);
++            __r += static_cast<result_type>(__s);
++            __first[__q] = static_cast<result_type>(__first[__q] + __r);
+             __first[0] = __r;
+         }
+         // Initialize indexing terms used with if statements as an optimization to
+@@ -130,9 +130,9 @@
+             __kqmodn = 0;
+ 
+           result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn] ^ __first[__k1modn]);
+-          __first[__kpmodn] += __r;
+-          __r += __kmodn + __v_[__k - 1];
+-          __first[__kqmodn] += __r;
++          __first[__kpmodn] = static_cast<result_type>(__first[__kpmodn] + __r);
++          __r = static_cast<result_type>(__r + __kmodn + __v_[__k - 1]);
++          __first[__kqmodn] = static_cast<result_type>(__first[__kqmodn] + __r);
+           __first[__kmodn] = __r;
+         }
+         for (size_t __k = __s + 1; __k < __m; ++__k)
+@@ -147,9 +147,9 @@
+             __kqmodn = 0;
+ 
+           result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn] ^ __first[__k1modn]);
+-          __first[__kpmodn] += __r;
+-          __r += __kmodn;
+-          __first[__kqmodn] += __r;
++          __first[__kpmodn] = static_cast<result_type>(__first[__kpmodn] + __r);
++          __r += static_cast<result_type>(__kmodn);
++          __first[__kqmodn] = static_cast<result_type>(__first[__kqmodn] + __r);
+           __first[__kmodn] = __r;
+         }
+         for (size_t __k = __m; __k < __m + __n; ++__k)
+@@ -163,9 +163,11 @@
+           if (++__kqmodn == __n)
+             __kqmodn = 0;
+ 
+-          result_type __r = 1566083941 * _Tp(__first[__kmodn] + __first[__kpmodn] + __first[__k1modn]);
++          const result_type __sum = static_cast<result_type>(
++              __first[__kmodn] + __first[__kpmodn] + __first[__k1modn]);
++          result_type __r = 1566083941 * _Tp(__sum);
+           __first[__kpmodn] ^= __r;
+-          __r -= __kmodn;
++          __r -= static_cast<result_type>(__kmodn);
+           __first[__kqmodn] ^= __r;
+           __first[__kmodn] = __r;
+         }

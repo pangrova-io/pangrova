@@ -51,4 +51,4 @@ SELECT CAST(ARRAY[1, 2, 3] AS ARRAY(BIGINT)) FROM t;
 - "Truncate" = decimal portion is removed
 - "Parse" = string must be a valid representation of the target type
 - Invalid casts produce a runtime error
-- CAST targets: numeric types, BOOLEAN, DATE, TIMESTAMP, STRING/VARCHAR, DECIMAL/NUMERIC, and ARRAY/MAP/STRUCT. Vector and spatial types are not cast targets.
+- CAST targets: numeric types, BOOLEAN, DATE, TIMESTAMP, STRING/VARCHAR, DECIMAL/NUMERIC, UUID, and ARRAY/MAP/STRUCT. Vector and spatial types are not cast targets.

@@ -1,0 +1,35 @@
+#pragma once
+
+#include <exception>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "capabilities/artifact/ArtifactRetrievalPlanner.h"
+#include "engine/executor/driver/PlanExecutionDriver.h"
+#include "engine/velox/plan/ArtifactBuildOperator.h"
+#include "engine/velox/runner/SingleMatchJoinRequirement.h"
+#include "engine/velox/runner/VeloxTaskRunner.h"
+
+namespace pangrova::executor {
+
+// Task-local owners cross the continuation boundary together. This is execution
+// lifetime state, not a second plan or protocol representation.
+struct PlanExecutionDriver::Execution {
+  WorkerLocalSpillPolicy spillPolicy;
+  std::shared_ptr<velox::ArtifactBuildTaskContext> artifactContext;
+  std::shared_ptr<artifact::ArtifactRetrievalPreparation> retrieval;
+  std::shared_ptr<velox::VeloxTaskRunner> runner;
+  facebook::velox::RowTypePtr writeOutputType;
+  std::vector<velox::SingleMatchJoinRequirement> singleMatchRequirements;
+  std::unique_ptr<std::thread> shuffleDrain;
+  std::unique_ptr<std::thread> writeDrain;
+  std::exception_ptr shuffleFailure;
+  // Captured on the drain thread, read only after join. Carry a stable
+  // diagnostic across that boundary instead of rethrowing its exception object.
+  std::optional<std::string> writeFailure;
+};
+
+}  // namespace pangrova::executor

@@ -5,9 +5,8 @@ import java.util.Objects;
 /**
  * Module-local contract for checking shuffle data residency before scale-down.
  *
- * <p>Mirrors the SPI-level {@code ShuffleDataResidencyCheck} contract without
- * introducing a module dependency from pangrova-operations to pangrova-spi.
- * Production wiring bridges the SPI implementation to this local interface.
+ * <p>Kept module-local so pangrova-operations does not depend on the shuffle
+ * runtime; production wiring bridges the concrete check to this interface.
  */
 @FunctionalInterface
 public interface ShuffleResidencyCheck {
@@ -53,12 +52,5 @@ public interface ShuffleResidencyCheck {
         public static ScaleDownAdvice adjust(int adjustedTarget, String reason) {
             return new ScaleDownAdvice(adjustedTarget, false, reason);
         }
-    }
-
-    /**
-     * Returns a residency check that always allows scale-down without drain.
-     */
-    static ShuffleResidencyCheck alwaysAllow() {
-        return (currentWorkers, proposedTarget) -> ScaleDownAdvice.allow(proposedTarget);
     }
 }

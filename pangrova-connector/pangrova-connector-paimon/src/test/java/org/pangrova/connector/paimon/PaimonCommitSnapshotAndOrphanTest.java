@@ -1,22 +1,25 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.index.CommitEvent;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.index.CommitEvent;
+import org.pangrova.connector.api.index.CommitListener;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,8 +31,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Regression tests for F-PAIMON-11: snapshot-id TOCTOU and orphan-file leak
@@ -61,13 +67,18 @@ class PaimonCommitSnapshotAndOrphanTest {
 
     private static final String CATALOG_NAME = "paimon_f_paimon_11";
     private static final String DATABASE = "f_paimon_11_db";
-    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
+    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.empty();
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> COLUMNS = List.of(
@@ -80,7 +91,7 @@ class PaimonCommitSnapshotAndOrphanTest {
         options.setString("warehouse", warehouse.toString());
         catalog = CatalogFactory.createCatalog(CatalogContext.create(options));
         catalog.createDatabase(DATABASE, false);
-        metadata = new PaimonMetadata(catalog, CATALOG_NAME);
+        metadata = new PaimonMetadata(catalog, CATALOG_NAME, new org.pangrova.connector.paimon.PaimonSplitRegistry());
         pageSinkProvider = new PaimonPageSinkProvider(catalog);
     }
 
@@ -164,6 +175,48 @@ class PaimonCommitSnapshotAndOrphanTest {
         // would tend to report the same (latest) snapshot id.
     }
 
+    @Test
+    void replayAfterNotificationFailureUsesCommitUserSnapshot() throws Exception {
+        ConnectorOutputTableHandle handle = createTable("replay_event");
+        ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, handle);
+        byte[] fragment;
+        try {
+            sink.appendPage(new Page(List.of("id", "val"), buildRows(0, 1)));
+            fragment = sink.finishWithMetadata();
+        } finally {
+            sink.close();
+        }
+        var context = PaimonCommitTestSupport.context(
+                metadata, SESSION, handle, List.of(fragment));
+        AtomicInteger deliveries = new AtomicInteger();
+        AtomicReference<CommitEvent> replayed = new AtomicReference<>();
+        metadata.registerCommitListener(event -> {
+            if (deliveries.incrementAndGet() == 1) {
+                throw new IllegalStateException("commit log unavailable");
+            }
+            if (context.commitFingerprint().equals(event.commitFingerprint())) {
+                replayed.set(event);
+            }
+        });
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(
+                SESSION, handle, List.of(fragment), context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("commit log unavailable");
+        FileStoreTable table = (FileStoreTable) catalog.getTable(
+                Identifier.create(DATABASE, "replay_event"));
+        long committedSnapshot = table.snapshotManager()
+                .latestSnapshotOfUser(context.commitFingerprint()).orElseThrow().id();
+
+        ConnectorOutputTableHandle later = metadata.beginInsert(SESSION, loadHandle("replay_event"));
+        writeRows(later, buildRows(1, 2));
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+
+        assertThat(replayed.get()).isNotNull();
+        assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committedSnapshot));
+        assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
+    }
+
     // -- helpers --
 
     private ConnectorOutputTableHandle createTable(String tableName) {
@@ -180,7 +233,7 @@ class PaimonCommitSnapshotAndOrphanTest {
         ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle);
         sink.appendPage(new Page(List.of("id", "val"), rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

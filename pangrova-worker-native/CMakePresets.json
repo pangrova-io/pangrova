@@ -15,6 +15,10 @@
       "hidden": true,
       "inherits": "base",
       "description": "Base preset using hermetic deps from ~/.pangrova/native-deps",
+      "warnings": {
+        "deprecated": false,
+        "dev": false
+      },
       "cacheVariables": {
         "PANGROVA_DEPS_PREFIX": "$env{PANGROVA_DEPS_PREFIX}",
         "CMAKE_PREFIX_PATH": "$env{PANGROVA_DEPS_PREFIX};$env{VELOX_HOME}/deps-install",
@@ -131,7 +135,7 @@
   "testPresets": [
     { "name": "dev-debug",   "configurePreset": "dev-debug",   "output": { "outputOnFailure": true } },
     { "name": "dev-release", "configurePreset": "dev-release", "output": { "outputOnFailure": true } },
-    { "name": "dev-asan",    "configurePreset": "dev-asan",    "output": { "outputOnFailure": true }, "environment": { "ASAN_OPTIONS": "detect_container_overflow=0:detect_leaks=1:halt_on_error=1", "LSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/asan.supp" } },
+    { "name": "dev-asan",    "configurePreset": "dev-asan",    "output": { "outputOnFailure": true }, "environment": { "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1", "LSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/asan.supp" } },
     { "name": "dev-msan",    "configurePreset": "dev-msan",    "output": { "outputOnFailure": true }, "environment": { "MSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/msan.supp:halt_on_error=1" } },
     { "name": "dev-ubsan",   "configurePreset": "dev-ubsan",   "output": { "outputOnFailure": true }, "environment": { "UBSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/ubsan.supp:halt_on_error=1:print_stacktrace=1" } }
   ]

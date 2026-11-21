@@ -1,5 +1,7 @@
 package org.pangrova.planner.stability;
 
+import org.pangrova.planner.enums.PlanBaselineVerdict;
+
 import org.apache.calcite.rel.RelNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,13 +89,13 @@ public final class PlanBaselineController {
         // 2. Baseline comparison
         if (!config.baselineEnabled()) {
             return new StabilityResult(queryHash, planHash,
-                    PlanBaselineRegistry.Verdict.NO_BASELINE, null);
+                    PlanBaselineVerdict.NO_BASELINE, null);
         }
 
-        PlanBaselineRegistry.Verdict verdict =
+        PlanBaselineVerdict verdict =
                 baselineRegistry.compareAgainstBaseline(queryHash, planHash);
 
-        if (verdict == PlanBaselineRegistry.Verdict.MISMATCH) {
+        if (verdict == PlanBaselineVerdict.MISMATCH) {
             String baselinePlanHash = baselineRegistry.getBaseline(queryHash).orElse("?");
             LOG.warn("event=plan_baseline_mismatch queryHash={} "
                             + "baselinePlanHash={} observedPlanHash={} "
@@ -103,7 +105,7 @@ public final class PlanBaselineController {
             return new StabilityResult(queryHash, planHash, verdict, baselinePlanHash);
         }
 
-        if (verdict == PlanBaselineRegistry.Verdict.MATCH) {
+        if (verdict == PlanBaselineVerdict.MATCH) {
             LOG.debug("event=plan_baseline_match queryHash={} planHash={}",
                     queryHash, planHash);
         }
@@ -148,11 +150,11 @@ public final class PlanBaselineController {
     public record StabilityResult(
             String queryHash,
             String observedPlanHash,
-            PlanBaselineRegistry.Verdict verdict,
+            PlanBaselineVerdict verdict,
             String baselinePlanHash) {
 
         public boolean isRegression() {
-            return verdict == PlanBaselineRegistry.Verdict.MISMATCH;
+            return verdict == PlanBaselineVerdict.MISMATCH;
         }
     }
 }

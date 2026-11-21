@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="932" height="323" viewBox="0 0 932 323" role="img">
+<rect width="932" height="323" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="930.5" height="321.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">Serialization timing and location:</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">  Coordinator:</text>
+<path d="M221.2 76.0 L221.2 87.0 L232.2 81.5 z" fill="#D97706"/>
+<path d="M616.0000000000001 76.0 L616.0000000000001 87.0 L627.0000000000001 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">    Calcite RelNode   SubstraitConverter.toSubstrait(relNode)   Substrait Plan (Java object)</text>
+<path d="M70.8 95.0 L70.8 106.0 L81.8 100.5 z" fill="#D97706"/>
+<path d="M352.8 95.0 L352.8 106.0 L363.8 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">      SubstraitPlan.toByteArray()   byte[] (Protobuf serialization)</text>
+<path d="M70.8 114.0 L70.8 125.0 L81.8 119.5 z" fill="#D97706"/>
+<path d="M287.0 114.0 L287.0 125.0 L298.0 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">      Base64.encode(bytes)   TaskDescriptor.substraitPlan (JSON string)</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">  Worker (Java):</text>
+<path d="M343.4 171.0 L343.4 182.0 L354.4 176.5 z" fill="#D97706"/>
+<path d="M493.8 171.0 L493.8 182.0 L504.8 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    TaskDescriptor.substraitPlan   Base64.decode   byte[]</text>
+<path d="M70.8 190.0 L70.8 201.0 L81.8 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">      TaskRequest.substrait_plan = bytes (passed directly, not deserialized)</text>
+<path d="M70.8 209.0 L70.8 220.0 L81.8 214.5 z" fill="#D97706"/>
+<path d="M493.8 209.0 L493.8 220.0 L504.8 214.5 z" fill="#D97706"/>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">      nativeCreateTaskExecutor(taskRequestBytes)   Native layer</text>
+<text x="34.0" y="256.7" fill="#1F2937" xml:space="preserve">  Worker (Native C++):</text>
+<path d="M324.6 266.0 L324.6 277.0 L335.6 271.5 z" fill="#D97706"/>
+<path d="M625.4000000000001 266.0 L625.4000000000001 277.0 L636.4000000000001 271.5 z" fill="#D97706"/>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">    TaskRequest.substrait_plan   SubstraitParser::parse(bytes)   Velox PlanNode</text>
+</g>
+</svg>

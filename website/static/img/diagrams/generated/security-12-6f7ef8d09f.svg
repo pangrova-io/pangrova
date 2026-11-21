@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="895" height="988" viewBox="0 0 895 988" role="img">
+<rect width="895" height="988" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="893.5" height="986.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">-- Column masking policy table</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">CREATE TABLE column_masks (</text>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">    mask_id BIGINT PRIMARY KEY AUTO_INCREMENT,</text>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">    mask_name VARCHAR(255) NOT NULL,</text>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">    catalog_name VARCHAR(255) NOT NULL,</text>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">    schema_name VARCHAR(255) NOT NULL,</text>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">    table_name VARCHAR(255) NOT NULL,</text>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">    column_name VARCHAR(255) NOT NULL,</text>
+<text x="34.0" y="218.7" fill="#1F2937" xml:space="preserve">    -- Masking expression (SQL fragment; {column} represents the original column)</text>
+<text x="34.0" y="237.7" fill="#1F2937" xml:space="preserve">    mask_expression TEXT NOT NULL,</text>
+<text x="34.0" y="275.7" fill="#1F2937" xml:space="preserve">    -- Applicability scope (non-applicable roles can see the original value)</text>
+<text x="34.0" y="294.7" fill="#1F2937" xml:space="preserve">    apply_to_roles TEXT,                      -- JSON array, null = all except exempt</text>
+<text x="34.0" y="313.7" fill="#1F2937" xml:space="preserve">    exempt_roles TEXT,                        -- JSON array of exempt roles</text>
+<text x="34.0" y="351.7" fill="#1F2937" xml:space="preserve">    enabled BOOLEAN DEFAULT TRUE,</text>
+<text x="34.0" y="370.7" fill="#1F2937" xml:space="preserve">    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,</text>
+<text x="34.0" y="389.7" fill="#1F2937" xml:space="preserve">    UNIQUE KEY uk_mask (catalog_name, schema_name, table_name, column_name, mask_name)</text>
+<text x="34.0" y="408.7" fill="#1F2937" xml:space="preserve">);</text>
+<text x="34.0" y="446.7" fill="#1F2937" xml:space="preserve">-- Built-in masking functions</text>
+<path d="M230.6 456.0 L230.6 467.0 L241.6 461.5 z" fill="#D97706"/>
+<text x="34.0" y="465.7" fill="#1F2937" xml:space="preserve">-- mask_email(email)   j***@example.com</text>
+<path d="M230.6 475.0 L230.6 486.0 L241.6 480.5 z" fill="#D97706"/>
+<text x="34.0" y="484.7" fill="#1F2937" xml:space="preserve">-- mask_phone(phone)   ****1234</text>
+<path d="M277.59999999999997 494.0 L277.59999999999997 505.0 L288.59999999999997 499.5 z" fill="#D97706"/>
+<text x="34.0" y="503.7" fill="#1F2937" xml:space="preserve">-- mask_card(card_number)   ****-****-****-1234</text>
+<path d="M211.79999999999998 513.0 L211.79999999999998 524.0 L222.79999999999998 518.5 z" fill="#D97706"/>
+<text x="34.0" y="522.7" fill="#1F2937" xml:space="preserve">-- mask_name(name)   Z*</text>
+<path d="M174.2 532.0 L174.2 543.0 L185.2 537.5 z" fill="#D97706"/>
+<text x="34.0" y="541.7" fill="#1F2937" xml:space="preserve">-- mask_null()   NULL</text>
+<path d="M221.2 551.0 L221.2 562.0 L232.2 556.5 z" fill="#D97706"/>
+<text x="34.0" y="560.7" fill="#1F2937" xml:space="preserve">-- mask_hash(value)   SHA256 hash</text>
+<path d="M343.4 570.0 L343.4 581.0 L354.4 575.5 z" fill="#D97706"/>
+<text x="34.0" y="579.7" fill="#1F2937" xml:space="preserve">-- mask_range(number, precision)   10000-20000</text>
+<text x="34.0" y="617.7" fill="#1F2937" xml:space="preserve">-- Example policies</text>
+<text x="34.0" y="636.7" fill="#1F2937" xml:space="preserve">INSERT INTO column_masks (mask_name, catalog_name, schema_name, table_name, column_name,</text>
+<text x="34.0" y="655.7" fill="#1F2937" xml:space="preserve">                          mask_expression, exempt_roles)</text>
+<text x="34.0" y="674.7" fill="#1F2937" xml:space="preserve">VALUES</text>
+<text x="34.0" y="693.7" fill="#1F2937" xml:space="preserve">('email_mask', 'iceberg', 'hr', 'employees', 'email',</text>
+<text x="34.0" y="712.7" fill="#1F2937" xml:space="preserve"> "mask_email({column})", '["admin", "hr_manager"]'),</text>
+<text x="34.0" y="750.7" fill="#1F2937" xml:space="preserve">('phone_mask', 'iceberg', 'hr', 'employees', 'phone',</text>
+<text x="34.0" y="769.7" fill="#1F2937" xml:space="preserve"> "mask_phone({column})", '["admin"]'),</text>
+<text x="34.0" y="807.7" fill="#1F2937" xml:space="preserve">('salary_mask', 'iceberg', 'hr', 'employees', 'salary',</text>
+<text x="34.0" y="826.7" fill="#1F2937" xml:space="preserve"> "CASE WHEN user_attribute('level') &gt;= 3 THEN {column} ELSE NULL END", '["admin"]'),</text>
+<text x="34.0" y="864.7" fill="#1F2937" xml:space="preserve">('ssn_mask', 'iceberg', 'hr', 'employees', 'ssn',</text>
+<text x="34.0" y="883.7" fill="#1F2937" xml:space="preserve"> "CONCAT('***-**-', RIGHT({column}, 4))", '["admin"]'),</text>
+<text x="34.0" y="921.7" fill="#1F2937" xml:space="preserve">('card_mask', 'iceberg', 'finance', 'payments', 'card_number',</text>
+<text x="34.0" y="940.7" fill="#1F2937" xml:space="preserve"> "mask_card({column})", '["admin", "finance_admin"]');</text>
+</g>
+</svg>

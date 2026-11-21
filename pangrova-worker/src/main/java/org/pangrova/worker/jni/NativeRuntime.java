@@ -1,12 +1,15 @@
 package org.pangrova.worker.jni;
 
+import org.pangrova.worker.function.NativeFunctionCallbacks;
+import org.pangrova.worker.function.NativeFunctionDescriptor;
+
 import org.pangrova.worker.memory.AllocationListener;
 
 /**
- * JNI bridge to the native vectorized execution engine.
+ * JNI entry points for the native vectorized execution engine.
  * Bidirectional: Java calls into Native for control-plane operations;
  * Native calls back to Java for memory arbitration ({@link org.pangrova.worker.memory.AllocationListener})
- * and write operations ({@link org.pangrova.worker.jni.write.NativeWriter}).
+ * and write operations ({@link org.pangrova.worker.write.NativeWriter}).
  *
  * <p>Lifecycle: {@link #initNativeRuntime} and {@link #shutdownNativeRuntime} are
  * synchronized and track an {@code initialized} flag. The C++ side
@@ -58,11 +61,8 @@ public final class NativeRuntime {
         if (!initialized) {
             return;
         }
-        try {
-            nativeShutdownInternal();
-        } finally {
-            initialized = false;
-        }
+        nativeShutdownInternal();
+        initialized = false;
     }
 
     /**
@@ -93,7 +93,7 @@ public final class NativeRuntime {
 
     /**
      * P1-7: Triggers native memory pool reclaim (operator MemoryReclaimer spill).
-     * Called by {@link org.pangrova.worker.memory.NativeSpillBridge#requestSpill}
+     * Called by the Worker memory spill controller ({@code NativeSpillController#requestSpill})
      * when the Java-side arbitrator denies a native allocation, closing the gap
      * where requestSpill was a no-op signal that never drove actual reclaim.
      *
@@ -136,9 +136,10 @@ public final class NativeRuntime {
         nativeCancelTask0(executorHandle);
     }
 
-    public static void nativeReleaseExecutor(long executorHandle) {
+    /** Returns the final canonical task report after joined cleanup, before Native ownership is erased. */
+    public static byte[] nativeReleaseExecutor(long executorHandle) {
         requireInitialized();
-        nativeReleaseExecutor0(executorHandle);
+        return nativeReleaseExecutor0(executorHandle);
     }
 
     // Status
@@ -163,15 +164,15 @@ public final class NativeRuntime {
     }
 
     // Memory snapshot for heartbeat observability.
-    // Returns serialized MemorySnapshot proto bytes, or null if bridge unavailable.
+    // Returns serialized MemorySnapshot proto bytes, or null if native memory reporting is unavailable.
     public static byte[] nativeGetMemorySnapshot() {
         requireInitialized();
         return nativeGetMemorySnapshot0();
     }
 
-    // --- Write bridge batch operations ---
+    // --- Connector write batch operations ---
     // Serialize columnar data interface pointers into IPC record batch bytes.
-    // Used by the write bridge to convert native structs for ConnectorPageSink.
+    // Used by the connector writer to convert native structs for ConnectorPageSink.
     public static byte[] nativeSerializeBatchFromPointers(long arrowArrayPtr, long arrowSchemaPtr) {
         requireInitialized();
         return nativeSerializeBatchFromPointers0(arrowArrayPtr, arrowSchemaPtr);
@@ -203,8 +204,20 @@ public final class NativeRuntime {
     // Supports dual-key rotation: currentKey is the active signing key,
     // previousKey (may be empty) is accepted during the rotation window.
     // Keys are raw bytes (not base64-encoded).
+    /** Installs current and optional previous HMAC keys for native shuffle tickets. */
     public static void nativeSetHmacKey(byte[] currentKey, byte[] previousKey) {
         requireInitialized();
+        if (currentKey == null || currentKey.length < 32) {
+            throw new IllegalArgumentException(
+                    "currentKey must contain at least 32 bytes");
+        }
+        if (previousKey != null && previousKey.length > 0 && previousKey.length < 32) {
+            throw new IllegalArgumentException(
+                    "previousKey must be empty or contain at least 32 bytes");
+        }
+        if (previousKey == null) {
+            previousKey = new byte[0];
+        }
         nativeSetHmacKey0(currentKey, previousKey);
     }
 
@@ -219,6 +232,30 @@ public final class NativeRuntime {
         nativeRegisterEgress0(egress);
     }
 
+    /**
+     * Registers Java scalar functions in the native expression engine.
+     * Registration is fail-closed: all descriptors are installed atomically
+     * before task execution is allowed to start.
+     *
+     * @param functionCallbacks callback target retained by the native runtime
+     * @param descriptors function signatures to expose to native execution
+     */
+    public static void nativeRegisterFunctions(
+            NativeFunctionCallbacks functionCallbacks,
+            java.util.List<NativeFunctionDescriptor> descriptors) {
+        requireInitialized();
+        if (functionCallbacks == null) {
+            throw new IllegalArgumentException("functionCallbacks must not be null");
+        }
+        if (descriptors == null) {
+            throw new IllegalArgumentException("descriptors must not be null");
+        }
+        byte[][] serializedDescriptors = descriptors.stream()
+                .map(NativeFunctionDescriptor::toBytes)
+                .toArray(byte[][]::new);
+        nativeRegisterFunctions0(functionCallbacks, serializedDescriptors);
+    }
+
     // --- Internal native methods ---
     // JNI symbol names: Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutor etc.
     private static native long nativeCreateTaskExecutor0(byte[] taskRequestProto);
@@ -228,7 +265,7 @@ public final class NativeRuntime {
     private static native void nativeStartTask0(long executorHandle);
     private static native void nativeStartTaskWithTrace0(long executorHandle, String traceId);
     private static native void nativeCancelTask0(long executorHandle);
-    private static native void nativeReleaseExecutor0(long executorHandle);
+    private static native byte[] nativeReleaseExecutor0(long executorHandle);
     private static native byte[] nativeGetTaskStatus0(long executorHandle);
     private static native byte[] nativeGetTaskStats0(long executorHandle);
     private static native byte[] nativeCommand0(long executorHandle, byte[] commandProto);
@@ -239,4 +276,6 @@ public final class NativeRuntime {
     private static native void nativeRegisterWriter0(Object writer);
     private static native void nativeSetHmacKey0(byte[] currentKey, byte[] previousKey);
     private static native void nativeRegisterEgress0(Object egress);
+    private static native void nativeRegisterFunctions0(
+            NativeFunctionCallbacks functionCallbacks, byte[][] descriptors);
 }

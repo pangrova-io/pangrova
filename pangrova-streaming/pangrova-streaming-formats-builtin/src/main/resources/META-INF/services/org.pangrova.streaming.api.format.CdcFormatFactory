@@ -1,0 +1,3 @@
+org.pangrova.streaming.format.canal.CanalJsonFormatFactory
+org.pangrova.streaming.format.debezium.DebeziumJsonFormatFactory
+org.pangrova.streaming.format.maxwell.MaxwellJsonFormatFactory

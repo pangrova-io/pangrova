@@ -1,6 +1,6 @@
 package org.pangrova.operations.scaling;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ import java.util.function.IntSupplier;
  * <p>Emergency scale-out has its own shorter cooldown (30 seconds) to allow rapid response
  * to resource pressure, independent of the normal scale-out cooldown (3 minutes).</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-auto-scaling")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
 @ThreadSafe
 public final class AutoScalingController {
 
@@ -76,7 +76,7 @@ public final class AutoScalingController {
     }
 
     /**
-     * Creates a controller without shuffle drain policy (uses no-op).
+     * Creates a controller that only scales out until an authoritative shuffle drain policy is supplied.
      */
     public AutoScalingController(
             ScalingPolicy policy,
@@ -85,11 +85,11 @@ public final class AutoScalingController {
             IntSupplier workerCountSupplier,
             Clock clock) {
         this(policy, emergencyThreshold, executor, workerCountSupplier,
-                ShuffleDrainPolicy.noOp(), clock);
+                ShuffleDrainPolicy.preserveWorkers(), clock);
     }
 
     /**
-     * Creates a controller with default clock and no shuffle drain policy.
+     * Creates a scale-out-only controller using the system clock.
      */
     public AutoScalingController(
             ScalingPolicy policy,

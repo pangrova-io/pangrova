@@ -3,7 +3,10 @@ package org.pangrova.connector.iceberg.handle;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Immutable handle referencing an Iceberg table by schema, name, and metadata snapshot.
@@ -45,6 +48,23 @@ public record IcebergTableHandle(
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
 
+    /**
+     * Format capabilities this adapter can prove. Equality-delete reads stay
+     * disabled until the read path applies them and cross-engine comparison passes.
+     */
+    public static final org.pangrova.connector.api.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.connector.api.metadata.table.TableCapabilities(
+                    true, true, false, true, true, true,
+                    java.util.Set.of("partitions", "entries", "files", "manifests",
+                            "snapshots", "history", "refs"),
+                    java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
+                            "REWRITE_MANIFESTS", "REMOVE_ORPHAN_FILES"),
+                    org.pangrova.connector.api.enums.WriterFenceKind
+                            .FORMAT_IDENTITY_AND_BASE_VERSION);
+
+    /** Connector-owned evidence for an immutable selected read, not a caller's time-travel hint. */
+    public static final String SOURCE_IDENTITY_PROPERTY = "pangrova.read.source_identity";
+
     /** Default read mode: full snapshot scan. */
     public static final String READ_MODE_FULL = "FULL";
     /** Incremental read: only data files added between two snapshots. */
@@ -56,20 +76,19 @@ public record IcebergTableHandle(
      * Compact constructor with defensive copies and null safety.
      */
     public IcebergTableHandle {
-        requireNonBlank(schemaName, "schemaName");
-        requireNonBlank(tableName, "tableName");
-        requireNonBlank(tableLocation, "tableLocation");
-        requireNonBlank(schemaJson, "schemaJson");
+        requireText(schemaName, "schemaName");
+        requireText(tableName, "tableName");
+        requireText(tableLocation, "tableLocation");
+        requireText(schemaJson, "schemaJson");
         partitionSpecJson = partitionSpecJson == null ? "{}" : partitionSpecJson;
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         readMode = readMode == null ? READ_MODE_FULL : readMode;
     }
 
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
+    @Override
+    public org.pangrova.connector.api.metadata.table.TableCapabilities capabilities() {
+        return CAPABILITIES;
     }
 
     /**
@@ -82,7 +101,7 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.of(targetSnapshotId), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_TIME_TRAVEL, 0L, 0L, pushedLimit);
     }
 
@@ -95,7 +114,7 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_FULL, 0L, 0L, pushedLimit);
     }
 
@@ -110,8 +129,14 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_INCREMENTAL, startSnapshotId, endSnapshotId, pushedLimit);
+    }
+
+    private Map<String, String> selectorProperties() {
+        var selected = new java.util.LinkedHashMap<>(properties);
+        selected.remove(SOURCE_IDENTITY_PROPERTY);
+        return selected;
     }
 
     /**
@@ -138,5 +163,20 @@ public record IcebergTableHandle(
     @Override
     public ConnectorTableHandle withTimeTravelSnapshot(long targetSnapshotId) {
         return withSnapshotId(targetSnapshotId);
+    }
+
+    @Override
+    public ConnectorTableHandle withIncrementalRange(SnapshotRange range) {
+        if (range == null) {
+            throw new IllegalArgumentException("range must not be null");
+        }
+        return withIncrementalRead(range.fromInclusive(), range.toInclusive());
+    }
+
+    @Override
+    public Optional<SnapshotRange> incrementalRange() {
+        return READ_MODE_INCREMENTAL.equals(readMode)
+                ? Optional.of(new SnapshotRange(fromSnapshotId, toSnapshotId))
+                : Optional.empty();
     }
 }

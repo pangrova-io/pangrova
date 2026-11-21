@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="940" viewBox="0 0 1200 940" role="img" aria-labelledby="t d">
+<title id="t">Coordinator high availability topology</title>
+<desc id="d">Load balancer, coordinator lease, workers, PostgreSQL, and object storage.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="940" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Coordinator high availability</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Leases and fencing make one Coordinator authoritative; workers and storage remain external dependencies.</text>
+<rect x="60" y="140" width="1080" height="760" rx="18" fill="#FBFBFE" stroke="#7C3AED" stroke-opacity="0.45" stroke-width="1.6"/>
+<text x="84" y="172" font-size="19" font-weight="700" fill="#7C3AED"></text>
+<rect x="440" y="165" width="320" height="78" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="440" y="165" width="5" height="78" rx="2.5" fill="#2563EB"/>
+<text x="460" y="193" font-size="16.5" font-weight="700" fill="#111827">Load balancer</text>
+<text x="460" y="217" font-size="13.5" fill="#64748B">HAProxy · ALB · SLB · HTTPS :8080</text>
+<line x1="560" y1="243" x2="430" y2="285" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="505.0" y="268.0" font-size="14" font-weight="600" fill="#7C3AED">:8080</text>
+<line x1="640" y1="243" x2="770" y2="285" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="230" y="285" width="300" height="92" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="230" y="285" width="5" height="92" rx="2.5" fill="#7C3AED"/>
+<text x="250" y="313" font-size="16.5" font-weight="700" fill="#111827">Coordinator — leader</text>
+<text x="250" y="337" font-size="13.5" fill="#64748B">Serves queries and DDL</text>
+<text x="250" y="358" font-size="13.5" fill="#64748B">Owns leases and final commit</text>
+<rect x="670" y="285" width="300" height="92" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="670" y="285" width="5" height="92" rx="2.5" fill="#7C3AED"/>
+<text x="690" y="313" font-size="16.5" font-weight="700" fill="#111827">Coordinator — follower</text>
+<text x="690" y="337" font-size="13.5" fill="#64748B">Registers for failover</text>
+<text x="690" y="358" font-size="13.5" fill="#64748B">No concurrent writes</text>
+<line x1="380" y1="377" x2="500" y2="440" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="450.0" y="412.5" font-size="14" font-weight="600" fill="#7C3AED">lease renewal</text>
+<line x1="820" y1="377" x2="700" y2="440" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="770.0" y="412.5" font-size="14" font-weight="600" fill="#7C3AED">lease renewal</text>
+<rect x="400" y="440" width="400" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="400" y="440" width="5" height="84" rx="2.5" fill="#0D9488"/>
+<text x="420" y="468" font-size="16.5" font-weight="700" fill="#111827">PostgreSQL</text>
+<text x="420" y="492" font-size="13.5" fill="#64748B">HA lease · metadata · journal · quotas</text>
+<rect x="170" y="610" width="260" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="170" y="610" width="5" height="84" rx="2.5" fill="#D97706"/>
+<text x="190" y="638" font-size="16.5" font-weight="700" fill="#111827">Worker-0</text>
+<text x="190" y="662" font-size="13.5" fill="#64748B">JVM + Native execution</text>
+<text x="190" y="683" font-size="13.5" fill="#64748B">Arrow Flight exchange</text>
+<line x1="300" y1="694" x2="600" y2="790" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrowAmber)"/>
+<rect x="490" y="610" width="260" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="490" y="610" width="5" height="84" rx="2.5" fill="#D97706"/>
+<text x="510" y="638" font-size="16.5" font-weight="700" fill="#111827">Worker-1</text>
+<text x="510" y="662" font-size="13.5" fill="#64748B">JVM + Native execution</text>
+<text x="510" y="683" font-size="13.5" fill="#64748B">Arrow Flight exchange</text>
+<line x1="620" y1="694" x2="600" y2="790" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrowAmber)"/>
+<rect x="810" y="610" width="260" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="810" y="610" width="5" height="84" rx="2.5" fill="#D97706"/>
+<text x="830" y="638" font-size="16.5" font-weight="700" fill="#111827">Worker-2</text>
+<text x="830" y="662" font-size="13.5" fill="#64748B">JVM + Native execution</text>
+<text x="830" y="683" font-size="13.5" fill="#64748B">Arrow Flight exchange</text>
+<line x1="940" y1="694" x2="600" y2="790" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrowAmber)"/>
+<polyline points="230,331 150,331 150,580 300,580 300,610" fill="none" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<polyline points="150,580 620,580 620,610" fill="none" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<polyline points="150,580 940,580 940,610" fill="none" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<text x="620" y="568" font-size="13.5" font-weight="600" fill="#7C3AED" text-anchor="middle">task control</text>
+<rect x="350" y="790" width="500" height="84" rx="13" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="350" y="790" width="5" height="84" rx="2.5" fill="#0D9488"/>
+<text x="370" y="818" font-size="16.5" font-weight="700" fill="#111827">Object storage</text>
+<text x="370" y="842" font-size="13.5" fill="#64748B">S3 · OSS · MinIO · HDFS — lakehouse data files</text>
+<line x1="60" y1="910" x2="100" y2="910" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="915" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="910" x2="280" y2="910" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="915" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

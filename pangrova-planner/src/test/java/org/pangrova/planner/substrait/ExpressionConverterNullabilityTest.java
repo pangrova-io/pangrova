@@ -32,8 +32,59 @@ class ExpressionConverterNullabilityTest {
         rexBuilder = new RexBuilder(typeFactory);
         TypeMapper typeMapper = new TypeMapper();
         FunctionMapper functionMapper = new FunctionMapper();
-        WindowFunctionConverter windowConverter = new WindowFunctionConverter(typeMapper, functionMapper);
-        converter = new ExpressionConverter(typeMapper, functionMapper, windowConverter, rexBuilder);
+        LiteralConverter literalConverter = new LiteralConverter(typeMapper);
+        WindowFunctionConverter windowConverter = new WindowFunctionConverter(
+                typeMapper, functionMapper, literalConverter, rexBuilder);
+        converter = new ExpressionConverter(
+                typeMapper, functionMapper, windowConverter, rexBuilder,
+                literalConverter, ignored -> {});
+    }
+
+    @Test
+    void bigintIntegerComparisonUsesExactBigintArguments() {
+        RelDataType nullableBigint = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.BIGINT), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+                rexBuilder.makeInputRef(nullableBigint, 0),
+                rexBuilder.makeExactLiteral(java.math.BigDecimal.ZERO));
+
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        var bigintType = new TypeMapper().map(typeFactory.createSqlType(SqlTypeName.BIGINT));
+        assertThat(result.arguments()).hasSize(2);
+        assertThat(((Expression) result.arguments().get(0)).getType().getClass())
+                .isEqualTo(bigintType.getClass());
+        assertThat(((Expression) result.arguments().get(1)).getType().getClass())
+                .isEqualTo(bigintType.getClass());
+    }
+
+    @Test
+    void isTrueOfNullablePredicateKeepsNonNullTruthTable() {
+        RelDataType nullableBoolean = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.BOOLEAN), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.IS_TRUE,
+                rexBuilder.makeInputRef(nullableBoolean, 0));
+
+        Expression result = converter.convert(call);
+
+        assertThat(result.getType().nullable()).isFalse();
+    }
+
+    @Test
+    void mixedIntegerDoubleArithmeticMaterializesSqlNumericPromotion() {
+        RelDataType nullableDouble = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.DOUBLE), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.MINUS,
+                rexBuilder.makeExactLiteral(java.math.BigDecimal.ONE),
+                rexBuilder.makeInputRef(nullableDouble, 0));
+
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        var doubleType = new TypeMapper().map(typeFactory.createSqlType(SqlTypeName.DOUBLE));
+        assertThat(result.declaration().name()).isEqualTo("subtract");
+        assertThat(result.arguments()).hasSize(2);
+        assertThat(((Expression) result.arguments().get(0)).getType().getClass())
+                .isEqualTo(doubleType.getClass());
+        assertThat(((Expression) result.arguments().get(1)).getType().getClass())
+                .isEqualTo(doubleType.getClass());
     }
 
     @Test
@@ -48,6 +99,35 @@ class ExpressionConverterNullabilityTest {
         assertThat(result).isInstanceOf(ImmutableExpression.ScalarFunctionInvocation.class);
         Type outputType = ((ImmutableExpression.ScalarFunctionInvocation) result).outputType();
         assertThat(outputType.nullable()).isFalse();
+    }
+
+    @Test
+    void nullSafeEqualityUsesCanonicalDeclaredIntermediateReference() {
+        RelDataType nullableInt = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.INTEGER), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.IS_NOT_DISTINCT_FROM,
+                rexBuilder.makeInputRef(nullableInt, 0), rexBuilder.makeInputRef(nullableInt, 1));
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        assertThat(result.declaration().name()).isEqualTo("not");
+        assertThat(result.outputType().nullable()).isFalse();
+        var distinct = (Expression.ScalarFunctionInvocation) result.arguments().get(0);
+        assertThat(distinct.declaration().name()).isEqualTo("is_distinct_from");
+        assertThat(distinct.declaration().urn()).isEqualTo("extension:io.substrait:functions_comparison");
+        assertThat(distinct.outputType()).isEqualTo(result.outputType());
+        assertThat(distinct.arguments()).hasSize(2);
+    }
+
+    @Test
+    void isNotNullUsesTheSameDeclaredProgramAndPreservesInput() {
+        RelDataType nullableInt = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.INTEGER), true);
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(rexBuilder.makeCall(
+                SqlStdOperatorTable.IS_NOT_NULL, rexBuilder.makeInputRef(nullableInt, 0)));
+        assertThat(result.declaration().name()).isEqualTo("not");
+        var isNull = (Expression.ScalarFunctionInvocation) result.arguments().get(0);
+        assertThat(isNull.declaration().name()).isEqualTo("is_null");
+        assertThat(isNull.outputType().nullable()).isFalse();
+        assertThat(((Expression) isNull.arguments().get(0)).getType().nullable()).isTrue();
     }
 
     @Test

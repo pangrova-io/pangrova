@@ -7,8 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.pangrova.planner.stats.FunctionalDependency;
-import org.pangrova.planner.stats.MultiColumnStatistics;
+import org.pangrova.planner.api.statistics.FunctionalDependency;
+import org.pangrova.planner.api.statistics.MultiColumnStatistics;
 import org.junit.jupiter.api.Test;
 
 class MultiColumnSelectivityEstimatorTest {

@@ -13,11 +13,13 @@
  */
 package org.pangrova.client.cli;
 
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
-import org.pangrova.transport.TransportException;
+import org.pangrova.client.cli.exception.ResultDecodeException;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.exception.TransportException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -54,8 +56,9 @@ final class ResultBatchDecoder {
             return DecodedResult.EMPTY;
         }
         List<String> columnNames = batch.columnNames();
-        List<List<String>> rows = new ArrayList<>(batch.rows().size());
-        for (Object[] row : batch.rows()) {
+        List<Object[]> decodedRows = batch.rows();
+        List<List<String>> rows = new ArrayList<>(decodedRows.size());
+        for (Object[] row : decodedRows) {
             List<String> formatted = new ArrayList<>(row.length);
             for (Object value : row) {
                 formatted.add(formatCell(value));
@@ -70,6 +73,18 @@ final class ResultBatchDecoder {
     private static String formatCell(Object value) {
         if (value == null) {
             return "NULL";
+        }
+        if (value instanceof float[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof double[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Float[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Double[] vector) {
+            return truncate(Arrays.toString(vector));
         }
         return truncate(value.toString());
     }

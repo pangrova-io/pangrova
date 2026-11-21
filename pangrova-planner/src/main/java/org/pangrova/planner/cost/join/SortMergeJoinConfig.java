@@ -29,7 +29,7 @@ public record SortMergeJoinConfig(
         Objects.requireNonNull(left, "left");
         Objects.requireNonNull(right, "right");
         Objects.requireNonNull(condition, "condition");
-        Objects.requireNonNull(variablesSet, "variablesSet");
+        variablesSet = Set.copyOf(variablesSet);
         Objects.requireNonNull(joinType, "joinType");
     }
 }

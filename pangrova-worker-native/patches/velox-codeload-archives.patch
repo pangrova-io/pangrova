@@ -1,0 +1,39 @@
+diff --git a/scripts/setup-helper-functions.sh b/scripts/setup-helper-functions.sh
+--- a/scripts/setup-helper-functions.sh
++++ b/scripts/setup-helper-functions.sh
+@@ -68,6 +68,11 @@ function github_checkout {
+     ${SUDO} rm -rf "${DIRNAME}"
+   fi
+   if [ ! -d "${DIRNAME}" ]; then
+-    git clone -q -b "$VERSION" "${GIT_CLONE_PARAMS[@]}" "https://github.com/${REPO}.git"
++    if [[ "$REPO" == "aws/aws-sdk-cpp" && "$VERSION" == "1.11.654" &&
++          -n "${PANGROVA_AWS_PREPARE_SCRIPT:-}" ]]; then
++      bash "$PANGROVA_AWS_PREPARE_SCRIPT" "$(dirname "$DEPENDENCY_DIR")"
++    else
++      git clone -q -b "$VERSION" "${GIT_CLONE_PARAMS[@]}" "https://github.com/${REPO}.git"
++    fi
+   fi
+ }
+@@ -215,5 +215,10 @@ if [[ ${BASH_SOURCE[0]} == "${0}" && $1 == "detect_sve_flags" ]]; then
+ function wget_and_untar {
+   local URL=$1
+   local DIR=$2
++  # GitHub archive links redirect through github.com before reaching codeload.
++  # Use the same pinned archive directly when that redirect endpoint is unreachable.
++  if [[ "$URL" =~ ^https://github.com/([^/]+/[^/]+)/archive/(.+)\.tar\.gz$ ]]; then
++    URL="https://codeload.github.com/${BASH_REMATCH[1]}/tar.gz/${BASH_REMATCH[2]}"
++  fi
+   mkdir -p "${DEPENDENCY_DIR}"
+   pushd "${DEPENDENCY_DIR}" || exit
+diff --git a/scripts/setup-common.sh b/scripts/setup-common.sh
+--- a/scripts/setup-common.sh
++++ b/scripts/setup-common.sh
+@@ -318,3 +318,7 @@ function install_aws_deps {
+   github_checkout $AWS_REPO_NAME "$AWS_SDK_VERSION" --depth 1 --recurse-submodules
+-  cmake_install_dir aws-sdk-cpp -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" -DBUILD_SHARED_LIBS:BOOL=OFF -DMINIMIZE_SIZE:BOOL=ON -DENABLE_TESTING:BOOL=OFF -DBUILD_ONLY:STRING="s3;identity-management"
++  local archive_options=()
++  if [[ -n "${PANGROVA_AWS_PREPARE_SCRIPT:-}" ]]; then
++    archive_options=(-DENFORCE_SUBMODULE_VERSIONS=OFF)
++  fi
++  cmake_install_dir aws-sdk-cpp "${archive_options[@]}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" -DBUILD_SHARED_LIBS:BOOL=OFF -DMINIMIZE_SIZE:BOOL=ON -DENABLE_TESTING:BOOL=OFF -DBUILD_ONLY:STRING="s3;identity-management"
+ }

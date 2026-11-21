@@ -1,19 +1,33 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+import org.pangrova.connector.paimon.scan.PaimonPartitionExtractor;
+import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
+import org.pangrova.connector.paimon.scan.PaimonNativeMergeAdmission;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonLsmLevel;
+import org.pangrova.connector.paimon.handle.PaimonLsmFile;
+import org.pangrova.connector.paimon.handle.PaimonPhysicalFile;
+import org.pangrova.connector.paimon.handle.PaimonMergePolicy;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.FixedSplitSource;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesSystemTableSplit;
+import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
+import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
+import org.pangrova.connector.api.query.ConnectorQueryAuthority;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.runtime.scan.FixedSplitSource;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.predicate.Predicate;
@@ -26,6 +40,7 @@ import org.apache.paimon.table.source.Split;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,16 +71,58 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             ConnectorTableHandle table,
             DynamicFilter dynamicFilter,
             Constraint constraint) {
-        PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+        ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
+        try (var permit = authority.enterOperation()) {
+            if (table instanceof PaimonBranchTableHandle branches) {
+                if (!branches.bound()) {
+                    throw new IllegalStateException("Paimon branches must be bound before split planning");
+                }
+                return new FixedSplitSource(branches.directories().stream()
+                        .map(directory -> (ConnectorSplit) new PaimonBranchSystemTableSplit(
+                                branches.tableName(), branches.sourceIdentity(), directory))
+                        .toList());
+            }
+            if (table instanceof PaimonFilesTableHandle files) {
+                if (!files.bound()) throw new IllegalStateException("Paimon files must be bound before split planning");
+                return new FixedSplitSource(files.manifests().stream().map(source -> (ConnectorSplit)
+                        new PaimonFilesSystemTableSplit(files.tableName(), source)).toList());
+            }
+            if (table instanceof PaimonSystemTableHandle system) {
+                if (!system.bound()) {
+                    throw new IllegalStateException("Paimon system table must be bound before split planning");
+                }
+                return new FixedSplitSource(system.objects().stream()
+                        .map(object -> (ConnectorSplit) new PaimonSystemTableSplit(
+                                system.tableName(), system.sourceIdentity(), system.kind(), object))
+                        .toList());
+            }
+            PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+            if (paimonTable.incrementalRange().isPresent()) {
+                var range = paimonTable.incrementalRange().orElseThrow();
+                return getActiveIncrementalSplits(paimonTable,
+                        range.fromInclusive(), range.toInclusive(), constraint, authority);
+            }
+            return getActiveSplits(paimonTable, constraint, authority);
+        }
+    }
+
+    private ConnectorSplitSource getActiveSplits(PaimonTableHandle paimonTable, Constraint constraint,
+            ConnectorQueryAuthority authority) {
         Table freshTable = loadFreshTable(paimonTable);
+        FileStoreTable selectedTable = PaimonReadBindings.requireSelectedTable(freshTable, paimonTable);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         if (paimonTable.snapshotId().isPresent()) {
-            freshTable = applyTimeTravel(freshTable, paimonTable.snapshotId().get());
+            freshTable = "true".equals(paimonTable.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))
+                    ? selectedTable.copyWithoutTimeTravel(Map.of("scan.snapshot-id",
+                            Long.toString(paimonTable.snapshotId().orElseThrow())))
+                    : applyTimeTravel(freshTable, paimonTable.snapshotId().get());
         } else {
             freshTable = applyTimeTravelHints(freshTable, paimonTable.properties());
         }
         String changelogProducer = resolveChangelogProducer(freshTable);
         TableSplitContext ctx = buildTableContext(freshTable, changelogProducer);
-        List<ConnectorSplit> splits = planSplits(freshTable, paimonTable.tableName(), ctx, constraint);
+        List<ConnectorSplit> splits = planSplits(freshTable, paimonTable.tableName(), ctx, constraint, authority);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=splits_planned count={} table={}.{} changelog_producer={} partitioned={} snapshotId={}",
                 splits.size(), paimonTable.schemaName(), paimonTable.tableName(),
                 changelogProducer, !freshTable.partitionKeys().isEmpty(),
@@ -90,42 +147,33 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             long toSnapshotId,
             Constraint constraint) {
         PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+        ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
+        try (var permit = authority.enterOperation()) {
+            return getActiveIncrementalSplits(paimonTable, fromSnapshotId, toSnapshotId, constraint, authority);
+        }
+    }
+
+    private ConnectorSplitSource getActiveIncrementalSplits(PaimonTableHandle paimonTable,
+            long fromSnapshotId, long toSnapshotId, Constraint constraint,
+            ConnectorQueryAuthority authority) {
         Table freshTable = loadFreshTable(paimonTable);
+        FileStoreTable selectedTable = PaimonReadBindings.requireSelectedTable(freshTable, paimonTable);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         String tableName = paimonTable.tableName();
         LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
                 paimonTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);
 
         List<ConnectorSplit> splits = planIncrementalSplits(
-                freshTable, tableName, fromSnapshotId, toSnapshotId, constraint);
+                freshTable, tableName, fromSnapshotId, toSnapshotId, constraint, authority);
         LOG.debug("event=incremental_splits_complete table={}.{} split_count={}",
                 paimonTable.schemaName(), tableName, splits.size());
         return new FixedSplitSource(splits);
     }
 
-    /**
-     * Cleans up resources associated with a completed or cancelled query.
-     * Releases SDK Split objects from the registry to prevent memory leaks.
-     *
-     * <p>Note: For this to be effective, split registration must use
-     * {@code splitRegistry.register(split, queryId)}. Currently, the SPI
-     * {@code getSplits()} does not propagate queryId to connectors; once
-     * the coordinator passes queryId through {@code ConnectorSession} or
-     * a dedicated context, the registration path should be updated.</p>
-     *
-     * @param queryId the query identifier whose resources should be released
-     */
-    @Override
-    public void cleanup(String queryId) {
-        if (queryId != null) {
-            splitRegistry.releaseAll(queryId);
-            LOG.debug("event=paimon_splits_cleanup queryId={}", queryId);
-        }
-    }
-
     private Table loadFreshTable(PaimonTableHandle handle) {
         Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, e);
@@ -221,7 +269,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     }
 
     private List<ConnectorSplit> planSplits(
-            Table table, String tableName, TableSplitContext ctx, Constraint constraint) {
+            Table table, String tableName, TableSplitContext ctx, Constraint constraint,
+            ConnectorQueryAuthority authority) {
         ReadBuilder readBuilder = table.newReadBuilder();
 
         Predicate paimonFilter = PaimonFilterBuilder.build(table.rowType(), constraint);
@@ -246,17 +295,25 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
         String tableLocation = PaimonDataFileExtractor.extractTableLocation(table);
         List<Split> paimonSplits = readBuilder.newScan().plan().splits();
+        String readMode = ctx.primaryKeys.isEmpty() ? "APPEND" : "PRIMARY_KEY";
 
         if (ctx.needsMerge) {
             return paimonSplits.stream()
-                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation))
+                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation, readMode, authority))
                     .toList();
         }
         // Append-only: expand each DataSplit into one ConnectorSplit per data file
         // so the native reader (one file per split) reads all files.
+        return expandPhysicalSplits(tableName, ctx, table, tableLocation, readMode, paimonSplits, authority);
+    }
+
+    private List<ConnectorSplit> expandPhysicalSplits(String tableName, TableSplitContext ctx,
+            Table table, String tableLocation, String readMode, List<Split> paimonSplits,
+            ConnectorQueryAuthority authority) {
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
-            result.addAll(expandAppendOnlySplit(tableName, split, ctx, table, tableLocation));
+            result.addAll(expandAppendOnlySplit(
+                    tableName, split, ctx, table, tableLocation, readMode, authority));
         }
         return List.copyOf(result);
     }
@@ -273,7 +330,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
      */
     private List<ConnectorSplit> planIncrementalSplits(
             Table table, String tableName,
-            long fromSnapshotId, long toSnapshotId, Constraint constraint) {
+            long fromSnapshotId, long toSnapshotId, Constraint constraint,
+            ConnectorQueryAuthority authority) {
         FileStoreTable fileStoreTable = (FileStoreTable) table;
         Table incrementalView = fileStoreTable.copy(Map.of(
                 "incremental-between", fromSnapshotId + "," + toSnapshotId));
@@ -292,49 +350,63 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         // Incremental splits are append-only — expand per-file
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
-            result.addAll(expandAppendOnlySplit(tableName, split, ctx, table, tableLocation));
+            result.addAll(expandAppendOnlySplit(
+                    tableName, split, ctx, incrementalView, tableLocation, "INCREMENTAL", authority));
         }
         return List.copyOf(result);
     }
 
     private List<ConnectorSplit> expandAppendOnlySplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode,
+            ConnectorQueryAuthority authority) {
         if (!(paimonSplit instanceof DataSplit dataSplit)) {
-            return List.of(buildSplit(tableName, paimonSplit, ctx, table, tableLocation));
+            return List.of(buildSplit(
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode, authority));
         }
         List<DataFileMeta> dataFiles = dataSplit.dataFiles();
-        if (dataFiles == null || dataFiles.size() <= 1) {
-            return List.of(buildSplit(tableName, paimonSplit, ctx, table, tableLocation));
+        if (dataFiles == null || dataFiles.isEmpty()) {
+            return List.of();
+        }
+        requireDataSplit(dataSplit);
+        if (dataFiles.size() == 1) {
+            return List.of(buildSplit(
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode, authority));
         }
         int bucketId = dataSplit.bucket();
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
-        PaimonPartitionExtractor.SchemaEvolutionResult schemaEvolution =
-                PaimonPartitionExtractor.extractSchemaEvolution(paimonSplit, table);
-
         List<ConnectorSplit> splits = new ArrayList<>(dataFiles.size());
-        long registryId = splitRegistry.register(paimonSplit);
         for (DataFileMeta file : dataFiles) {
-            String filePath = PaimonDataFileExtractor.buildFilePath(
-                    tableLocation, dataSplit, file.fileName(), partitionValues);
+            DataSplit fileSplit = dataSplit.filterDataFile(file::equals).orElseThrow();
+            if (fileSplit.dataFiles().size() != 1) {
+                throw new IllegalStateException(
+                        "SDK split contains duplicate data file identities: " + file.fileName());
+            }
+            long registryId = splitRegistry.register(authority, table, fileSplit);
+            String filePath = PaimonDataFileExtractor.buildFilePath(dataSplit, file);
+            var schemaEvolution = PaimonPartitionExtractor.extractSchemaEvolution(file, table);
             PaimonLsmLevel singleLevel = new PaimonLsmLevel(
-                    file.level(), List.of(filePath), file.rowCount());
+                    file.level(), List.of(new PaimonLsmFile(physicalFile(filePath, file),
+                            file.minSequenceNumber(), file.maxSequenceNumber(),
+                            PaimonDataFileExtractor.deletionVector(dataSplit, file),
+                            schemaEvolution.columnMappings(), schemaEvolution.typePromotions())), file.rowCount());
             splits.add(new PaimonSplit(
                     tableName, registryId, file.rowCount(),
                     bucketId, ctx.primaryKeys, ctx.mergeEngine, ctx.changelogProducer,
-                    0L, 0L, 0L, "FULL", List.of(singleLevel),
-                    false, ctx.deletionVectorsEnabled, "",
+                    dataSplit.snapshotId(), 0L, 0L, readMode, List.of(singleLevel),
+                    false, ctx.deletionVectorsEnabled,
                     ctx.aggregationSpecs, ctx.changelogMode, partitionValues,
                     schemaEvolution.columnMappings(), schemaEvolution.typePromotions(),
-                    filePath));
+                    physicalFile(filePath, file), ctx.mergePolicy));
         }
         return splits;
     }
 
     private ConnectorSplit buildSplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode,
+            ConnectorQueryAuthority authority) {
         int bucketId = extractBucketId(paimonSplit);
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
@@ -344,25 +416,34 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                     tableName, bucketId, partitionValues);
         }
 
-        PaimonPartitionExtractor.SchemaEvolutionResult schemaEvolution =
-                PaimonPartitionExtractor.extractSchemaEvolution(paimonSplit, table);
-
-        String primaryFilePath =
-                PaimonDataFileExtractor.extractPrimaryFilePath(
-                        tableLocation, paimonSplit, partitionValues);
+        DataSplit dataSplit = requireDataSplit(paimonSplit);
+        DataFileMeta primary = dataSplit.dataFiles().get(0);
+        var schemaEvolution = PaimonPartitionExtractor.extractSchemaEvolution(primary, table);
+        String primaryFilePath = PaimonDataFileExtractor.buildFilePath(dataSplit, primary);
         List<PaimonLsmLevel> lsmLevels =
-                PaimonDataFileExtractor.extractLsmLevels(
-                        tableLocation, paimonSplit, partitionValues);
+                PaimonDataFileExtractor.extractLsmLevels(table, paimonSplit);
 
-        long registryId = splitRegistry.register(paimonSplit);
+        long registryId = splitRegistry.register(authority, table, paimonSplit);
         return new PaimonSplit(
                 tableName, registryId, paimonSplit.rowCount(),
                 bucketId, ctx.primaryKeys, ctx.mergeEngine, ctx.changelogProducer,
-                0L, 0L, 0L, "FULL", lsmLevels,
-                ctx.needsMerge, ctx.deletionVectorsEnabled, "",
+                dataSplit.snapshotId(), 0L, 0L, readMode, lsmLevels,
+                ctx.needsMerge, ctx.deletionVectorsEnabled,
                 ctx.aggregationSpecs, ctx.changelogMode, partitionValues,
                 schemaEvolution.columnMappings(), schemaEvolution.typePromotions(),
-                primaryFilePath);
+                physicalFile(primaryFilePath, primary), ctx.mergePolicy);
+    }
+
+    private static DataSplit requireDataSplit(Split split) {
+        if (!(split instanceof DataSplit data) || data.dataFiles().isEmpty() || data.snapshotId() <= 0) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
+                    "Native Paimon scan requires physical files from an exact SDK snapshot");
+        }
+        return data;
+    }
+
+    private static PaimonPhysicalFile physicalFile(String path, DataFileMeta file) {
+        return new PaimonPhysicalFile(path, file.fileFormat(), file.fileSize(), file.rowCount(), file.schemaId());
     }
 
     private static int extractBucketId(Split split) {
@@ -378,32 +459,49 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         Map<String, String> options = table.options();
         List<String> primaryKeys = table.primaryKeys();
         String mergeEngine = options.getOrDefault("merge-engine", "DEDUPLICATE")
-                .replace("-", "_").toUpperCase();
+                .replace("-", "_").toUpperCase(Locale.ROOT);
         boolean deletionVectorsEnabled = "true".equalsIgnoreCase(
                 options.getOrDefault("deletion-vectors.enabled", "false"));
         boolean changelogMode = isChangelogCapable(changelogProducer);
         boolean needsMerge = !primaryKeys.isEmpty() && !deletionVectorsEnabled;
+        if (needsMerge && "PARTIAL_UPDATE".equals(mergeEngine)) {
+            PaimonNativeMergeAdmission.validatePartialUpdate(table);
+        }
 
         Map<String, String> aggregationSpecs = Map.of();
         if ("AGGREGATION".equals(mergeEngine)) {
-            aggregationSpecs = extractAggregationSpecs(options);
+            aggregationSpecs = extractAggregationSpecs(table);
         }
 
         return new TableSplitContext(
                 primaryKeys, mergeEngine, changelogProducer,
                 needsMerge, deletionVectorsEnabled, changelogMode,
-                aggregationSpecs);
+                aggregationSpecs, mergePolicy(options, mergeEngine));
     }
 
-    private static Map<String, String> extractAggregationSpecs(Map<String, String> options) {
+    private static PaimonMergePolicy mergePolicy(Map<String, String> options, String engine) {
+        var sdkOptions = org.apache.paimon.options.Options.fromMap(options);
+        boolean ignore = sdkOptions.get(org.apache.paimon.CoreOptions.IGNORE_DELETE);
+        boolean remove = switch (engine) {
+            case "PARTIAL_UPDATE" ->
+                    sdkOptions.get(org.apache.paimon.CoreOptions.PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE);
+            case "AGGREGATION" -> sdkOptions.get(org.apache.paimon.CoreOptions.AGGREGATION_REMOVE_RECORD_ON_DELETE);
+            default -> false;
+        };
+        return new PaimonMergePolicy(ignore, remove);
+    }
+
+    private static Map<String, String> extractAggregationSpecs(Table table) {
         Map<String, String> specs = new LinkedHashMap<>();
-        String prefix = "fields.";
-        String suffix = ".aggregate-function";
-        for (Map.Entry<String, String> entry : options.entrySet()) {
-            String key = entry.getKey();
-            if (key.startsWith(prefix) && key.endsWith(suffix)) {
-                String columnName = key.substring(prefix.length(), key.length() - suffix.length());
-                specs.put(columnName, entry.getValue().toUpperCase());
+        var options = new org.apache.paimon.CoreOptions(org.apache.paimon.options.Options.fromMap(table.options()));
+        for (String name : table.rowType().getFieldNames()) {
+            if (!table.primaryKeys().contains(name)) {
+                String function = org.apache.paimon.mergetree.compact.aggregate.AggregateMergeFunction.getAggFuncName(
+                        name, options, table.primaryKeys(), options.sequenceField());
+                String normalized = function.toUpperCase(java.util.Locale.ROOT);
+                PaimonNativeMergeAdmission.validateAggregation(name, normalized,
+                        table.rowType().getTypeAt(table.rowType().getFieldNames().indexOf(name)), options);
+                specs.put(name, normalized);
             }
         }
         return Map.copyOf(specs);
@@ -411,7 +509,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
     private static String resolveChangelogProducer(Table table) {
         String value = table.options().getOrDefault("changelog-producer", "NONE");
-        return value.replace("-", "_").toUpperCase();
+        return value.replace("-", "_").toUpperCase(Locale.ROOT);
     }
 
     private static boolean isChangelogCapable(String changelogProducer) {
@@ -426,5 +524,6 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             boolean needsMerge,
             boolean deletionVectorsEnabled,
             boolean changelogMode,
-            Map<String, String> aggregationSpecs) {}
+            Map<String, String> aggregationSpecs,
+            PaimonMergePolicy mergePolicy) {}
 }

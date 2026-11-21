@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="247" viewBox="0 0 820 247" role="img">
+<rect width="820" height="247" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="818.5" height="245.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">TableMetadata</text>
+<line x1="57.5" y1="62.5" x2="62.2" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="57.5" y1="53.0" x2="57.5" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="62.2" y1="62.5" x2="71.6" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="71.6" y1="62.5" x2="81.0" y2="62.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">      properties</text>
+<line x1="113.9" y1="72.0" x2="113.9" y2="91.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="81.5" x2="118.6" y2="81.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="81.5" x2="128.0" y2="81.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="81.5" x2="137.4" y2="81.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">            pangrova.stats.row_count = "1000000"</text>
+<line x1="113.9" y1="91.0" x2="113.9" y2="110.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="100.5" x2="118.6" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="100.5" x2="128.0" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="100.5" x2="137.4" y2="100.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">            pangrova.stats.last_updated_snapshot = "3847291038"</text>
+<line x1="113.9" y1="110.0" x2="113.9" y2="129.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="119.5" x2="118.6" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="119.5" x2="128.0" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="119.5" x2="137.4" y2="119.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">            pangrova.stats.last_updated_time = "2025-02-09T03:00:00Z"</text>
+<line x1="113.9" y1="138.5" x2="118.6" y2="138.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="113.9" y1="129.0" x2="113.9" y2="138.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="118.6" y1="138.5" x2="128.0" y2="138.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="128.0" y1="138.5" x2="137.4" y2="138.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">            pangrova.stats.columns</text>
+<line x1="170.3" y1="148.0" x2="170.3" y2="167.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="170.3" y1="157.5" x2="175.0" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="175.0" y1="157.5" x2="184.4" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="184.4" y1="157.5" x2="193.8" y2="157.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M296.4 152.0 L296.4 163.0 L307.4 157.5 z" fill="#D97706"/>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">                  order_id    { min, max, ndv, null_count, avg_size }</text>
+<line x1="170.3" y1="167.0" x2="170.3" y2="186.0" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="170.3" y1="176.5" x2="175.0" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="175.0" y1="176.5" x2="184.4" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="184.4" y1="176.5" x2="193.8" y2="176.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M296.4 171.0 L296.4 182.0 L307.4 176.5 z" fill="#D97706"/>
+<text x="34.0" y="180.7" fill="#1F2937" xml:space="preserve">                  amount      { min, max, ndv, null_count, avg_size, histogram }</text>
+<line x1="170.3" y1="195.5" x2="175.0" y2="195.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="170.3" y1="186.0" x2="170.3" y2="195.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="175.0" y1="195.5" x2="184.4" y2="195.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<line x1="184.4" y1="195.5" x2="193.8" y2="195.5" stroke="#94A3B8" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M305.8 190.0 L305.8 201.0 L316.8 195.5 z" fill="#D97706"/>
+<text x="34.0" y="199.7" fill="#1F2937" xml:space="preserve">                  order_time   { min, max, ndv, null_count, avg_size }</text>
+</g>
+</svg>

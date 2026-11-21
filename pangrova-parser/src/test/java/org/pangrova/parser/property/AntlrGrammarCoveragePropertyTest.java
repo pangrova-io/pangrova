@@ -1,8 +1,8 @@
 package org.pangrova.parser.property;
 
 import net.jqwik.api.*;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,13 +12,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 9.5</b></p>
  *
  * <p>For any valid SQL generated from the PangrovaSql.g4 grammar rules,
- * {@link SqlParser#parse(String)} must succeed without throwing.</p>
+ * {@link AntlrSqlParser#parse(String)} must succeed without throwing.</p>
  */
 @Tag("Feature: full-pipeline-audit-fix")
 @Tag("Property 21: ANTLR grammar coverage")
 class AntlrGrammarCoveragePropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
 
     @Property(tries = 10)
     void allGeneratedSqlParseSuccessfully(

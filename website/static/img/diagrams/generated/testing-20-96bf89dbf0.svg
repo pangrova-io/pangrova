@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="914" height="209" viewBox="0 0 914 209" role="img">
+<rect width="914" height="209" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="912.5" height="207.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">For each query Q:</text>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">  regression_ratio = (current_p50 - baseline_p50) / baseline_p50</text>
+<path d="M324.6 95.0 L324.6 106.0 L335.6 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">  if regression_ratio &gt; 0.20:    FAIL (block merge/release)</text>
+<path d="M324.6 114.0 L324.6 125.0 L335.6 119.5 z" fill="#D97706"/>
+<text x="34.0" y="123.7" fill="#1F2937" xml:space="preserve">  if regression_ratio &gt; 0.10:    WARN (require investigation, add to report)</text>
+<path d="M324.6 133.0 L324.6 144.0 L335.6 138.5 z" fill="#D97706"/>
+<text x="34.0" y="142.7" fill="#1F2937" xml:space="preserve">  if regression_ratio &gt; 0.05:    INFO (log, no action required)</text>
+<path d="M324.6 152.0 L324.6 163.0 L335.6 157.5 z" fill="#D97706"/>
+<text x="34.0" y="161.7" fill="#1F2937" xml:space="preserve">  if regression_ratio &lt; -0.10:   NOTE (performance improvement, update baseline candidate)</text>
+</g>
+</svg>

@@ -8,12 +8,16 @@ import java.util.Set;
 
 import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
+import org.pangrova.planner.cost.PangrovaCostFactory;
+import org.pangrova.planner.cost.PangrovaRelMdJoinCost;
+import org.pangrova.planner.cost.distribution.PangrovaDistributionTraitDef;
+import org.apache.calcite.plan.ConventionTraitDef;
+import org.apache.calcite.plan.Contexts;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptSchema;
 import org.apache.calcite.plan.RelOptTable;
-import org.apache.calcite.plan.hep.HepPlanner;
-import org.apache.calcite.plan.hep.HepProgramBuilder;
+import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
@@ -27,6 +31,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.CancelFlag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -71,12 +76,22 @@ class CascadesDpJoinEnumerationTest {
         OptimizationContext ctx = new OptimizationContext(cbo, CostModelConfig.SSD_DEFAULT, null);
         CascadesCboPass pass = new CascadesCboPass();
 
+        assertThat(fourTableJoin.getCluster().getMetadataQuery()
+                .getNonCumulativeCost(fourTableJoin).getCpu())
+                .as("logical JOIN comparison work must be priced before Volcano selection")
+                .isPositive();
         RelNode result = pass.optimize(fourTableJoin, ctx);
 
-        // Result should not be null and should preserve join count.
+        // The old second-planner failure returned the unchanged input, so
+        // join-count assertions alone never proved that CBO actually ran.
         assertThat(result).isNotNull();
+        assertThat(result).isNotSameAs(fourTableJoin);
         List<Join> joins = collectJoins(result);
-        assertThat(joins).as("3 joins preserved after DP enumeration").hasSize(3);
+        assertThat(joins).as("3 joins preserved after DP enumeration: %s",
+                org.apache.calcite.plan.RelOptUtil.toString(result)).hasSize(3);
+        assertThat(joins).as("CBO must select at least one executable join: %s",
+                org.apache.calcite.plan.RelOptUtil.toString(result))
+                .anyMatch(org.pangrova.planner.cost.convention.PangrovaRel.class::isInstance);
         // Output column count preserved (4 tables x 3 cols each = 12).
         assertThat(result.getRowType().getFieldCount()).isEqualTo(12);
     }
@@ -110,10 +125,17 @@ class CascadesDpJoinEnumerationTest {
     private static RelNode buildFourTableJoinTree() {
         RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
         RexBuilder rexBuilder = new RexBuilder(typeFactory);
-        // Use HepPlanner instead of VolcanoPlanner for node creation so nodes
-        // are not "owned" by a planner; the CBO pass creates its own Volcano.
-        HepPlanner planner = new HepPlanner(new HepProgramBuilder().build());
+        VolcanoPlanner planner = new VolcanoPlanner(
+                new PangrovaCostFactory(CostModelConfig.SSD_DEFAULT),
+                Contexts.of(new CancelFlag(new java.util.concurrent.atomic.AtomicBoolean(false))));
+        planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+        planner.addRelTraitDef(PangrovaDistributionTraitDef.INSTANCE);
+        planner.setNoneConventionHasInfiniteCost(false);
         RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
+        cluster.setMetadataProvider(
+                org.apache.calcite.rel.metadata.ChainedRelMetadataProvider.of(List.of(
+                        new PangrovaRelMdJoinCost(CostModelConfig.SSD_DEFAULT).asProvider(),
+                        cluster.getMetadataProvider())));
 
         RelDataType intType = typeFactory.createSqlType(SqlTypeName.INTEGER);
         RelDataType rowType = typeFactory.builder()

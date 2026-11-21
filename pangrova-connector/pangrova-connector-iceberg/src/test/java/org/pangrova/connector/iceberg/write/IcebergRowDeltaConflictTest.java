@@ -18,20 +18,20 @@ import org.pangrova.connector.iceberg.IcebergSplitManager;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Table;
@@ -69,15 +69,20 @@ class IcebergRowDeltaConflictTest {
     private static final String CATALOG_NAME = "rowdelta_conflict_catalog";
     private static final String NAMESPACE = "rowdelta_db";
 
-    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
+    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.empty();
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final Constraint NO_CONSTRAINT = Constraint.EMPTY;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> TEST_COLUMNS = List.of(

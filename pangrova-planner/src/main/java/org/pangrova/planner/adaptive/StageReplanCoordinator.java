@@ -1,9 +1,17 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.enums.JoinStrategy;
+import org.pangrova.planner.api.adaptive.ReOptimizationResult;
+import org.pangrova.planner.api.adaptive.StageReplanDecision;
+import org.pangrova.planner.api.adaptive.StageReplanCallback;
+
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+
 import java.util.Objects;
 
-import org.pangrova.planner.stats.CardinalityFeedbackStore;
-import org.pangrova.planner.stats.StatisticsCollector;
+import org.pangrova.planner.statistics.CardinalityFeedbackStore;
+import org.pangrova.planner.statistics.StatisticsCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +99,7 @@ public class StageReplanCoordinator {
      */
     public StageReplanDecision onShuffleStageCompleted(ShuffleStageStats stats,
                                                        JoinStrategy currentJoinStrategy,
-                                                       String tableName) {
+                                                       QualifiedTableName tableName) {
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(currentJoinStrategy, "currentJoinStrategy");
 
@@ -111,7 +119,7 @@ public class StageReplanCoordinator {
             statisticsCollector.recordRuntimeFeedback(
                     tableName, stats.estimatedRowCount(), stats.actualRowCount());
             if (feedbackStore != null) {
-                feedbackStore.record(tableName, stats.estimatedRowCount(), stats.actualRowCount());
+                feedbackStore.record(tableName.canonicalKey(), stats.estimatedRowCount(), stats.actualRowCount());
             }
         }
 

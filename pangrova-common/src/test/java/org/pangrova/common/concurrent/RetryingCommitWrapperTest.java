@@ -1,6 +1,6 @@
 package org.pangrova.common.concurrent;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.junit.jupiter.api.Test;
 

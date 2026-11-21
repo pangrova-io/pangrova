@@ -11,6 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifies observability helpers: CPU usage reader and spill disk monitor.
  */
 class UnifiedBudgetObservabilityTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     @Test
     void cpuUsageReader_returnsNonNegativeValue() {
@@ -81,7 +83,7 @@ class UnifiedBudgetObservabilityTest {
     void heartbeatPayload_includesObservabilityFields() {
         HeartbeatPayload payload = new HeartbeatPayload(
                 "w-obs-test", "NONE", 0.42, 2, 1024L,
-                512L, 2048L);
+                512L, 2048L, HEARTBEAT_IDENTITY);
 
         assertThat(payload.cpuUtilization()).isEqualTo(0.42);
         assertThat(payload.availableMemoryBytes()).isEqualTo(1024L);
@@ -91,7 +93,7 @@ class UnifiedBudgetObservabilityTest {
 
     @Test
     void heartbeatPayload_5argConstructorSetsDefaults() {
-        HeartbeatPayload payload = new HeartbeatPayload("w-compat", "NONE", 0.1, 0, 1024L);
+        HeartbeatPayload payload = new HeartbeatPayload("w-compat", "NONE", 0.1, 0, 1024L, HEARTBEAT_IDENTITY);
         assertThat(payload.nativeUsedBytes()).isZero();
         assertThat(payload.nativeCapacityBytes()).isZero();
     }

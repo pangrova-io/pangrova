@@ -1,8 +1,10 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

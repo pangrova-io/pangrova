@@ -5,8 +5,8 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.parser.ParseException;
-import org.pangrova.parser.SqlParser;
+import org.pangrova.parser.api.exception.ParseException;
+import org.pangrova.parser.parse.AntlrSqlParser;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class StreamParseErrorPropertyTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
 
     /**
      * Property 3: CREATE STREAM without FROM KAFKA clause produces a parse error.

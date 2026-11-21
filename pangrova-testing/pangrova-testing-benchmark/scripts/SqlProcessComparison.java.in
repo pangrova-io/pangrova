@@ -1,0 +1,110 @@
+package org.pangrova.testing.integration.e2e.speculation;
+
+import PROTOCOL_PACKAGE.ResultProtocol;
+import org.pangrova.testing.integration.e2e.SharedTestContainers;
+import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.TaskReport;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+public final class SqlProcessComparison {
+    private static final Pattern VALUE = Pattern.compile("(?m)^\\|\\s*42\\s*\\|\\s*$");
+    public static void main(String[] arguments) throws Exception {
+        int warmup = Integer.parseInt(arguments[0]);
+        int iterations = Integer.parseInt(arguments[1]);
+        var postgres = SharedTestContainers.POSTGRES;
+        var network = SharedTestContainers.NETWORK;
+        try (IndependentLocalProcesses processes = new IndependentLocalProcesses();
+             PrintWriter csv = new PrintWriter(Files.newBufferedWriter(Path.of(arguments[2]), StandardOpenOption.CREATE_NEW))) {
+            processes.startCoordinatorAndFirstWorker();
+            String table = "spec_catalog.default.perf_" + UUID.randomUUID().toString().replace("-", "");
+            processes.createSourceCatalog();
+            processes.query("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
+            for (int part = 0; part < 3; part++) {
+                processes.query("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
+            }
+            processes.startSecondWorker();
+            String[] queries = {"SELECT 21 + 21 AS answer", "SELECT SUM(id) AS answer FROM " + table};
+            csv.println("iteration,workload,client_elapsed_ns,query_id,physical_drain_observation_delay_ns,"
+                    + "drained_tasks,tasks_with_stats,max_operator_peak_bytes,consumer_wait_ms,spill_bytes,"
+                    + "status_http_responses,status_request_body_bytes,status_response_body_bytes,tenant_slots");
+            for (int i = -warmup; i < iterations; i++) {
+                for (int offset = 0; offset < 2; offset++) {
+                    int index = Math.floorMod(i + offset, 2);
+                    long start = System.nanoTime();
+                    IndependentLocalProcesses.QueryResult result = processes.query(queries[index], ResultProtocol.GRPC_TLS);
+                    long elapsed = System.nanoTime() - start;
+                    if (!VALUE.matcher(result.output()).find() || !result.output().contains("1 row")) {
+                        throw new AssertionError("Unexpected SQL result " + result.queryId() + ": " + result.output());
+                    }
+                    if (i >= 0) {
+                        var resources = resources(processes, result.queryId());
+                        csv.printf(Locale.ROOT, "%d,%s,%d,%s,%d,%s%n", i, index == 0 ? "constant" : "iceberg-sum",
+                                elapsed, result.queryId(), System.nanoTime() - start - elapsed, resources);
+                        csv.flush();
+                        if (csv.checkError()) throw new IllegalStateException("Could not save accepted sample");
+                    }
+                }
+            }
+        } finally {
+            postgres.stop();
+            network.close();
+        }
+    }
+
+    private static String resources(IndependentLocalProcesses processes, String queryId) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (true) {
+            var drained = new HashMap<String, TaskReport>();
+            var seen = new java.util.HashSet<String>();
+            long requests = 0;
+            long responses = 0;
+            int count = 0;
+            for (var delivery : processes.reports().deliveries()) {
+                if (!queryId.equals(delivery.report().queryId())) continue;
+                seen.add(delivery.report().taskId());
+                var response = delivery.response().get();
+                if (response == null) continue;
+                requests += delivery.body().length;
+                responses += response.body().length;
+                count++;
+                if (response.statusCode() != 200 || delivery.report().canonicalTaskReport() == null) continue;
+                var task = TaskReport.parseFrom(delivery.report().canonicalTaskReport());
+                if (task.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+                    drained.put(delivery.report().taskId(), task);
+                }
+            }
+            int active = processes.activeTenantReservations();
+            if (!seen.isEmpty() && drained.keySet().equals(seen) && active == 0) {
+                long maxOperatorPeak = 0;
+                long consumerWait = 0;
+                long spill = 0;
+                int statsCount = 0;
+                for (var task : drained.values()) {
+                    if (!task.hasNativeTaskStats()) continue;
+                    var stats = task.getNativeTaskStats();
+                    maxOperatorPeak = Math.max(maxOperatorPeak, stats.getPeakMemoryBytes());
+                    consumerWait += stats.getBackpressureWaitMs();
+                    spill += stats.getSpillBytes();
+                    statsCount++;
+                }
+                return String.format(Locale.ROOT, "%d,%d,%s,%s,%s,%d,%d,%d,%d",
+                        drained.size(), statsCount, statsCount == 0 ? "" : maxOperatorPeak,
+                        statsCount == 0 ? "" : consumerWait, statsCount == 0 ? "" : spill,
+                        count, requests, responses, active);
+            }
+            if (System.nanoTime() >= deadline) {
+                throw new AssertionError("Incomplete release query=" + queryId + " seen=" + seen
+                        + " drained=" + drained.keySet() + " tenant_slots=" + active);
+            }
+            Thread.sleep(50);
+        }
+    }
+}

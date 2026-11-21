@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="472" height="152" viewBox="0 0 472 152" role="img">
+<rect width="472" height="152" rx="14" fill="#FFFFFF"/>
+<rect x="0.75" y="0.75" width="470.5" height="150.5" rx="14" fill="none" stroke="#E2E8F0"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+<path d="M352.8 38.0 L352.8 49.0 L363.8 43.5 z" fill="#D97706"/>
+<text x="34.0" y="47.7" fill="#1F2937" xml:space="preserve">expr IN (value1, value2, ...)       BOOLEAN</text>
+<path d="M352.8 57.0 L352.8 68.0 L363.8 62.5 z" fill="#D97706"/>
+<text x="34.0" y="66.7" fill="#1F2937" xml:space="preserve">expr NOT IN (value1, value2, ...)   BOOLEAN</text>
+<path d="M352.8 76.0 L352.8 87.0 L363.8 81.5 z" fill="#D97706"/>
+<text x="34.0" y="85.7" fill="#1F2937" xml:space="preserve">expr IN (subquery)                  BOOLEAN</text>
+<path d="M352.8 95.0 L352.8 106.0 L363.8 100.5 z" fill="#D97706"/>
+<text x="34.0" y="104.7" fill="#1F2937" xml:space="preserve">expr NOT IN (subquery)              BOOLEAN</text>
+</g>
+</svg>

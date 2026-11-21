@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.DeletionMode;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.enums.DeletionMode;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -38,6 +38,11 @@ class IcebergMetadataDeletionModeTest {
     private static final String NAMESPACE = "dv_db";
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }

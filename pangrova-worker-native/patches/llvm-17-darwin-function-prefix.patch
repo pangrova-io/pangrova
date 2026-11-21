@@ -1,0 +1,12 @@
+--- a/AsmPrinter.cpp
++++ b/AsmPrinter.cpp
+@@ -62 +62 @@
+-#include "llvm/Config/config.h"
++#include "llvm/Config/llvm-config.h"
+@@ -985,0 +986,3 @@
++    // Backport llvm/llvm-project c23135c5488fbfaf6439433a10b3ddef33ff112c.
++    if (MAI->hasSubsectionsViaSymbols())
++      OutStreamer->emitLabel(OutContext.createLinkerPrivateTempSymbol());
+@@ -987,0 +991,2 @@
++    if (MAI->hasSubsectionsViaSymbols())
++      OutStreamer->emitSymbolAttribute(CurrentFnSym, MCSA_AltEntry);

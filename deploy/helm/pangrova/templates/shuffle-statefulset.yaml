@@ -1,0 +1,140 @@
+{{- if .Values.shuffle.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pangrova-shuffle
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: shuffle
+spec:
+  serviceName: pangrova-shuffle-headless
+  replicas: {{ int .Values.shuffle.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: pangrova
+      component: shuffle
+  template:
+    metadata:
+      labels:
+        app: pangrova
+        component: shuffle
+{{- with .Values.shuffle.podLabels }}
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- with .Values.shuffle.podAnnotations }}
+      annotations:
+{{ toYaml . | indent 8 }}
+{{- end }}
+    spec:
+      securityContext:
+        fsGroup: {{ .Values.shuffle.fsGroup }}
+      {{- with .Values.shuffle.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .Values.shuffle.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with .Values.shuffle.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      containers:
+        - name: shuffle
+          image: "{{ .Values.shuffle.image.repository }}:{{ .Values.shuffle.image.tag }}"
+          imagePullPolicy: {{ .Values.shuffle.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          # Each pod owns one rendered configuration; the ordinal comes from its
+          # StatefulSet hostname so one ConfigMap can serve every replica.
+          args:
+            - exec /opt/pangrova/bin/pangrova-shuffle.sh --config "/etc/pangrova-shuffle/config/shuffle-${HOSTNAME##*-}.yml"
+          ports:
+            - name: shuffle
+              containerPort: {{ int .Values.shuffle.port }}
+          env:
+            # Optional: omit these keys when pods authenticate through IRSA or
+            # an instance profile instead of static object-storage credentials.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.shuffle.objectStorage.existingSecret }}
+                  key: access-key
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.shuffle.objectStorage.existingSecret }}
+                  key: secret-key
+                  optional: true
+          readinessProbe:
+            tcpSocket:
+              port: shuffle
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: shuffle
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+{{ toYaml .Values.shuffle.resources | indent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pangrova-shuffle/config
+              readOnly: true
+            - name: tls
+              mountPath: /etc/pangrova-shuffle/tls
+              readOnly: true
+            - name: capability
+              mountPath: /etc/pangrova-shuffle/secrets/capability
+              readOnly: true
+            - name: database
+              mountPath: /etc/pangrova-shuffle/secrets/db
+              readOnly: true
+            - name: object-storage
+              mountPath: /etc/pangrova-shuffle/secrets/object-storage
+              readOnly: true
+            - name: data
+              mountPath: /opt/pangrova/data
+      volumes:
+        - name: config
+          configMap:
+            name: pangrova-shuffle-config
+        - name: tls
+          secret:
+            secretName: {{ .Values.shuffle.security.existingSecret }}
+        - name: capability
+          secret:
+            secretName: {{ .Values.shuffle.security.capabilityExistingSecret }}
+            items:
+              - key: capability-secret
+                path: secret
+        - name: database
+          secret:
+            secretName: {{ .Values.shuffle.database.existingSecret }}
+        - name: object-storage
+          secret:
+            secretName: {{ .Values.shuffle.objectStorage.existingSecret }}
+{{- if not .Values.shuffle.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+{{- end }}
+{{- if .Values.shuffle.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.shuffle.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.shuffle.persistence.size }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000" viewBox="0 0 1200 1000" role="img" aria-labelledby="t d">
+<title id="t">Security decision flow</title>
+<desc id="d">Authentication, authorization, row and column policies, execution binding, and audit.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F7F5FF"/><stop offset="55%" stop-color="#F8FAFC"/><stop offset="100%" stop-color="#F1F7FB"/></linearGradient>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#1E1B4B" flood-opacity="0.10"/></filter>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7C3AED"/></marker>
+<marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#D97706"/></marker>
+<marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#34D399"/></marker>
+</defs>
+<rect width="1200" height="1000" fill="url(#bg)"/>
+<g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<text x="60" y="74" font-size="34" font-weight="800" fill="#111827">Security decision flow</text>
+<text x="60" y="106" font-size="17" fill="#64748B">Every request is authenticated, authorized against current state, and audited.</text>
+<rect x="120" y="140" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="140" width="7" height="84" rx="3.5" fill="#2563EB"/>
+<text x="150" y="176" font-size="24" font-weight="700" fill="#111827">Request</text>
+<text x="150" y="206" font-size="16.5" fill="#475569">HTTP · JDBC · CLI · internal control channel</text>
+<line x1="600.0" y1="224" x2="600.0" y2="258" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="120" y="258" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="258" width="7" height="84" rx="3.5" fill="#7C3AED"/>
+<text x="150" y="294" font-size="24" font-weight="700" fill="#111827">Authentication</text>
+<text x="150" y="324" font-size="16.5" fill="#475569">Internal token · LDAP · OIDC / OAuth2 · explicit NOOP for development</text>
+<line x1="600.0" y1="342" x2="600.0" y2="376" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="120" y="376" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="376" width="7" height="84" rx="3.5" fill="#7C3AED"/>
+<text x="150" y="412" font-size="24" font-weight="700" fill="#111827">Authorization</text>
+<text x="150" y="442" font-size="16.5" fill="#475569">Current roles and privileges · exact ACTIVE tenant · catalog and table grants</text>
+<line x1="600.0" y1="460" x2="600.0" y2="494" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="120" y="494" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="494" width="7" height="84" rx="3.5" fill="#0D9488"/>
+<text x="150" y="530" font-size="24" font-weight="700" fill="#111827">Policy evaluation</text>
+<text x="150" y="560" font-size="16.5" fill="#475569">Row filters · column masks · quality rules · model and capability allowlists</text>
+<line x1="600.0" y1="578" x2="600.0" y2="612" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="120" y="612" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="612" width="7" height="84" rx="3.5" fill="#7C3AED"/>
+<text x="150" y="648" font-size="24" font-weight="700" fill="#111827">Execution binding</text>
+<text x="150" y="678" font-size="16.5" fill="#475569">Authority receipt · lease identity · task and write admission</text>
+<line x1="600.0" y1="696" x2="600.0" y2="730" stroke="#7C3AED" stroke-width="2.4" marker-end="url(#arrow)"/>
+<rect x="120" y="730" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="730" width="7" height="84" rx="3.5" fill="#D97706"/>
+<text x="150" y="766" font-size="24" font-weight="700" fill="#111827">Audit and lineage</text>
+<text x="150" y="796" font-size="16.5" fill="#475569">Security events · query audit records · lineage publication</text>
+<line x1="120" y1="818" x2="1080" y2="818" stroke="#94A3B8" stroke-width="2.4" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+<rect x="120" y="878" width="960" height="84" rx="16" fill="#FFFFFF" stroke="#E2E8F0" filter="url(#shadow)"/>
+<rect x="120" y="878" width="7" height="84" rx="3.5" fill="#0D9488"/>
+<text x="150" y="914" font-size="24" font-weight="700" fill="#111827">Privilege administration</text>
+<text x="150" y="944" font-size="16.5" fill="#475569">GRANT / REVOKE through PostgreSQL: current executor check, lock order, durable receipt, and SHOW PRIVILEGE MUTATION</text>
+<line x1="60" y1="970" x2="100" y2="970" stroke="#7C3AED" stroke-width="2.4"/>
+<text x="110" y="975" font-size="12.5" fill="#64748B">control plane</text>
+<line x1="240" y1="970" x2="280" y2="970" stroke="#D97706" stroke-width="2.4" stroke-dasharray="8 6"/>
+<text x="290" y="975" font-size="12.5" fill="#64748B">data plane</text>
+</g>
+</svg>

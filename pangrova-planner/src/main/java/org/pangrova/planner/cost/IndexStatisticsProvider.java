@@ -1,6 +1,7 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.planner.stats.ColumnStatistics;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.planner.api.statistics.ColumnStatistics;
 
 import java.util.Map;
 
@@ -21,5 +22,5 @@ public interface IndexStatisticsProvider {
      * @param tableName fully qualified table name
      * @return column name → aggregated statistics; empty map if unavailable
      */
-    Map<String, ColumnStatistics> getIndexDerivedStatistics(String tableName);
+    Map<String, ColumnStatistics> getIndexDerivedStatistics(QualifiedTableName tableName);
 }

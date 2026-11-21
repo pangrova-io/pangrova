@@ -1,7 +1,7 @@
 package org.pangrova.planner.substrait;
 
 import io.substrait.type.Type;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.apache.calcite.avatica.util.TimeUnit;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;

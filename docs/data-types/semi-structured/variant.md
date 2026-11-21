@@ -1,6 +1,6 @@
 ---
 title: "VARIANT"
-description: "Semi-structured JSON with shredded columnar encoding"
+description: "Semi-structured JSON access with explicit path expressions"
 ---
 
 # VARIANT
@@ -8,7 +8,7 @@ description: "Semi-structured JSON with shredded columnar encoding"
 
 | Property | Value |
 |----------|-------|
-| Storage | Semi-structured JSON with shredded columnar encoding |
+| Storage | JSON text in the currently wired Iceberg and Paimon paths |
 | Insert format | JSON string literal |
 | Query access | `variant_get(column, path)` function |
 
@@ -32,6 +32,10 @@ INSERT INTO events (id, payload) VALUES
 
 **Path Expressions:**
 
+`variant_get` uses Pangrova's field/index path syntax. Pass `name`,
+`address.city`, or `items[0]` directly; the `$` prefix used by JSONPath
+functions is not part of this function's contract.
+
 ```sql
 -- Dot notation: top-level field
 SELECT variant_get(payload, 'name') AS name FROM events;
@@ -53,4 +57,5 @@ SELECT variant_get(payload, 'items[0].name') AS item_name FROM events;
 - Returns NULL for missing paths or out-of-bounds array indices
 - Supports both Iceberg and Paimon connectors
 - Iceberg requires `format-version = '3'` for VARIANT columns
-- Internally uses shredded columnar encoding for efficient selective access
+- The current Iceberg and Paimon E2E paths store JSON text. Iceberg v3
+  shredded VARIANT decoding is not yet wired into the Native scan path.

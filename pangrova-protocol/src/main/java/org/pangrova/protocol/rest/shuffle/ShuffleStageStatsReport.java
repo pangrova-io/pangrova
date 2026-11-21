@@ -1,12 +1,11 @@
 package org.pangrova.protocol.rest.shuffle;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.pangrova.common.util.OrderedMaps;
 
 /**
  * Worker-to-Coordinator shuffle stage statistics report.
@@ -58,6 +57,6 @@ public record ShuffleStageStatsReport(
         }
         partitionStats = partitionStats == null
                 ? Map.of()
-                : Collections.unmodifiableMap(new LinkedHashMap<>(partitionStats));
+                : OrderedMaps.immutableCopy(partitionStats);
     }
 }

@@ -2,7 +2,7 @@ package org.pangrova.worker.property.bootstrap;
 
 import org.pangrova.worker.bootstrap.StubCoordinatorServer;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -57,13 +57,9 @@ class WorkerShutdownPropertyTest {
      * P24b: Starting and then shutting down WorkerBootstrap leaves
      * isStarted() == false with no exceptions.
      *
-     * <p>Single start→shutdown cycle only. Velox global singletons cannot
-     * be safely re-initialized after shutdown in the same JVM process,
-     * so repeated start→shutdown cycles are not supported.</p>
-     *
      * <p><b>Validates: Requirements 48.2</b></p>
      */
-    @Property(tries = 1)
+    @Property(tries = 5)
     @Tag("Feature: e2e-pipeline-integration, Property 24: Graceful shutdown completeness")
     void workerShutdownTerminatesCleanly(
             @ForAll("workerIds") String workerId) {
@@ -74,8 +70,8 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        WorkerBootstrap bootstrap = org.pangrova.worker.bootstrap.TestWorkerBootstrap.create(config);
 
         try {
             bootstrap.start();
@@ -103,8 +99,8 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
+        WorkerBootstrap bootstrap = new WorkerBootstrap(config, event -> {});
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();
