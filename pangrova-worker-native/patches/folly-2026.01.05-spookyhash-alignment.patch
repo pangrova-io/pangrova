@@ -1,0 +1,47 @@
+--- a/folly/hash/SpookyHashV2.cpp
++++ b/folly/hash/SpookyHashV2.cpp
+@@ -31,6 +31,7 @@
+ #include <cstring>
+
+ #include <folly/Portability.h>
++#include <folly/lang/Bits.h>
+
+ namespace folly {
+ namespace hash {
+@@ -51,7 +52,6 @@
+     union
+     {
+         const uint8_t *p8;
+-        uint32_t *p32;
+         uint64_t *p64;
+         size_t i;
+     } u;
+@@ -109,8 +109,8 @@
+         d += ((uint64_t)u.p8[12]) << 32;
+         [[fallthrough]];
+     case 12:
+-        d += u.p32[2];
+-        c += u.p64[0];
++        d += folly::loadUnaligned<uint32_t>(u.p8 + 8);
++        c += folly::loadUnaligned<uint64_t>(u.p8);
+         break;
+     case 11:
+         d += ((uint64_t)u.p8[10]) << 16;
+@@ -122,7 +122,7 @@
+         d += (uint64_t)u.p8[8];
+         [[fallthrough]];
+     case 8:
+-        c += u.p64[0];
++        c += folly::loadUnaligned<uint64_t>(u.p8);
+         break;
+     case 7:
+         c += ((uint64_t)u.p8[6]) << 48;
+@@ -134,7 +134,7 @@
+         c += ((uint64_t)u.p8[4]) << 32;
+         [[fallthrough]];
+     case 4:
+-        c += u.p32[0];
++        c += folly::loadUnaligned<uint32_t>(u.p8);
+         break;
+     case 3:
+         c += ((uint64_t)u.p8[2]) << 16;
