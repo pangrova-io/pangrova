@@ -480,6 +480,42 @@ build_velox() {
       apply_dependency_source_patches "$dir"
     }
 
+    install_arrow() {
+      # Arrow only builds its bundled thrift when ARROW_WITH_THRIFT is on.
+      # Thrift's SSL transport no longer compiles against OpenSSL 3.5+ const
+      # return types and Parquet is off, so nothing in this install uses it.
+      wget_and_untar \
+        https://github.com/apache/arrow/archive/apache-arrow-"${ARROW_VERSION}".tar.gz arrow
+      (
+        if [[ -z "$VELOX_ARROW_CMAKE_PATCH" ]]; then
+          ABSOLUTE_SCRIPTDIR=$(realpath "$SCRIPT_DIR")
+          VELOX_ARROW_CMAKE_PATCH="$ABSOLUTE_SCRIPTDIR/../CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch"
+        fi
+        cd "$DEPENDENCY_DIR"/arrow || exit 1
+        git apply "$VELOX_ARROW_CMAKE_PATCH"
+        if [[ -n $EXTRA_ARROW_PATCH ]]; then
+          git apply "$EXTRA_ARROW_PATCH"
+        fi
+      ) || exit 1
+      cmake_install_dir arrow/cpp \
+        -DARROW_PARQUET=OFF \
+        -DARROW_WITH_THRIFT=OFF \
+        -DARROW_WITH_LZ4=ON \
+        -DARROW_WITH_SNAPPY=ON \
+        -DARROW_WITH_ZLIB=ON \
+        -DARROW_WITH_ZSTD=ON \
+        -DARROW_JEMALLOC=OFF \
+        -DARROW_SIMD_LEVEL=NONE \
+        -DARROW_RUNTIME_SIMD_LEVEL=NONE \
+        -DARROW_WITH_UTF8PROC=OFF \
+        -DARROW_TESTING=ON \
+        -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DARROW_BUILD_STATIC=ON \
+        -DBOOST_ROOT="$INSTALL_PREFIX" \
+        $EXTRA_ARROW_OPTIONS
+    }
+
     install_fizz() {
       # The examples target (BogoShim) links libc++abi symbols that macOS 13
       # does not provide; Velox needs the library, not the developer tools.

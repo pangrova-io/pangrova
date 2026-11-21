@@ -171,8 +171,10 @@ The exception patch is a source change because libc++ redefines its own
 availability macro, so a `-D` override is ignored and the newer
 `__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
 macOS builds also pin Homebrew `openssl@3` (installing it when the image only
-ships `openssl@4`): Arrow's bundled thrift still calls `SSLv3_method` and
-`ASN1_STRING_data`, which OpenSSL 4 removed.
+ships `openssl@4`) because OpenSSL 4 removed APIs that other vendored code
+still calls, and they build Arrow with `ARROW_WITH_THRIFT=OFF`: thrift's SSL
+transport no longer compiles against the OpenSSL 3.5+ const return types and
+Arrow Parquet is disabled, so nothing in this install consumes it.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
