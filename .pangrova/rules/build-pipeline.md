@@ -29,13 +29,18 @@ tool fails fast with its name. Velox and Rust pins resolve upstream
 (`v2026.04.17.00`, Rust 1.98.1); bump both together with the script.
 
 A cold dependency and Velox tree is about 30 GB, so CI frees preinstalled
-toolchains on standard runners before building and caches only
-`~/.pangrova/native-deps`, `~/.pangrova/velox/deps-install` and
-`~/.pangrova/velox/archive-cache`, plus the bounded compiler cache
-(`~/.cache/ccache`). The whole `~/.pangrova/velox` tree must not be
-cached: it exceeds the repository cache limit, and a restored cache must never
-contain partial dependency checkouts (the setup script verifies each pinned
-revision).
+toolchains on standard runners before building and caches four layers:
+dependency archives, the `native-deps`/`deps-install` prefixes, the Velox build
+layer (`_build/release/_deps`, `lib` and `CMakeCache.txt`), and the bounded
+compiler cache (`~/.cache/ccache`). Keys are layered: archives by
+`pangrova-worker-native/dependency-versions.txt`, prefixes by that lock plus the
+toolchain action and `pangrova-worker-native/patches/*`, the Velox layer by the
+lock, the patches and the function-selection contract, and ccache per commit
+with a restore prefix, so a patch edit recompiles only patched translation
+units. The whole `~/.pangrova/velox` tree must not be cached: it exceeds the
+repository cache limit, and a restored cache must never contain partial
+dependency checkouts (the setup script verifies each pinned revision).
+`native-deps-baseline.yml` warms the same keys weekly and on dependency changes.
 
 On a clean machine, publish the patched Iceberg JDBC catalog candidate before Maven.
 It needs JDK 17 and Gradle 8.14.4 (`GRADLE_BIN` if not on `PATH`), verifies archive

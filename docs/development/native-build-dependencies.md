@@ -207,13 +207,27 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
 - CI removes preinstalled toolchains the build never uses (Android SDK, .NET,
   CodeQL, iOS simulator runtimes) before downloading anything, and fails fast
   when less than 20 GB is free.
-- Only `~/.pangrova/native-deps`, `~/.pangrova/velox/deps-install` and
-  `~/.pangrova/velox/archive-cache` are cached. The whole `~/.pangrova/velox`
-  tree is never cached: it cannot fit, and the bootstrap verifies every pinned
-  dependency revision so a partial restore is rejected rather than trusted.
-  Binary dependency cache keys include the runner image, toolchain action,
-  bootstrap script and Folly source patches; they do not fall back to another
-  image, compiler configuration or pre-patch dependency tree.
+- Only the dependency archives, the `~/.pangrova/native-deps` and
+  `~/.pangrova/velox/deps-install` prefixes, the Velox build layer
+  (`_build/release/_deps`, `lib`, `CMakeCache.txt`) and the bounded ccache are
+  cached. The whole `~/.pangrova/velox` tree is never cached: it cannot fit, and
+  the bootstrap verifies every pinned dependency revision so a partial restore
+  is rejected rather than trusted.
+- Cache keys are layered, and `pangrova-worker-native/dependency-versions.txt`
+  is their single input lock. Archives key on that lock only; prefixes add the
+  toolchain action and `pangrova-worker-native/patches/*`; the Velox layer adds
+  the function-selection contract; ccache is keyed per commit with a restore
+  prefix, so a patch edit recompiles only the patched translation units. Bump
+  `PANGROVA_DEPENDENCY_BUILD` in the lock whenever dependency build flags or
+  install options change. Keys never fall back to another image, compiler
+  configuration or pre-patch dependency tree.
+- `.github/workflows/native-deps-baseline.yml` warms exactly those keys weekly
+  and on dependency changes. macOS publishes a
+  `native-deps-<platform>.tar.zst` artifact; Linux can additionally publish an
+  OCI image to GHCR when the repository variable
+  `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
+  granted. This mirrors Gluten's prebuilt-dependency images without adding
+  credentials or registry dependencies to pull-request runs.
 
 ## Apache Gluten Reference
 

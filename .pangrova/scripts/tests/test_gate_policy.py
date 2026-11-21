@@ -367,23 +367,64 @@ class RuntimeScopeTest(unittest.TestCase):
             '\n  jmh-benchmarks:', 1)[0]
         self.assertIn(f'    runs-on: {runner}\n', sanitizer)
 
-    def test_native_dependency_cache_is_scoped_to_runner_and_toolchain(self):
+    @staticmethod
+    def _cache_steps(section):
+        steps = re.split(r'\n      - name: ', section)[1:]
+        return {step.split('\n', 1)[0].strip(): step for step in steps
+                if 'actions/cache' in step}
+
+    def test_native_dependency_cache_is_layered_and_scoped(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
         sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
             '\n  jmh-benchmarks:', 1)[0]
-        caches = [section.split('      - name: Cache native deps + Velox\n', 1)[1].split(
-            '\n      - name:', 1)[0] for section in (native, sanitizer)]
-        keys = [re.search(r'^\s+key: (.+)$', cache, re.MULTILINE).group(1)
-                for cache in caches]
         runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
                       if item['name'] == 'linux-x86_64')
-        self.assertEqual(keys[0].replace('${{ matrix.platform.runner }}', runner), keys[1])
-        self.assertIn("hashFiles('.github/actions/setup-native-build/action.yml', "
-                      "'pangrova-worker-native/bin/setup-native-build-env.sh', "
-                      "'pangrova-worker-native/patches/*')", keys[0])
-        for cache in caches:
-            self.assertNotIn('restore-keys:', cache)
+        native_caches = self._cache_steps(native)
+        sanitizer_caches = self._cache_steps(sanitizer)
+        deps = native_caches['Cache native dependency prefixes']
+        deps_key = re.search(r'^\s+key: (.+)$', deps, re.MULTILINE).group(1)
+        self.assertEqual(
+            deps_key.replace('${{ matrix.platform.runner }}', runner),
+            re.search(r'^\s+key: (.+)$', sanitizer_caches[
+                'Cache native dependency prefixes'], re.MULTILINE).group(1))
+        self.assertIn("hashFiles('pangrova-worker-native/dependency-versions.txt', "
+                      "'.github/actions/setup-native-build/action.yml', "
+                      "'pangrova-worker-native/patches/*')", deps_key)
+        self.assertNotIn('setup-native-build-env.sh', deps_key)
+        for name in ('Cache dependency archives', 'Cache native dependency prefixes',
+                     'Cache Velox build layer'):
+            self.assertNotIn('restore-keys:', native_caches[name])
+        velox = native_caches['Cache Velox build layer']
+        for path in ('_build/release/_deps', '_build/release/lib', 'CMakeCache.txt'):
+            self.assertIn(path, velox)
+        ccache = native_caches['Cache compiler results']
+        self.assertIn('${{ github.sha }}', ccache)
+        self.assertIn('restore-keys:', ccache)
+        self.assertNotIn('patches/*', ccache)
+        self.assertIn('matrix.sanitizer.name',
+                      sanitizer_caches['Cache compiler results'])
+
+    def test_dependency_lock_matches_the_bootstrap(self):
+        lock = {}
+        for line in (ROOT / 'pangrova-worker-native/dependency-versions.txt').read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            key, value = line.split('=', 1)
+            lock[key] = value
+        self.assertIn('PANGROVA_DEPENDENCY_BUILD', lock)
+        bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
+        self.assertIn(f'VELOX_REF="${{VELOX_REF:-{lock["VELOX_REF"]}}}"', bootstrap)
+        self.assertIn(f'xxHash/archive/refs/tags/v{lock["XXHASH_VERSION"]}.tar.gz',
+                      bootstrap)
+
+    def test_baseline_workflow_warms_the_same_layers(self):
+        baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
+        self.assertIn('schedule:', baseline)
+        self.assertIn('pangrova-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('pangrova-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
+        self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
 
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
