@@ -21,6 +21,7 @@ import java.util.List;
  * arrays.
  */
 final class IcebergFragmentParser {
+    static final String CDC_MERGE = "CDC_MERGE";
 
     /**
      * F-CONNECTOR-06: Shared {@link ObjectMapper} for all fragment JSON parsing.
@@ -83,6 +84,7 @@ final class IcebergFragmentParser {
             return switch (operation) {
                 case "DELETE" -> "DELETE";
                 case "MERGE" -> "MERGE";
+                case CDC_MERGE -> CDC_MERGE;
                 default -> "OVERWRITE";
             };
         } catch (Exception e) {
@@ -133,7 +135,33 @@ final class IcebergFragmentParser {
                         deserializeOverwriteDataFilesViaParser(icebergTable.spec(), json));
                 deleteFiles.addAll(deserializeDeleteFiles(icebergTable, handle, json));
             }
+            case CDC_MERGE -> {
+                dataFiles.addAll(deserializeOverwriteDataFilesViaParser(icebergTable.spec(), json));
+                deleteFiles.addAll(deserializeCdcDeletes(icebergTable.spec(), json));
+            }
             default -> throw new IllegalStateException("Unknown operation: " + operation);
+        }
+    }
+
+    private static List<DeleteFile> deserializeCdcDeletes(PartitionSpec spec, String json) {
+        try {
+            var fragment = SHARED_MAPPER.readTree(json);
+            var array = fragment.path("deleteFiles");
+            if (!array.isArray() || !fragment.path("dataFiles").isArray()) {
+                throw new IllegalArgumentException("Iceberg CDC fragment requires exact data and delete file lists");
+            }
+            List<DeleteFile> files = new ArrayList<>();
+            for (var element : array) {
+                var file = (DeleteFile) ContentFileParser.fromJson(element, spec);
+                if (file.content() != org.apache.iceberg.FileContent.POSITION_DELETES
+                        || file.format() != org.apache.iceberg.FileFormat.PARQUET) {
+                    throw new IllegalArgumentException("Iceberg CDC requires Parquet position delete files");
+                }
+                files.add(file);
+            }
+            return files;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalArgumentException("Malformed Iceberg CDC fragment", failure);
         }
     }
 

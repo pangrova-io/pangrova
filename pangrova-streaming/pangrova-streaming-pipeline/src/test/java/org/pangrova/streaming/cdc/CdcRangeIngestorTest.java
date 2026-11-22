@@ -91,6 +91,25 @@ class CdcRangeIngestorTest {
     }
 
     @Test
+    void orderedRangeStagesOneFragmentAcrossPollBoundaries() {
+        var reader = new BatchReader(List.of(List.of(record("orders", 0, 10)),
+                List.of(record("orders", 0, 11))));
+        List<List<CdcEnvelope>> staged = new ArrayList<>();
+        var ingestor = new CdcRangeIngestor(new CdcRangeIngestSpec("stream", "epoch",
+                List.of(new CdcTaskRange("orders", 0, 10, 12)),
+                1, Duration.ofMillis(1), Duration.ofSeconds(1)),
+                reader, CONVERTER, batch -> {
+                    staged.add(batch);
+                    return List.of(new byte[]{1});
+                }, () -> false);
+
+        assertThat(ingestor.ingest(true).commitFragments()).containsExactly(new byte[]{1});
+        assertThat(staged).singleElement().satisfies(batch -> assertThat(batch)
+                .extracting(envelope -> envelope.after().getString("payload")).containsExactly("10", "11"));
+        assertThat(reader.commits).isZero();
+    }
+
+    @Test
     void emptyIntervalAtTheCurrentLogEndCompletesWithoutIdleFailure() {
         LogEndReader reader = new LogEndReader(10L);
         CdcRangeIngestor ingestor = new CdcRangeIngestor(

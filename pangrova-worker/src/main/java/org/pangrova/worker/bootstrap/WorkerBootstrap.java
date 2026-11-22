@@ -101,7 +101,6 @@ public final class WorkerBootstrap {
         WorkerResourceBootstrap.startNativeMetrics(refs, observability);
         WorkerResourceBootstrap.startWorkerMetrics(refs, observability);
         WorkerTaskBootstrap.startTaskManager(config, refs, observability);
-        startCdc();
         WorkerHttpBootstrap.startHttp(config, refs, observability, started, fileAudit);
         WorkerHeartbeatBootstrap.register(config, refs);
         WorkerHeartbeatBootstrap.startHeartbeat(config, refs);
@@ -191,18 +190,6 @@ public final class WorkerBootstrap {
                 cc.artifactCachePath(),
                 cc.artifactCacheBytes(),
                 cc.artifactIndexMemoryBytes());
-    }
-
-    private void startCdc() {
-        if (!config.cdcEnabled()) {
-            LOG.info("event=phase_skipped phase=CDC reason=not_enabled");
-            return;
-        }
-        if (refs.cdcConsumer() == null) {
-            LOG.warn("event=phase_skipped phase=CDC reason=no_consumer_injected");
-            return;
-        }
-        LOG.info("event=phase_started phase=CDC");
     }
 
     // -- Public accessors --

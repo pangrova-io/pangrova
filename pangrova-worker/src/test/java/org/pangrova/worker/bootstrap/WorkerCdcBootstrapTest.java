@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -76,6 +77,21 @@ class WorkerCdcBootstrapTest {
         bootstrap = createCdcEnabledBootstrap();
         // No setCdcConsumer call
         assertThatCode(() -> bootstrap.start()).doesNotThrowAnyException();
+        assertThat(stubCoordinator.registration().cdcIngestSupported()).isFalse();
+    }
+
+    @Test
+    void registersTheInstalledBackendAndClosesItOnceAfterTransfer() {
+        var closes = new AtomicInteger();
+        bootstrap = createCdcEnabledBootstrap();
+        bootstrap.setWorkerExecutedTaskBackend(
+                new WorkerBootstrapPrestartOwnershipTest.CloseOnlyBackend(closes::incrementAndGet));
+
+        bootstrap.start();
+        assertThat(stubCoordinator.registration().cdcIngestSupported()).isTrue();
+
+        bootstrap.shutdown();
+        assertThat(closes).hasValue(1);
     }
 
     private static WorkerBootstrap createCdcEnabledBootstrap() {

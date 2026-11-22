@@ -75,6 +75,69 @@ mvn -pl pangrova-testing/pangrova-testing-integration-tests test \
 A missing artifact, rejected runtime hash, child startup failure, or failed scenario
 is a test failure; the fixture does not skip or replace it with an in-process worker.
 
+## Independent relational write recovery
+
+`IndependentRelationalWriteRecoveryE2ETest` covers Iceberg, Paimon and Lance.
+It kills the original Worker process after staging while the relay holds its
+terminal report. A surviving Worker publishes one catalog version with the
+expected row count. A separate scenario interrupts journal confirmation and
+restarts the Coordinator. The test checks the original query ID, fingerprint and
+exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
+Lance updates its catalog pointer and journal in a single PostgreSQL transaction,
+so the same fault leaves the pointer unchanged until recovery. The Lance test
+also observes a second serialization failure during a live recovery scan,
+then confirms that a Coordinator restart still completes the same intent.
+
+## Independent Iceberg clustering recovery
+
+`IndependentClusteringE2ETest` runs both Iceberg clustering modes through the
+real CLI and verifies the original rows through the registered Worker. For
+the linear rewrite, a PostgreSQL trigger rejects journal completion after
+the Iceberg replacement snapshot is already visible. After restarting the
+Coordinator and Worker, the test verifies that `SHOW CLUSTERING STATUS`
+recovers the same task and snapshot and that the catalog still contains only
+one replacement snapshot for that run. The Worker-loss case holds the first
+Worker's completed staging receipt, then terminates that process. The
+surviving Worker stages a new attempt under the same durable run ID. The
+Iceberg catalog shows one replacement snapshot with the surviving attempt's
+files and the original rows.
+
+## Independent CDC and Cross-Encoder acceptance
+
+`IndependentCdcProcessesE2ETest` also exercises Iceberg mutations using one
+real Kafka partition and a version 2 JDBC catalog. A PostgreSQL advisory lock
+blocks the catalog pointer update while the Coordinator process exits. The
+replacement Coordinator recovers the original fingerprint and acknowledges one
+published snapshot. A Worker then stages an UPDATE. PostgreSQL rejects journal
+completion after the Iceberg snapshot becomes visible. MAINTENANCE confirms
+the same intent and acknowledges the source offset. It then publishes a DELETE and records COMMITTED
+while PostgreSQL blocks acknowledging the new offset. A second restart
+advances the offset from the original fingerprint. The query role verifies
+that unrelated data remains visible and that each publication produced one
+snapshot.
+
+`IndependentCdcProcessesE2ETest` uses the same frozen runtime and process
+fixture. The COMBINED case blocks Paimon's filesystem snapshot publication
+and restarts the Coordinator to recover the exact staged INSERT. It then
+exercises UPDATE and DELETE through public stream DDL, Kafka, and Flight.
+The MAINTENANCE case takes over
+after the Worker exits and observes the real Paimon snapshot through its SDK.
+A PostgreSQL trigger rejects the journal update after the Paimon commit.
+After Coordinator restart the same fingerprint reaches COMMITTED, the
+snapshot ID stays unchanged, and the exact Kafka offset advances. A subsequent
+DELETE survives a failed offset acknowledgement without publishing another
+snapshot during recovery.
+
+Both Iceberg and Paimon process cases also kill a Worker before task delivery
+and after its staging report has reached the relay. Publication and the source
+offset stay unchanged until the surviving Worker stages the original range.
+
+`IndependentCrossEncoderE2ETest` starts a pinned Text Embeddings Inference image
+and model revision. It forwards real model scores through an adapter for the
+`/v1/rerank` response contract and stops the model to verify the provider error through both the production CLI
+and the public query status endpoint.
+The model container needs outbound access to download its pinned weights.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK
