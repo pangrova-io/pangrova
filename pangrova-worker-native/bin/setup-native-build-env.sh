@@ -358,6 +358,26 @@ build_grpc() {
   step "gRPC installed to $DEPS_PREFIX"
 }
 
+ensure_darwin_snappy() {
+  local prefix="$1"
+  local config="$prefix/lib/cmake/Snappy/SnappyConfig.cmake"
+  local archive="$prefix/lib/libsnappy.a"
+  if [[ -f "$config" && -f "$archive" && -f "$prefix/include/snappy.h" ]]; then
+    return
+  fi
+
+  run_and_time install_snappy
+  [[ -f "$config" && -f "$archive" && -f "$prefix/include/snappy.h" ]] \
+    || die "Pinned Snappy package is incomplete at $prefix"
+}
+
+darwin_folly_has_alignment_patch() {
+  local prefix="$1"
+  local digest="$2"
+  local stamp="$prefix/.pangrova-folly-alignment"
+  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "$digest" ]]
+}
+
 build_velox() {
   log "Building Velox $VELOX_REF"
   local GRPC_VERSION="$GRPC_VERSION"
@@ -401,10 +421,14 @@ build_velox() {
   # pinned sources instead of re-downloading them on non-interactive CI.
   export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
   export PANGROVA_FOLLY_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch"
+  export PANGROVA_FOLLY_ALIGNMENT_PATCH="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch"
   local folly_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-common-build.patch"
-  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
-    git -C "$VELOX_DIR" apply --check "$folly_setup_patch"
-    git -C "$VELOX_DIR" apply "$folly_setup_patch"
+  local folly_alignment_setup_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-folly-alignment-build.patch"
+  if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_alignment_setup_patch" >/dev/null 2>&1; then
+    if ! git -C "$VELOX_DIR" apply --reverse --check "$folly_setup_patch" >/dev/null 2>&1; then
+      git -C "$VELOX_DIR" apply "$folly_setup_patch"
+    fi
+    git -C "$VELOX_DIR" apply "$folly_alignment_setup_patch"
   fi
   # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
   # on platforms that do require the separate library.
@@ -421,6 +445,8 @@ build_velox() {
     # Pangrova suppresses Velox's blanket Homebrew install below. Restore the
     # existing Folly prerequisite even when the compiled dependencies are cached.
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
+    local folly_alignment_digest
+    folly_alignment_digest=$(shasum -a 256 "$PANGROVA_FOLLY_ALIGNMENT_PATCH" | awk '{print $1}')
 
     # Upstream stores archives inside source directories that it deletes on retry.
     apply_folly_source_patches() {
@@ -428,7 +454,8 @@ build_velox() {
       local folly_patch
       for folly_patch in \
         "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
-        "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-const.patch" \
+        "$PANGROVA_FOLLY_PATCH" \
+        "$PANGROVA_FOLLY_ALIGNMENT_PATCH" \
         "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-libcxx-exception-path.patch"; do
         if ! patch --dry-run --batch --forward --reverse -d "$source" -p1 \
             -i "$folly_patch" >/dev/null 2>&1; then
@@ -578,6 +605,13 @@ build_velox() {
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
+      if [[ "$VELOX_BUILD_SHARED" != "ON" ]]; then
+        [[ -f "$INSTALL_PREFIX/lib/libfolly.a" ]] || die "Darwin Folly archive was not installed"
+        local stamp
+        stamp=$(mktemp "$INSTALL_PREFIX/.pangrova-folly-alignment.XXXXXXXX")
+        printf '%s\n' "$folly_alignment_digest" > "$stamp"
+        mv "$stamp" "$INSTALL_PREFIX/.pangrova-folly-alignment"
+      fi
     }
 
     install_aws_deps() {
@@ -602,11 +636,16 @@ build_velox() {
     }
 
     MACOS_VELOX_DEPS=""
+    # Hive/DWIO needs a CMake package and a static archive for the JNI link.
+    ensure_darwin_snappy "$INSTALL_PREFIX"
     BUILD_FAISS=false
     if [[ ! -f "$INSTALL_PREFIX/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
       run_and_time install_aws_deps
     fi
     if [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" ]]; then
+      if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
+        run_and_time install_folly
+      fi
       run_and_time install_xsimd
       run_and_time install_stemmer
       run_and_time install_arrow
@@ -616,11 +655,6 @@ build_velox() {
       run_and_time install_faiss
     else
       install_velox_deps
-    fi
-    # Velox's configure requires a Snappy CMake package; Pangrova suppresses
-    # Velox's blanket Homebrew install, so build the pinned snappy here.
-    if [[ ! -f "$INSTALL_PREFIX/lib/cmake/Snappy/snappyConfig.cmake" ]]; then
-      run_and_time install_snappy
     fi
   elif [[ "$OS" == "Linux" ]]; then
     local archive_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-codeload-archives.patch"
@@ -668,22 +702,23 @@ build_velox() {
       rm -rf _build/release
     fi
   fi
-  local velox_ssl_args=()
+  local velox_platform_args=()
   if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
-    velox_ssl_args+=(-DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
-    velox_ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a -DOPENSSL_USE_STATIC_LIBS=TRUE)
+    velox_platform_args+=(-DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
+    velox_platform_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a -DOPENSSL_USE_STATIC_LIBS=TRUE)
   fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
+    velox_platform_args+=("-DSnappy_DIR=$INSTALL_PREFIX/lib/cmake/Snappy")
     if [[ -n "$OPENSSL_PREFIX" ]]; then
-      velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+      velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
       velox_prefix_path+=";$OPENSSL_PREFIX"
       # Arrow's ExternalProject sub-builds do not inherit -D flags; the
       # environment is what keeps their find_package(OpenSSL) on openssl@3
       # instead of Homebrew's default openssl@4.
       export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
     fi
-    [[ -n "$FLEX_PREFIX" ]] && velox_ssl_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
+    [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
   cmake -B _build/release -GNinja $CMAKE_LAUNCHER_FLAGS \
@@ -695,7 +730,7 @@ build_velox() {
     -DCMAKE_CXX_COMPILER="$CXX" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$velox_prefix_path" \
-    ${velox_ssl_args[@]+"${velox_ssl_args[@]}"} \
+    ${velox_platform_args[@]+"${velox_platform_args[@]}"} \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
     -Dsimdjson_SOURCE=BUNDLED \
@@ -917,6 +952,10 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "OFF" ]]; then
+    # Arrow still verifies the pinned archive's SHA-256 in its ExternalProject.
+    export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"
+  fi
   mkdir -p "$WORK_DIR" "$DEPS_PREFIX"
 
   if [[ "$SKIP_DEPS" != "1" ]]; then

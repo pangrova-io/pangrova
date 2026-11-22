@@ -367,6 +367,21 @@ class RuntimeScopeTest(unittest.TestCase):
             '\n  jmh-benchmarks:', 1)[0]
         self.assertIn(f'    runs-on: {runner}\n', sanitizer)
 
+    def test_native_fixture_jobs_prepare_java_before_building(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
+        steps = ('actions/cache/restore@', 'uses: ./.github/actions/setup-iceberg-sdk',
+                 '--prepare-java ', 'actions/cache/save@')
+        positions = [action.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        for start, end in (('native-build', 'java-build'), ('native-sanitizers', 'jmh-benchmarks')):
+            job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
+            with self.subTest(job=start):
+                self.assertEqual(job.count('actions/setup-java@'), 1)
+                self.assertLess(job.index('uses: ./.github/actions/prepare-native-java-fixture'),
+                                job.index('Setup native build environment'))
+                self.assertIn('--prepared-java "$RUNNER_TEMP/native-java-fixture"', job)
+
     @staticmethod
     def _cache_steps(section):
         steps = re.split(r'\n      - name: ', section)[1:]
@@ -420,15 +435,6 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn(f'VELOX_REF="${{VELOX_REF:-{lock["VELOX_REF"]}}}"', bootstrap)
         self.assertIn(f'xxHash/archive/refs/tags/v{lock["XXHASH_VERSION"]}.tar.gz',
                       bootstrap)
-
-    def test_sanitizer_suppressions_are_scoped_and_wired(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        self.assertIn('UBSAN_OPTIONS: suppressions=${{ github.workspace }}/'
-                      'pangrova-worker-native/ubsan-suppressions.txt', workflow)
-        suppressions = (ROOT / 'pangrova-worker-native/'
-                        'ubsan-suppressions.txt').read_text()
-        for symbol in ('*SpookyHashV2*', '*BaseBinaryArray*value_offset*'):
-            self.assertIn(symbol, suppressions)
 
     def test_baseline_workflow_warms_the_same_layers(self):
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()

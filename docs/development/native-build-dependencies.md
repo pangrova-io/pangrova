@@ -53,8 +53,10 @@ arguments under `set -u`, while populated arrays preserve paths containing space
 CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
 jobs, keeping the compiler compatible with both the pinned Velox sources and the
 distribution's C++ libraries. It links a small static gflags consumer before
-building dependencies to catch ABI mismatches early. On macOS, CI selects an
-installed Homebrew LLVM of version 15 or newer, preferring the existing `llvm`
+building dependencies to catch ABI mismatches early. After a failed Native
+build, CI prints Ninja's JNI library link command to show the selected inputs.
+On macOS, CI selects an installed Homebrew LLVM of version 15 or newer,
+preferring the existing `llvm`
 (or newest installed `llvm@*`) formula instead of installing a possibly
 unavailable Intel bottle; only a machine without a suitable LLVM installs
 `llvm@17`. The selected prefix is exported as `PANGROVA_LLVM_PREFIX`. Without an
@@ -63,6 +65,10 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
+The same check requires the Homebrew Bison executable to satisfy Velox's
+minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
+keg when its executable is missing. CI also provisions the Flex keg and compiles
+against its `FlexLexer.h`, which Velox's generated C++ scanner includes.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
@@ -82,27 +88,29 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
-Three dependency contracts are enforced at configure time:
+The bootstrap enforces four dependency contracts.
 
-- Ubuntu's `libgflags-dev` ships only a non-PIC static archive. `FindVelox.cmake`
-  resolves the runtime shared `libgflags.so.2.2` for every gflags link so
-  `libpangrova_native.so` never embeds non-relocatable code.
+- Ubuntu's packaged static gflags archive is not position-independent. Linux
+  development and sanitizer builds link the shared library, including Folly's
+  configuration-specific CMake imports and absolute archive paths in imported
+  interfaces. The production image builds Velox's pinned gflags version as
+  PIC and links its static archive from the production dependency prefix.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
   builds: Fizz's `BogoShim` needs libc++abi symbols that macOS 13 lacks, and
   Velox consumes the libraries, not those tools.
-- Velox's configure needs a Snappy CMake package; because Pangrova suppresses
-  Velox's blanket Homebrew install, the bootstrap builds the pinned snappy
-  into the dependency prefix (installing it when a restored cache predates it).
+- The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
+  the regular, production and instrumented builds. The byte order and hash
+  values stay compatible with the pinned upstream version. The Darwin
+  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
+  is missing or differs from the reviewed patch.
 
 ## Sanitizer Dependency Chain
 
-UBSan suppresses alignment reports only for pinned third-party symbols
-(`pangrova-worker-native/ubsan-suppressions.txt`: Folly's SpookyHash and
-Arrow's binary-array offset accessors, which read packed buffers by design).
-Pangrova translation units keep the full alignment check; the list is
-re-audited on dependency bumps.
+Flight shuffle copies misaligned binary offset buffers before Arrow accesses
+them and retains the page payload buffers. Together with the Folly short-tail
+patch, this keeps both paths covered by the existing sanitizer presets.
 
 AddressSanitizer needs matching instrumentation across the runtime and the
 libraries whose headers participate in its memory access. The
@@ -159,10 +167,13 @@ only in the build rules, not the cache. Pangrova asks the same helper for that
 baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
-Native test runs build the Java fixture with the project reactor, which
-resolves the locally published Iceberg candidate. CI installs that candidate
-through the shared Iceberg SDK composite action before the native suite, as the
-Java jobs already do.
+Native and sanitizer jobs prepare the Lance Java fixture before compiling
+Native dependencies. They restore the fixture's Maven dependencies, publish
+the pinned Iceberg SDK locally, and build the broker from the checked-out
+reactor. The Maven dependency cache is saved as soon as the broker is ready.
+CTest uses that broker in the same checkout. Local test runs prepare it at
+startup unless given `--prepared-java` with a directory produced by
+`--prepare-java`.
 
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
@@ -179,11 +190,10 @@ runners.
 The exception patch is a source change because libc++ redefines its own
 availability macro, so a `-D` override is ignored and the newer
 `__cxa_init_primary_exception` symbol would remain unresolved before macOS 14.
-macOS builds also pin Homebrew `openssl@3` (installing it when the image only
-ships `openssl@4`) because OpenSSL 4 removed APIs that other vendored code
-still calls, and they build Arrow with `ARROW_WITH_THRIFT=OFF`: thrift's SSL
-transport no longer compiles against the OpenSSL 3.5+ const return types and
-Arrow Parquet is disabled, so nothing in this install consumes it.
+macOS builds pin Homebrew `openssl@3` because vendored code uses APIs removed
+in OpenSSL 4. The Arrow 18 bootstrap disables Thrift and the ArrowTesting
+targets. The production Velox build uses Arrow IPC and Flight without linking
+ArrowTesting, which requires a Boost.Process target from the Thrift path.
 
 On AArch64 Linux the canonical native library exceeds the +/-128 MiB branch
 range of `R_AARCH64_CALL26`, so GNU ld cannot reach outline-atomics helpers that
@@ -201,6 +211,10 @@ Velox's Arrow ExternalProject install and falls back to the AWS dependency
 prefix, so builds whose Velox used dependency sources instead of the
 ExternalProject layout still link.
 
+The macOS bootstrap installs the version of Snappy pinned by Velox into its
+dependency prefix. Velox uses that prefix's CMake package for the Hive/DWIO
+codecs, and the JNI link consumes the static archive from the same prefix.
+
 On macOS, Folly's libevent search only covers `/usr/local`, `/opt/local` and
 `$HOME`, not Homebrew's `/opt/homebrew` prefix. The bootstrap resolves the
 formula's `opt` prefix and adds it to Folly's configure. OpenSSL 4.0 makes
@@ -212,6 +226,10 @@ the SDK libc++ with Homebrew Clang 18 on Intel, so the pinned Boost build uses
 `--without-log` to omit both `boost_log` and `boost_log_setup` while keeping every
 component Velox declares. `log_setup` is a target within the `log` component, not a
 valid B2 component selector.
+
+Direct and sanitizer builds use the LZ4 codeload archive for Arrow Flight
+when no `ARROW_LZ4_URL` override is provided. Arrow checks the fixed archive
+SHA-256. The production Docker builder preseeds the same verified archive.
 
 ## Disk and Cache Budget
 

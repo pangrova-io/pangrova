@@ -29,6 +29,28 @@ class DockerNativeBootstrapTest(unittest.TestCase):
         self.assertIn(f"COPY {ATOMIC_PATCH} /workspace/{ATOMIC_PATCH}",
                       self.instructions[:velox_bootstrap])
 
+    def test_direct_and_container_builds_use_the_same_lz4_archive(self):
+        container = " ".join(self.instructions)
+        url = re.search(r"https://codeload\.github\.com/lz4/lz4/tar\.gz/refs/tags/v[^ ]+",
+                        container)
+        self.assertIsNotNone(url)
+        for mode in ("build", "asan"):
+            with self.subTest(mode=mode):
+                script = ROOT / f"pangrova-worker-native/bin/setup-native-{mode}-env.sh"
+                self.assertIn('export ARROW_LZ4_URL="${ARROW_LZ4_URL:-' + url[0] + '}"',
+                              script.read_text())
+
+    def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
+        velox_bootstrap = next(i for i, line in enumerate(self.instructions)
+                               if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)
+        copies = " ".join(line for line in self.instructions[:velox_bootstrap]
+                          if line.startswith("COPY "))
+        for patch in ("velox-folly-common-build.patch", "velox-folly-alignment-build.patch",
+                      "folly-2026.01.05-openssl-const.patch",
+                      "folly-2026.01.05-spookyhash-alignment.patch"):
+            with self.subTest(patch=patch):
+                self.assertIn(f"pangrova-worker-native/patches/{patch}", copies)
+
 
 if __name__ == "__main__":
     unittest.main()

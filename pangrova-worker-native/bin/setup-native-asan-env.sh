@@ -84,6 +84,9 @@ PANGROVA_CMAKE_BIN="$(command -v cmake)"
 "$PANGROVA_CMAKE_BIN" --version >/dev/null 2>&1 \
   || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
 export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
+
+# Use the same LZ4 archive as the Release Flight build and keep Arrow's hash check.
+export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
 command -v patch >/dev/null 2>&1 || die "patch not found"
 [[ -f "$ABSEIL_SOURCE/CMakeLists.txt" ]] || \
@@ -176,17 +179,17 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
 
 build_asan_folly() {
   if [[ -z "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
-    local openssl_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch"
-    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 \
-        -i "$openssl_patch" >/dev/null 2>&1; then
-      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
-      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$openssl_patch"
-    fi
-    local socket_patch="$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-socket-function-types.patch"
-    if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 -i "$socket_patch" >/dev/null 2>&1; then
-      patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
-      patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$socket_patch"
-    fi
+    local folly_patch
+    for folly_patch in \
+      "$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-openssl-asn1.patch" \
+      "$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-socket-function-types.patch" \
+      "$ASAN_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch"; do
+      if ! patch --dry-run --batch --forward --reverse -d "$FOLLY_SOURCE" -p1 \
+          -i "$folly_patch" >/dev/null 2>&1; then
+        patch --dry-run --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$folly_patch"
+        patch --batch --forward -d "$FOLLY_SOURCE" -p1 -i "$folly_patch"
+      fi
+    done
     local architecture_flags
     architecture_flags="$(source "$VELOX_HOME/scripts/setup-helper-functions.sh"; get_cxx_flags)"
     build_asan_dependency "$FOLLY_SOURCE" "$WORK_DIR/folly-asan-build" \

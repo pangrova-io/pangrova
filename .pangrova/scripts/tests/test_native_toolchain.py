@@ -104,10 +104,20 @@ exit 1
                                 env=env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def macos_tooling(self, llvm_formula="llvm@17"):
+    def macos_tooling(self, llvm_formula="llvm@17", bison_installed=True, flex_installed=True):
         for name in ("cmake", "ninja", "autoconf", "automake", "glibtoolize",
-                     "pkg-config", "bison", "flex", "rg"):
+                     "pkg-config", "flex", "rg"):
             self.executable(self.bin / name, "exit 0")
+        self.executable(self.bin / "bison", 'echo "bison (GNU Bison) 2.3"')
+        bison = self.root / "bison/bin/bison"
+        if bison_installed:
+            self.executable(bison, 'echo "bison (GNU Bison) 3.8.2"')
+        flex = self.root / "flex/bin/flex"
+        if flex_installed:
+            self.executable(flex, 'echo "flex 2.6.4"')
+            flex_header = self.root / "flex/include/FlexLexer.h"
+            flex_header.parent.mkdir(parents=True)
+            flex_header.touch()
         prefix = self.root / llvm_formula.replace("@", "")
         self.executable(prefix / "bin/clang++",
                         'echo "Homebrew clang version 17.0.6"')
@@ -120,6 +130,22 @@ if [ "$1" = "--prefix" ]; then
     bison|flex) printf '%s/%s\\n' "$HOME" "$2" ;;
     *) exit 1 ;;
   esac
+fi
+if [ "$1" = "list" ]; then
+  case "$3" in
+    bison|flex) test -x "$HOME/$3/bin/$3"; exit $? ;;
+  esac
+fi
+if [ "$1" = "install" ] && [ "$2" = "bison" ]; then
+  mkdir -p "$HOME/bison/bin"
+  printf '%s\\n' '#!/bin/sh' 'echo "bison (GNU Bison) 3.8.2"' > "$HOME/bison/bin/bison"
+  chmod +x "$HOME/bison/bin/bison"
+fi
+if [ "$1" = "install" ] && [ "$2" = "flex" ]; then
+  mkdir -p "$HOME/flex/bin" "$HOME/flex/include"
+  printf '%s\\n' '#!/bin/sh' 'echo "flex 2.6.4"' > "$HOME/flex/bin/flex"
+  chmod +x "$HOME/flex/bin/flex"
+  touch "$HOME/flex/include/FlexLexer.h"
 fi
 """)
         sdk_root = self.root / "macos sdk"
@@ -136,6 +162,22 @@ fi
         self.assertNotIn("update --quiet", trace)
         self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\nSDKROOT={sdk_root}\n")
         self.assertIn(f"{prefix / 'bin'}\n", path)
+        self.assertIn(f"{self.root / 'bison/bin'}\n", path)
+        self.assertNotIn("install bison\n", trace)
+        self.assertNotIn("install flex\n", trace)
+
+    def test_macos_action_installs_bison_when_only_the_system_version_exists(self):
+        self.macos_tooling(bison_installed=False)
+        _, path, trace = self.run_action("Install build tools (macOS)")
+        self.assertIn("install bison\n", trace)
+        self.assertIn(f"{self.root / 'bison/bin'}\n", path)
+
+    def test_macos_action_installs_flex_when_only_the_system_executable_exists(self):
+        self.macos_tooling(flex_installed=False)
+        _, path, trace = self.run_action("Install build tools (macOS)")
+        self.assertIn("install flex\n", trace)
+        self.assertIn(f"{self.root / 'flex/bin'}\n", path)
+        self.assertTrue((self.root / "flex/include/FlexLexer.h").is_file())
 
     def test_macos_action_prefers_an_installed_newer_llvm_without_installing(self):
         _, prefix = self.macos_tooling(llvm_formula="llvm@18")
@@ -254,6 +296,68 @@ esac
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
                 self.assertIn("prepared", trace.read_text())
                 self.assertEqual("compiled" in trace.read_text(), phase == "velox")
+
+    def test_darwin_snappy_requires_a_complete_static_package(self):
+        source = BOOTSTRAP.read_text()
+        provision = "ensure_darwin_snappy() {" + source.split(
+            "\nensure_darwin_snappy() {", 1)[1].split("\n}", 1)[0] + "\n}"
+        prefix = self.root / "dependency prefix"
+        command = """
+set -eu
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+run_and_time() { "$@"; }
+install_snappy() {
+  printf 'install_snappy\\n'
+  mkdir -p "$PREFIX/lib/cmake/Snappy" "$PREFIX/include"
+  touch "$PREFIX/lib/cmake/Snappy/SnappyConfig.cmake" "$PREFIX/include/snappy.h"
+  if [[ "$COMPLETE" == 1 ]]; then
+    touch "$PREFIX/lib/libsnappy.a"
+  fi
+}
+""" + provision + """
+ensure_darwin_snappy "$PREFIX"
+ensure_darwin_snappy "$PREFIX"
+"""
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                result = subprocess.run(
+                    ["/bin/bash", "-c", command], capture_output=True, text=True,
+                    env=dict(self.env, PREFIX=str(prefix), COMPLETE=str(int(complete))))
+                self.assertEqual(result.stdout.splitlines(), ["install_snappy"])
+                if complete:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Pinned Snappy package is incomplete", result.stderr)
+
+    def test_darwin_folly_requires_archive_and_current_alignment_stamp(self):
+        source = BOOTSTRAP.read_text()
+        name = "darwin_folly_has_alignment_patch"
+        function = name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}", 1)[0] + "\n}"
+        prefix = self.root / "cached dependency prefix"
+        (prefix / "lib").mkdir(parents=True)
+        stamp = prefix / ".pangrova-folly-alignment"
+        archive = prefix / "lib/libfolly.a"
+        command = function + f'\n{name} "$1" current-digest'
+
+        for saved_digest, has_archive, reuse in (
+            (None, True, False), ("old-digest", True, False),
+            ("current-digest", False, False), ("current-digest", True, True),
+        ):
+            with self.subTest(saved_digest=saved_digest, has_archive=has_archive):
+                if saved_digest is None:
+                    stamp.unlink(missing_ok=True)
+                else:
+                    stamp.write_text(saved_digest + "\n")
+                if has_archive:
+                    archive.touch()
+                else:
+                    archive.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", "-eu", "-c", command, "bash", prefix],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode == 0, reuse, result.stderr)
 
     def darwin_libevent(self, mode, fixture):
         prefix = self.root / "brew formula"

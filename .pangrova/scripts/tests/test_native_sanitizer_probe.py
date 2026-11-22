@@ -175,6 +175,71 @@ set_target_properties(Folly::folly PROPERTIES
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_linux_release_consumer_uses_the_shared_gflags_import(self):
+        shared = self.root / "libgflags.so"
+        (self.root / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.20)
+project(GflagsContract NONE)
+set(APPLE FALSE)
+set(PANGROVA_PRODUCTION_BUILD ON)
+add_library(gflags::gflags STATIC IMPORTED)
+set_target_properties(gflags::gflags PROPERTIES
+  IMPORTED_CONFIGURATIONS RELEASE
+  IMPORTED_LOCATION_RELEASE "{self.root / 'libgflags.a'}")
+function(find_library variable)
+  set(${{variable}} "{shared}" PARENT_SCOPE)
+endfunction()
+{self.contract}
+set(PANGROVA_PRODUCTION_BUILD OFF)
+add_library(folly INTERFACE)
+add_library(Folly::folly ALIAS folly)
+target_link_libraries(folly INTERFACE "{self.root / 'libgflags.a'}")
+_pangrova_prefer_shared_gflags()
+file(GENERATE OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt"
+  CONTENT "$<TARGET_FILE:gflags::gflags>")
+file(GENERATE OUTPUT "${{CMAKE_CURRENT_BINARY_DIR}}/folly-gflags-path.txt"
+  CONTENT "$<TARGET_PROPERTY:Folly::folly,INTERFACE_LINK_LIBRARIES>")
+""")
+        build = self.root / "build"
+        result = subprocess.run(["cmake", "-S", str(self.root), "-B", str(build),
+                                 "-DCMAKE_BUILD_TYPE=Release"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((build / "gflags-path.txt").read_text(), str(shared))
+        self.assertEqual((build / "folly-gflags-path.txt").read_text(), str(shared))
+
+    def test_linux_production_links_only_the_canonical_gflags_archive(self):
+        source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
+        start = source.index("# 6) glog + gflags")
+        end = source.index("# 7) AWS SDK", start)
+        prefix = self.root / "production dependencies"
+        archive = prefix / "lib/libgflags.a"
+        (self.root / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.20)
+project(ProductionGflags NONE)
+set(APPLE FALSE)
+set(PANGROVA_PRODUCTION_BUILD ON)
+set(PANGROVA_DEPS_PREFIX "{prefix}")
+add_library(velox_imported INTERFACE)
+function(find_library variable)
+  if(variable STREQUAL "_SYS_GFLAGS" OR variable STREQUAL "_pangrova_gflags_shared")
+    message(FATAL_ERROR "Production must not search for system gflags")
+  endif()
+endfunction()
+{source[start:end]}
+get_property(libraries TARGET velox_imported PROPERTY INTERFACE_LINK_LIBRARIES)
+file(WRITE "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt" "${{libraries}}")
+""")
+        build = self.root / "build"
+        command = ["cmake", "-S", str(self.root), "-B", str(build)]
+        missing = subprocess.run(command, capture_output=True, text=True)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("Linux production requires the PIC gflags archive", missing.stderr)
+        archive.parent.mkdir(parents=True)
+        archive.touch()
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((build / "gflags-path.txt").read_text(), str(archive))
+
     def test_dependency_globs_cannot_reintroduce_release_folly(self):
         source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
         for variable in ("_DEPS_INSTALL_LIBS", "_VENDORED_LIBS", "_INSTALL_PREFIX_LIBS"):
@@ -384,12 +449,14 @@ static int (*sendmmsg)(...) = nullptr;
                        "-p1", "-i", str(patch)]
             subprocess.run([*command, "--dry-run", "--forward"], check=True, capture_output=True)
             setup = (ROOT / "pangrova-worker-native/bin/setup-native-asan-env.sh").read_text()
-            start = setup.index("    if ! patch --dry-run",
-                                setup.index('    local socket_patch="'))
-            patch_step = setup[start:setup.index("    local architecture_flags", start)]
+            start = setup.index("    local folly_patch", setup.index("build_asan_folly()"))
+            patch_loop = setup[start:setup.index("    local architecture_flags", start)]
+            self.assertIn(f'"$ASAN_SCRIPT_DIR/../patches/{patch.name}"', patch_loop)
+            patch_step = patch_loop[patch_loop.index("      if ! patch --dry-run"):
+                                    patch_loop.index("    done")]
             shell = ('set -euo pipefail\n'
                      f'FOLLY_SOURCE={shlex.quote(str(root / "deps-download/folly"))}\n'
-                     f'socket_patch={shlex.quote(str(patch))}\n' + patch_step)
+                     f'folly_patch={shlex.quote(str(patch))}\n' + patch_step)
             for _ in range(2):
                 subprocess.run(["/bin/bash", "-c", shell], check=True, capture_output=True)
             subprocess.run([*command, "--dry-run", "--forward", "--reverse"],

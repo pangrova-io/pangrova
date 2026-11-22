@@ -3,6 +3,7 @@
 #include <cstring>
 #include <string>
 
+#include <FlexLexer.h>
 #include <zlib.h>
 
 int main() {

@@ -22,7 +22,7 @@ import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.clustering.ClusteringMaintenance;
-import org.pangrova.connector.api.clustering.ClusteringPublicationException;
+import org.pangrova.connector.api.exception.ClusteringPublicationException;
 import org.pangrova.connector.api.enums.ClusteringMode;
 import org.pangrova.connector.api.enums.ClusteringState;
 import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;

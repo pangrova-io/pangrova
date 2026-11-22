@@ -8,6 +8,7 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.pangrova.coordinator.exception.NativeDatasetControlRpcException;
+import org.pangrova.coordinator.exception.NativeDatasetWorkerUnavailableException;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
