@@ -67,6 +67,13 @@ final class IcebergConstraintExpressions {
         if (domain instanceof Domain.Range range) {
             return rangeToExpression(column, range);
         }
+        if (domain instanceof Domain.RangeUnion union) {
+            Expression expression = Expressions.alwaysFalse();
+            for (Domain.Range range : union.ranges()) {
+                expression = Expressions.or(expression, rangeToExpression(column, range));
+            }
+            return expression;
+        }
         if (domain instanceof Domain.InList inList) {
             return Expressions.in(column, inList.values().toArray());
         }

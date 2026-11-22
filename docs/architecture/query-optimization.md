@@ -813,103 +813,39 @@ function getStatisticsWithConfidence(table: Table):
 
 ## 9. Dynamic Partition Pruning & Runtime Filter (OPT-002)
 
-> **Status: partially implemented.** Same-task Native hash-join runtime filters
-> (exact domains and bounded Bloom filters, including aliased probe columns) and a
-> bounded literal INNER/SEMI membership rule are implemented, and typed initial
-> filter bindings can be injected into a running task. Automatic cross-stage
-> collection of build-side key domains remains target design: distributed probe
-> splits are still enumerated with `DynamicFilter.ALL`.
-
-
-
-
 ### 9.1 Architecture Description
 
-Static partition pruning performed by Calcite optimization rules at planning time is the only mechanism that reduces file I/O before execution. Same-task Native hash-join runtime filters can reduce probe scan output after the complete build hash table is available, and the HEP literal-join rule can add a bounded membership predicate, but neither prevents underlying file reads and neither is an automatic cross-stage publisher. Distributed star-schema queries therefore still enumerate probe splits with `DynamicFilter.ALL` and may scan all fact-table partitions even when a dimension filter could eliminate most I/O.
+The Coordinator can prune the Iceberg probe of an INNER join on one BIGINT
+column before issuing the probe's splits. The optimizer selects this path for
+a bounded build and a probe with substantial potential I/O savings. It binds
+the runtime filter to the selected Iceberg snapshot, table and schema
+identities, and field ID.
 
-OPT-002 introduces a two-phase runtime filter framework: filter generation on the build side of a join, and multi-level filter application on the probe side. The framework leverages the enhanced statistics from OPT-004 (§8) — specifically file-level column stats and histograms — to estimate filter selectivity and decide filter type.
+### 9.2 Build and probe
 
-![Runtime Filter Framework](../../website/static/img/diagrams/generated/query-optimization-29-6dff9a6ffc.svg)
+Each elected Native build task reports inclusive minimum and maximum keys
+using its existing task completion report. The Coordinator waits up to
+200 ms for the full successful build cohort and the required exchange
+publication. It merges overlapping or adjacent task ranges and keeps up to
+16 disjoint ranges. If the range budget is exceeded, one encompassing
+interval covers every reported key. A complete build containing only NULL
+keys yields an empty probe. A missing or late report leaves pruning to the
+original constraints.
 
-**Phase 1 Scope** (this section): Min/max range filter for partition pruning. The Coordinator collects build-side min/max values after the build stage completes and pushes them to probe-side `ConnectorSplitSource` instances for partition-level and row-group-level pruning.
+Iceberg plans splits with the disjunction of the retained ranges and the
+original static predicates. Inclusive partition and file-statistics
+evaluation retains any file that may match. The Worker still evaluates the
+join on the rows. The bounds do not distinguish missing keys within a single
+task's reported interval.
 
-> **Note**: Advanced capabilities — bloom filter generation, cross-stage propagation, and multi-join filter chaining — are specified in Task 6.5 and will extend this section in a future phase.
+### 9.3 Scope
 
-**Affected SPI Interfaces**:
-- New `RuntimeFilter` Protobuf message in `TaskRequest` for filter delivery
-- `ConnectorSplitSource` — new `applyDynamicFilter(RuntimeFilter)` method for partition pruning
-- The target Native dynamic-filter sink in the reader pipeline — activated to receive and apply filters
-- `PangrovaCostModel` — updated to estimate runtime filter selectivity in join costing (uses OPT-004 histograms from §8 when available)
-
-### 9.2 Pseudocode
-
-**Filter Generation (Build Side)**:
-
-```pseudocode
-class RuntimeFilterGenerator:
-    function onBuildSideComplete(buildSideData: RecordBatch[]):
-        joinKeys = extractJoinKeys(buildSideData)
-
-        // Phase 1: generate min/max range filter
-        // (bloom filter and IN_LIST deferred to Task 6.5)
-        minVal = joinKeys.min()
-        maxVal = joinKeys.max()
-        return RuntimeFilter(type = MIN_MAX, min = minVal, max = maxVal,
-                             column = joinKeyColumn)
-```
-
-**Filter Application (Probe Side)**:
-
-```pseudocode
-class RuntimeFilterApplicator:
-    function applyToScan(scan: TableScan, filter: RuntimeFilter):
-        // Level 1: Partition pruning (skip entire partitions)
-        if scan.table.isPartitioned AND filter.column == scan.table.partitionKey:
-            prunedPartitions = scan.partitions.filter(p =>
-                filter.mightContain(p.partitionValue))
-            scan.setPartitions(prunedPartitions)
-
-        // Level 2: Row group pruning (skip row groups within files)
-        for file in scan.files:
-            for rowGroup in file.rowGroups:
-                stats = rowGroup.columnStats(filter.column)
-                if NOT filter.overlaps(stats.min, stats.max):
-                    rowGroup.skip()
-
-        // Level 3: Row-level filtering (within row groups)
-        scan.addFilter(RuntimeRowFilter(filter))
-```
-
-**Filter Propagation (Coordinator-Mediated)**:
-
-```pseudocode
-function propagateRuntimeFilter(buildStageId, probeStageId, filter):
-    // Coordinator broadcasts filter to probe-side Workers
-    for worker in getWorkersForStage(probeStageId):
-        worker.applyRuntimeFilter(probeStageId, filter)
-
-    // Alternative: Workers pull filter from Coordinator on scan init
-    coordinator.registerRuntimeFilter(probeStageId, filter)
-```
-
-### 9.3 Trade-offs
-
-| Aspect | Current (static pruning only) | With OPT-002 Phase 1 (min/max runtime filter) |
-|--------|-------------------------------|------------------------------------------------|
-| Performance | Static predicates may leave substantial fact-table data to scan | Runtime filters may reduce scanned data; I/O savings and latency improvements require workload measurements |
-| Complexity | Simple — static pruning only | Medium — filter generation, Coordinator-mediated propagation, multi-level application |
-| Risk | None | Low — runtime filter is additive; worst case is no pruning (filter too broad) |
-| Memory overhead | None | Negligible for min/max filters (two scalar values per filter) |
-| Latency overhead | None | Build side must complete before probe-side scan starts (pipeline breaker at stage boundary) |
-
-### 9.4 Migration Path
-
-1. **Phase 1 — Min/Max Runtime Filter** (this task): Implement min/max range filter for partition pruning only. Coordinator collects build-side min/max and pushes to probe-side `ConnectorSplitSource`. Simplest form with highest ROI.
-2. **Phase 2 — Bloom Filter** (Task 6.5): Add bloom filter generation for high-cardinality join keys. Push to the target Native dynamic-filter sink for row-group and row-level filtering.
-3. **Phase 3 — Cross-Stage Propagation** (Task 6.5): Enable filter propagation across shuffle boundaries (build stage → probe stage via Coordinator).
-4. **Phase 4 — Multi-Join Filter Chaining** (future): Support filter propagation through multiple join levels (e.g., fact → dim1 → dim2).
-
-> **Cross-reference**: This section depends on the statistics foundation in §8 (OPT-004) — specifically file-level column stats for row-group pruning and histograms for selectivity estimation. The target Native dynamic-filter sink in the reader pipeline is defined in [native-execution.md](./native-execution.md). Filter delivery uses the `RuntimeFilter` Protobuf message added to `TaskRequest` (see [query-execution.md](./query-execution.md)).
+Native hash joins can also apply in-task filters, and the planner can add
+bounded literal membership predicates for eligible INNER and SEMI joins.
+Both operate through their existing paths. The automatic cross-stage
+path described here controls Iceberg split enumeration. Wider key coverage
+and filters for already-running distributed scans remain design work.
+[Apache Iceberg scan planning](https://iceberg.apache.org/spec/#scan-planning)
 
 ### 9.5 Phase 2 — Bloom Filter Runtime Filter
 

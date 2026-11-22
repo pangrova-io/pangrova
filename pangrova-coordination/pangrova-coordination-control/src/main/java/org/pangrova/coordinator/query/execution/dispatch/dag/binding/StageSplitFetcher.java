@@ -47,7 +47,7 @@ public final class StageSplitFetcher {
         return fetch(plan, session, snapshotOverrides, writeMode, null);
     }
 
-    /** Applies a proven probe range within the normal authorized catalog enumeration. */
+    /** Applies proven probe ranges within the normal authorized catalog enumeration. */
     public List<QuerySplit> fetch(StageNode plan, QuerySession session,
             Map<String, Long> snapshotOverrides, String writeMode, BuildFilterGate filter) {
         if (session == null) {
@@ -63,21 +63,22 @@ public final class StageSplitFetcher {
         }
         var fragment = plan.stagePlan().requireLiveFragment();
         var sources = fragment.splitSources();
-        var range = filter == null ? null : filter.probeRange(plan.stageId());
-        if (range == null || sources.size() != 1) {
+        var ranges = filter == null ? null : filter.probeRanges(plan.stageId());
+        if (ranges == null || sources.size() != 1) {
             return splitSource.fetchAndFilterSplits(fragment, sources, overrides, session.queryId(), session);
         }
         var original = sources.get(0);
-        var pruned = prune(original, filter.plan(), range);
+        var pruned = prune(original, filter.plan(), ranges);
         var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session.queryId(), session);
         if (original != pruned) {
             LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} emptyBuild={}",
-                    session.queryId(), plan.stageId(), splits.size(), range.empty());
+                    session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty());
         }
         return splits;
     }
 
-    static SplitSourceDescriptor prune(SplitSourceDescriptor source, StageRuntimeFilter filter, BuildKeyRange range) {
+    private static SplitSourceDescriptor prune(
+            SplitSourceDescriptor source, StageRuntimeFilter filter, List<BuildKeyRange> ranges) {
         var read = source.readBinding().orElse(null);
         var selected = filter.probeRead();
         if (read == null || !read.snapshotId().equals(selected.snapshotId())
@@ -90,16 +91,20 @@ public final class StageSplitFetcher {
                 .anyMatch(column -> column.name().equals(filter.probeColumn())
                         && column.fieldId().orElse(-1) == filter.probeFieldId());
         if (!exactField) return source;
-        Constraint constraint = range.empty() ? Constraint.NONE : withBuildRange(source.constraint(), filter, range);
+        Constraint constraint = ranges.isEmpty() ? Constraint.NONE
+                : withBuildRanges(source.constraint(), filter, ranges);
         return new SplitSourceDescriptor(source.catalogName(), source.schemaName(), source.tableName(),
                 constraint, source.tableColumns(), source.readBinding());
     }
 
-    private static Constraint withBuildRange(Constraint original, StageRuntimeFilter filter, BuildKeyRange range) {
+    private static Constraint withBuildRanges(
+            Constraint original, StageRuntimeFilter filter, List<BuildKeyRange> bounds) {
         if (original == Constraint.NONE) return original;
         var domains = new LinkedHashMap<>(original.getDomains());
-        domains.put(new BuildKeyColumn(filter.probeColumn()), new Domain.Range(
-                range.minimum(), range.maximum(), true, true));
+        var ranges = bounds.stream().map(range -> new Domain.Range(
+                range.minimum(), range.maximum(), true, true)).toList();
+        domains.put(new BuildKeyColumn(filter.probeColumn()),
+                ranges.size() == 1 ? ranges.get(0) : new Domain.RangeUnion(ranges));
         Map<ColumnHandle, Domain> immutable = java.util.Collections.unmodifiableMap(domains);
         return () -> immutable;
     }

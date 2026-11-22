@@ -5,6 +5,8 @@ import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageRetryPolicy;
 import org.pangrova.query.stage.StageStateMachine;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +35,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public final class Stage {
 
     private static final Logger LOG = LoggerFactory.getLogger(Stage.class);
+    private static final int MAX_BUILD_FILTER_RANGES = 16;
 
     private final StageNode plan;
     private final StageStateMachine stateMachine;
@@ -64,7 +67,7 @@ public final class Stage {
     private boolean clientResultPublished;
     private boolean replayUnsafeWrite;
     private boolean consumerAdmitted;
-    private BuildKeyRange buildKeyRange;
+    private List<BuildKeyRange> buildKeyRanges;
     private int buildKeyReports;
 
     /** Pins this generation when a consumer begins to bind its issued producer records. */
@@ -146,10 +149,30 @@ public final class Stage {
         return applyTaskReport(taskId, generation, true, null, range);
     }
 
-    /** Returns a range only when the full admitted build cohort proved its coverage. */
-    public synchronized BuildKeyRange completeBuildKeyRange() {
-        return terminalDecisionClaimed && failedTaskIds.isEmpty()
-                && buildKeyReports == taskIds.size() ? buildKeyRange : null;
+    /** Returns a bounded union for a complete cohort, or null if any summary is absent. */
+    public synchronized List<BuildKeyRange> completeBuildKeyRanges() {
+        if (!terminalDecisionClaimed || !failedTaskIds.isEmpty() || buildKeyReports != taskIds.size()) return null;
+        if (buildKeyRanges == null) return List.of();
+        if (buildKeyRanges.size() == 1) return List.of(buildKeyRanges.get(0));
+
+        buildKeyRanges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
+        List<BuildKeyRange> union = new ArrayList<>(Math.min(MAX_BUILD_FILTER_RANGES, buildKeyRanges.size()));
+        BuildKeyRange current = buildKeyRanges.get(0);
+        for (int index = 1; index < buildKeyRanges.size(); index++) {
+            BuildKeyRange next = buildKeyRanges.get(index);
+            if (current.maximum() == Long.MAX_VALUE || next.minimum() <= current.maximum() + 1) {
+                current = current.merge(next);
+                continue;
+            }
+            union.add(current);
+            if (union.size() == MAX_BUILD_FILTER_RANGES) {
+                long maximum = buildKeyRanges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
+                return List.of(new BuildKeyRange(buildKeyRanges.get(0).minimum(), maximum, false));
+            }
+            current = next;
+        }
+        union.add(current);
+        return List.copyOf(union);
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -179,8 +202,11 @@ public final class Stage {
             if (success) {
                 finishedTaskIds.add(taskId);
                 if (range != null) {
-                    buildKeyRange = buildKeyRange == null ? range : buildKeyRange.merge(range);
                     buildKeyReports++;
+                    if (!range.empty()) {
+                        if (buildKeyRanges == null) buildKeyRanges = new ArrayList<>();
+                        buildKeyRanges.add(range);
+                    }
                 }
             } else {
                 failedTaskIds.add(taskId);
@@ -217,7 +243,7 @@ public final class Stage {
         retryCount.incrementAndGet();
         attemptGeneration.incrementAndGet();
         finishedTaskIds.clear();
-        buildKeyRange = null;
+        buildKeyRanges = null;
         buildKeyReports = 0;
         failedTaskIds.clear();
         taskIds.clear();

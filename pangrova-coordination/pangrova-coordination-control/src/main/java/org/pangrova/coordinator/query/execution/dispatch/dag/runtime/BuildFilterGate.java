@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -15,9 +16,9 @@ public final class BuildFilterGate {
     private static final long MAX_WAIT_MS = 200;
 
     private final StageRuntimeFilter plan;
-    private final CompletableFuture<BuildKeyRange> completedBuild = new CompletableFuture<>();
+    private final CompletableFuture<List<BuildKeyRange>> completedBuild = new CompletableFuture<>();
     private volatile boolean probeReleased;
-    private BuildKeyRange releasedRange;
+    private List<BuildKeyRange> releasedRanges;
 
     private BuildFilterGate(StageRuntimeFilter plan) {
         this.plan = plan;
@@ -51,7 +52,7 @@ public final class BuildFilterGate {
     /** Called after the winning cohort has finished and any external publication is fenced. */
     public void onFinished(Stage stage) {
         if (stage.stageId() == plan.buildStageId() && stage.exchangeReadyForConsumers()) {
-            completedBuild.complete(stage.completeBuildKeyRange());
+            completedBuild.complete(stage.completeBuildKeyRanges());
         }
     }
 
@@ -59,7 +60,7 @@ public final class BuildFilterGate {
     public void releaseProbe(CompletableFuture<?> queryCompletion) {
         queryCompletion.whenComplete((result, failure) -> completedBuild.complete(null));
         try {
-            releasedRange = completedBuild.get(MAX_WAIT_MS, TimeUnit.MILLISECONDS);
+            releasedRanges = completedBuild.get(MAX_WAIT_MS, TimeUnit.MILLISECONDS);
         } catch (TimeoutException timeout) {
             completedBuild.complete(null);
         } catch (InterruptedException interruption) {
@@ -71,7 +72,7 @@ public final class BuildFilterGate {
         probeReleased = true;
     }
 
-    public BuildKeyRange probeRange(int stageId) {
-        return probeReleased && isProbe(stageId) ? releasedRange : null;
+    public List<BuildKeyRange> probeRanges(int stageId) {
+        return probeReleased && isProbe(stageId) ? releasedRanges : null;
     }
 }

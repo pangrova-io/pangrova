@@ -281,6 +281,45 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(empty.buildRanges()).singleElement().satisfies(range -> assertThat(range.getEmpty()).isTrue());
     }
 
+    @Test
+    void separatedBuildRangesPruneOnlyMatchingProbePartitions(TestReporter metrics) {
+        String probe = orders + "_sparse_probe";
+        String build = orders + "_sparse_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (2), (2), (3)");
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (35), (36), (NULL)");
+
+        String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON ";
+        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
+        var pruned = executeWithDrainedReports(join + "p.id = b.id ORDER BY p.id");
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(2L, 2L, 3L, 35L, 36L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload"))
+                .containsExactly(102L, 102L, 103L, 135L, 136L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(unpruned.buildRanges()).isEmpty();
+        assertThat(pruned.buildRanges()).containsExactlyInAnyOrder(
+                org.pangrova.protocol.v2.BuildKeyRange.newBuilder().setMinimum(2).setMaximum(3).build(),
+                org.pangrova.protocol.v2.BuildKeyRange.newBuilder().setMinimum(35).setMaximum(36).build());
+        long fullSplits = unpruned.sourceSplits(probe);
+        long filteredSplits = pruned.sourceSplits(probe);
+        long fullBytes = unpruned.sourceReadBytes(probe);
+        long filteredBytes = pruned.sourceReadBytes(probe);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=sparse_build_probe fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                fullSplits, filteredSplits, fullBytes, filteredBytes);
+        metrics.publishEntry(Map.of("full_probe_splits", Long.toString(fullSplits),
+                "filtered_probe_splits", Long.toString(filteredSplits), "full_probe_read_bytes", Long.toString(fullBytes),
+                "filtered_probe_read_bytes", Long.toString(filteredBytes)));
+        assertThat(fullSplits).isEqualTo(40);
+        assertThat(filteredSplits).isEqualTo(4);
+        assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+    }
+
     private static DrainedQuery executeWithDrainedReports(String sql) {
         var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
         taskTracker.addExecutionDrainListener(report -> {
