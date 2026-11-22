@@ -23,7 +23,7 @@ unlisted: true
 | 环节 | 剩余工作 | 验收证据 |
 |---|---|---|
 | 客户端、准入和状态 | 持久客户端和固定到达率的混合压测，验证认证状态投影、短查询、长查询与实际归还租户槽位 | 每条路径的首批、P95、超时、拒绝、耗尽恢复和零正常状态 SELECT |
-| 快照和 split 枚举 | 跨 Stage build 证明驱动组装前剪裁。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
+| 快照和 split 枚举 | 扩展跨 Stage 动态过滤到同任务稀疏键、多键和晚到覆盖。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
 | 计划、分配和控制面 | 量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
 | 远端 Shuffle | 核验更宽和变长输出的实际对象数、内存及跨主机吞吐。扩大热点并发，量化锁等待与尾时延，再校准是否需要段存储 | PostgreSQL 和对象存储真实压测，覆盖权限撤销、owner 切换、背压、未知 PUT、丢 ACK 和 GC |
 | Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。继续测跨主机出口、持续内存占用与链路异常下的释放 | 冷热、偏斜和宽/窄负载。若出口瓶颈成立，验证并行消费的顺序、EOF、资源窗口和真实归还 |
@@ -61,9 +61,9 @@ unlisted: true
 ### 扫描、AQE、结果和写入的适用门槛
 
 - **扫描与 split。** 原有 10 万分片微测证明最小堆适合高扇出，小并行度可能更慢。先用实际 range bytes、对象数、delete/解码估计和 backlog 定任务尺寸，再从生产分布决定是否换分配算法。总 split 有界准备和已签发 task descriptor/重试状态使用各自的容量指标。不能为减少枚举内存而提前签发需要固定 cohort 的 stage。需要先证明完整覆盖的模式仍按固定快照生成清单。用Iceberg manifest 剪枝和现有 Velox pushdown 先减少实际输入字节。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning) · [Trino task sizing](https://trino.io/docs/current/admin/fault-tolerant-execution.html#task-sizing)
-- **真实 AQE。** 派发保持原计划的分区坐标，`ExchangeSourceBuilder` 按 consumer partition ID 取 producer 分区或 receipt。候选 AQE 决策只用于观测。先以已提交 producer 输出生成、冻结、校验读取映射。用不同 join 类型、NULL、重复键、倾斜、重试和 durable replay 证明完整覆盖、去重和成本上界，再比较关键路径。Spark AQE 的参考点是使用运行时输出统计与不同读取划分。它的默认阈值不直接作为 Pangrova 门槛。 [Spark SQL AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
+- **真实 AQE。** 派发保持原计划的分区坐标，`ExchangeSourceBuilder` 按 consumer partition ID 取 producer 分区或 receipt。单哈希输入的范围合并已按已提交 producer 输出生成、冻结并校验了实际读取映射。进一步校准阈值及真实负载尾时延。用不同 join 类型、NULL、重复键、倾斜、重试和 durable replay 证明完整覆盖、去重和成本上界，再比较关键路径。Spark AQE 的参考点是使用运行时输出统计与不同读取划分。它的默认阈值不直接作为 Pangrova 门槛。 [Spark SQL AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
 - **结果出口。** 首先保持单 endpoint 的 SQL 行为，移除客户端 IPC 回转。Arrow Java 当前使用 19.x，依据该版本的 DoGet、batch 生命周期及顺序。限额按 bytes 同时覆盖服务端输出、客户端 Arrow allocator、消费解码和传输队列。先跑慢消费者、客户端提前关闭、读完后终态失败、分区数据齐全。只有单出口带宽或资源滞留占主要成本时，再选择并行 endpoints、range order merge 或持久结果段。全局 ORDER BY/LIMIT 必须证明完整顺序与完成结果。`FlightInfo.ordered` 只能描述已保证的端点拼接顺序。 [Arrow Flight 19](https://arrow.apache.org/docs/19.0/format/Flight.html) · [Trino 结果分段](https://trino.io/docs/current/client/client-protocol.html#spooling-protocol)
-- **DML/CDC。** 先移除 `isCommitted/getEntry` 的已知重复读，保留原 authority 和行状态判断。不要因为只有一个发布 API 就把 journal 或清理做成 catalogue commit 的隐式成功。连接器 publish 与 journal 分属不同事务，前后校验不能仅因相邻而合并。COW、write file sizing、碎片包装和 COPY 本地化各用自己的证据，含快照可见、旧文件保留、未知提交和 CDC offset。 [Iceberg 可靠性](https://iceberg.apache.org/docs/latest/reliability/)
+- **DML/CDC。** 提交回执已复用，继续测量高并发和故障窗口内的 authority、journal 与行状态成本。不要因为只有一个发布 API 就把 journal 或清理做成 catalogue commit 的隐式成功。连接器 publish 与 journal 分属不同事务，前后校验不能仅因相邻而合并。COW、write file sizing、碎片包装和 COPY 本地化各用自己的证据，含快照可见、旧文件保留、未知提交和 CDC offset。 [Iceberg 可靠性](https://iceberg.apache.org/docs/latest/reliability/)
 
 ## 基线与独立出场门槛
 
@@ -80,7 +80,7 @@ unlisted: true
 ## 后续 PR 与一次性发布
 
 1. 用真实分片、对象读和精确终态扩大跨 Stage 动态过滤。按实际负载评估单个构建任务内的稀疏键、其他键类型，以及晚到过滤约束尚未发出的分片。
-2. 在已有完整连续范围建议的基础上，将提交的 Shuffle 源分区映射到实际消费任务。优先验证单输入、低字节无偏斜的合并，再评估 Join 与热点拆分。
+2. 用完整 SQL 负载校准已启用的单输入范围合并，再验证 Join 两侧的对齐范围、热点拆分与持久重放。
 3. 为读写路径运行独立过程与资源压力验收，记录普通路径、失败恢复与物理退出。先对现有行为归因，按明确阈值决定额外的存储和结果并行优化。
 4. 用冻结的 Linux 配置完成同条件跨引擎基准及正式发布回归。
 
@@ -89,6 +89,8 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+实施批次 128 将已发布产物的读取守卫改为只读状态列和共享行锁。PostgreSQL 16 基线在 `pg_blocking_pids` 中可见一个产物读取事务被另一个读者阻塞。候选在持有另一个共享锁时完成读取，遇到独占锁仍等待，释放后读取精确对象。每个派发窗口的相关 SELECT 从 6 降到 5，清单层仍验证依赖校验和。96 项测试覆盖真实 PostgreSQL 的发布状态、授权和持久交换，以及真实 SQL 生成值读写。Checkstyle 通过。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
 
 实施批次 127 将实时任务产物物化收敛到最多 16 个任务的派发窗口。同一发布版本每窗口只加载一次清单及已分配源对象的产物。每个任务单独验证精确来源、对象角色和完成覆盖，再构造并校验摘要。BM25 的全局统计在多个任务共享，各自的倒排和行定位限定在自己的源对象。真实 PostgreSQL 对两个任务、每任务两个绑定节点连续测量三次，相关 SELECT 从 24 降到 6。57 项检查涵盖真实 PostgreSQL、DiskANN SQL、双 Worker、生成值写入与读取及 BM25 任务归属，Checkstyle 和模块边界检查通过。
 

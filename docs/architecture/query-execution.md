@@ -123,7 +123,9 @@ Each scan retains its own binding node ID.
 Live artifact-bound tasks read publication metadata in windows of up to 16
 tasks, after split placement. The Coordinator loads each publication for the
 assigned source objects and builds task bindings with only their own source
-outputs and the publication's generation-wide outputs.
+outputs and the publication's generation-wide outputs. PostgreSQL checks publication
+state under a shared row lock, allowing other readers while publication changes
+and deletion wait for the metadata transaction.
 
 The converter materializes Calcite's validated numeric result type in the function
 arguments. When an arithmetic expression has a floating result and a DECIMAL

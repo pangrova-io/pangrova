@@ -1,6 +1,5 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
-import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationSplit;
@@ -223,12 +222,19 @@ final class PostgresGenerationOutputQueries {
     private static void requirePublishedJob(
             Connection connection, String tenantId, String jobId)
             throws SQLException {
-        GenerationJob job = PostgresGenerationJobStoreMappings.findJob(
-                connection, tenantId, jobId, true).orElseThrow(
-                        () -> new IllegalArgumentException(
-                                "unknown artifact build job: " + jobId));
-        if (job.state() != GenerationJobState.PUBLISHED) {
-            throw new IllegalStateException("artifact generation is not atomically published");
+        // Hold the publication stable through object selection while allowing other readers.
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT state FROM artifact_build_jobs WHERE tenant_id=? AND job_id=? FOR SHARE")) {
+            statement.setString(1, tenantId);
+            statement.setString(2, jobId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalArgumentException("unknown artifact build job: " + jobId);
+                }
+                if (GenerationJobState.valueOf(result.getString(1)) != GenerationJobState.PUBLISHED) {
+                    throw new IllegalStateException("artifact generation is not atomically published");
+                }
+            }
         }
     }
 

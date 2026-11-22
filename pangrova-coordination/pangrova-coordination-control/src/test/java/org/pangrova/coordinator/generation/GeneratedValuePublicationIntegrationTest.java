@@ -41,6 +41,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -92,7 +96,67 @@ class GeneratedValuePublicationIntegrationTest {
         assertPublication(buildStore, publicationStore);
         assertTaskBinding(buildStore, publicationStore, split);
         assertWindowMaterialization(dataSource, buildStore, publicationStore, split);
+        assertReadLocksShareAndStillWaitForWriters(dataSource, buildStore);
         assertClaimConnectionEvidence(dataSource, buildStore, publicationStore, split);
+    }
+
+    private static void assertReadLocksShareAndStillWaitForWriters(DataSource dataSource,
+            PostgresGenerationJobStore store) throws Exception {
+        var executor = Executors.newSingleThreadExecutor();
+        try (var holder = dataSource.getConnection()) {
+            holder.setAutoCommit(false);
+            lockPublishedJob(holder, false);
+            try {
+                var reader = executor.submit(() -> store.loadPublishedOutputs(TENANT, JOB_ID, Set.of("object-a")));
+                assertThat(reader.get(5, TimeUnit.SECONDS)).hasSize(2);
+            } finally {
+                holder.rollback();
+            }
+
+            int writer = lockPublishedJob(holder, true);
+            var reader = executor.submit(() -> store.loadPublishedSourceSplits(TENANT, JOB_ID, Set.of("object-a")));
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                boolean blocked = false;
+                while (!blocked && !reader.isDone() && System.nanoTime() < deadline) {
+                    blocked = readerWaitsFor(dataSource, writer);
+                    if (!blocked) Thread.sleep(10);
+                }
+                assertThat(blocked).isTrue();
+                assertThat(reader.isDone()).isFalse();
+            } finally {
+                holder.rollback();
+            }
+            assertThat(reader.get(5, TimeUnit.SECONDS)).containsOnlyKeys("object-a");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static int lockPublishedJob(java.sql.Connection connection, boolean writer) throws Exception {
+        String sql = "SELECT pg_backend_pid() FROM artifact_build_jobs WHERE tenant_id=? AND job_id=?"
+                + (writer ? " FOR UPDATE" : " FOR SHARE");
+        try (var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, TENANT);
+            statement.setString(2, JOB_ID);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getInt(1);
+            }
+        }
+    }
+
+    private static boolean readerWaitsFor(DataSource dataSource, int writer) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))
+                  AND wait_event_type = 'Lock' AND query LIKE 'SELECT%FROM artifact_build_jobs%')
+                """)) {
+            statement.setInt(1, writer);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getBoolean(1);
+            }
+        }
     }
 
     private static void assertWindowMaterialization(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
@@ -125,7 +189,7 @@ class GeneratedValuePublicationIntegrationTest {
                 }
             }
             long delta = materializationReads(dataSource) - before;
-            assertThat(delta).as("publication SELECTs per bounded window").isEqualTo(6);
+            assertThat(delta).as("publication SELECTs per bounded window").isEqualTo(5);
         }
     }
 
