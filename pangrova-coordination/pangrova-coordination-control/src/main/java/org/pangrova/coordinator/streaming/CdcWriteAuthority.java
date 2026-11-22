@@ -90,14 +90,18 @@ public final class CdcWriteAuthority {
         WriteDeclarationSnapshot declaration = WriteDeclarationSnapshot.capture(
                 table, tableMetadata, definitions.toByteArray(),
                 definitions.getDefinitionsCount() != 0);
-        String writeMode = actions.equals(Set.of(Privilege.INSERT)) ? "INSERT" : "MERGE";
+        boolean appendOnly = actions.equals(Set.of(Privilege.INSERT));
+        if (!appendOnly && !metadata.supportsCdcMutations()) {
+            throw new UnsupportedOperationException("Connector does not support atomic CDC UPDATE/DELETE");
+        }
+        String writeMode = appendOnly ? "INSERT" : "MERGE";
         WriteAuthorizationReceipt receipt = WriteAuthorityAdmission.resolve(
                 new WriteAuthorityRequest(table, session, writeMode, List.of(), actions,
                         declaration, false),
                 definitions, resolver);
-        ConnectorOutputTableHandle outputHandle = "INSERT".equals(writeMode)
+        ConnectorOutputTableHandle outputHandle = appendOnly
                 ? metadata.beginInsert(session, tableHandle)
-                : metadata.beginMerge(session, tableHandle);
+                : metadata.beginCdcMerge(session, tableHandle);
         WriteOutputBinding binding = ConnectorWriteBindingFactory.create(
                 catalogHandle, outputHandle);
         return new CdcWritePlan(outputHandle, binding, receipt,

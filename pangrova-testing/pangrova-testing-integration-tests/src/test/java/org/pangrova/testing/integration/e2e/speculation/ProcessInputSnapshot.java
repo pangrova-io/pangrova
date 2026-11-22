@@ -42,12 +42,7 @@ final class ProcessInputSnapshot implements AutoCloseable {
     ProcessInputSnapshot(Path warehouse, String jdbcUrl) throws IOException {
         this.warehouse = warehouse;
         Files.createDirectories(warehouse);
-        Configuration configuration = new Configuration();
-        configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
-        configuration.setBoolean("fs.file.impl.disable.cache", true);
-        catalog = (JdbcCatalog) CatalogUtil.buildIcebergCatalog("spec_catalog", Map.of(
-                "type", "jdbc", "uri", jdbcUrl, "warehouse", warehouse.toString(),
-                "jdbc.user", "pangrova", "jdbc.password", "pangrova_test", "jdbc.schema-version", "V1"), configuration);
+        catalog = openCatalog(warehouse, jdbcUrl);
         try {
             catalog.createNamespace(Namespace.of("default"));
             table = catalog.createTable(TableIdentifier.of("default", "input"), new Schema(
@@ -61,13 +56,23 @@ final class ProcessInputSnapshot implements AutoCloseable {
         }
     }
 
+    static JdbcCatalog openCatalog(Path warehouse, String jdbcUrl) {
+        Configuration configuration = new Configuration();
+        configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
+        configuration.setBoolean("fs.file.impl.disable.cache", true);
+        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog("spec_catalog", Map.of(
+                "type", "jdbc", "uri", jdbcUrl, "warehouse", warehouse.toString(),
+                "jdbc.user", "pangrova", "jdbc.password", "pangrova_test", "jdbc.schema-version", "V1"), configuration);
+    }
+
     Path warehouse() { return warehouse; }
     long snapshotId() { return table.currentSnapshot().snapshotId(); }
     List<Path> dataFiles() { return List.copyOf(dataFiles); }
     long committedRows(String tableName) {
         Table current = catalog.loadTable(TableIdentifier.of("default", tableName));
         current.refresh();
-        return Long.parseLong(current.currentSnapshot().summary().get("total-records"));
+        var snapshot = current.currentSnapshot();
+        return snapshot == null ? 0L : Long.parseLong(snapshot.summary().get("total-records"));
     }
 
     private void appendActualRows() throws IOException {

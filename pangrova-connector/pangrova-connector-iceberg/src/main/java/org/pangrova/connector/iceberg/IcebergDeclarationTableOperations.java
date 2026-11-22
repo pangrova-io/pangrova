@@ -16,11 +16,23 @@ import java.util.Objects;
 final class IcebergDeclarationTableOperations implements TableOperations {
     private final TableOperations delegate;
     private final IcebergOutputTableHandle handle;
+    private final TableMetadata exactBase;
+    private final Runnable requireAuthority;
     private boolean committed;
 
     IcebergDeclarationTableOperations(TableOperations delegate, IcebergOutputTableHandle handle) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.handle = Objects.requireNonNull(handle, "handle");
+        this.exactBase = null;
+        this.requireAuthority = () -> {};
+    }
+
+    IcebergDeclarationTableOperations(TableOperations delegate, TableMetadata exactBase, Runnable requireAuthority) {
+        this.delegate = Objects.requireNonNull(delegate, "delegate");
+        this.handle = null;
+        this.exactBase = Objects.requireNonNull(exactBase, "exactBase");
+        Objects.requireNonNull(exactBase.metadataFileLocation(), "exactBase metadata file");
+        this.requireAuthority = Objects.requireNonNull(requireAuthority, "requireAuthority");
     }
 
     @Override
@@ -35,7 +47,12 @@ final class IcebergDeclarationTableOperations implements TableOperations {
             throw new IllegalStateException("Iceberg declaration-fenced operations already published a commit");
         }
         checked(base);
-        checked(metadata);
+        if (exactBase == null) {
+            checked(metadata);
+        } else if (!exactBase.uuid().equals(metadata.uuid())) {
+            throw new IllegalStateException("Iceberg clustering publication changed table identity");
+        }
+        requireAuthority.run();
         // A concurrent ALTER after checked(base) makes the backend CAS fail.
         // The SDK may retry a fresh data-only base, but checked(refresh())
         // rejects a changed declaration before any subsequent commit attempt.
@@ -47,7 +64,15 @@ final class IcebergDeclarationTableOperations implements TableOperations {
         // Post-CAS refresh belongs to SDK cleanup, not admission. A subsequent
         // ALTER cannot undo an acknowledged publication; another commit through
         // these operations is forbidden even if the declaration is unchanged.
-        if (committed || matches(metadata)) return metadata;
+        if (committed) return metadata;
+        if (exactBase != null) {
+            if (metadata != null && exactBase.uuid().equals(metadata.uuid())
+                    && Objects.equals(exactBase.metadataFileLocation(), metadata.metadataFileLocation())) {
+                return metadata;
+            }
+            throw new IllegalStateException("Iceberg table metadata changed during clustering maintenance");
+        }
+        if (matches(metadata)) return metadata;
         throw new IllegalStateException("Iceberg write declaration changed since allocation: "
                 + handle.schemaName() + "." + handle.tableName());
     }

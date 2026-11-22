@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -50,8 +51,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final Path javaExecutable;
     private final LocalRuntimeArtifacts artifacts;
     private final org.pangrova.worker.function.NativeFunctionConfig functions;
+    private final boolean indexing;
     private final Inet4Address advertisedAddress;
     private final boolean speculation;
+    private final String cdcKafkaBootstrap;
     private final boolean localShuffle;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
@@ -95,6 +98,23 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
             boolean speculation, boolean localShuffle) throws Exception {
+        this(functions, speculation, localShuffle, null, false);
+    }
+
+    static IndependentLocalProcesses cdc(String kafkaBootstrap) throws Exception {
+        return new IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT,
+                false, false, java.util.Objects.requireNonNull(kafkaBootstrap), false);
+    }
+
+    static IndependentLocalProcesses indexed(org.pangrova.worker.function.NativeFunctionConfig functions)
+            throws Exception {
+        return new IndependentLocalProcesses(functions, false, false, null, true);
+    }
+
+    private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
+            boolean speculation, boolean localShuffle, String cdcKafkaBootstrap, boolean indexing) throws Exception {
+        this.cdcKafkaBootstrap = cdcKafkaBootstrap;
+        this.indexing = indexing;
         this.localShuffle = localShuffle;
         this.speculation = speculation;
         this.functions = java.util.Objects.requireNonNull(functions, "functions");
@@ -158,18 +178,88 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     void startCoordinatorAndFirstWorker() throws Exception {
         security.start();
+        reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
+        startQueryControlPlane();
+    }
+
+    void allowCatalog(String catalog) {
+        security.allowCatalog(catalog);
+    }
+
+    private void startQueryControlPlane() throws Exception {
+        launchQueryCoordinator();
+        startWorker("local-worker-1");
+        query("SELECT 42", ResultProtocol.GRPC_TLS);
+    }
+
+    private void launchQueryCoordinator() throws Exception {
         coordinator = launch("coordinator", artifacts.coordinatorClasspath(),
                 "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
-                coordinatorYaml(), "-Xms128m", "-Xmx512m",
+                coordinatorYaml(cdcKafkaBootstrap != null || indexing ? "COMBINED" : "QUERY"),
+                "-Xms128m", "-Xmx512m",
                 "-XX:MaxDirectMemorySize=128m",
+                "-Dpangrova.index.basePath=" + workspace.resolve("indexes"),
                 // CLI status polling and multi-file seeding exceed the public default of 100/min.
                 // Rate-limit behavior is covered by dedicated HTTP integration tests.
                 "-Dpangrova.http.max-requests-per-minute=100000",
                 "-Dpangrova.speculation.single-task-duration-threshold-ms=15000");
         awaitCoordinatorControlPlane();
-        reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
-        startWorker("local-worker-1");
-        query("SELECT 42", ResultProtocol.GRPC_TLS);
+    }
+
+    void switchToMaintenanceOnly() throws Exception {
+        stopWorkers();
+        stopCoordinator();
+        startMaintenanceOnly();
+    }
+
+    void restartQueryCoordinator() throws Exception {
+        stopWorkers();
+        stopCoordinator();
+        startQueryControlPlane();
+    }
+
+    @FunctionalInterface
+    interface WhileCoordinatorStopped {
+        void run() throws Exception;
+    }
+
+    void restartQueryCoordinatorAfterCrash(WhileCoordinatorStopped whileStopped) throws Exception {
+        requireAlive(coordinator);
+        coordinator.process().destroyForcibly();
+        if (!coordinator.process().waitFor(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException(
+                    "Coordinator did not exit after forced termination: " + coordinator.process().pid());
+        }
+        whileStopped.run();
+        launchQueryCoordinator();
+    }
+
+    private void stopWorkers() {
+        for (var worker : workers.values()) {
+            terminateGracefully(worker, Duration.ofSeconds(60));
+        }
+        workers.clear();
+        acceptedWorkers.clear();
+    }
+
+    void stopCoordinator() throws InterruptedException {
+        requireAlive(coordinator);
+        coordinator.process().destroy();
+        if (!coordinator.process().waitFor(60, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Coordinator did not stop after SIGTERM: " + tail(coordinator.log()));
+        }
+    }
+
+    void startMaintenanceOnly() throws Exception {
+        coordinator = launch("maintenance", artifacts.coordinatorClasspath(),
+                "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
+                coordinatorYaml("MAINTENANCE"), "-Xms128m", "-Xmx512m", "-XX:MaxDirectMemorySize=128m");
+        Awaitility.await("standalone maintenance CDC leader").atMost(STARTUP_TIMEOUT).until(() -> {
+            requireAlive(coordinator);
+            String log = Files.readString(coordinator.log());
+            return log.contains("event=cdc_local_journaled_runtime_started")
+                    && log.contains("event=maintenance_leader_elected");
+        });
     }
 
     void startSecondWorker() throws Exception {
@@ -247,8 +337,21 @@ final class IndependentLocalProcesses implements AutoCloseable {
         }
     }
 
+    void crashWorker(String id) throws InterruptedException {
+        var worker = Objects.requireNonNull(workers.get(id), "owned Worker process");
+        requireAlive(worker);
+        worker.process().destroyForcibly();
+        if (!worker.process().waitFor(30, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Worker did not exit after forced termination: " + id);
+        }
+    }
+
     long pid(String workerId) { return workers.get(workerId).process().pid(); }
     long coordinatorPid() { return coordinator.process().pid(); }
+
+    boolean coordinatorLogged(String marker) throws IOException {
+        return Files.readString(coordinator.log()).contains(marker);
+    }
 
     boolean hasAttributedQueryAudit(String queryId) throws java.sql.SQLException {
         try (var connection = security.dataSource().getConnection();
@@ -290,13 +393,23 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryStatusResponse status(String queryId) {
-        try (var client = PangrovaRestClient.builder()
+        try (var client = coordinatorClient()) {
+            return client.getQueryStatus(queryId);
+        }
+    }
+
+    String submit(String sql) {
+        try (var client = coordinatorClient()) {
+            return client.submitQuery(sql, Map.of()).queryId();
+        }
+    }
+
+    private PangrovaRestClient coordinatorClient() {
+        return PangrovaRestClient.builder()
                 .coordinatorHost("127.0.0.1").coordinatorPort(coordinatorPort)
                 .authentication(ClientAuthentication.basic(
                         ProcessSecurityAuthority.USER, ProcessSecurityAuthority.PASSWORD))
-                .build()) {
-            return client.getQueryStatus(queryId);
-        }
+                .build();
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {
@@ -523,13 +636,13 @@ final class IndependentLocalProcesses implements AutoCloseable {
         return owner;
     }
 
-    private String coordinatorYaml() {
+    private String coordinatorYaml(String role) {
         return """
                 coordinator:
                   id: local-process-coordinator
                   host: 127.0.0.1
                   port: %d
-                  role: QUERY
+                  role: %s
                   internal-auth-secret: "%s"
                   speculation:
                     enabled: %s
@@ -562,10 +675,13 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       user-dn-pattern: uid={0},dc=pangrova,dc=org
                 tenant:
                   enabled: true
-                """.formatted(coordinatorPort, internalSecret, speculation, advertisedAddress.getHostAddress(),
+                indexing:
+                  enabled: %s
+                """.formatted(coordinatorPort, role,
+                internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), localShuffle ? "LOCAL" : "NATIVE", advertisedAddress.getHostAddress(),
-                security.hostJdbcUrl(), security.hostLdapUrl());
+                security.hostJdbcUrl(), security.hostLdapUrl(), indexing);
     }
 
     private String workerYaml(String id, Path spill, Path shuffleSpill) throws IOException {
@@ -608,13 +724,20 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       spill-directory: "%s"
                   native:
                     cache:
-                      enabled: false
+                      enabled: %s
+                      memory-bytes: 67108864
+                      artifact-path: "%s"
+                      artifact-bytes: 268435456
+                      artifact-index-memory-bytes: 67108864
                   cdc:
-                    enabled: false
+                    enabled: %s
                 """.formatted(workspace.resolve("admission-" + id), id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
-                spill, localShuffle ? "LOCAL" : "NATIVE", shuffleSpill) + aiWorkerYaml();
+                spill, localShuffle ? "LOCAL" : "NATIVE", shuffleSpill, indexing,
+                workspace.resolve(id + "-artifact-cache"), cdcKafkaBootstrap != null)
+                + aiWorkerYaml() + (cdcKafkaBootstrap == null ? "" : "worker.cdc.kafka.bootstrap-servers: "
+                        + JsonMapperFactory.shared().writeValueAsString(cdcKafkaBootstrap) + "\n");
     }
 
     private String aiWorkerYaml() throws IOException {

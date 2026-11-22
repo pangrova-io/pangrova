@@ -118,7 +118,7 @@ final class ProcessStatusReportRelay implements AutoCloseable {
                 actual.transportPort(), actual.resultServerPort(), actual.protocolVersion(),
                 actual.rackId(), actual.dataLocality(), actual.shuffleMode(),
                 actual.capabilityInventory(), actual.copyTaskTlsPort(), actual.workerExecutionIdentity(),
-                actual.shuffleProvider());
+                actual.shuffleProvider(), actual.cdcIngestSupported());
         return JsonMapperFactory.shared().writeValueAsBytes(forwarded);
     }
 

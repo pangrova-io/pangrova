@@ -140,6 +140,20 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
+    public boolean supportsCdcMutations() {
+        return true;
+    }
+
+    @Override
+    public ConnectorOutputTableHandle beginCdcMerge(ConnectorSession session, ConnectorTableHandle table) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        Table target = writeTable(handle);
+        IcebergOutputTableHandle output = (IcebergOutputTableHandle) IcebergOutputHandles.forMerge(handle, target);
+        org.pangrova.connector.iceberg.write.IcebergCdcPageSink.requireSupported(target, output);
+        return output;
+    }
+
+    @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
         return IcebergOutputHandles.forOverwrite(handle, writeTable(handle));
@@ -162,6 +176,13 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         Table table = catalogTables.resolveTable(handle);
         IcebergDeclarationCommit.requireSupported(catalog, table);
         return table;
+    }
+
+    @Override
+    public Optional<org.pangrova.connector.api.clustering.ClusteringMaintenance> clusteringMaintenance(
+            ConnectorSession session, ConnectorTableHandle table) {
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        return Optional.of(new IcebergClusteringMaintenance(catalog, writeTable(handle), handle, notifier, session));
     }
 
     @Override

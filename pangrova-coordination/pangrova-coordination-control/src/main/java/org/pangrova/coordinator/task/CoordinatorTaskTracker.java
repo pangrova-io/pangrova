@@ -318,6 +318,16 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         }
     }
 
+    /** Proves that the exact attempt's logical state was retired with a real drain receipt. */
+    public boolean isRetiredDrainedAttempt(String queryId, String taskId, TaskAttemptDescriptor attempt) {
+        synchronized (drainRetirementLock) {
+            return findStateMachine(queryId, taskId) == null
+                    && taskIdentityStore.executionDrainReceipt(taskId)
+                            .filter(receipt -> receipt.getAttempt().getQueryOrJobId().equals(queryId)
+                                    && TaskAttemptDescriptor.from(receipt.getAttempt()).equals(attempt)).isPresent();
+        }
+    }
+
     /** Retires execution resources without awarding rejected durable publication a DAG win. */
     public void unregisterDrainedTask(org.pangrova.protocol.v2.TaskReport receipt) {
         synchronized (drainRetirementLock) {

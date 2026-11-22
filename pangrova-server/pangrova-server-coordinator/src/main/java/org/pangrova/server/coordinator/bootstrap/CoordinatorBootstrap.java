@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
+import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
 import org.pangrova.persistence.table.api.provider.TableStoreFactory;
 import org.pangrova.persistence.table.api.provider.TableStores;
 import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository;
@@ -68,7 +70,7 @@ public final class CoordinatorBootstrap {
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
-    private CdcWorkerRuntime cdcWorkerRuntime;
+    private JournaledCdcRuntime cdcRuntime;
     private QueryBootstrap query;
     private HttpBootstrap http;
     private HighAvailabilityBootstrap ha;
@@ -125,6 +127,9 @@ public final class CoordinatorBootstrap {
         startModules();
         if (config.role().isMaintenance()) {
             startStreamingBootstrap();
+            if (streamingBootstrap != null) {
+                streamingBootstrap.enableJournaledExecution();
+            }
             startBranchCleanup();
             moduleWiring.setStreamingBootstrap(streamingBootstrap);
             moduleWiring.setBranchTtlCleanupTask(branchTtlCleanupTask);
@@ -139,7 +144,6 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         query = buildQueryBootstrap();
         query.start();
-        startCdcWorkerRuntime();
         ha = buildHighAvailabilityBootstrap();
         ha.setClaimedExecutionRecovery(claimed ->
                 query.recoverWriteCommitIntents(claimed, ha.haService()));
@@ -150,6 +154,7 @@ public final class CoordinatorBootstrap {
         }
         query.wireHighAvailability(ha.haService());
         wireQueryOwnershipTracking();
+        startCdcWorkerRuntime();
         http = buildHttpBootstrap();
         http.start();
     }
@@ -158,21 +163,33 @@ public final class CoordinatorBootstrap {
         if (streamingBootstrap == null) {
             return;
         }
-        cdcWorkerRuntime = new CdcWorkerRuntime(
-                streamingBootstrap.stateStore(),
-                streamingBootstrap.offsetStore(),
-                streamingBootstrap.sourceRegistry(),
-                metadataBootstrap.catalogRegistry(),
+        var workers = new JournaledCdcRuntime.WorkerDispatch(ha.haService(),
                 query.queryDispatcher().taskDispatcher(),
                 query.queryDispatcher().workerSelector(),
-                query.taskTracker(),
-                query.taskStatusReceiver(),
+                query.taskTracker(), query.taskStatusReceiver());
+        cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, metadataBootstrap.catalogRegistry(),
                 query.writeCommitJournal(),
                 query.queryDispatcher().writeAuthorityResolver(),
-                config.coordinatorId());
-        streamingBootstrap.enableWorkerDispatch();
-        streamingBootstrap.attachWorkerRuntime(cdcWorkerRuntime);
+                executionAuthority, workers, null, maintenanceLeadership::verifiedActiveEpoch);
+        streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_worker_runtime_started");
+    }
+
+    private void startLocalCdcRuntime() {
+        var catalogs = metadataBootstrap.catalogRegistry();
+        var journal = WriteCommitComponentFactory.createJournal(metadataDataSource);
+        var quarantine = WriteCommitComponentFactory.createQuarantineStore(metadataDataSource);
+        var recovery = WriteCommitComponentFactory.createRecoveryService(journal, catalogs, quarantine);
+        var resolver = GeneratedValueMaterializationCoordinator.writeAuthoritySupplier(
+                catalogs, metadataDataSource, null, modelAuthority,
+                        new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                        AuthorizationTransactionGate::lockPublication,
+                        CoordinatorTableWriteAuthority.create());
+        cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, catalogs, journal, resolver,
+                executionAuthority, null, new LocalCdcBatchExecutor(journal, executionAuthority, recovery, quarantine),
+                maintenanceLeadership::verifiedActiveEpoch);
+        streamingBootstrap.attachJournaledRuntime(cdcRuntime);
+        LOG.info("event=cdc_local_journaled_runtime_started");
     }
 
     private QueryBootstrap buildQueryBootstrap() {
@@ -287,7 +304,7 @@ public final class CoordinatorBootstrap {
 
     private void closeOwnedResources() {
         CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
-                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, cdcWorkerRuntime,
+                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, cdcRuntime,
                 http, moduleWiring,
                 nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
                 metadataDataSource, security, observability, coordinationProvider));
@@ -520,6 +537,9 @@ public final class CoordinatorBootstrap {
         }
         maintenanceLeadership = new MaintenanceLeadershipBootstrap(
                 maintenanceLeaderElection, moduleWiring);
+        if (!config.role().isQuery() && streamingBootstrap != null) {
+            startLocalCdcRuntime();
+        }
         maintenanceLeadership.start();
     }
 

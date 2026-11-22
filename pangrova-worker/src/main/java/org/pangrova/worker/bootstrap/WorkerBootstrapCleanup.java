@@ -32,6 +32,7 @@ final class WorkerBootstrapCleanup {
         steps.attempt(() -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
         steps.attempt(this::closeTasks);
         steps.requireSuccess();
+        closePendingWorkerBackend();
         steps.attempt(this::closeHeartbeat);
         steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
         steps.requireSuccess();
@@ -70,6 +71,14 @@ final class WorkerBootstrapCleanup {
         if (refs.statusReporter() != null) {
             refs.statusReporter().close();
             refs.setStatusReporter(null);
+        }
+    }
+
+    private void closePendingWorkerBackend() {
+        var backend = refs.workerExecutedTaskBackend();
+        if (backend != null) {
+            backend.close();
+            refs.setWorkerExecutedTaskBackend(null);
         }
     }
 
