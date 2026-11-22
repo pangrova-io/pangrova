@@ -6,6 +6,7 @@ import org.pangrova.common.client.enums.CancelOutcome;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.enums.QueryWaitTarget;
+import org.pangrova.transport.client.FlightResultFetcher;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -14,6 +15,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.BitSet;
 import java.util.List;
@@ -97,8 +102,78 @@ class BackpressureE2ETest extends SqlE2ETestBase {
             assertThat(finalState).isEqualTo(cancelled == CancelOutcome.CANCEL_ACCEPTED ? "CANCELLED" : "FINISHED");
             LOG.info("event=flight_width_reader_closed queryId={} outcome={} finalState={}",
                     query.submission().queryId(), cancelled, finalState);
+            verifyAbruptFlightDisconnect(client, wide);
         } finally {
             sqlRunner.executeDdl("DROP TABLE IF EXISTS " + table);
+        }
+    }
+
+    private static void verifyAbruptFlightDisconnect(PangrovaRestClient client, String sql) throws Exception {
+        Path firstRow = Files.createTempFile("pangrova-flight-first-row-", ".signal");
+        Path java = Path.of(System.getProperty("java.home"), "bin", "java");
+        String childClasspath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Process child = null;
+        try {
+            child = new ProcessBuilder(java.toString(), "-Xmx256m", "-Dio.netty.maxDirectMemory=0",
+                    "--add-opens=java.base/java.nio=ALL-UNNAMED", "-cp", childClasspath,
+                    InterruptedFlightClient.class.getName(), firstRow.toString())
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+            long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+            var query = client.beginQuery(sql, Map.of());
+            var route = endpoint(query, deadline);
+            try (var command = new DataOutputStream(child.getOutputStream())) {
+                command.writeUTF(route.host());
+                command.writeInt(route.port());
+                command.writeUTF(route.ticket());
+                command.writeUTF(route.protocol());
+                command.writeLong(deadline);
+            }
+            Process reader = child;
+            org.awaitility.Awaitility.await("independent client received its first Flight row")
+                    .pollInterval(Duration.ofMillis(25)).atMost(Duration.ofSeconds(20))
+                    .until(() -> {
+                        assertThat(reader.isAlive()).isTrue();
+                        return Files.size(firstRow) > 0;
+                    });
+
+            String queryId = query.submission().queryId();
+            assertThat(queryManager.getStateMachine(queryId).physicalCleanupApplied()).isFalse();
+            long disconnectedAt = System.nanoTime();
+            child.destroyForcibly();
+            assertThat(child.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            long drainDeadline = System.currentTimeMillis() + Duration.ofSeconds(15).toMillis();
+            var status = query.awaitStatus(QueryWaitTarget.DRAINED, drainDeadline);
+            while (!Boolean.TRUE.equals(status.drained())) {
+                status = query.awaitStatus(QueryWaitTarget.DRAINED, drainDeadline);
+            }
+            assertThat(status.state()).isEqualTo("FAILED");
+            assertThat(status.error()).isNotNull();
+            assertThat(status.error().message()).contains("closed before committed EOF");
+            taskTracker.requireQueryExecutionDrained(queryId);
+            assertThat(queryManager.getStateMachine(queryId).physicalCleanupApplied()).isTrue();
+            LOG.info("event=flight_client_process_exit queryId={} terminalState={} drainMs={}",
+                    queryId, status.state(), millis(System.nanoTime() - disconnectedAt));
+        } finally {
+            if (child != null && child.isAlive()) {
+                child.destroyForcibly();
+                assertThat(child.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            }
+            Files.deleteIfExists(firstRow);
+        }
+    }
+
+    /** The parent kills this process after the first row, leaving the server to observe the socket closing. */
+    public static final class InterruptedFlightClient {
+        public static void main(String[] args) throws Exception {
+            var command = new DataInputStream(System.in);
+            var route = new ResultEndpoint(command.readUTF(), command.readInt(), command.readUTF(), command.readUTF());
+            long deadline = command.readLong();
+            try (var fetcher = new FlightResultFetcher(); var cursor = fetcher.open(route, deadline)) {
+                if (!cursor.next()) throw new IllegalStateException("Flight returned no first row");
+                Files.writeString(Path.of(args[0]), "read");
+                new java.util.concurrent.CountDownLatch(1).await();
+            }
         }
     }
 

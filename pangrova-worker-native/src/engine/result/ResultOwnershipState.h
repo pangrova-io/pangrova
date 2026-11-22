@@ -20,7 +20,8 @@ class ResultOwnershipState {
     bool drained() const;
   };
   void stopProducer();
-  void revokeAuthority();
+  // Returns true for the caller that first revokes this authority.
+  bool revokeAuthority();
   void revokeAndClearQueue();
   arrow::Status attachPendingRead(const std::shared_ptr<ResultPendingRead>& pending);
   void detachPendingRead(const std::shared_ptr<ResultPendingRead>& pending);

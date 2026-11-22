@@ -574,21 +574,18 @@ through cancellation. Publish released terminal state only after actual
 transport and Native owners exit. Retain successful per-owner cleanup
 checkpoints when a later join fails; sealed Native operation admission must
 not be reopened or bypassed to retry already-completed control commands.
-For a direct-result task, start acknowledgement is a preparation boundary,
-not merely background-work submission. Its task-local preparation must exit
-before the endpoint is advertised; successful preparation binds the actual
-authority, canonical schema and allocator. Keep this wait outside the start
-gate and bounded by the admitted deadline so cancellation remains possible.
-The checkpoint does not claim successful execution, a first batch, EOF or
-drain. Failed/cancelled preparation retains its actual terminal evidence.
-Result decoding and wire-schema failures must fail the actual Native producer
-before deleting its output queue. Queue cleanup otherwise releases the SDK's
-output-consumption wait and can turn a failed read into successful completion.
-The task adapter supplies a weakly owned failure port; result readers do not
-import executor or JNI ownership. Closing a reader before committed EOF also
-reports failure before cleanup. Explicit authority revocation and cancellation
-remain with their admitted lifecycle owner, and cannot overwrite a won terminal
-state. A transport error is not successful EOF or evidence of complete results.
+A direct-result task can advertise its signed endpoint after Native start is
+submitted. Flight verifies the admitted grant against the registered schema,
+allocator and live output buffer. An early DoGet has a bounded readiness wait.
+
+If a reader fails or the transport destroys it before committed EOF, it
+claims result revocation and reports the failure before deleting the output
+queue. The task adapter records the canonical error and stops the exact
+Velox task. This ordering releases producers blocked by output backpressure
+and preserves the failure when cleanup unblocks the SDK. If the task owner
+already revoked authority, it retains its cancellation or failure outcome.
+Physical release still waits for the task, reader, transport buffers and
+output queue to exit.
 
 Control acknowledgement buffers own their expiration tasks. After accepted query
 and publication owners drain, seal acknowledgement admission and cancel only the

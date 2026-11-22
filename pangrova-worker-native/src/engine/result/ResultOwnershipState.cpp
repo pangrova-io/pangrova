@@ -19,14 +19,16 @@ void ResultOwnershipState::stopProducer() {
   }
   if (notify) notify();
 }
-void ResultOwnershipState::revokeAuthority() {
+bool ResultOwnershipState::revokeAuthority() {
   std::shared_ptr<ResultPendingRead> pending;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (evidence_.authority_revoked) return false;
     evidence_.authority_revoked = true;
     pending = pending_read_.lock();
   }
   if (pending) pending->cancel(arrow::Status::Cancelled("Result authority was revoked"));
+  return true;
 }
 void ResultOwnershipState::revokeAndClearQueue() {
   revokeAuthority();

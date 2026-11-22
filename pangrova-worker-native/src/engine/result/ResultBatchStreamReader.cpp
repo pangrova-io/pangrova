@@ -91,6 +91,9 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
         context_(context) {}
 
   ~ResultBatchReader() override {
+    if (!finished_ && failure_.ok()) {
+      reportFailure(arrow::Status::IOError("Result reader closed before committed EOF"));
+    }
     info_.ownership->revokeAuthority();
     try {
       info_.buffers->deleteResults(taskId(), 0);
@@ -130,8 +133,19 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
  private:
   arrow::Status fail(const arrow::Status& status) {
     failure_ = status;
-    if (info_.report_stream_failure) info_.report_stream_failure(status.ToString());
+    reportFailure(status);
     return failure_;
+  }
+
+  void reportFailure(const arrow::Status& status) {
+    // A control-plane cancellation or producer failure may already own revocation.
+    if (!info_.ownership->revokeAuthority() || !info_.report_stream_failure) return;
+    try {
+      info_.report_stream_failure(status.ToString());
+    } catch (const std::exception& error) {
+      PANGROVA_LOG(ERROR) << "event=result_reader_failure_report_failed task_id=" << taskId()
+                         << " error=" << error.what();
+    }
   }
 
   const std::string& taskId() const { return grant_.attempt().task_id(); }

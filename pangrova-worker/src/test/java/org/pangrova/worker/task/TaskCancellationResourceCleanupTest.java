@@ -32,9 +32,14 @@ class TaskCancellationResourceCleanupTest {
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
+            var released = TaskReport.parseFrom(info.executorReleaseReport());
+            assertThat(released.getExecutionDrainState())
+                    .isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+            assertThat(released.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
-            assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
-            assertThat(report.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
+            assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+            assertThat(report.getAttempt()).isEqualTo(released.getAttempt())
+                    .isEqualTo(info.request().taskRequest().getAttempt());
         }
     }
 

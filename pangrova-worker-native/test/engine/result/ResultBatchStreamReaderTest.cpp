@@ -333,9 +333,37 @@ TEST_F(ResultBatchStreamReaderTest, LateBatchRequiredNullRejectsTheEntireCanonic
   EXPECT_FALSE(parsed.ok());
 }
 
+TEST_F(ResultBatchStreamReaderTest, EarlyReaderDestructionReportsFailureBeforeDeletingSdkOutput) {
+  prepareInjectedPages();
+  auto info = registration();
+  stage({batch(info.wire_schema, 42)});
+  int reports = 0;
+  info.report_stream_failure = [&](const std::string& failure) {
+    ++reports;
+    EXPECT_NE(failure.find("before committed EOF"), std::string::npos);
+    const auto stats = buffers_->stats(task_id_);
+    ASSERT_TRUE(stats.has_value());
+    EXPECT_EQ(stats->bufferedPages, 1);
+  };
+  FlightResultServer::registerTaskOutputType(task_id_, info);
+  open(info.authority);
+  ASSERT_NE(reader_, nullptr);
+  reader_.reset();
+
+  EXPECT_EQ(reports, 1);
+  const auto ownership = info.ownership->evidence();
+  EXPECT_TRUE(ownership.authority_revoked);
+  EXPECT_TRUE(ownership.queue_cleared);
+  EXPECT_EQ(ownership.active_readers, 0u);
+  EXPECT_FALSE(ownership.drained());
+}
+
 TEST_F(ResultBatchStreamReaderTest, RevokedLiveRegistrationCannotPublishOrAcknowledgeQueuedRows) {
   prepareInjectedPages();
   auto info = registration();
+  info.report_stream_failure = [](const std::string& failure) {
+    ADD_FAILURE() << "Revoked result reported a new stream-originated failure: " << failure;
+  };
   stage({batch(info.wire_schema, 42)});
   buffers_->noMoreData(task_id_);
   FlightResultServer::registerTaskOutputType(task_id_, info);

@@ -761,8 +761,13 @@ void VeloxTaskRunner::start() {
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
-        info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter](const std::string& failure) {
+        const std::weak_ptr<facebook::velox::exec::Task> producer = velox_task_;
+        info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter,
+                                      producer](const std::string& failure) {
           reporter->reportResultStreamFailure(handle, failure);
+          // A reader may exit while the producer is blocked on its output buffer.
+          // Publish the canonical failure before stopping the actual SDK task.
+          if (const auto task = producer.lock()) task->setError(failure);
         };
       }
       if (!info.authority.ParseFromString(config_.callback_context)) {
