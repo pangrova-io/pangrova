@@ -49,7 +49,7 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
             throw new AuthorizationDeniedException(
                     "Deferred work has invalid scope metadata; securely resubmit the job");
         }
-        requireCurrent(connection, spec);
+        requireScope(connection, spec);
         return spec;
     }
 
@@ -57,6 +57,10 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
     @Override
     public void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException {
         publicationLock.lockPublication(connection);
+        requireScope(connection, spec);
+    }
+
+    private void requireScope(Connection connection, GenerationDispatchSpec spec) throws SQLException {
         tenantAuthority.requireCurrent(connection, spec.principal(), spec.tenantId(), spec.authorizationScope());
         tableAuthority.requireCurrent(
                 connection, spec.principal(), spec.authorizationScope());

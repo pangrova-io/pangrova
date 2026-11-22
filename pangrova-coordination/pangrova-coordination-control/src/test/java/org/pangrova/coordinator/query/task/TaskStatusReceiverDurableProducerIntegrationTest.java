@@ -233,6 +233,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         long beforePage = statementReads(pageLookup);
         long beforeExchange = exchangeReads().combined();
         long beforeAuthority = executionRouteReads();
+        String publicationLock = "SELECT pg_advisory_xact_lock_shared(%";
+        long beforePublication = statementReads(publicationLock);
         var progress = new java.util.ArrayList<GenerationStageExecutionStore.PartitionProgress>();
         int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
         for (int first = 0; first < partitions; first += window) {
@@ -247,6 +249,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(statementReads(pageLookup) - beforePage).as("exact page reads").isEqualTo(3);
         assertThat(exchangeReads().combined() - beforeExchange).as("barrier evidence reads").isEqualTo(3);
         assertThat(executionRouteReads() - beforeAuthority).as("execution route reads").isEqualTo(3);
+        assertThat(statementReads(publicationLock) - beforePublication)
+                .as("publication lock requests across three windows").isEqualTo(6);
         assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, 0, window + 1))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("inspection window");
         assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, partitions - 1, 2))

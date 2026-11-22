@@ -798,6 +798,7 @@ The Coordinator routes durable Shuffle producer reports by the exact task kind i
 Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
 Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
+Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
 
 #### 3.3.8 Coordinator Scheduler Design
 

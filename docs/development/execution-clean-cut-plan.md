@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 113 让按租户和任务加载持久执行规格与随后的权限判断共用已获取的事务级发布锁。直接接收规格的调用仍在入口取得锁，权限、最新租户与模型校验继续执行。真实 PostgreSQL 的三窗口分区检查中，授权发布锁 SQL 从 9 次降到 6 次。33 项 Java 和 Checkstyle 通过，覆盖撤权、取消、终态上报和真实 SQL 编译的受保护 DAG。 [PostgreSQL 事务级 advisory locks](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS)
+
 实施批次 112 将持久 Stage 的分区检查改为最多 8 个连续分区一笔事务。真实 PostgreSQL 的 20 分区对照中，页索引 SELECT、已持锁的交换屏障 SELECT 和执行路由 SELECT 各由 20 次降到 3 次。这三类语句合计从 60 条降到 9 条。按索引顺序验证整个窗口的精确页坐标和 winner，缺失分区拒绝派发。真正申领仍验证当前 owner、权限和页状态。101 项 Java、Checkstyle 和缺页回归通过，覆盖实际 SQL 生成的持久图和原始 Native winner 重放。
 
 实施批次 111 将状态等待的四个事件统一归属到共享值类型。修复查询生命周期依赖客户端 DTO 包的架构检查。HTTP 参数、版本比较、排队和物理 release 合同沿用现有行为。37 项 Java、Checkstyle 和 114 项 TPC 工具自测通过，另用 Corretto 17 编译了实际 TPC Java 适配器。
