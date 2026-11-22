@@ -29,6 +29,8 @@ import java.util.function.BooleanSupplier;
  */
 @Experimental
 public final class CdcRangeIngestor {
+    private static final long MAX_ORDERED_BATCH_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_ORDERED_BATCH_RECORDS = 10_000;
 
     private final CdcRangeIngestSpec spec;
     private final CdcSourceReader reader;
@@ -52,6 +54,18 @@ public final class CdcRangeIngestor {
 
     /** Reads through every admitted interval and stages the decoded batches without publishing. */
     public CdcRangeIngestResult ingest() {
+        return ingest(writer.requiresSingleRange());
+    }
+
+    /** Stages the full ordered range together if required by the resolved connector. */
+    public CdcRangeIngestResult ingest(boolean orderedRange) {
+        if (orderedRange && (spec.ranges().size() != 1
+                || spec.ranges().get(0).endOffset() - spec.ranges().get(0).startOffset()
+                        > MAX_ORDERED_BATCH_RECORDS)) {
+            throw new IllegalArgumentException("CDC ordered staging requires one range of at most 10000 offsets");
+        }
+        List<CdcEnvelope> ordered = new ArrayList<>();
+        long bytes = 0;
         Map<TopicPartitionOffset, List<Cursor>> cursors = new HashMap<>();
         Map<TopicPartitionOffset, Long> starts = new HashMap<>();
         int cursorCount = 0;
@@ -121,6 +135,12 @@ public final class CdcRangeIngestor {
                         throw new IllegalStateException(
                                 "CDC record has no payload at " + cursor.key + "@" + record.offset());
                     }
+                    if (orderedRange) {
+                        bytes += record.value().length;
+                        if (bytes > MAX_ORDERED_BATCH_BYTES) {
+                            throw new IllegalArgumentException("CDC ordered range exceeds its payload limit");
+                        }
+                    }
                     CdcEnvelope envelope = Objects.requireNonNull(
                             converter.deserialize(record.value()),
                             "CDC converter returned a null envelope");
@@ -137,17 +157,29 @@ public final class CdcRangeIngestor {
             }
             if (!envelopes.isEmpty()) {
                 requireNotCancelled();
-                List<byte[]> actual = writer.writeBatch(List.copyOf(envelopes));
-                if (actual == null || actual.stream().anyMatch(Objects::isNull)) {
-                    throw new IllegalStateException("CDC batch writer returned a null commit fragment");
+                if (orderedRange) {
+                    ordered.addAll(envelopes);
+                } else {
+                    stage(envelopes, fragments);
                 }
-                actual.forEach(fragment -> fragments.add(fragment.clone()));
             }
             if (progressed) {
                 lastProgress = System.nanoTime();
             }
         }
+        if (orderedRange) {
+            requireNotCancelled();
+            stage(ordered, fragments);
+        }
         return new CdcRangeIngestResult(consumed, decoded, fragments);
+    }
+
+    private void stage(List<CdcEnvelope> envelopes, List<byte[]> fragments) {
+        List<byte[]> actual = writer.writeBatch(List.copyOf(envelopes));
+        if (actual == null || actual.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalStateException("CDC batch writer returned a null commit fragment");
+        }
+        actual.forEach(fragment -> fragments.add(fragment.clone()));
     }
 
     private boolean completeExhaustedRanges(

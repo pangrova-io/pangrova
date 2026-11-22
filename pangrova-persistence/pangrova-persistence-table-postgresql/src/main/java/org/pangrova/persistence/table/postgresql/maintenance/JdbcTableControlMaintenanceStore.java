@@ -69,6 +69,13 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
                     + "FROM table_control_maintenance_run WHERE table_id=? "
                     + "ORDER BY started_at DESC LIMIT ?";
 
+    private static final String LATEST_OPERATION_RUN = """
+            SELECT run_id, table_id, operation, mode, state, version_before, version_after,
+                   details, actor, started_at, finished_at
+            FROM table_control_maintenance_run WHERE table_id=? AND operation=?
+            ORDER BY started_at DESC, run_id DESC LIMIT 1
+            """;
+
     private final DataSource dataSource;
 
     public JdbcTableControlMaintenanceStore(DataSource dataSource) {
@@ -128,6 +135,20 @@ public final class JdbcTableControlMaintenanceStore implements TableControlMaint
         } catch (SQLException e) {
             throw new TableControlException(
                     "Failed to save maintenance run " + run.runId(), e);
+        }
+    }
+
+    @Override
+    public Optional<TableMaintenanceRun> findLatestRun(UUID tableId, MaintenanceOperation operation) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(LATEST_OPERATION_RUN)) {
+            ps.setObject(1, tableId);
+            ps.setString(2, operation.name());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Optional.of(mapRun(rs)) : Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new TableControlException("Failed to load latest maintenance run for tableId=" + tableId, e);
         }
     }
 

@@ -1,6 +1,8 @@
-package org.pangrova.streaming.worker;
+package org.pangrova.streaming.cdc;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
@@ -19,27 +21,36 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BoundCdcPageSinkWriterTest {
 
     @Test
-    void usesTheExactBoundOutputHandleForDeleteAndInsertPhases() {
+    void appendsThroughTheExactOutputHandleWhenTheConnectorHasNoCdcSink() {
         FakeProvider provider = new FakeProvider();
-        BoundCdcPageSinkWriter writer = new BoundCdcPageSinkWriter(
-                provider, new Session(), provider.handle);
+        BoundCdcPageSinkWriter writer = new BoundCdcPageSinkWriter(provider, new Session(), provider.handle);
 
-        List<byte[]> fragments = writer.writeBatch(List.of(
-                envelope(CdcOperation.INSERT, null, row(1)),
-                envelope(CdcOperation.DELETE, row(2), null),
-                envelope(CdcOperation.UPDATE, row(3), row(4))));
+        List<byte[]> fragments = writer.writeBatch(List.of(envelope(CdcOperation.INSERT, null, row(1)),
+                envelope(CdcOperation.INSERT, null, row(2))));
 
-        assertThat(provider.deleteHandles).containsExactly(provider.handle);
         assertThat(provider.insertHandles).containsExactly(provider.handle);
-        assertThat(fragments).containsExactly(new byte[]{1}, new byte[]{2});
-        assertThat(provider.deleteSink.pages).hasSize(1);
-        assertThat(provider.deleteSink.pages.get(0).getPositionCount()).isEqualTo(2);
-        assertThat(provider.insertSink.pages).hasSize(1);
-        assertThat(provider.insertSink.pages.get(0).getPositionCount()).isEqualTo(2);
+        assertThat(fragments).containsExactly(new byte[]{2});
+        assertThat(provider.insertSink.pages).singleElement().satisfies(page ->
+                assertThat(page.getPositionCount()).isEqualTo(2));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CdcOperation.class, names = {"UPDATE", "DELETE"})
+    void rejectsMutationsBeforeAnOverwriteOrPartialAppendCanBeStaged(CdcOperation operation) {
+        FakeProvider provider = new FakeProvider();
+        BoundCdcPageSinkWriter writer = new BoundCdcPageSinkWriter(provider, new Session(), provider.handle);
+        CdcRow after = operation == CdcOperation.UPDATE ? row(3) : null;
+
+        assertThatThrownBy(() -> writer.writeBatch(List.of(envelope(CdcOperation.INSERT, null, row(1)),
+                envelope(operation, row(2), after))))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("atomic CDC UPDATE/DELETE");
+        assertThat(provider.insertHandles).isEmpty();
     }
 
     private static CdcEnvelope envelope(CdcOperation operation, CdcRow before, CdcRow after) {
@@ -52,9 +63,7 @@ class BoundCdcPageSinkWriterTest {
 
     private static final class FakeProvider implements ConnectorPageSinkProvider {
         private final FakeHandle handle = new FakeHandle();
-        private final FakeSink deleteSink = new FakeSink((byte) 1);
         private final FakeSink insertSink = new FakeSink((byte) 2);
-        private final List<ConnectorOutputTableHandle> deleteHandles = new ArrayList<>();
         private final List<ConnectorOutputTableHandle> insertHandles = new ArrayList<>();
 
         @Override
@@ -71,8 +80,7 @@ class BoundCdcPageSinkWriterTest {
                 ConnectorTransactionHandle transaction,
                 ConnectorSession session,
                 ConnectorOutputTableHandle outputTableHandle) {
-            deleteHandles.add(outputTableHandle);
-            return deleteSink;
+            throw new AssertionError("CDC UPDATE/DELETE cannot use the relational delete sink");
         }
     }
 

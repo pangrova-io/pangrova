@@ -32,7 +32,7 @@ class CdcTaskPlannerTest {
     void plansTasksFromCommittedOffsetsAndCurrentLogEnds() {
         CdcTaskPlanner.CdcTaskPlan plan = CdcTaskPlanner.plan(
                 stream(), new Reader(), plan(), Map.of(new TopicPartitionOffset("orders", 0), 4L),
-                100L, 2, attempt(), security(), grant(), 4_102_444_800_000L,
+                100L, 100L, 2, attempt(), security(), grant(), 4_102_444_800_000L,
                 "00000000-0000-0000-0000-000000000001", 42L);
 
         assertThat(plan.tasks()).hasSize(1);
@@ -44,6 +44,23 @@ class CdcTaskPlannerTest {
         assertThat(plan.endOffsets()).containsEntry(
                 new TopicPartitionOffset("orders", 0), 10L)
                 .containsEntry(new TopicPartitionOffset("orders", 1), 12L);
+    }
+
+    @Test
+    void acknowledgesOnlyOffsetsInTheBoundedBatch() {
+        var first = new TopicPartitionOffset("orders", 0);
+        var second = new TopicPartitionOffset("orders", 1);
+        var plan = CdcTaskPlanner.plan(
+                stream(), new Reader(), plan(), Map.of(first, 4L, second, 12L),
+                3L, 3L, 2, attempt(), security(), grant(), 4_102_444_800_000L,
+                "00000000-0000-0000-0000-000000000001", 42L);
+
+        assertThat(plan.endOffsets()).containsExactlyEntriesOf(Map.of(first, 7L));
+        assertThat(plan.tasks()).singleElement().satisfies(task ->
+                assertThat(task.getCdcIngest().getRangesList()).singleElement().satisfies(range -> {
+                    assertThat(range.getStartOffset()).isEqualTo(4L);
+                    assertThat(range.getEndOffset()).isEqualTo(7L);
+                }));
     }
 
     private static final class Reader implements CdcSourceReader {

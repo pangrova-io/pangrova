@@ -1,9 +1,13 @@
 package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.connector.iceberg.HadoopTestGuard;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -14,6 +18,7 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetReaders;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.OutputFile;
@@ -31,6 +36,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration tests for {@link IcebergCompactionExecutor}.
@@ -58,6 +64,40 @@ class IcebergCompactionExecutorTest {
         HadoopTestGuard.assumeHadoopCompatible();
         catalog = buildHadoopCatalog();
         createNamespace();
+    }
+
+    @Test
+    void reclusterSortsAcrossFilesAndRecordsOnePublication() {
+        Table table = createTable("recluster_linear", "2");
+        writeDataFile(table, 3);
+        writeDataFile(table, 3);
+        table.replaceSortOrder().asc("id", NullOrder.NULLS_LAST).commit();
+        table.refresh();
+        var prior = table.currentSnapshot().snapshotId();
+        UUID runId = UUID.randomUUID();
+
+        UUID attempt = UUID.randomUUID();
+        var staged = IcebergCompactionExecutor.stageRecluster(table, table.sortOrder(), attempt,
+                rows -> IcebergCompactionExecutor.sortBySortOrder(rows, table.sortOrder(), table.schema()), () -> {});
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(prior);
+        assertThatThrownBy(() -> IcebergCompactionExecutor.publishRecluster(
+                table, table.sortOrder(), runId, "test-order", UUID.randomUUID(), staged))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(IcebergCompactionExecutor.publishRecluster(
+                table, table.sortOrder(), runId, "test-order", attempt, staged)).isTrue();
+
+        table.refresh();
+        assertThat(table.currentSnapshot().parentId()).isEqualTo(prior);
+        assertThat(table.currentSnapshot().summary().get(IcebergCompactionExecutor.RECLUSTER_RUN))
+                .isEqualTo(runId.toString());
+        assertThat(readAllRows(table)).extracting(row -> row.getField("id")).containsExactly(0L, 0L, 1L, 1L, 2L, 2L);
+        try (var files = table.newScan().planFiles()) {
+            assertThat(files).singleElement().satisfies(task ->
+                    assertThat(task.file().sortOrderId()).isEqualTo(table.sortOrder().orderId()));
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
     }
 
     @Test
@@ -133,6 +173,46 @@ class IcebergCompactionExecutorTest {
                 .sorted()
                 .toList();
         assertThat(ids).containsExactly(0L, 1L, 3L, 5L, 7L, 8L, 9L);
+    }
+
+    @Test
+    void positionDeleteRemainsAttachedWhenADataPredicateIsPushedDown() throws IOException {
+        Table table = createTable("pos_delete_predicate", "2");
+        writeDataFile(table, 3);
+        DeleteFile deleteFile = IcebergDeleteWriter.buildPositionDeleteFile(
+                table, findDataFilePath(table), List.of(1L));
+        commitDeletes(table, List.of(deleteFile));
+        table.refresh();
+
+        try (var tasks = table.newScan().filter(org.apache.iceberg.expressions.Expressions.equal("id", 1L))
+                .planFiles()) {
+            assertThat(tasks).singleElement().satisfies(task -> assertThat(task.deletes())
+                    .extracting(file -> file.path().toString()).containsExactly(deleteFile.path().toString()));
+        }
+    }
+
+    @Test
+    void rejectsConcurrentDeleteCommittedAfterRewritePlanning() {
+        Table table = createTable("compaction_racing_delete", "2");
+        writeDataFile(table, 10);
+        String originalFile = findDataFilePath(table);
+        commitDeletes(table, List.of(
+                IcebergDeleteWriter.buildPositionDeleteFile(table, originalFile, List.of(1L))));
+        var operations = ((HasTableOperations) table).operations();
+        Table compactionTable = new BaseTable(operations, table.name()) {
+            @Override
+            public RewriteFiles newRewrite() {
+                commitDeletes(table, List.of(
+                        IcebergDeleteWriter.buildPositionDeleteFile(table, originalFile, List.of(3L))));
+                refresh();
+                return super.newRewrite();
+            }
+        };
+
+        assertThatThrownBy(() -> IcebergCompactionExecutor.compact(compactionTable))
+                .isInstanceOf(ValidationException.class);
+        assertThat(findAllDataFilePaths(table)).containsExactly(originalFile);
+        assertThat(countDeleteFiles(table)).isEqualTo(2);
     }
 
     @Test
