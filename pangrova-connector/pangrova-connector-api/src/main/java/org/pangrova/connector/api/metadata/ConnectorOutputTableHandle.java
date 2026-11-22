@@ -35,6 +35,11 @@ public interface ConnectorOutputTableHandle {
         return "UNKNOWN";
     }
 
+    /** Whether CDC row changes must be applied together in one ordered source range. */
+    default boolean requiresSingleCdcRange() {
+        return false;
+    }
+
     /**
      * Snapshot captured when this write began, if the connector uses snapshot isolation.
      * Recovery must use this value rather than reconstructing from the live table snapshot.

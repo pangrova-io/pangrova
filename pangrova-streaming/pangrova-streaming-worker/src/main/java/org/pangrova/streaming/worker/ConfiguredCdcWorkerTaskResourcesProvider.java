@@ -6,6 +6,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;
 import org.pangrova.streaming.api.source.CdcSourceReader;
 import org.pangrova.streaming.cdc.CdcRangeBatchWriter;
+import org.pangrova.streaming.cdc.BoundCdcPageSinkWriter;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
 import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.worker.catalog.CatalogResourceResolver;

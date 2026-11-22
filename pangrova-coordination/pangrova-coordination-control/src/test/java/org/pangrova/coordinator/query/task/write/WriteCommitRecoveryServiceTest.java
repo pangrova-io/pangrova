@@ -88,6 +88,32 @@ class WriteCommitRecoveryServiceTest {
     }
 
     @Test
+    void deferredWriteRemainsRecoverableAndOtherIntentCompletes() {
+        var journal = new InMemoryWriteCommitJournal();
+        var deferred = pending("waiting-for-worker");
+        journal.recordIntent(deferred);
+        journal.recordIntent(pending("ready"));
+        var quarantine = new InMemoryWriteCommitQuarantineStore();
+        var service = new WriteCommitRecoveryService(journal, entry -> entry.queryId().equals(deferred.queryId())
+                ? WriteRecoveryOutcome.DEFERRED : WriteRecoveryOutcome.COMMITTED, quarantine);
+
+        var report = service.recover(Map.of(deferred.queryId(), 2L, "ready", 2L), (id, token) -> token == 2L);
+
+        assertThat(report.deferredExecutionIds()).containsExactly(deferred.queryId());
+        assertThat(report.quarantined()).isZero();
+        assertThat(journal.getEntry(deferred.queryId())).contains(deferred);
+        assertThat(quarantine.find(deferred.queryId())).isEmpty();
+        assertThat(journal.isCommitted("ready")).isTrue();
+
+        var resumed = new WriteCommitRecoveryService(journal, entry -> {
+            assertThat(entry.commitFingerprint()).isEqualTo(deferred.commitFingerprint());
+            return WriteRecoveryOutcome.COMMITTED;
+        }, quarantine);
+        assertThat(resumed.recover(Map.of(deferred.queryId(), 3L), (id, token) -> token == 3L).committed())
+                .isEqualTo(1);
+    }
+
+    @Test
     void quarantinedOutcomeRetainsEntryForManualReconciliation() {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));

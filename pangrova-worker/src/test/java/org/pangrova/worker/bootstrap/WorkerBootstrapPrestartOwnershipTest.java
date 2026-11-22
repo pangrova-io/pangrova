@@ -1,9 +1,14 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.execution.WorkerExecutedTaskBackend;
 
 import java.io.IOException;
 import java.nio.channels.Pipe;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -81,6 +86,88 @@ class WorkerBootstrapPrestartOwnershipTest {
             close.get(5, TimeUnit.SECONDS);
             assertThat(owned.isOpen()).isFalse();
             assertShutdownCompleted(bootstrap);
+        }
+    }
+
+    @Test
+    void shutdownBeforeStartClosesThePendingWorkerBackendExactlyOnce() throws Exception {
+        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("pending-backend"), event -> {});
+        var closes = new AtomicInteger();
+        bootstrap.setWorkerExecutedTaskBackend(new CloseOnlyBackend(closes::incrementAndGet));
+
+        bootstrap.shutdown();
+        assertShutdownCompleted(bootstrap);
+        bootstrap.shutdown();
+
+        assertThat(closes).hasValue(1);
+        assertThatThrownBy(bootstrap::start).hasMessageContaining("STOPPED");
+    }
+
+    @Test
+    void failedPendingBackendCloseRetainsOwnershipForShutdownRetry() throws Exception {
+        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("pending-backend-retry"), event -> {});
+        var failing = new AtomicBoolean(true);
+        var closes = new AtomicInteger();
+        bootstrap.setWorkerExecutedTaskBackend(new CloseOnlyBackend(() -> {
+            closes.incrementAndGet();
+            if (failing.get()) {
+                throw new IllegalStateException("backend has not drained");
+            }
+        }));
+
+        assertThatThrownBy(bootstrap::shutdown).hasMessageContaining("backend has not drained");
+        assertThatThrownBy(bootstrap::start).hasMessageContaining("CLEANUP_PENDING");
+        failing.set(false);
+        bootstrap.shutdown();
+
+        assertShutdownCompleted(bootstrap);
+        assertThat(closes).hasValue(2);
+    }
+
+    record CloseOnlyBackend(Runnable onClose) implements WorkerExecutedTaskBackend {
+        @Override
+        public boolean supports(TaskKind kind) {
+            return kind == TaskKind.TASK_KIND_CDC_INGEST;
+        }
+
+        @Override
+        public long create(TaskRequest request) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public void start(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public boolean isFinished(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public byte[] getTaskStatus(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public void cancel(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public List<byte[]> getCommitFragments(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public Optional<byte[]> release(long handle) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
+        public void close() {
+            onClose.run();
         }
     }
 

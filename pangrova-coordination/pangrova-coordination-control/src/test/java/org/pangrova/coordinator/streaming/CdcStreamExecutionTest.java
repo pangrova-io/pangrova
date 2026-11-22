@@ -51,7 +51,7 @@ class CdcStreamExecutionTest {
         var publisher = new java.util.ArrayList<WriteCommitEntry>();
         var acked = new java.util.ArrayList<Map<TopicPartitionOffset, Long>>();
         var plan = CdcTaskPlanner.plan(stream(), new Reader(), writePlan(),
-                Map.of(), 100L, 1, attempt(), security(), grant(),
+                Map.of(), 100L, 100L, 1, attempt(), security(), grant(),
                 4_102_444_800_000L, "uuid", 42L);
         var dispatcher = (CdcTaskDispatchPort) task -> {
             String queryId = task.getAttempt().getQueryOrJobId();
@@ -59,6 +59,7 @@ class CdcStreamExecutionTest {
             tracker.registerTask(queryId, taskId);
             tracker.markScheduled(queryId, taskId);
             var submitted = SubmitTaskRequest.from(task);
+            tracker.registerTaskRequest(taskId, submitted);
             var report = report(task);
             assertThat(completions.accept(submitted, report, canonical(task))).isTrue();
         };
@@ -87,7 +88,10 @@ class CdcStreamExecutionTest {
 
     private static TaskReport canonical(org.pangrova.protocol.v2.TaskRequest task) {
         return TaskReport.newBuilder().setAttempt(task.getAttempt())
-                .setState(TaskState.TASK_STATE_FINISHED).build();
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setExecutionDrainState(org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED).build();
     }
 
     private static TaskAttemptId attempt() {

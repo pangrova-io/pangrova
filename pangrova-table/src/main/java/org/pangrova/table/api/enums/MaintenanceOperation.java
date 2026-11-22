@@ -14,6 +14,7 @@ import java.util.Optional;
 public enum MaintenanceOperation {
     COMPACT,
     OPTIMIZE,
+    RECLUSTER,
     VACUUM,
     EXPIRE_SNAPSHOTS,
     REWRITE_MANIFESTS,
