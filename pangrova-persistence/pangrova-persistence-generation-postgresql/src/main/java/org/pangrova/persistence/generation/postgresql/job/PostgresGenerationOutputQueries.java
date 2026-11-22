@@ -107,6 +107,12 @@ final class PostgresGenerationOutputQueries {
             Connection connection, String tenantId,
             String jobId, List<String> requested) throws SQLException {
         requirePublishedJob(connection, tenantId, jobId);
+        return loadLockedPublishedOutputs(connection, tenantId, jobId, requested);
+    }
+
+    /** Reads objects while the caller holds the lock on this exact published job. */
+    static List<GenerationOutput> loadLockedPublishedOutputs(Connection connection,
+            String tenantId, String jobId, List<String> requested) throws SQLException {
         List<GenerationOutput> outputs = new ArrayList<>();
         for (int offset = 0; offset < requested.size(); offset += LOOKUP_BATCH_SIZE) {
             List<String> batch = requested.subList(
@@ -152,6 +158,12 @@ final class PostgresGenerationOutputQueries {
             Connection connection, String tenantId, String jobId, List<String> sourceIds,
             Map<String, String> requested) throws SQLException {
         requirePublishedJob(connection, tenantId, jobId);
+        return matchesLockedPublishedSplits(connection, tenantId, jobId, sourceIds, requested);
+    }
+
+    /** Compares sources while the caller holds the lock on this exact published job. */
+    static boolean matchesLockedPublishedSplits(Connection connection, String tenantId, String jobId,
+            List<String> sourceIds, Map<String, String> requested) throws SQLException {
         Map<String, String> stored = new HashMap<>();
         for (int offset = 0; offset < sourceIds.size(); offset += LOOKUP_BATCH_SIZE) {
             List<String> batch = sourceIds.subList(

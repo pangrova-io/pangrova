@@ -116,14 +116,7 @@ class GeneratedValuePublicationIntegrationTest {
             int writer = lockPublishedJob(holder, true);
             var reader = executor.submit(() -> store.loadPublishedSourceSplits(TENANT, JOB_ID, Set.of("object-a")));
             try {
-                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-                boolean blocked = false;
-                while (!blocked && !reader.isDone() && System.nanoTime() < deadline) {
-                    blocked = readerWaitsFor(dataSource, writer);
-                    if (!blocked) Thread.sleep(10);
-                }
-                assertThat(blocked).isTrue();
-                assertThat(reader.isDone()).isFalse();
+                assertWaitsForWriter(dataSource, writer, reader);
             } finally {
                 holder.rollback();
             }
@@ -144,6 +137,18 @@ class GeneratedValuePublicationIntegrationTest {
                 return rows.getInt(1);
             }
         }
+    }
+
+    private static void assertWaitsForWriter(DataSource dataSource, int writer,
+            java.util.concurrent.Future<?> reader) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        boolean blocked = false;
+        while (!blocked && !reader.isDone() && System.nanoTime() < deadline) {
+            blocked = readerWaitsFor(dataSource, writer);
+            if (!blocked) Thread.sleep(10);
+        }
+        assertThat(blocked).isTrue();
+        assertThat(reader.isDone()).isFalse();
     }
 
     private static boolean readerWaitsFor(DataSource dataSource, int writer) throws Exception {
@@ -237,21 +242,55 @@ class GeneratedValuePublicationIntegrationTest {
             pool.setMaximumPoolSize(1);
             pool.setMinimumIdle(0);
             pool.setConnectionTimeout(500);
-            var claimed = ModelAuthorityFixtures.artifacts().stages(pool).preparePartition(
-                    new GenerationStageExecutionStore.PartitionClaim(
-                            new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
-                            0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
-                        assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
-                        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read),
-                                List.of(split),
-                                prepared.publications());
-                        PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
-                        assertThat(prepared.publications()).hasSize(1);
-                        assertThat(prepared.dependencyOutputs()).isEmpty();
-                        return prepared.lease();
-                    });
-            assertThat(claimed).isPresent();
+            long guardBefore = publicationSelects(dataSource, "SELECT state FROM artifact_build_jobs%FOR SHARE");
+            String manifestSql = "SELECT * FROM artifact_build_jobs%staging_generation=%FOR SHARE";
+            long manifestBefore = publicationSelects(dataSource, manifestSql);
+            var claim = new GenerationStageExecutionStore.PartitionClaim(
+                    new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
+                    0, 0, 0, 10, Duration.ofSeconds(30), START);
+            var stages = ModelAuthorityFixtures.artifacts().stages(pool);
+            var executor = Executors.newSingleThreadExecutor();
+            try (var holder = dataSource.getConnection()) {
+                holder.setAutoCommit(false);
+                int writer = lockPublishedJob(holder, true);
+                var readClaim = executor.submit(() -> stages.preparePartition(claim, prepared -> {
+                    assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
+                    var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(split),
+                            prepared.publications());
+                    PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
+                    assertThat(prepared.publications()).hasSize(1);
+                    assertThat(prepared.dependencyOutputs()).isEmpty();
+                    return prepared.lease();
+                }));
+                try {
+                    assertWaitsForWriter(dataSource, writer, readClaim);
+                } finally {
+                    holder.rollback();
+                }
+                assertThat(readClaim.get(5, TimeUnit.SECONDS)).isPresent();
+            } finally {
+                executor.shutdownNow();
+            }
+            assertThat(publicationSelects(dataSource, "SELECT state FROM artifact_build_jobs%FOR SHARE") - guardBefore)
+                    .as("separate publication guard queries in the claim transaction").isZero();
+            assertThat(publicationSelects(dataSource, manifestSql) - manifestBefore)
+                    .as("locked published manifest queries in the claim transaction").isOne();
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+        }
+    }
+
+    private static long publicationSelects(DataSource dataSource, String pattern) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE ?
+                """)) {
+            statement.setString(1, pattern);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getLong(1);
+            }
         }
     }
 

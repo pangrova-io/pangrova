@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 130 在持久分区认领事务里用一次受共享锁保护的清单读取确定当前发布状态，再在同一连接读取对象和校验源分片。移除对象读取与分片检查各自重复执行的状态查询。真实 PostgreSQL 的基线记录两条独立状态 SELECT，候选为零并保留一条受锁清单 SELECT。夹具外部持有源发布的独占行锁时，认领确实等待，释放后通过精确源对象、校验和及单连接检查。102 项 Java 回归和 Checkstyle 通过，覆盖持久交换、发布授权、动态表物化和生成值 SQL。
+
 实施批次 129 将实时 Stage 的 Substrait 序列化、split 枚举、校验与绑定、任务提交和提交后等待整组 ACK 分开计时。每段保留 Stage ID、代次和同一个 Coordinator 的单调时钟，枚举及派发保留实际数量。真实双 Worker SQL 的一个样本中，8 个 split 的 Stage 枚举 115.75 ms、序列化 92.86 ms、绑定 5.72 ms、提交 10.88 ms、提交后 8 个 ACK 等待 236.10 ms。另一 Stage 枚举 16 个 split 用 35.41 ms，实际签发 1 个任务。此处是带回执的本机单次样本，各阶段可能并行。57 项 Java 回归和 Checkstyle 通过，随后单独复测 SQL、Flight 完整结果和物理释放。
 
 实施批次 128 将已发布产物的读取守卫改为只读状态列和共享行锁。PostgreSQL 16 基线在 `pg_blocking_pids` 中可见一个产物读取事务被另一个读者阻塞。候选在持有另一个共享锁时完成读取，遇到独占锁仍等待，释放后读取精确对象。每个派发窗口的相关 SELECT 从 6 降到 5，清单层仍验证依赖校验和。96 项测试覆盖真实 PostgreSQL 的发布状态、授权和持久交换，以及真实 SQL 生成值读写。Checkstyle 通过。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
