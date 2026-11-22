@@ -27,32 +27,30 @@ import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
-import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Consumer;
 
 /**
- * Arrow Flight result fetcher. All Arrow and Flight imports are confined to this class.
+ * Opens forward-only cursors over Flight result streams.
  *
  * <p>Manages a pool of {@link FlightClient} instances keyed by {@code host:port}.
  * Clients are created on demand and evicted when connection errors are detected.
@@ -90,7 +88,7 @@ public final class FlightResultFetcher implements AutoCloseable {
      * This is NOT a call-level deadline — streams that continuously produce
      * batches run indefinitely without hitting this limit.
      */
-    private static final long BATCH_IDLE_TIMEOUT_SECONDS = 120;
+    public static final long BATCH_IDLE_TIMEOUT_SECONDS = 120;
 
     /**
      * Daemon-thread executor for async {@code stream.next()} calls.
@@ -134,7 +132,7 @@ public final class FlightResultFetcher implements AutoCloseable {
         if (allocatorLimitBytes <= 0) {
             throw new IllegalArgumentException("allocatorLimitBytes must be positive");
         }
-        this.security = java.util.Objects.requireNonNull(security, "security");
+        this.security = Objects.requireNonNull(security, "security");
         this.allocator = new RootAllocator(allocatorLimitBytes);
     }
 
@@ -143,54 +141,62 @@ public final class FlightResultFetcher implements AutoCloseable {
         return allocator.getLimit();
     }
 
-    /**
-     * Fetches all result batches and serializes them into a single Arrow IPC byte array.
-     *
-     * @throws TransportConnectionException on connection failure
-     * @throws TransportServerException     on server-reported error
-     */
-    public byte[] fetch(ResultEndpoint endpoint) {
-        return fetch(endpoint, Long.MAX_VALUE);
+    long peakAllocatedBytes() {
+        return allocator.getPeakMemoryAllocation();
     }
 
-    /** Fetches the stream under an optional absolute caller deadline. */
-    public byte[] fetch(ResultEndpoint endpoint, long deadlineEpochMs) {
-        try (var operation = lifecycle.enter()) {
-            return fetchOwned(endpoint, deadlineEpochMs);
+    /** Opens the stream and reads through the first data batch or EOF under the caller's deadline. */
+    public ResultCursor open(ResultEndpoint endpoint, long deadlineEpochMs) {
+        Objects.requireNonNull(endpoint, "endpoint");
+        var operation = lifecycle.enter();
+        ResultTransportLifecycle.ClientLease lease = null;
+        ResultTransportLifecycle.StreamOwner stream = null;
+        try {
+            Location location = resolveLocation(endpoint);
+            lease = lifecycle.client(poolKey(endpoint), () -> buildClient(location));
+            stream = lifecycle.stream(openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor);
+            var cursor = new FlightCursor(endpoint, deadlineEpochMs, operation, lease, stream);
+            cursor.prime();
+            return cursor;
+        } catch (RuntimeException failure) {
+            TransportException error = readError(endpoint, deadlineEpochMs, failure, lease);
+            closeAfterFailure(stream, error);
+            closeAfterFailure(lease, error);
+            operation.close();
+            throw error;
+        } catch (Error failure) {
+            closeAfterFailure(stream, failure);
+            closeAfterFailure(lease, failure);
+            operation.close();
+            throw failure;
         }
     }
 
-    private byte[] fetchOwned(ResultEndpoint endpoint, long deadlineEpochMs) {
-        String poolKey = poolKey(endpoint);
-        Location location = resolveLocation(endpoint);
-        try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
-            try (var streamOwner = lifecycle.stream(
-                    openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
-                FlightStream stream = streamOwner.stream();
-                return serializeStream(stream, endpoint, deadlineEpochMs);
-            } catch (TransportException e) {
-                if (isConnectionError(e)) {
-                    lease.retire();
-                }
-                throw e;
-            } catch (ConnectException e) {
-                lease.retire();
-                throw connectionError("TRANSPORT_CONNECTION_FAILED",
-                        "Transport connection failed to " + detail(endpoint), e);
-            } catch (Exception e) {
-                TransportException classified = deadlineEpochMs != Long.MAX_VALUE
-                        && (System.currentTimeMillis() >= deadlineEpochMs
-                                || e instanceof FlightRuntimeException flightFailure
-                                        && flightFailure.status().code()
-                                        == FlightStatusCode.TIMED_OUT)
-                        ? queryDeadlineExceeded(endpoint, e)
-                        : classifyError(endpoint, e);
-                if (isConnectionError(classified)) {
-                    lease.retire();
-                }
-                throw classified;
-            }
+    private static void closeAfterFailure(AutoCloseable resource, Throwable failure) {
+        if (resource == null) return;
+        try {
+            resource.close();
+        } catch (Exception cleanup) {
+            failure.addSuppressed(cleanup);
         }
+    }
+
+    private static TransportException readError(ResultEndpoint endpoint, long deadlineEpochMs,
+            RuntimeException failure, ResultTransportLifecycle.ClientLease lease) {
+        TransportException error;
+        if (failure instanceof TransportException transport) {
+            error = transport;
+        } else if (deadlineEpochMs != Long.MAX_VALUE
+                && (System.currentTimeMillis() >= deadlineEpochMs
+                        || extractFlightStatusCode(failure) == FlightStatusCode.TIMED_OUT)) {
+            error = queryDeadlineExceeded(endpoint, failure);
+        } else {
+            error = classifyError(endpoint, failure);
+        }
+        if (lease != null && error instanceof TransportConnectionException) {
+            lease.retire();
+        }
+        return error;
     }
 
     private static FlightStream openStream(
@@ -206,89 +212,94 @@ public final class FlightResultFetcher implements AutoCloseable {
                 CallOptions.timeout(remainingMs, TimeUnit.MILLISECONDS));
     }
 
-    /**
-     * Streams result batches, invoking the consumer for each Arrow IPC batch.
-     *
-     * @throws TransportConnectionException on connection failure
-     * @throws TransportServerException     on server-reported error
-     */
-    public void fetchStream(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer) {
-        fetchStream(endpoint, batchConsumer, Long.MAX_VALUE);
-    }
+    private final class FlightCursor implements ResultCursor {
+        private final ResultEndpoint endpoint;
+        private final long deadlineEpochMs;
+        private final ResultTransportLifecycle.Operation operation;
+        private final ResultTransportLifecycle.ClientLease lease;
+        private final ResultTransportLifecycle.StreamOwner owner;
+        private final FlightStream stream;
+        private VectorSchemaRoot root;
+        private List<ColumnDescriptor> columns;
+        private TransportException readFailure;
+        private int row = -1;
+        private boolean exhausted;
+        private boolean closed;
 
-    /** Streams batches under an absolute query deadline as well as the existing idle timeout. */
-    public void fetchStream(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer, long deadlineEpochMs) {
-        try (var operation = lifecycle.enter()) {
-            fetchStreamOwned(endpoint, batchConsumer, deadlineEpochMs);
+        FlightCursor(ResultEndpoint endpoint, long deadlineEpochMs,
+                ResultTransportLifecycle.Operation operation, ResultTransportLifecycle.ClientLease lease,
+                ResultTransportLifecycle.StreamOwner owner) {
+            this.endpoint = endpoint;
+            this.deadlineEpochMs = deadlineEpochMs;
+            this.operation = operation;
+            this.lease = lease;
+            this.owner = owner;
+            this.stream = owner.stream();
         }
-    }
 
-    private void fetchStreamOwned(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer, long deadlineEpochMs) {
-        String poolKey = poolKey(endpoint);
-        Location location = resolveLocation(endpoint);
-        try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
-            try (var streamOwner = lifecycle.stream(
-                    openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
-                FlightStream stream = streamOwner.stream();
-                VectorSchemaRoot root = stream.getRoot();
-                while (awaitNextBatch(stream, endpoint, deadlineEpochMs)) {
-                    batchConsumer.accept(serializeBatch(root));
+        void prime() {
+            loadBatch();
+            if (root == null) {
+                throw serverError("TRANSPORT_RESULT_SCHEMA_MISSING", "Flight DoGet ended without a schema at "
+                        + detail(endpoint), -1, null);
+            }
+            columns = List.copyOf(ArrowBatchDecoder.buildColumns(root.getSchema()));
+        }
+
+        @Override
+        public List<ColumnDescriptor> columns() {
+            return columns;
+        }
+
+        @Override
+        public boolean next() {
+            if (closed) throw new IllegalStateException("Result cursor is closed");
+            if (readFailure != null) throw readFailure;
+            if (exhausted) return false;
+            try {
+                if (deadlineEpochMs != Long.MAX_VALUE && System.currentTimeMillis() >= deadlineEpochMs) {
+                    throw queryDeadlineExceeded(endpoint, null);
                 }
-            } catch (TransportException e) {
-                if (isConnectionError(e)) {
-                    lease.retire();
+                if (++row >= root.getRowCount()) {
+                    loadBatch();
+                    row = 0;
                 }
-                throw e;
-            } catch (ConnectException e) {
-                lease.retire();
-                throw connectionError("TRANSPORT_CONNECTION_FAILED",
-                        "Transport connection failed to " + detail(endpoint), e);
-            } catch (Exception e) {
-                TransportException classified = deadlineEpochMs != Long.MAX_VALUE
-                        && (System.currentTimeMillis() >= deadlineEpochMs
-                                || e instanceof FlightRuntimeException flightFailure
-                                        && flightFailure.status().code() == FlightStatusCode.TIMED_OUT)
-                        ? queryDeadlineExceeded(endpoint, e)
-                        : classifyError(endpoint, e);
-                if (isConnectionError(classified)) {
-                    lease.retire();
-                }
-                throw classified;
+                return !exhausted;
+            } catch (RuntimeException failure) {
+                readFailure = readError(endpoint, deadlineEpochMs, failure, lease);
+                throw readFailure;
             }
         }
-    }
 
-    private byte[] serializeStream(
-            FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs)
-            throws Exception {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        VectorSchemaRoot root = stream.getRoot();
-        try (ArrowStreamWriter writer = new ArrowStreamWriter(
-                root, null, Channels.newChannel(baos))) {
-            writer.start();
+        private void loadBatch() {
             while (awaitNextBatch(stream, endpoint, deadlineEpochMs)) {
-                writer.writeBatch();
+                if (root == null && stream.hasRoot()) root = stream.getRoot();
+                if (root != null && root.getRowCount() > 0) return;
             }
-            writer.end();
+            if (root == null && stream.hasRoot()) root = stream.getRoot();
+            exhausted = true;
         }
-        return baos.toByteArray();
-    }
 
-    // PERF-T4: Reuse ThreadLocal ByteArrayOutputStream to avoid per-batch heap allocation.
-    // Pre-allocated with 64KB initial capacity to reduce dynamic resizing for typical batches.
-    private static final ThreadLocal<ByteArrayOutputStream> THREAD_LOCAL_BAOS =
-            ThreadLocal.withInitial(() -> new ByteArrayOutputStream(64 * 1024));
-
-    private static byte[] serializeBatch(VectorSchemaRoot root) throws Exception {
-        ByteArrayOutputStream baos = THREAD_LOCAL_BAOS.get();
-        baos.reset();
-        try (ArrowStreamWriter writer = new ArrowStreamWriter(
-                root, null, Channels.newChannel(baos))) {
-            writer.start();
-            writer.writeBatch();
-            writer.end();
+        @Override
+        public Object value(int column) {
+            if (closed || exhausted || row < 0) throw new IllegalStateException("Result cursor has no current row");
+            if (readFailure != null) throw readFailure;
+            try {
+                return ArrowBatchDecoder.extractValue(root.getVector(column), row, columns.get(column));
+            } catch (TransportException failure) {
+                readFailure = failure;
+                throw failure;
+            }
         }
-        return baos.toByteArray();
+
+        @Override
+        public void close() {
+            if (closed) return;
+            closed = true;
+            try (operation; lease; owner) {
+                root = null;
+            }
+        }
     }
 
     /**
@@ -474,10 +485,6 @@ public final class FlightResultFetcher implements AutoCloseable {
 
     private static Ticket ticket(ResultEndpoint endpoint) {
         return new Ticket(endpoint.ticket().getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static boolean isConnectionError(TransportException e) {
-        return e instanceof TransportConnectionException;
     }
 
     private static TransportConnectionException connectionError(

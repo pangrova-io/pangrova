@@ -1,8 +1,9 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.http.PangrovaRestClient;
-import org.pangrova.common.concurrent.ThreadUtils;
+import org.pangrova.client.http.QueryExecution;
+import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 
@@ -12,14 +13,10 @@ import java.sql.SQLTimeoutException;
 /**
  * Waits for a readable result endpoint, then for the query's terminal outcome.
  *
- * <p>Extracted from {@link PangrovaStatement} so the JDBC surface stays readable:
- * everything here is the polling protocol (backoff, timeout, terminal-state
- * mapping), which is independent of {@code Statement} semantics.
+ * Maps the owner-published query status to JDBC results and errors.
  */
 final class QueryCompletionWaiter {
 
-    private static final long POLL_INTERVAL_MS = 200;
-    private static final long MAX_POLL_INTERVAL_MS = 5000;
     private static final long MILLIS_PER_SECOND = 1000L;
 
     private static final String STATE_FINISHED = "FINISHED";
@@ -40,23 +37,20 @@ final class QueryCompletionWaiter {
      * @throws SQLTimeoutException if the timeout elapses first; the execution owner cancels the query
      * @throws SQLException        if the query fails or is cancelled server-side
      */
-    static ReadyEndpoint awaitReadableEndpoint(PangrovaRestClient client, String queryId,
-                                               SubmitQueryResponse submitResponse,
-                                               long deadlineMs,
+    static ReadyEndpoint awaitReadableEndpoint(QueryExecution query, long deadlineMs,
                                                int queryTimeoutSeconds) throws SQLException {
-        ReadyEndpoint immediate = checkImmediateResult(submitResponse, queryId);
+        String queryId = query.submission().queryId();
+        ReadyEndpoint immediate = checkImmediateResult(query.submission(), queryId);
         if (immediate != null) {
             return immediate;
         }
-        long pollMs = POLL_INTERVAL_MS;
         while (true) {
-            checkTimeout(queryId, deadlineMs, queryTimeoutSeconds);
-            QueryStatusResponse status = client.getQueryStatus(queryId);
+            QueryStatusResponse status = awaitStatus(query, QueryWaitTarget.RESULT_OR_TERMINAL,
+                    deadlineMs, queryTimeoutSeconds);
             ReadyEndpoint result = handleReadableState(status, queryId);
             if (result != null) {
                 return result;
             }
-            pollMs = sleepWithBackoff(pollMs);
         }
     }
 
@@ -67,13 +61,12 @@ final class QueryCompletionWaiter {
     }
 
     /** Checks the canonical terminal outcome after the Flight stream is drained. */
-    static QueryStatusResponse awaitTerminalSuccess(PangrovaRestClient client, String queryId,
-                                                    long deadlineMs, int queryTimeoutSeconds)
+    static QueryStatusResponse awaitTerminalSuccess(QueryExecution query, long deadlineMs, int queryTimeoutSeconds)
             throws SQLException {
-        long pollMs = POLL_INTERVAL_MS;
+        String queryId = query.submission().queryId();
         while (true) {
-            checkTimeout(queryId, deadlineMs, queryTimeoutSeconds);
-            QueryStatusResponse status = client.getQueryStatus(queryId);
+            QueryStatusResponse status = awaitStatus(query, QueryWaitTarget.TERMINAL,
+                    deadlineMs, queryTimeoutSeconds);
             if (STATE_FAILED.equals(status.state())) {
                 throw failedQueryException(status, queryId);
             }
@@ -83,7 +76,6 @@ final class QueryCompletionWaiter {
             if (STATE_FINISHED.equals(status.state())) {
                 return status;
             }
-            pollMs = sleepWithBackoff(pollMs);
         }
     }
 
@@ -156,12 +148,21 @@ final class QueryCompletionWaiter {
         return new SQLException("Query failed: " + errorMsg + ", queryId=" + queryId);
     }
 
-    /** Sleeps, then doubles the interval up to {@link #MAX_POLL_INTERVAL_MS}. */
-    private static long sleepWithBackoff(long pollMs) throws SQLException {
-        ThreadUtils.sleepQuietly(pollMs);
-        if (Thread.currentThread().isInterrupted()) {
-            throw new SQLException("Interrupted while waiting for query completion");
+    private static QueryStatusResponse awaitStatus(QueryExecution query, QueryWaitTarget target,
+            long deadlineMs, int timeoutSeconds) throws SQLException {
+        String queryId = query.submission().queryId();
+        checkTimeout(queryId, deadlineMs, timeoutSeconds);
+        try {
+            return query.awaitStatus(target, deadlineMs);
+        } catch (PangrovaConnectionException failure) {
+            if ("QUERY_STATUS_DEADLINE_EXCEEDED".equals(failure.errorCode())) {
+                throw new SQLTimeoutException("Query timed out after " + timeoutSeconds
+                        + "s, queryId=" + queryId, failure);
+            }
+            if ("CONNECTION_INTERRUPTED".equals(failure.errorCode())) {
+                throw new SQLException("Interrupted while waiting for query completion", failure);
+            }
+            throw failure;
         }
-        return Math.min(pollMs * 2, MAX_POLL_INTERVAL_MS);
     }
 }

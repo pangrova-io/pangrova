@@ -44,7 +44,10 @@ class ControlPlaneResultTransportBootstrapTest {
             assertThat(endpoint.protocol()).isEqualTo(ResultProtocol.GRPC_TLS.value());
             try (var fetcher = new FlightResultFetcher(new ResultTransportSecurity(true, authority.root(),
                     clientIdentity.certificateChain(), clientIdentity.privateKey()))) {
-                assertThat(fetcher.fetch(endpoint, System.currentTimeMillis() + 5_000)).isNotEmpty();
+                try (var cursor = fetcher.open(endpoint, System.currentTimeMillis() + 5_000)) {
+                    assertThat(cursor.columns()).isEmpty();
+                    assertThat(cursor.next()).isFalse();
+                }
             }
         });
     }
@@ -54,7 +57,7 @@ class ControlPlaneResultTransportBootstrapTest {
         withServer(true, endpoint -> {
             try (var fetcher = new FlightResultFetcher(
                     new ResultTransportSecurity(true, authority.root(), null, null))) {
-                assertThatThrownBy(() -> fetcher.fetch(endpoint, System.currentTimeMillis() + 5_000))
+                assertThatThrownBy(() -> fetcher.open(endpoint, System.currentTimeMillis() + 5_000).close())
                         .isInstanceOf(TransportConnectionException.class);
             }
         });
@@ -65,7 +68,10 @@ class ControlPlaneResultTransportBootstrapTest {
         withServer(false, endpoint -> {
             assertThat(endpoint.protocol()).isEqualTo(ResultProtocol.GRPC.value());
             try (var fetcher = new FlightResultFetcher()) {
-                assertThat(fetcher.fetch(endpoint, System.currentTimeMillis() + 5_000)).isNotEmpty();
+                try (var cursor = fetcher.open(endpoint, System.currentTimeMillis() + 5_000)) {
+                    assertThat(cursor.columns()).isEmpty();
+                    assertThat(cursor.next()).isFalse();
+                }
             }
         });
     }

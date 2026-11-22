@@ -58,6 +58,17 @@ try (Connection conn = DriverManager.getConnection(url, props);
 }
 ```
 
+### Forward-only results
+
+JDBC uses the accepting Coordinator endpoint for status and cancellation.
+`executeQuery()` returns after the result schema and first data batch are
+available, or Flight reaches EOF. `ResultSet.next()` reads subsequent batches
+as needed. JDBC validates the Coordinator's terminal outcome before returning
+`false`; a query may fail after delivering rows. Close result sets with
+try-with-resources. Closing a partial result closes Flight and requests
+cancellation if its query is still active. `isBeforeFirst()` and `isLast()`
+are optional JDBC operations and are unsupported for the streaming cursor.
+
 ### Prepared Parameter Admission
 
 Supported prepared-statement setters accept only the actual one-based parameter

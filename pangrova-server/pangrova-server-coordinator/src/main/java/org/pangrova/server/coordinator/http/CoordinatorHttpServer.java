@@ -15,6 +15,7 @@ import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.server.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorExceptionMapper;
+import org.pangrova.server.coordinator.http.request.QueryStatusWaits;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorHealthResource;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorTaskResource;
 import org.pangrova.server.coordinator.http.endpoint.QueryResource;
@@ -72,14 +73,13 @@ public final class CoordinatorHttpServer {
         checkNotNull(deps, "deps must not be null");
         this.copySourceReadEnabled = deps.copySourceReadResource() != null;
 
-        ResourceConfig config = buildResourceConfig(deps);
-        ServletContainer servletContainer = new ServletContainer(config);
-
         ServletContextHandler handler = new ServletContextHandler();
         handler.setContextPath("/");
-        handler.addServlet(new ServletHolder(servletContainer), "/*");
-
         this.server = EmbeddedHttpServerFactory.create(address, handler, COORDINATOR_MAX_THREADS);
+
+        var statusWaits = new QueryStatusWaits(server.getThreadPool());
+        ResourceConfig config = buildResourceConfig(deps, statusWaits);
+        handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
     }
 
     /**
@@ -144,17 +144,18 @@ public final class CoordinatorHttpServer {
         return EmbeddedHttpServerFactory.getPort(server);
     }
 
-    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps) {
+    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps, QueryStatusWaits statusWaits) {
         ResourceConfig config = new ResourceConfig();
 
-        registerResources(config, deps);
+        registerResources(config, deps, statusWaits);
         registerFilters(config, deps);
         registerInfrastructure(config);
 
         return config;
     }
 
-    private static void registerResources(ResourceConfig config, CoordinatorHttpServerContext deps) {
+    private static void registerResources(ResourceConfig config, CoordinatorHttpServerContext deps,
+                                          QueryStatusWaits statusWaits) {
         config.register(new org.pangrova.server.coordinator.http.endpoint.ServerInfoResource(
                 CoordinatorHttpServer.class.getPackage().getImplementationVersion()));
         config.register(new CoordinatorTaskResource(deps.receiver()));
@@ -163,7 +164,7 @@ public final class CoordinatorHttpServer {
         IdempotencyKeyRegistry idempotencyRegistry = new IdempotencyKeyRegistry();
         registerIfPresent(config, deps.queryManager(),
                 qm -> new QueryResource(qm, deps.profilerEndpoint(), deps.queryProfileService(),
-                        idempotencyRegistry, new OtelExecutionTraceContextFactory()));
+                        idempotencyRegistry, new OtelExecutionTraceContextFactory(), statusWaits));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));

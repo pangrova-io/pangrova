@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.session.RetryPolicy;
+import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.transport.client.ArrowBatchDecoder;
-import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
@@ -20,7 +22,6 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.sql.Types;
 import java.util.Map;
-import java.util.concurrent.locks.LockSupport;
 
 /** One JSON request per immutable SQL step; a single REST client owns the stream. */
 public final class TpcClient {
@@ -60,7 +61,7 @@ public final class TpcClient {
 
     private static ObjectNode execute(PangrovaRestClient client, Config config,
                                       Request request, PrintWriter protocol) {
-        String queryId = null;
+        QueryExecution query = null;
         long started = System.nanoTime();
         try {
             if (request.sql() == null || request.sql().isBlank() || request.timeout() < 1) {
@@ -68,24 +69,32 @@ public final class TpcClient {
             }
             long deadline = Math.addExact(started, Duration.ofSeconds(request.timeout()).toNanos());
             long epochDeadline = Math.addExact(System.currentTimeMillis(), request.timeout() * 1000L);
-            var submitted = client.submitQuery(request.sql(), Map.of("catalog", config.catalog(), "schema", config.schema()));
-            queryId = submitted.queryId();
+            query = client.beginQuery(request.sql(), Map.of("catalog", config.catalog(), "schema", config.schema()));
+            var submitted = query.submission();
+            String queryId = submitted.queryId();
             protocol.println(JSON.writeValueAsString(JSON.createObjectNode()
                     .put("event", "submitted").put("queryId", queryId)));
             ObjectNode result = null;
+            if (submitted.resultEndpoint() != null && readable(submitted.state())) {
+                try (var cursor = client.openResult(submitted.resultEndpoint(), epochDeadline)) {
+                    result = result(cursor);
+                }
+            }
             while (System.nanoTime() < deadline) {
-                QueryStatusResponse status = client.getQueryStatus(queryId);
+                var target = result == null ? QueryWaitTarget.RESULT_OR_TERMINAL : QueryWaitTarget.TERMINAL;
+                QueryStatusResponse status = query.awaitStatus(target, epochDeadline);
                 String state = status.state();
                 if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
-                    return failure(client, queryId, "server-" + state.toLowerCase());
+                    return failure(query, "server-" + state.toLowerCase());
                 }
-                if (result == null && status.resultEndpoint() != null) {
-                    ResultBatch batch = ArrowBatchDecoder.decode(client.fetchResult(status.resultEndpoint(), epochDeadline));
-                    result = result(batch);
+                if (result == null && status.resultEndpoint() != null && readable(state)) {
+                    try (var cursor = client.openResult(status.resultEndpoint(), epochDeadline)) {
+                        result = result(cursor);
+                    }
                 }
                 if ("FINISHED".equals(state)) {
                     if (result == null || System.nanoTime() >= deadline) {
-                        return failure(client, queryId, result == null ? "missing-result-endpoint" : "query-timeout");
+                        return failure(query, result == null ? "missing-result-endpoint" : "query-timeout");
                     }
                     double elapsedMs = (System.nanoTime() - started) / 1_000_000.0;
                     ObjectNode response = JSON.createObjectNode().put("queryId", queryId)
@@ -94,47 +103,57 @@ public final class TpcClient {
                     response.set("serverStats", JSON.valueToTree(status.stats()));
                     return response;
                 }
-                LockSupport.parkNanos(Duration.ofMillis(20).toNanos());
-                if (Thread.currentThread().isInterrupted()) return failure(client, queryId, "interrupted");
+                if (Thread.currentThread().isInterrupted()) return failure(query, "interrupted");
             }
-            return failure(client, queryId, "query-timeout");
+            return failure(query, "query-timeout");
         } catch (Exception error) {
             // Never publish arbitrary client/server exception messages or secret-bearing diagnostics.
-            ObjectNode response = failure(client, queryId, error.getClass().getSimpleName());
+            String reason = error instanceof PangrovaConnectionException connection
+                    ? switch (connection.errorCode()) {
+                        case "QUERY_STATUS_DEADLINE_EXCEEDED" -> "query-timeout";
+                        case "CONNECTION_INTERRUPTED" -> "interrupted";
+                        default -> error.getClass().getSimpleName();
+                    } : error.getClass().getSimpleName();
+            ObjectNode response = failure(query, reason);
             if (error.getStackTrace().length > 0) response.put("errorLocation", error.getStackTrace()[0].toString());
             return response;
         }
     }
 
-    private static ObjectNode failure(PangrovaRestClient client, String queryId, String error) {
+    private static boolean readable(String state) {
+        return "RUNNING".equals(state) || "FINISHING".equals(state) || "FINISHED".equals(state);
+    }
+
+    private static ObjectNode failure(QueryExecution query, String error) {
         String cancellation = "not-submitted";
-        if (queryId != null) {
-            try {
-                cancellation = client.cancelQuery(queryId).name();
-            } catch (Exception cleanup) {
-                cancellation = "request-failed";
-            }
+        boolean interrupted = Thread.interrupted();
+        try {
+            if (query != null) cancellation = query.cancel().name();
+        } catch (Exception cleanup) {
+            cancellation = "request-failed";
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
-        return JSON.createObjectNode().put("state", "FAILED").put("queryId", queryId)
+        return JSON.createObjectNode().put("state", "FAILED")
+                .put("queryId", query == null ? null : query.submission().queryId())
                 .put("error", error).put("cancellation", cancellation).put("resourceDrain", "unverified");
     }
 
-    private static ObjectNode result(ResultBatch batch) {
+    private static ObjectNode result(ResultCursor cursor) {
         ObjectNode result = JSON.createObjectNode();
         ArrayNode columns = result.putArray("columns");
         ArrayNode nativeTypes = result.putArray("nativeTypes");
-        for (var column : batch.columns()) {
+        for (var column : cursor.columns()) {
             columns.add(JSON.createObjectNode().put("name", column.name().toLowerCase(java.util.Locale.ROOT))
                     .put("type", family(column.sqlType())));
             nativeTypes.add(column.typeName());
         }
         ArrayNode rows = result.putArray("rows");
-        for (Object[] values : batch.rows()) {
-            if (values.length != batch.columns().size()) throw new IllegalArgumentException("row width differs from schema");
+        while (cursor.next()) {
             ArrayNode row = rows.addArray();
-            for (int index = 0; index < values.length; index++) {
-                var column = batch.columns().get(index);
-                row.add(cell(values[index], family(column.sqlType()), column.typeName()));
+            for (int index = 0; index < cursor.columns().size(); index++) {
+                var column = cursor.columns().get(index);
+                row.add(cell(cursor.value(index), family(column.sqlType()), column.typeName()));
             }
         }
         return result;

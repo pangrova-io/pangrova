@@ -10,7 +10,11 @@ Use the Pangrova CLI for interactive queries and scripted SQL execution.
 
 ## CLI
 
-The Pangrova CLI provides an interactive SQL shell.
+The Pangrova CLI provides an interactive SQL shell. It waits for query status
+changes on the accepting Coordinator endpoint. It displays large results
+in groups of up to 128 rows. It prints the final row count and writes an
+execution receipt only after confirming query success. If a query fails after
+a group has been printed, treat the displayed rows as partial results.
 
 ### Launch
 
@@ -29,7 +33,7 @@ bin/pangrova-cli.sh --host localhost --port 8080
 | `--file <path>` | — | Execute one complete SQL statement from a UTF-8 file; failures exit nonzero |
 | `--output <path>` | stdout | Write batch results to a new file; requires `--file` |
 | `--execution-receipt <path>` | — | Write a new JSON execution receipt after consuming results and confirming FINISHED; requires `--file` |
-| `--query-timeout <duration>` | `30m` | Query polling timeout (for example `30s`, `5m`, `1h`) |
+| `--query-timeout <duration>` | `30m` | Query deadline for status and result reads (for example `30s`, `5m`, `1h`) |
 | `--token <token>` | — | Bearer authentication; mutually exclusive with user/password |
 | `--token-env <name>` | — | Read a Bearer token from an existing environment variable; mutually exclusive with other credential sources |
 | `--user <user>` / `--password <password>` | — | UTF-8 Basic authentication; both must be supplied |
@@ -84,6 +88,10 @@ bin/pangrova-cli.sh --host localhost --port 8080 --catalog lake --schema tpch \
 
 The complete statement is parsed by the server. Batch mode propagates submission,
 query, cancellation, timeout, result decoding and output errors as a nonzero exit.
+If Flight rejects an already advertised result while the query is active, the
+CLI checks the Coordinator for a terminal query error. A confirmed failure is
+reported with its SQL error code and message. An unresolved result rejection
+retains the Flight error.
 The receipt contains `queryId`, `state`, `sqlSha256` and `resultConsumed`; its digest
 covers the original UTF-8 SQL file, including whitespace. It is written only after
 result consumption, FINISHED and successful client close. Output and receipt files

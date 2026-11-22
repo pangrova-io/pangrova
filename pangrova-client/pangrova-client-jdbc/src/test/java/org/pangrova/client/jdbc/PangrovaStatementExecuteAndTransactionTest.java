@@ -203,7 +203,7 @@ class PangrovaStatementExecuteAndTransactionTest {
             AtomicInteger cancellations = registerCancelEndpoint("q-upd-timeout", true);
             server.createContext("/v1/query/q-upd-timeout/state", exchange ->
                     sendJson(exchange, 200,
-                            "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\"}"));
+                            "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\",\"version\":1}"));
             server.start();
 
             try (PangrovaConnection conn = createConnection();
@@ -473,6 +473,7 @@ class PangrovaStatementExecuteAndTransactionTest {
                     {
                       "query_id": "%s",
                       "state": "FINISHED",
+                      "version": 2,
                       "stats": {
                         "elapsed_time_ms": 100,
                         "queued_time_ms": 10,
@@ -492,7 +493,8 @@ class PangrovaStatementExecuteAndTransactionTest {
             String response = """
                     {
                       "query_id": "%s",
-                      "state": "FINISHED"
+                      "state": "FINISHED",
+                      "version": 2
                     }
                     """.formatted(queryId);
             sendJson(exchange, 200, response);

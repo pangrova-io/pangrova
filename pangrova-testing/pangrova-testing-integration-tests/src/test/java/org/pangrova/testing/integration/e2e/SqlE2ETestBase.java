@@ -277,6 +277,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Coordinator-side resources that leak HttpClient thread pools if not closed.
     private static volatile RemoteTaskDispatcher sharedTaskDispatcher;
     private static volatile QueryDispatcher sharedQueryDispatcher;
+    private static java.util.concurrent.ScheduledThreadPoolExecutor workerCleanupTimer;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
             sharedStatementDispatcher;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
@@ -627,6 +628,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             } catch (Exception e) {
                 LOG.warn("event=task_manager_close_error error={}", e.getMessage());
             }
+        }
+        if (workerCleanupTimer != null) {
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(workerCleanupTimer, 10_000);
+            workerCleanupTimer = null;
         }
         closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
         closeQuietly(sharedStatusReporter, "status_reporter");
@@ -2141,6 +2146,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         TaskManager manager = new TaskManager(deps, WORKER_ID, 0.0, workerAdmissionIncarnation);
         manager.requireControlEpochHandshake();
         manager.observeControlEpoch(requireE2ECoordination().getCurrentEpoch());
+        workerCleanupTimer = (java.util.concurrent.ScheduledThreadPoolExecutor)
+                org.pangrova.common.concurrent.ManagedExecutorFactory.newSingleThreadScheduledExecutor(
+                        "e2e-worker-task-cleanup");
+        workerCleanupTimer.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        manager.startPeriodicCleanup(workerCleanupTimer, Duration.ofMinutes(5), Duration.ofSeconds(1));
         return manager;
     }
 

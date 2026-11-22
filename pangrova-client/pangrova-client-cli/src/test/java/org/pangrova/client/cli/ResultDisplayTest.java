@@ -1,6 +1,8 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.cli.exception.ResultDecodeException;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.ResultCursor;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -22,21 +24,18 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.channels.Channels;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Verifies that ResultBatchDecoder correctly decodes Arrow IPC bytes into readable row data,
- * replacing the previous empty-table behavior.
- *
- * <p><b>Validates: Requirements 1.52, 2.52</b></p>
- */
-class ResultBatchDecoderTest {
+/** Checks CLI cell rendering and bounded table delivery. */
+class ResultDisplayTest {
 
     @Test
     void canonicalUuidWireValuesRenderAsUuidStringsAndSqlNull() throws Exception {
@@ -53,11 +52,11 @@ class ResultBatchDecoderTest {
             root.setRowCount(2);
             wire = serializeToIpc(root);
         }
-        var result = ResultBatchDecoder.decode(wire);
+        var result = decode(wire);
         assertThat(result.columnNames()).containsExactly("id");
         assertThat(result.rows()).containsExactly(
                 List.of("00112233-4455-6677-8899-aabbccddeeff"), List.of("NULL"));
-        assertThat(SqlShell.formatResults(wire, List.of()))
+        assertThat(render(wire))
                 .contains("id", "00112233-4455-6677-8899-aabbccddeeff", "NULL");
     }
 
@@ -86,7 +85,7 @@ class ResultBatchDecoderTest {
                 list.endValue(0, 3);
                 list.setNull(1);
                 root.setRowCount(2);
-                var decoded = ResultBatchDecoder.decode(serializeToIpc(root));
+                var decoded = decode(serializeToIpc(root));
                 assertThat(decoded.rows().get(0)).containsExactly(precision == FloatingPointPrecision.DOUBLE
                         ? "[1.0000000000000002, null, -1.2345678912345679E8]" : "[0.25, null, -0.5]");
                 assertThat(decoded.rows().get(1)).containsExactly("NULL");
@@ -96,14 +95,14 @@ class ResultBatchDecoderTest {
 
     @Test
     void actualSchemaDisplaysRowsWhenAsynchronousSubmitHasNoColumns() throws Exception {
-        String display = SqlShell.formatResults(buildIpcWithIntAndString(), List.of());
+        String display = render(buildIpcWithIntAndString());
         assertThat(display).contains("id", "name", "Alice", "Bob", "Charlie");
         assertThat(display).doesNotContain("OK (no result set)");
     }
 
     @Test
     void actualEmptyResultSchemaOverridesStaleSubmitColumnNames() throws Exception {
-        String display = SqlShell.formatResults(buildEmptyIpc(), List.of("stale"));
+        String display = render(buildEmptyIpc());
         assertThat(display).contains("id", "name").doesNotContain("stale");
     }
 
@@ -111,7 +110,7 @@ class ResultBatchDecoderTest {
     void decodesIntAndStringColumnsIntoRows() throws Exception {
         byte[] batchData = buildIpcWithIntAndString();
 
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
+        DisplayValues result = decode(batchData);
 
         assertThat(result.columnNames()).containsExactly("id", "name");
         assertThat(result.rows()).hasSize(3);
@@ -124,7 +123,7 @@ class ResultBatchDecoderTest {
     void handlesNullValues() throws Exception {
         byte[] batchData = buildIpcWithNulls();
 
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
+        DisplayValues result = decode(batchData);
 
         assertThat(result.columnNames()).containsExactly("id", "name");
         assertThat(result.rows()).hasSize(2);
@@ -136,38 +135,17 @@ class ResultBatchDecoderTest {
     void handlesEmptyResult() throws Exception {
         byte[] batchData = buildEmptyIpc();
 
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
+        DisplayValues result = decode(batchData);
 
         assertThat(result.columnNames()).containsExactly("id", "name");
         assertThat(result.rows()).isEmpty();
-        assertThat(result.isEmpty()).isTrue();
-    }
-
-    @Test
-    void handlesNullInput() {
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(null);
-        assertThat(result.isEmpty()).isTrue();
-    }
-
-    @Test
-    void handlesEmptyByteArray() {
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(new byte[0]);
-        assertThat(result.isEmpty()).isTrue();
-    }
-
-    @Test
-    void corruptBatchDataThrowsResultDecodeException() {
-        byte[] corrupt = {0x01, 0x02, 0x03, 0x04, 0x05};
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ResultBatchDecoder.decode(corrupt))
-                .isInstanceOf(ResultDecodeException.class)
-                .hasMessageContaining("Failed to decode Arrow IPC response");
     }
 
     @Test
     void decodesMultipleArrowTypes() throws Exception {
         byte[] batchData = buildIpcWithMultipleTypes();
 
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
+        DisplayValues result = decode(batchData);
 
         assertThat(result.columnNames()).containsExactly("int_col", "float_col", "bool_col", "bigint_col");
         assertThat(result.rows()).hasSize(2);
@@ -182,20 +160,17 @@ class ResultBatchDecoderTest {
         String longValue = "x".repeat(100);
         byte[] batchData = buildIpcWithLongValue(longValue);
 
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
+        DisplayValues result = decode(batchData);
 
         assertThat(result.rows()).hasSize(1);
         String cell = result.rows().get(0).get(0);
-        assertThat(cell).hasSize(ResultBatchDecoder.MAX_CELL_WIDTH);
+        assertThat(cell).hasSize(TableFormatter.MAX_CELL_WIDTH);
         assertThat(cell).endsWith("...");
     }
 
     @Test
     void formattedTableContainsActualData() throws Exception {
-        byte[] batchData = buildIpcWithIntAndString();
-        ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(batchData);
-
-        String table = TableFormatter.format(result.columnNames(), result.rows());
+        String table = render(buildIpcWithIntAndString());
 
         assertThat(table).contains("Alice");
         assertThat(table).contains("Bob");
@@ -223,7 +198,7 @@ class ResultBatchDecoderTest {
             list.endValue(0, 2);
             root.setRowCount(1);
 
-            ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(serializeToIpc(root));
+            DisplayValues result = decode(serializeToIpc(root));
 
             assertThat(result.rows().get(0)).containsExactly("[0.25, -0.5]");
         }
@@ -246,12 +221,63 @@ class ResultBatchDecoderTest {
             coordinates.setSafe(1, -123456789.12345679);
             list.endValue(0, 2);
             root.setRowCount(1);
-            assertThat(ResultBatchDecoder.decode(serializeToIpc(root)).rows().get(0))
+            assertThat(decode(serializeToIpc(root)).rows().get(0))
                     .containsExactly("[1.0000000000000002, -1.2345678912345679E8]");
         }
     }
 
     // ---- Arrow IPC byte builders ----
+
+    @Test
+    void formatsLargeResultsInPagesAndReportsTheWholeRowCount() throws Exception {
+        var batch = ArrowBatchDecoder.decode(buildIpcWithIntAndString());
+        var output = new ByteArrayOutputStream();
+        try (var print = new PrintStream(output, true, StandardCharsets.UTF_8);
+             var cursor = new ResultCursor() {
+                 private int row;
+                 public List<ColumnDescriptor> columns() { return batch.columns(); }
+                 public boolean next() { return ++row <= 300; }
+                 public Object value(int column) { return column == 0 ? row : "value-" + row; }
+                 public void close() {}
+             }) {
+            var display = new SqlShell.ResultDisplay(batch.columnNames(), print);
+            for (int index = 0; index < 129; index++) {
+                assertThat(cursor.next()).isTrue();
+                display.add(cursor);
+            }
+            assertThat(output.toString(StandardCharsets.UTF_8)).contains("value-128").doesNotContain("value-129");
+            while (cursor.next()) display.add(cursor);
+            display.finish();
+        }
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("value-300").endsWith("300 rows" + System.lineSeparator());
+    }
+
+    private record DisplayValues(List<String> columnNames, List<List<String>> rows) {}
+
+    private static DisplayValues decode(byte[] data) {
+        var batch = ArrowBatchDecoder.decode(data);
+        return new DisplayValues(batch.columnNames(), batch.rows().stream()
+                .map(row -> Arrays.stream(row).map(TableFormatter::formatCell).toList()).toList());
+    }
+
+    private static String render(byte[] data) {
+        var batch = ArrowBatchDecoder.decode(data);
+        var output = new ByteArrayOutputStream();
+        try (var print = new PrintStream(output, true, StandardCharsets.UTF_8);
+             var cursor = new ResultCursor() {
+                 private final List<Object[]> rows = batch.rows();
+                 private int row = -1;
+                 public List<ColumnDescriptor> columns() { return batch.columns(); }
+                 public boolean next() { return ++row < rows.size(); }
+                 public Object value(int column) { return rows.get(row)[column]; }
+                 public void close() {}
+             }) {
+            var display = new SqlShell.ResultDisplay(batch.columnNames(), print);
+            while (cursor.next()) display.add(cursor);
+            display.finish();
+        }
+        return output.toString(StandardCharsets.UTF_8);
+    }
 
     private static byte[] buildIpcWithIntAndString() throws Exception {
         Schema schema = new Schema(List.of(

@@ -183,13 +183,39 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 
 ```
 1. POST /v1/query/submit and retain query_id.
-2. Poll /v1/query/{queryId}/state until a readable result_endpoint is available.
+2. Use the submit response if it has a readable result endpoint. Otherwise wait
+   on the accepting Coordinator for that endpoint or the terminal outcome.
 3. Consume Arrow Flight batches through EOF while the query is RUNNING or FINISHING.
-4. Confirm FINISHED; treat FAILED or CANCELLED as failure, even after partial output.
+4. Confirm FINISHED on the owner. FAILED or CANCELLED can arrive after partial output.
 5. Close the result reader and client.
 ```
 
-This architecture avoids loading entire result sets into Coordinator memory.
+The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
+handle. Its status and cancellation requests stay on the endpoint that accepted
+the submission. `awaitStatus(target, deadlineEpochMs)` requests a specific owner
+event. `drained` becomes true after the Coordinator records physical resource
+release.
+
+HTTP callers can use `GET /v1/query/{queryId}/state?afterVersion=0&waitMs=0`
+to read the live owner's current version. Supply a positive `waitMs` up to 5000
+and a stable UUID in `X-Pangrova-Query-Observer` to suspend the request. With
+`until=NEXT_VERSION`, supply the last observed version in `afterVersion`.
+`RESULT_OR_TERMINAL`, `TERMINAL`, and `DRAINED` wait for a readable result or
+terminal state, the logical terminal state, or physical release, respectively.
+Use `afterVersion=0` when starting a targeted wait without a prior status read.
+Timeout returns the current snapshot. The Coordinator
+allows one pending wait per observer, principal and query, with additional
+principal, tenant and process limits. A request on a different Coordinator
+receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
+for diagnostic reads. Historical journal responses provide the recorded
+state with version and drain evidence omitted.
+
+Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
+try-with-resources. Read the schema with `columns()`, advance with `next()`,
+and read values with zero-based `value(column)`. The cursor decodes values
+from the active Flight batch and returned values can outlive the batch.
+After closing the cursor at EOF, use the query ID to confirm the terminal
+outcome before reporting success.
 
 For the Java REST client, `useTls(true)` with `trustStorePath` loads the configured
 JKS/PKCS12 trust store into the HTTPS context. A store requires HTTPS; an orphan

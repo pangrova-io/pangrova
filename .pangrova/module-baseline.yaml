@@ -339,6 +339,7 @@ artifacts:
       test:
         - pangrova-client-http
         - pangrova-common
+        - pangrova-transport-client
     exportedPackages:
       - org.pangrova.client.cli
     providers:

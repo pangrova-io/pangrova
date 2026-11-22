@@ -1,13 +1,19 @@
 package org.pangrova.client.cli;
 
 import org.pangrova.client.cli.exception.QueryTimeoutException;
-import org.pangrova.common.client.query.QueryClient;
+import org.pangrova.client.http.QueryClient;
+import org.pangrova.client.http.QueryExecution;
+import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.common.client.enums.CancelOutcome;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -20,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +36,51 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Covers F-COMMON-11: CLI query polling has no timeout and no interrupt-to-cancel mechanism.
  */
 class SqlShellTimeoutTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void revokedFlightAuthorityReportsOnlyConfirmedQueryFailure(boolean queryFails) {
+        String queryId = "q-flight-revoked";
+        var endpoint = new ResultEndpoint("localhost", 1234, "ticket", "grpc+tls");
+        var running = QueryStatusResponse.of(queryId, "RUNNING", null, endpoint);
+        var failed = QueryStatusResponse.of(queryId, "FAILED",
+                new ErrorDetail("AI_PROVIDER_UNAVAILABLE", "RUNTIME_ERROR", "Reranking provider returned HTTP 502"),
+                null);
+        var statusReads = new AtomicInteger();
+        QueryClient client = new TestQueryClient() {
+            @Override
+            public SubmitQueryResponse submitQuery(String sql, Map<String, String> properties) {
+                return new SubmitQueryResponse(queryId, "RUNNING", null, List.of("result"));
+            }
+
+            @Override
+            public QueryStatusResponse getQueryStatus(String id) {
+                assertThat(id).isEqualTo(queryId);
+                return statusReads.incrementAndGet() == 3 && queryFails ? failed : running;
+            }
+
+            @Override
+            public ResultCursor openResult(ResultEndpoint result, long deadlineEpochMs) {
+                assertThat(result).isEqualTo(endpoint);
+                throw new PangrovaClientException("TRANSPORT_UNAUTHORIZED", "Flight authority was revoked");
+            }
+
+            @Override
+            public CancelOutcome cancelQuery(String id) {
+                return CancelOutcome.CANCEL_ACCEPTED;
+            }
+        };
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(client, new BufferedReader(new StringReader("SELECT 1;\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(5));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains(queryFails
+                ? "Error [AI_PROVIDER_UNAVAILABLE]: Reranking provider returned HTTP 502"
+                : "Error [TRANSPORT_UNAUTHORIZED]: Flight authority was revoked");
+        assertThat(statusReads.get()).isEqualTo(3);
+    }
 
     @Test
     void queryTimesOutAndSendsCancelRequest() {
@@ -123,7 +175,7 @@ class SqlShellTimeoutTest {
         // Assert
         assertThat(cancelCalled.get()).isTrue();
         assertThat(output).contains("INTERRUPTED");
-        assertThat(output).contains("cancel request sent");
+        assertThat(output).contains("q-interrupt-test interrupted");
     }
 
     @Test
@@ -242,9 +294,7 @@ class SqlShellTimeoutTest {
         shell.run();
         String output = baos.toString(StandardCharsets.UTF_8);
 
-        // Assert: progress dots were printed, then finished normally
-        assertThat(output).contains("..");  // at least 2 dots
-        assertThat(output).contains("OK (no result set)");
+        assertThat(output).contains("Query submitted: q-transitions", "OK (no result set)");
         assertThat(output).doesNotContain("QUERY_TIMEOUT");
     }
 
@@ -275,22 +325,31 @@ class SqlShellTimeoutTest {
      */
     private abstract static class TestQueryClient implements QueryClient {
         @Override
+        public QueryExecution beginQuery(String sql, Map<String, String> sessionProperties) {
+            SubmitQueryResponse receipt = submitQuery(sql, sessionProperties);
+            return new QueryExecution() {
+                @Override public SubmitQueryResponse submission() { return receipt; }
+                @Override public QueryStatusResponse awaitStatus(QueryWaitTarget target, long deadline) {
+                    return getQueryStatus(receipt.queryId());
+                }
+                @Override public CancelOutcome cancel() { return cancelQuery(receipt.queryId()); }
+            };
+        }
+
         public SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties) {
             throw new UnsupportedOperationException("Not stubbed");
         }
 
-        @Override
         public QueryStatusResponse getQueryStatus(String queryId) {
             throw new UnsupportedOperationException("Not stubbed");
         }
 
-        @Override
         public CancelOutcome cancelQuery(String queryId) {
             throw new UnsupportedOperationException("Not stubbed");
         }
 
         @Override
-        public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+        public ResultCursor openResult(ResultEndpoint endpoint, long deadlineEpochMs) {
             throw new UnsupportedOperationException("This polling-only test does not execute a result stream");
         }
     }
