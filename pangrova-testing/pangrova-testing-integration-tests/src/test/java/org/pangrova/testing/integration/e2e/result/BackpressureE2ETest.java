@@ -1,5 +1,11 @@
 package org.pangrova.testing.integration.e2e.result;
 
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.QueryExecution;
+import org.pangrova.common.client.enums.CancelOutcome;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.session.RetryPolicy;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -8,7 +14,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.util.BitSet;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +34,11 @@ class BackpressureE2ETest extends SqlE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
+    private static final int ROWS = 8_192;
+    private static final String SHORT_TEXT = "a".repeat(2_048);
+    private static final String LONG_TEXT = "b".repeat(16_384);
+    private static final Duration TIMEOUT = Duration.ofSeconds(90);
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(BackpressureE2ETest.class);
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -52,6 +67,101 @@ class BackpressureE2ETest extends SqlE2ETestBase {
             long currKey = rows.get(i).getLong("l_orderkey");
             assertThat(currKey).isGreaterThanOrEqualTo(prevKey);
         }
+    }
+
+    @Test
+    void nativeFlightHandlesWideVariableRowsWithASlowReaderAndAnEarlyClose() throws Exception {
+        String table = CATALOG + "." + SCHEMA + ".flight_width_" + Long.toHexString(System.nanoTime());
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        for (int first = 0; first < ROWS; first += 1_024) {
+            String rows = java.util.stream.IntStream.range(first, first + 1_024)
+                    .mapToObj(value -> "(" + value + ")").collect(java.util.stream.Collectors.joining(","));
+            sqlRunner.executeDdl("INSERT INTO " + table + " VALUES " + rows);
+        }
+        String wide = "SELECT id, CASE WHEN id < " + ROWS / 2 + " THEN CAST('" + SHORT_TEXT
+                + "' AS VARCHAR) ELSE CAST('" + LONG_TEXT + "' AS VARCHAR) END AS payload FROM " + table;
+        try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
+                .coordinatorPort(coordinatorHttpPort()).bearerToken(E2E_USER_BEARER_TOKEN)
+                .retryPolicy(RetryPolicy.NONE).build()) {
+            readEveryRow(client, "SELECT id, CAST(id AS VARCHAR) AS payload FROM " + table, false);
+            readEveryRow(client, wide, true);
+            long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+            var query = client.beginQuery(wide, Map.of());
+            CancelOutcome cancelled;
+            try (var cursor = client.openResult(endpoint(query, deadline), deadline)) {
+                assertThat(cursor.next()).isTrue();
+                cancelled = query.cancel();
+            }
+            assertThat(cancelled).isIn(CancelOutcome.CANCEL_ACCEPTED, CancelOutcome.ALREADY_TERMINAL);
+            String finalState = awaitPhysicalDrain(query, deadline);
+            assertThat(finalState).isEqualTo(cancelled == CancelOutcome.CANCEL_ACCEPTED ? "CANCELLED" : "FINISHED");
+            LOG.info("event=flight_width_reader_closed queryId={} outcome={} finalState={}",
+                    query.submission().queryId(), cancelled, finalState);
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE IF EXISTS " + table);
+        }
+    }
+
+    private static void readEveryRow(PangrovaRestClient client, String sql, boolean wide) throws Exception {
+        long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+        long startedAt = System.nanoTime();
+        var query = client.beginQuery(sql, Map.of());
+        var seen = new BitSet(ROWS);
+        long payloadBytes = 0;
+        long firstRow = 0;
+        try (var cursor = client.openResult(endpoint(query, deadline), deadline)) {
+            while (cursor.next()) {
+                if (firstRow == 0) {
+                    firstRow = System.nanoTime();
+                    if (wide) Thread.sleep(250);
+                }
+                int id = ((Number) cursor.value(0)).intValue();
+                assertThat(id).isBetween(0, ROWS - 1);
+                assertThat(seen.get(id)).isFalse();
+                seen.set(id);
+                String text = cursor.value(1).toString();
+                if (wide) {
+                    assertThat(text).isEqualTo(id < ROWS / 2 ? SHORT_TEXT : LONG_TEXT);
+                } else {
+                    assertThat(text).isEqualTo(Integer.toString(id));
+                }
+                payloadBytes += text.length();
+            }
+        }
+        long eof = System.nanoTime();
+        assertThat(seen.cardinality()).isEqualTo(ROWS);
+        if (wide) assertThat(payloadBytes).isEqualTo((long) (SHORT_TEXT.length() + LONG_TEXT.length()) * ROWS / 2);
+        assertThat(awaitPhysicalDrain(query, deadline)).isEqualTo("FINISHED");
+        LOG.info("event=flight_width_sample queryId={} wide={} rows={} payloadBytes={} firstMs={} eofMs={} drainMs={}",
+                query.submission().queryId(), wide, seen.cardinality(), payloadBytes,
+                millis(firstRow - startedAt), millis(eof - startedAt), millis(System.nanoTime() - startedAt));
+    }
+
+    private static ResultEndpoint endpoint(QueryExecution query, long deadline) {
+        ResultEndpoint endpoint = query.submission().resultEndpoint();
+        while (endpoint == null) {
+            var status = query.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+            assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
+            endpoint = status.resultEndpoint();
+            if ("FINISHED".equals(status.state())) assertThat(endpoint).isNotNull();
+        }
+        return endpoint;
+    }
+
+    private static String awaitPhysicalDrain(QueryExecution query, long deadline) {
+        var status = query.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+        while (!Boolean.TRUE.equals(status.drained())) {
+            assertThat(status.state()).isNotEqualTo("FAILED");
+            status = query.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+        }
+        String queryId = query.submission().queryId();
+        taskTracker.requireQueryExecutionDrained(queryId);
+        assertThat(queryManager.getStateMachine(queryId).physicalCleanupApplied()).isTrue();
+        return status.state();
+    }
+
+    private static long millis(long nanos) {
+        return TimeUnit.NANOSECONDS.toMillis(nanos);
     }
 
     @Test

@@ -65,7 +65,7 @@ unlisted: true
 ### Q4 专项优化 Native 与结果返回
 
 1. 分开测对象 I/O、解码、filter/project/Join/Aggregate CPU、memory arbitration、spill 和 cache 缩减。达到归因条件才改 Velox 配置、向量 batch、prefetch 与 allocator。相同算子用 Gluten/Velox 做参考，同时记录 offload 覆盖和跨边界开销。 [Velox Runtime Metrics](https://facebookincubator.github.io/velox/monitoring/metrics.html) · [Gluten Velox](https://gluten.apache.org/docs/v1.5.0/get-started/Velox.html)
-2. 用已支持的有界 Arrow 批流测量首批、吞吐、长期驻留和取消。出口饱和时对照多个端点或并行 range merge。慢消费者持有执行资源主导时评估 spooling，验证排序、EOF、终态、撤权、实际退出及存储成本。已有局部 Top-K 可独立验证 metadata 剪枝。物化视图与预计算的收益、维护成本和数据新鲜度单列。 [Arrow Flight 19](https://arrow.apache.org/docs/19.0/format/Flight.html) · [Trino Spooling](https://trino.io/docs/current/client/client-protocol.html#spooling-protocol) · [Dremio Top-K](https://docs.dremio.com/dremio-cloud/admin/performance/top-k-query-acceleration/)
+2. 本机已核验 8,192 行窄结果、72 MiB 变长结果、慢读和取消后关闭。继续用有界 Arrow 批流测量跨主机吞吐、长期驻留和意外断连。出口饱和时对照多个端点或并行 range merge。慢消费者持有执行资源主导时评估 spooling，验证排序、EOF、终态、撤权、实际退出及存储成本。已有局部 Top-K 可独立验证 metadata 剪枝。物化视图与预计算的收益、维护成本和数据新鲜度单列。 [Arrow Flight 19](https://arrow.apache.org/docs/19.0/format/Flight.html) · [Trino Spooling](https://trino.io/docs/current/client/client-protocol.html#spooling-protocol) · [Dremio Top-K](https://docs.dremio.com/dremio-cloud/admin/performance/top-k-query-acceleration/)
 
 ## 同条件对标与发布门槛
 
