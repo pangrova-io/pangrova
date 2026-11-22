@@ -175,6 +175,8 @@ paths use their own durable artifact formats.
 
 ## Scalar file-pruning query path
 
+Predicate analysis retains the selected immutable index descriptor. Split evaluation uses it alongside the exact active artifact generation and selected source snapshot. It reads published file mappings in batches and reuses the selected descriptor for availability checks and Worker hints.
+
 The Coordinator evaluates connector file statistics and native connector
 capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
 surviving canonical v2 file splits. It does not load scalar index artifacts.

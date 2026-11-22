@@ -5,7 +5,6 @@ import org.pangrova.persistence.generation.api.publication.GenerationPublication
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
-import org.pangrova.indexing.descriptor.IndexDescriptorCache;
 import org.pangrova.indexing.evaluation.IndexEvalMetrics;
 import org.pangrova.indexing.pruning.IndexEvalConfig;
 import org.pangrova.indexing.pruning.IndexSplitFilter;
@@ -249,10 +248,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         evaluationService = new IndexEvaluationService(
                 engineRegistry, indexCache, storageManager, serializer, circuitBreaker);
 
-        IndexDescriptorCache descriptorCache = new IndexDescriptorCache(metadataStore);
         var evalConfig = new IndexEvalConfig(
                 evalMetrics, config.evalTimeoutMs(), config.evalParallelism());
-        splitFilter = new IndexSplitFilter(metadataStore, descriptorCache, evalConfig);
+        splitFilter = new IndexSplitFilter(metadataStore, evalConfig);
 
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null

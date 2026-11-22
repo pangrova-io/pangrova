@@ -1,6 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.indexing.descriptor.IndexDescriptorCache;
 import org.pangrova.indexing.evaluation.IndexEvalMetrics;
 import org.pangrova.indexing.pruning.IndexEvalConfig;
 import org.pangrova.indexing.pruning.IndexSplitFilter;
@@ -12,7 +11,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Lightweight bootstrap for index query-path components only.
  *
- * <p>Initializes: metadataStore, IndexDescriptorCache, IndexSplitFilter,
+ * <p>Initializes: metadataStore, IndexSplitFilter,
  * IndexEvalConfig. Does not start build coordinator, commit handler,
  * garbage collector, or any maintenance-only components.</p>
  *
@@ -35,12 +34,10 @@ public final class IndexQueryBootstrap implements AutoCloseable {
                     "IndexQueryBootstrap requires metadataStore but received null");
         }
         this.metadataStore = metadataStore;
-        IndexDescriptorCache descriptorCache = new IndexDescriptorCache(metadataStore);
-
         IndexEvalMetrics evalMetrics = metricsProvider != null
                 ? new IndexEvalMetrics(metricsProvider) : null;
         var evalConfig = new IndexEvalConfig(evalMetrics, evalTimeoutMs, evalParallelism);
-        this.splitFilter = new IndexSplitFilter(metadataStore, descriptorCache, evalConfig);
+        this.splitFilter = new IndexSplitFilter(metadataStore, evalConfig);
 
         LOG.info("event=index_query_bootstrap_completed");
     }

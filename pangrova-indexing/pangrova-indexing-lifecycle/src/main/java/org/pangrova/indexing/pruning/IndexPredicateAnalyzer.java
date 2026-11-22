@@ -177,7 +177,7 @@ public final class IndexPredicateAnalyzer {
             if (!columns.contains(predicate.column()) || !isCompatible(index.indexType(), predicate)) {
                 continue;
             }
-            IndexHint hint = new IndexHint(index.indexId(), index.indexType(), index.generation(), predicate);
+            IndexHint hint = new IndexHint(index, predicate);
             if (seen.add(hint)) {
                 hints.add(hint);
             }
@@ -196,7 +196,7 @@ public final class IndexPredicateAnalyzer {
             if (!coversColumn(index, predicate.column()) || !isPredicateCompatible(index.indexType(), predicate)) {
                 continue;
             }
-            IndexHint hint = new IndexHint(index.indexId(), index.indexType(), index.generation(), predicate);
+            IndexHint hint = new IndexHint(index, predicate);
             if (seen.add(hint)) {
                 hints.add(hint);
             }
