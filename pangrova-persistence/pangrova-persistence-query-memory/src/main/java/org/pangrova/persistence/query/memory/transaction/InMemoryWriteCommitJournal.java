@@ -96,6 +96,20 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
+    public Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
+        return entries.values().stream()
+                .filter(entry -> entry.cdcSource() != null && entry.tenantId().equals(tenantId)
+                        && entry.cdcSource().streamId().equals(streamId)
+                        && entry.cdcSource().sourceEpoch().equals(sourceEpoch))
+                .filter(entry -> entry.state() == WriteCommitState.PENDING
+                        || entry.state() == WriteCommitState.COMMITTED)
+                .max(java.util.Comparator.<WriteCommitEntry, Boolean>comparing(
+                        entry -> entry.state() == WriteCommitState.PENDING)
+                        .thenComparingLong(WriteCommitEntry::timestampMs)
+                        .thenComparing(WriteCommitEntry::queryId));
+    }
+
+    @Override
     public Optional<WriteCommitEntry> findByFingerprint(String fingerprint) {
         return entries.values().stream().filter(entry -> entry.commitFingerprint().equals(fingerprint)).findFirst();
     }

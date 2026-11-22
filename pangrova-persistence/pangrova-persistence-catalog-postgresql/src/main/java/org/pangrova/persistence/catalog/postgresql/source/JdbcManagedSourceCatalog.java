@@ -3,6 +3,7 @@ package org.pangrova.persistence.catalog.postgresql.source;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
 
 import org.pangrova.connector.api.enums.NativeWriteCommitOutcome;
+import org.pangrova.connector.api.exception.SourcePublicationRetryableException;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.connector.api.metadata.SourceTableState;
 
@@ -776,6 +777,11 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 throw failure;
             }
         } catch (SQLException failure) {
+            // PostgreSQL reports these states only when it has aborted the transaction.
+            String state = failure.getSQLState();
+            if ("40001".equals(state) || "40P01".equals(state)) {
+                throw new SourcePublicationRetryableException(failure);
+            }
             // A lost COMMIT acknowledgement is uncertain; callers retain the reservation and resolve PG accepted truth.
             throw new IllegalStateException("Managed source authority transaction is unconfirmed", failure);
         }

@@ -56,15 +56,14 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-          cache: maven
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Prepare the Lance Java fixture
+        uses: ./.github/actions/prepare-native-java-fixture
 
       - name: Cache dependency archives
         uses: actions/cache@v4
@@ -214,6 +213,7 @@ jobs:
             cmake --preset dev-release
 
       - name: CMake build
+        id: native-cmake-build
         uses: ./.github/actions/run-native-step
         with:
           log: native-build
@@ -221,6 +221,17 @@ jobs:
           working-directory: pangrova-worker-native
           command: |
             cmake --build build --target all
+
+      - name: Report native link inputs
+        if: failure() && steps.native-cmake-build.outcome == 'failure'
+        shell: bash
+        working-directory: pangrova-worker-native
+        env:
+          NATIVE_LIBRARY: libpangrova_native.${{ matrix.platform.lib-ext }}
+        run: |
+          if [[ -f build/build.ninja ]]; then
+            ninja -C build -t commands "$NATIVE_LIBRARY" | tail -n 1
+          fi
 
       - name: Report compiler cache usage
         run: ccache --show-stats || true
@@ -243,7 +254,8 @@ jobs:
           title: Native tests failed
           working-directory: pangrova-worker-native
           command: |
-            python3 bin/run-native-tests.py -- --output-junit test-results.xml
+            python3 bin/run-native-tests.py --prepared-java "$RUNNER_TEMP/native-java-fixture" \
+              -- --output-junit test-results.xml
 
       - name: Upload native test results
         if: always()
@@ -253,6 +265,7 @@ jobs:
           path: |
             pangrova-worker-native/build/test-results.xml
             pangrova-worker-native/build/Testing/LanceFixture/*/*.log
+            ${{ runner.temp }}/native-java-fixture/java-build.log
           retention-days: 7
 
       - name: Publish native test report
@@ -566,15 +579,14 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-          cache: maven
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Prepare the Lance Java fixture
+        uses: ./.github/actions/prepare-native-java-fixture
 
       - name: Cache dependency archives
         uses: actions/cache@v4
@@ -752,6 +764,7 @@ jobs:
           working-directory: pangrova-worker-native
           command: |
             python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }} \
+              --prepared-java "$RUNNER_TEMP/native-java-fixture" \
               -- --preset ${{ matrix.sanitizer.preset }} --timeout 300
 
       - name: Upload sanitizer fixture diagnostics
@@ -759,7 +772,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-fixture-${{ matrix.sanitizer.name }}
-          path: pangrova-worker-native/build-${{ matrix.sanitizer.name }}/Testing/LanceFixture/*/*.log
+          path: |
+            pangrova-worker-native/build-${{ matrix.sanitizer.name }}/Testing/LanceFixture/*/*.log
+            ${{ runner.temp }}/native-java-fixture/java-build.log
           retention-days: 7
 
   jmh-benchmarks:

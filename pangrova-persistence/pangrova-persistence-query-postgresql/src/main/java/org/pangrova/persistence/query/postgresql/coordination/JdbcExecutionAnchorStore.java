@@ -52,6 +52,16 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String RELEASE =
             "DELETE FROM execution_anchor WHERE execution_id=? AND owner_id=? "
                     + "AND owner_incarnation=? AND fencing_token=? AND expires_at>?";
+    private static final String UNRESOLVED_WRITE = """
+            SELECT EXISTS (
+                SELECT 1 FROM write_commit_journal j
+                WHERE j.query_id=? AND j.state='PENDING'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM write_commit_quarantine q
+                    WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
+                  )
+            )
+            """;
     private static final String YIELD =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
                     + "WHERE execution_id=? AND owner_id=? AND owner_incarnation=? "
@@ -193,16 +203,10 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             connection.setAutoCommit(false);
             selectForUpdate(connection, anchor.executionId());
             Instant now = dbNow(connection);
-            try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
-                statement.setString(1, anchor.executionId());
-                statement.setString(2, anchor.ownerId());
-                statement.setString(3, anchor.ownerIncarnation());
-                statement.setLong(4, anchor.fencingToken());
-                setInstant(statement, 5, now);
-                boolean released = statement.executeUpdate() == 1;
-                connection.commit();
-                return released;
-            }
+            // Query cleanup ends the owner, but a pending catalog intent still needs a successor.
+            boolean released = retire(connection, anchor, now, requiresWriteRecovery(connection, anchor));
+            connection.commit();
+            return released;
         } catch (SQLException failure) {
             throw storeFailure("release", anchor.executionId(), failure);
         }
@@ -215,19 +219,34 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             connection.setAutoCommit(false);
             selectForUpdate(connection, anchor.executionId());
             Instant now = dbNow(connection);
-            try (PreparedStatement statement = connection.prepareStatement(YIELD)) {
-                setInstant(statement, 1, now);
-                statement.setString(2, anchor.executionId());
-                statement.setString(3, anchor.ownerId());
-                statement.setString(4, anchor.ownerIncarnation());
-                statement.setLong(5, anchor.fencingToken());
-                setInstant(statement, 6, now);
-                boolean yielded = statement.executeUpdate() == 1;
-                connection.commit();
-                return yielded;
-            }
+            boolean yielded = retire(connection, anchor, now, true);
+            connection.commit();
+            return yielded;
         } catch (SQLException failure) {
             throw storeFailure("yield", anchor.executionId(), failure);
+        }
+    }
+
+    private static boolean requiresWriteRecovery(Connection connection, ExecutionAnchor anchor) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(UNRESOLVED_WRITE)) {
+            statement.setString(1, anchor.executionId());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && result.getBoolean(1);
+            }
+        }
+    }
+
+    private static boolean retire(Connection connection, ExecutionAnchor anchor, Instant now, boolean retain)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(retain ? YIELD : RELEASE)) {
+            int parameter = 1;
+            if (retain) setInstant(statement, parameter++, now);
+            statement.setString(parameter++, anchor.executionId());
+            statement.setString(parameter++, anchor.ownerId());
+            statement.setString(parameter++, anchor.ownerIncarnation());
+            statement.setLong(parameter++, anchor.fencingToken());
+            setInstant(statement, parameter, now);
+            return statement.executeUpdate() == 1;
         }
     }
 

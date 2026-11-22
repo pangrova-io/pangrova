@@ -453,7 +453,8 @@ class StatementDispatcherPropertyTest {
     Arbitrary<Statement> clusteringWithTableName() {
         return qualifiedNames().flatMap(name -> Arbitraries.of(
                 new SetClusteringOrderStatement(name, List.of("col"), null),
-                new ReclusterTableStatement(name, Optional.empty())
+                new ReclusterTableStatement(name, Optional.empty()),
+                new ShowClusteringStatusStatement(name)
         ));
     }
 

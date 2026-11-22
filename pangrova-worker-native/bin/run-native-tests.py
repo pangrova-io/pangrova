@@ -114,8 +114,19 @@ def prepare_java(root, logs):
             subprocess.run(command, cwd=root, stdout=output,
                            stderr=subprocess.STDOUT, check=True,
                            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-    entries = [root / MODULE / "target/test-classes", root / MODULE / "target/classes"]
-    return os.pathsep.join([*(str(entry) for entry in entries), classpath.read_text().strip()])
+
+
+def java_classpath(root, directory):
+    classes = root / MODULE / "target"
+    broker = classes / "test-classes" / (BROKER.replace(".", "/") + ".class")
+    if not broker.is_file():
+        raise RuntimeError(f"Prepared Java fixture is missing the broker class: {broker}")
+    classpath = directory / "classpath.txt"
+    dependencies = classpath.read_text().strip()
+    if not dependencies:
+        raise RuntimeError(f"Prepared Java fixture dependency classpath is empty: {classpath}")
+    entries = [str(classes / "test-classes"), str(classes / "classes"), dependencies]
+    return os.pathsep.join(entries)
 
 
 def retain_ctest_log(build, logs, started_ns):
@@ -150,24 +161,40 @@ def main():
             "the nested Maven fixture build reuses this interpreter for function contracts")
     native = Path(__file__).resolve().parents[1]
     parser.add_argument("--build-dir", type=Path, default=native / "build")
+    preparation = parser.add_mutually_exclusive_group()
+    preparation.add_argument("--prepare-java", type=Path, metavar="DIRECTORY",
+                             help="Build the Java fixture and write its classpath before building Native tests")
+    preparation.add_argument("--prepared-java", type=Path, metavar="DIRECTORY",
+                             help="Use a Java fixture prepared earlier in this checkout")
     parser.add_argument("ctest_args", nargs=argparse.REMAINDER,
                         help="CTest options after --, e.g. -- -R IcebergManifestEntryReaderTest")
     arguments = parser.parse_args()
     def terminate(signum, _frame):
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminate)
-    build = arguments.build_dir.resolve()
-    if not (build / "CTestTestfile.cmake").is_file():
-        parser.error(f"Configure and build Native tests first: {build}")
     java = Path(os.environ["JAVA_HOME"]) / "bin/java" if os.environ.get("JAVA_HOME") else shutil.which("java")
-    if not java or not shutil.which("mvn") or not shutil.which("ctest"):
-        parser.error("JDK 17, Maven and CTest must be available")
-    log_root = build / "Testing/LanceFixture"
-    log_root.mkdir(parents=True, exist_ok=True)
-    logs = Path(tempfile.mkdtemp(prefix="run-", dir=log_root))
+    if not java:
+        parser.error("JDK 17 must be available")
+    if arguments.prepared_java is None and not shutil.which("mvn"):
+        parser.error("Maven must be available to prepare the Java fixture")
+    build = arguments.build_dir.resolve()
+    if arguments.prepare_java is not None:
+        logs = arguments.prepare_java.resolve()
+    else:
+        if not shutil.which("ctest") or not (build / "CTestTestfile.cmake").is_file():
+            parser.error(f"Configure and build Native tests and make CTest available: {build}")
+        log_root = build / "Testing/LanceFixture"
+        log_root.mkdir(parents=True, exist_ok=True)
+        logs = Path(tempfile.mkdtemp(prefix="run-", dir=log_root))
     print(f"Native fixture logs: {logs}", flush=True)
     try:
-        classpath = prepare_java(native.parent, logs)
+        if arguments.prepare_java is not None:
+            logs.mkdir(parents=True)
+        if arguments.prepared_java is None:
+            prepare_java(native.parent, logs)
+        classpath = java_classpath(native.parent, arguments.prepared_java or logs)
+        if arguments.prepare_java is not None:
+            return 0
         # Use the same Docker API level as the Maven Testcontainers JVMs.
         command = [str(java), "-Dapi.version=1.44", "--add-opens=java.base/java.nio=ALL-UNNAMED",
                    "-cp", classpath, BROKER]

@@ -331,6 +331,11 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public boolean supportsCdcMutations() {
+        return true;
+    }
+
+    @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         return writes.overwrite((PaimonTableHandle) table);
     }

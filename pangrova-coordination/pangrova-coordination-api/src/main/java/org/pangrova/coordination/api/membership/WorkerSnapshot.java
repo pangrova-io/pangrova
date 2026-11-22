@@ -34,9 +34,24 @@ public record WorkerSnapshot(
         String capabilityInventory,
         int copyTaskTlsPort,
         String admissionDomainId,
-        String incarnationId, WorkerShuffleDeployment shuffleDeployment
+        String incarnationId, WorkerShuffleDeployment shuffleDeployment,
+        boolean cdcIngestSupported
 ) {
     private static final int MAX_TCP_PORT = 65535;
+
+    /** Creates a snapshot for a Worker that advertises only Native execution. */
+    public WorkerSnapshot(String workerId, String host, int httpPort, int transportPort,
+                          int protocolVersion, String rackId, List<String> dataLocality,
+                          String memoryPressure, double cpuUtilization, int runningTaskCount,
+                          long availableMemoryBytes, long lastHeartbeatMs, long registeredAtMs,
+                          int resultServerPort, CacheCatalogSummary cacheSummary, String capabilityInventory,
+                          int copyTaskTlsPort, String admissionDomainId, String incarnationId,
+                          WorkerShuffleDeployment shuffleDeployment) {
+        this(workerId, host, httpPort, transportPort, protocolVersion, rackId,
+                dataLocality, memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeatMs,
+                registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort,
+                admissionDomainId, incarnationId, shuffleDeployment, false);
+    }
 
     /** Validates ports and identity fields of an immutable Worker membership snapshot. */
     public WorkerSnapshot(

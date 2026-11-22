@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
+import org.pangrova.coordinator.clustering.WorkerReclusterDispatcher;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.metadata.resolution.ConnectorTableLookup;
@@ -20,6 +21,13 @@ import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.clustering.ClusteringMaintenance;
+import org.pangrova.connector.api.clustering.ClusteringPublicationException;
+import org.pangrova.connector.api.enums.ClusteringMode;
+import org.pangrova.connector.api.enums.ClusteringState;
+import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement;
+import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
@@ -41,6 +49,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -61,6 +71,7 @@ public final class ControlledTableMaintenance {
     private static final Logger LOG = LoggerFactory.getLogger(ControlledTableMaintenance.class);
     private static final Duration DEFAULT_LEASE_TTL = Duration.ofMinutes(30);
     private static final String SOURCE = "MAINTENANCE";
+    private static final String CLUSTERING_REVISION = "clustering_revision";
     private static final String SYSTEM_ACTOR = "system:maintenance";
     private static final String MODE_MANUAL = "MANUAL";
     private static final String MODE_AUTOMATIC = "AUTOMATIC";
@@ -71,6 +82,7 @@ public final class ControlledTableMaintenance {
     private final String holderId;
     private final Duration leaseTtl;
     private final Clock clock;
+    private volatile WorkerReclusterDispatcher reclusterDispatcher;
     private volatile org.pangrova.coordinator.query.audit.TableControlAuditEmitter audit;
 
     public ControlledTableMaintenance(CatalogRegistry catalogs,
@@ -98,11 +110,204 @@ public final class ControlledTableMaintenance {
         this.audit = emitter;
     }
 
+    /** Provides staging for SQL RECLUSTER on a process with authenticated Workers. */
+    public void setReclusterDispatcher(WorkerReclusterDispatcher dispatcher) {
+        reclusterDispatcher = java.util.Objects.requireNonNull(dispatcher, "dispatcher");
+    }
+
     /** Runs the operation, returning the connector's result rows. */
     public List<TypedRow> execute(MaintenanceOperation operation, Identifier tableName,
             QuerySession context) {
         return execute(operation, SessionTableNames.resolveTableRef(tableName.parts(), context),
                 context, MODE_MANUAL, Map.of());
+    }
+
+    /** Sets the clustering declaration under the table maintenance lease. */
+    public List<TypedRow> setClusteringOrder(SetClusteringOrderStatement statement, QuerySession context) {
+        var target = clusteringTarget(statement.tableName(), context, true);
+        var mode = ClusteringMode.valueOf(statement.mode() == null ? "INTERLEAVE"
+                : statement.mode().toUpperCase(Locale.ROOT));
+        return withClusteringLease(target, authority -> {
+            requireConfirmedClustering(target, context, authority);
+            target.connector().setOrder(statement.columnNames(), mode, authority);
+            return List.of(TypedRow.builder().putString("table", target.name().toString())
+                    .putString("result", "CLUSTERING ORDER SET").putString("mode", mode.name()).build());
+        });
+    }
+
+    /** Runs a journaled clustering rewrite and returns the confirmed snapshot. */
+    public List<TypedRow> recluster(ReclusterTableStatement statement, QuerySession context) {
+        if (statement.whereCondition().isPresent()) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "RECLUSTER WHERE requires a partition-scoped connector rewrite");
+        }
+        var target = clusteringTarget(statement.tableName(), context, true);
+        var dispatcher = reclusterDispatcher;
+        if (dispatcher == null) {
+            throw new IllegalStateException("RECLUSTER requires authenticated Worker staging");
+        }
+        return withClusteringLease(target, authority -> {
+            requireConfirmedClustering(target, context, authority);
+            String actor = context.userIdentity() == null ? "" : context.userIdentity().principal();
+            String revision = target.connector().revision();
+            TableMaintenanceRun run = policyService.beginRun(target.record(), MaintenanceOperation.RECLUSTER,
+                    MODE_MANUAL, observeVersion(target.metadata(), target.session(), target.handle()), actor,
+                    Map.of(CLUSTERING_REVISION, revision));
+            OptionalLong snapshot;
+            try {
+                var catalog = catalogs.getCatalog(target.name().catalog()).getDescriptor();
+                var stage = dispatcher.bind(catalog, target.name(),
+                        target.session().getProperties().get("tenant_id"), target.session().getUser(), run.runId());
+                snapshot = target.connector().rewrite(run.runId(), revision, stage, () -> {
+                    authority.run();
+                    var current = catalogs.getCatalog(target.name().catalog()).getDescriptor();
+                    if (!catalog.identity().equals(current.identity())) {
+                        throw new IllegalStateException("RECLUSTER catalog deployment changed after admission");
+                    }
+                });
+            } catch (ClusteringPublicationException unconfirmed) {
+                throw unconfirmed;
+            } catch (RuntimeException failure) {
+                var failed = policyService.finishRun(run, MaintenanceRunState.FAILED, "",
+                        Map.of("reason", String.valueOf(failure.getMessage())));
+                audit(context, target.name(), target.record(), failed, failure.getMessage());
+                throw failure;
+            }
+            authority.run();
+            var completed = finishClustering(target, context, run, snapshot);
+            return List.of(TypedRow.builder().putString("result", "RECLUSTER SUCCEEDED")
+                    .putString("table", target.name().toString()).putString("task_id", run.runId().toString())
+                    .putString("snapshot_id", completed.versionAfter()).build());
+        });
+    }
+
+    /** Reports the current declaration, file coverage and the latest durable rewrite state. */
+    public List<TypedRow> showClusteringStatus(ShowClusteringStatusStatement statement, QuerySession context) {
+        var target = clusteringTarget(statement.tableName(), context, false);
+        Optional<TableMaintenanceRun> lastRun = latestClusteringRun(target);
+        if (lastRun.filter(run -> run.state() == MaintenanceRunState.RUNNING).isPresent()) {
+            var acquired = acquireClusteringLease(target);
+            if (acquired.isPresent()) {
+                var held = acquired.orElseThrow();
+                try (var guard = new MaintenanceLeaseGuard(lease, held, leaseTtl)) {
+                    lastRun = recoverClustering(target, context, guardedClustering(target, guard));
+                } finally {
+                    lease.release(held.leaseKey(), held.holderId(), held.epoch());
+                }
+            }
+        }
+        var status = target.connector().status();
+        boolean restoring = lastRun.filter(run -> run.state() == MaintenanceRunState.RUNNING).isPresent();
+        double ratio = status.totalFiles() == 0 ? 0d : status.clusteredFiles() * 100d / status.totalFiles();
+        return List.of(TypedRow.builder().putString("table", target.name().toString())
+                .putString("mode", status.mode() == null ? "NONE" : status.mode().name())
+                .putString("columns", String.join(", ", status.columns()))
+                .putString("clustering_ratio", String.format(Locale.ROOT, "%.2f%%", ratio))
+                .putInt("total_files", status.totalFiles()).putInt("clustered_files", status.clusteredFiles())
+                .putString("state", clusteringState(status, restoring).name())
+                .putString("task_id", lastRun.map(run -> run.runId().toString()).orElse(""))
+                .putString("task_state", lastRun.map(run -> run.state().name()).orElse(""))
+                .build());
+    }
+
+    private static ClusteringState clusteringState(ClusteringMaintenance.Status status, boolean running) {
+        if (running) return ClusteringState.RECLUSTERING;
+        if (status.mode() == null) return ClusteringState.NONE;
+        if (status.clusteredFiles() == 0) return ClusteringState.PENDING;
+        return status.clusteredFiles() == status.totalFiles() ? ClusteringState.CLUSTERED : ClusteringState.STALE;
+    }
+
+    private ClusteringTarget clusteringTarget(Identifier tableName, QuerySession context, boolean mutate) {
+        var ref = SessionTableNames.resolveTableRef(tableName.parts(), context);
+        var control = catalogs.tableControl();
+        var record = requireControlled(control, ref, MaintenanceOperation.RECLUSTER);
+        if (mutate && (record.ownershipMode() != OwnershipMode.MANAGED
+                || !policyService.policyFor(record).allows(MaintenanceOperation.RECLUSTER))) {
+            throw new AccessDeniedException("Clustering mutation requires a MANAGED table with RECLUSTER enabled");
+        }
+        var session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        var metadata = ConnectorTableLookup.getMetadata(catalogs, ref.catalog(), session);
+        var handle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
+        control.requireActiveIdentity(record, metadata.getTableIdentity(session, handle), "CLUSTERING");
+        var connector = metadata.clusteringMaintenance(session, handle).orElseThrow(() ->
+                new PangrovaException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                        "Clustering is unavailable for " + ref));
+        return new ClusteringTarget(ref, record, session, metadata, handle, connector);
+    }
+
+    private record ClusteringTarget(QualifiedTableName name, TableControlRecord record, ConnectorSession session,
+            ConnectorMetadata metadata, ConnectorTableHandle handle, ClusteringMaintenance connector) {}
+
+    @FunctionalInterface
+    private interface ClusteringAction {
+        List<TypedRow> execute(Runnable authority);
+    }
+
+    private List<TypedRow> withClusteringLease(ClusteringTarget target, ClusteringAction action) {
+        var held = acquireClusteringLease(target).orElseThrow(() ->
+                new AccessDeniedException("Table maintenance is already in progress for " + target.name()));
+        try (var guard = new MaintenanceLeaseGuard(lease, held, leaseTtl)) {
+            var authority = guardedClustering(target, guard);
+            authority.run();
+            return action.execute(authority);
+        } finally {
+            lease.release(held.leaseKey(), held.holderId(), held.epoch());
+        }
+    }
+
+    private Optional<LeaseEntry> acquireClusteringLease(ClusteringTarget target) {
+        if (lease == null) throw new AccessDeniedException("Clustering requires durable coordination");
+        return lease.tryAcquire("table-maintenance:" + target.record().tableId(), holderId + ":" + UUID.randomUUID(),
+                leaseTtl);
+    }
+
+    private Runnable guardedClustering(ClusteringTarget target, MaintenanceLeaseGuard guard) {
+        return () -> {
+            var fresh = ConnectorTableLookup.requireTableHandle(target.metadata(), target.session(), target.name());
+            catalogs.tableControl().requireActiveIdentity(target.record(),
+                    target.metadata().getTableIdentity(target.session(), fresh), "CLUSTERING");
+            guard.requireHeld();
+        };
+    }
+
+    private Optional<TableMaintenanceRun> latestClusteringRun(ClusteringTarget target) {
+        return policyService.findLatestRun(target.record().tableId(), MaintenanceOperation.RECLUSTER);
+    }
+
+    private void requireConfirmedClustering(ClusteringTarget target, QuerySession context, Runnable authority) {
+        if (recoverClustering(target, context, authority)
+                .filter(run -> run.state() == MaintenanceRunState.RUNNING).isPresent()) {
+            throw new IllegalStateException("A previous RECLUSTER still requires publication confirmation");
+        }
+    }
+
+    private Optional<TableMaintenanceRun> recoverClustering(
+            ClusteringTarget target, QuerySession context, Runnable authority) {
+        var lastRun = latestClusteringRun(target);
+        if (lastRun.isEmpty() || lastRun.orElseThrow().state() != MaintenanceRunState.RUNNING) return lastRun;
+        authority.run();
+        var run = lastRun.orElseThrow();
+        var evidence = target.connector().reconcile(run.runId(),
+                run.details().get(CLUSTERING_REVISION), authority);
+        authority.run();
+        if (evidence.aborted()) {
+            String reason = "Unpublished rewrite fenced at the catalog";
+            var stopped = policyService.finishRun(run, MaintenanceRunState.FAILED, "",
+                    Map.of("reason", reason));
+            audit(context, target.name(), target.record(), stopped, reason);
+            return Optional.of(stopped);
+        }
+        return evidence.snapshot().isPresent()
+                ? Optional.of(finishClustering(target, context, run, evidence.snapshot())) : lastRun;
+    }
+
+    private TableMaintenanceRun finishClustering(
+            ClusteringTarget target, QuerySession context, TableMaintenanceRun run, OptionalLong snapshot) {
+        String version = snapshot.isPresent() ? Long.toString(snapshot.getAsLong()) : run.versionBefore();
+        var completed = policyService.finishRun(run, MaintenanceRunState.SUCCEEDED, version,
+                Map.of("published", Boolean.toString(snapshot.isPresent())));
+        audit(context, target.name(), target.record(), completed, null);
+        return completed;
     }
 
     /** CALL uses the same ownership, policy, lease and identity boundary as maintenance SQL. */
@@ -111,6 +316,9 @@ public final class ControlledTableMaintenance {
         MaintenanceOperation operation = MaintenanceOperation.parse(procedure)
                 .orElseThrow(() -> new AccessDeniedException("Procedure " + procedure
                         + " has no table-control maintenance policy; execution is not authorized"));
+        if (operation == MaintenanceOperation.RECLUSTER) {
+            throw new AccessDeniedException("Use RECLUSTER TABLE for governed clustering");
+        }
         return execute(operation, ref, context, MODE_MANUAL, arguments);
     }
 
