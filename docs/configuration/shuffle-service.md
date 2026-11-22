@@ -181,6 +181,8 @@ All peers use mutual TLS. The advertised host and TLS identity must match the ce
 an identity mismatch fails the read or registration path rather than falling back to an
 unverified connection.
 
+Set the capability lifetime at least as long as the longest task timeout for queries that use remote Shuffle. A Worker verifies that its read capability covers the task deadline before admitting the task. The default task timeout is five minutes.
+
 ## limits
 
 | Key | Type | Default | Constraint |

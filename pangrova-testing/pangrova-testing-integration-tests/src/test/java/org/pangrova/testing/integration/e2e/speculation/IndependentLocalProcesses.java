@@ -8,6 +8,7 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
@@ -55,7 +56,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final Inet4Address advertisedAddress;
     private final boolean speculation;
     private final String cdcKafkaBootstrap;
-    private final boolean localShuffle;
+    private final ShuffleMode shuffleMode;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
     private final TestTlsAuthority tls;
@@ -68,6 +69,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2)).build();
     private OwnedProcess coordinator;
+    private ProcessRemoteShuffle remoteShuffle;
     private final int coordinatorPort;
     private boolean closed;
     private boolean preserveDiagnostics;
@@ -89,33 +91,39 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
                                       boolean speculation) throws Exception {
-        this(functions, speculation, false);
+        this(functions, speculation, ShuffleMode.NATIVE);
     }
 
     static IndependentLocalProcesses diskShuffle() throws Exception {
-        return new IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT, false, true);
+        return new IndependentLocalProcesses(
+                org.pangrova.worker.function.NativeFunctionConfig.DEFAULT, false, ShuffleMode.LOCAL);
+    }
+
+    static IndependentLocalProcesses remoteShuffle() throws Exception {
+        return new IndependentLocalProcesses(
+                org.pangrova.worker.function.NativeFunctionConfig.DEFAULT, false, ShuffleMode.REMOTE);
     }
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
-            boolean speculation, boolean localShuffle) throws Exception {
-        this(functions, speculation, localShuffle, null, false);
+            boolean speculation, ShuffleMode shuffleMode) throws Exception {
+        this(functions, speculation, shuffleMode, null, false);
     }
 
     static IndependentLocalProcesses cdc(String kafkaBootstrap) throws Exception {
         return new IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT,
-                false, false, java.util.Objects.requireNonNull(kafkaBootstrap), false);
+                false, ShuffleMode.NATIVE, java.util.Objects.requireNonNull(kafkaBootstrap), false);
     }
 
     static IndependentLocalProcesses indexed(org.pangrova.worker.function.NativeFunctionConfig functions)
             throws Exception {
-        return new IndependentLocalProcesses(functions, false, false, null, true);
+        return new IndependentLocalProcesses(functions, false, ShuffleMode.NATIVE, null, true);
     }
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
-            boolean speculation, boolean localShuffle, String cdcKafkaBootstrap, boolean indexing) throws Exception {
+            boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing) throws Exception {
         this.cdcKafkaBootstrap = cdcKafkaBootstrap;
         this.indexing = indexing;
-        this.localShuffle = localShuffle;
+        this.shuffleMode = shuffleMode;
         this.speculation = speculation;
         this.functions = java.util.Objects.requireNonNull(functions, "functions");
         if (!functions.autoRegister()) {
@@ -143,11 +151,14 @@ final class IndependentLocalProcesses implements AutoCloseable {
         int chosenPort;
         try {
             createdWarehouse = Files.createDirectory(workspace.resolve("warehouse"));
-            createdSecurity = new ProcessSecurityAuthority(SharedTestContainers.NETWORK);
+            createdSecurity = new ProcessSecurityAuthority(
+                    SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
             createdReports = new ProcessStatusReportRelay();
             createdTls = new TestTlsAuthority(workspace);
             createdClient = createdTls.issue("local-client", "localhost", false);
-            createdCoordinator = createdTls.issue("local-coordinator", advertisedAddress, false);
+            String coordinatorDns = shuffleMode == ShuffleMode.REMOTE
+                    ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : null;
+            createdCoordinator = createdTls.issue("local-coordinator", advertisedAddress, coordinatorDns, false);
             workerIdentities.put("local-worker-1",
                     createdTls.issue("local-worker-1", advertisedAddress, false));
             workerIdentities.put("local-worker-2",
@@ -178,6 +189,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     void startCoordinatorAndFirstWorker() throws Exception {
         security.start();
+        if (shuffleMode == ShuffleMode.REMOTE) {
+            remoteShuffle = ProcessRemoteShuffle.start(workspace, security, tls, availablePort());
+        }
         reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
         startQueryControlPlane();
     }
@@ -376,6 +390,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
     String hostJdbcUrl() { return security.hostJdbcUrl(); }
     javax.sql.DataSource metadataDataSource() { return security.dataSource(); }
     int coordinatorPort() { return coordinatorPort; }
+    String coordinatorLog() throws IOException { return Files.readString(coordinator.log()); }
+    boolean remoteShuffleObjectsReleased() { return remoteShuffle.objectsReleased(); }
     HttpResponse<byte[]> replayReport(ProcessStatusReportRelay.Delivery actual) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + coordinatorPort
                         + "/v1/task/status-report"))
@@ -680,8 +696,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 """.formatted(coordinatorPort, role,
                 internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
-                tls.root(), localShuffle ? "LOCAL" : "NATIVE", advertisedAddress.getHostAddress(),
-                security.hostJdbcUrl(), security.hostLdapUrl(), indexing);
+                tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",
+                security.hostJdbcUrl(), security.hostLdapUrl(), indexing)
+                + (remoteShuffle == null ? "" : "coordinator.shuffle.endpoints: " + remoteShuffle.endpoint() + "\n");
     }
 
     private String workerYaml(String id, Path spill, Path shuffleSpill) throws IOException {
@@ -734,7 +751,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 """.formatted(workspace.resolve("admission-" + id), id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
-                spill, localShuffle ? "LOCAL" : "NATIVE", shuffleSpill, indexing,
+                spill, shuffleMode, shuffleSpill, indexing,
                 workspace.resolve(id + "-artifact-cache"), cdcKafkaBootstrap != null)
                 + aiWorkerYaml() + (cdcKafkaBootstrap == null ? "" : "worker.cdc.kafka.bootstrap-servers: "
                         + JsonMapperFactory.shared().writeValueAsString(cdcKafkaBootstrap) + "\n");
@@ -900,7 +917,17 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 interrupted[0] |= Thread.interrupted();
             }
         }
-        if (reportsClosed && !securityClosed) {
+        if (reportsClosed && remoteShuffle != null) {
+            try {
+                remoteShuffle.close();
+                remoteShuffle = null;
+            } catch (Exception cleanup) {
+                if (failure == null) failure = cleanup;
+                else failure.addSuppressed(cleanup);
+                interrupted[0] |= Thread.interrupted();
+            }
+        }
+        if (reportsClosed && remoteShuffle == null && !securityClosed) {
             try {
                 security.close();
                 securityClosed = true;

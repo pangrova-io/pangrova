@@ -88,7 +88,7 @@ unlisted: true
 | Q0 归因基线 | Observability、Testing、Planner、Worker Native | 每个查询能复核实际物理计划、行/字节和关键路径。版本、资源、快照和结果相同的窗口可以重放 |
 | Q1 控制面 | Client、Transport、Query、Coordination、Worker | 短查询真实首批与完成改善。混合高负载下取消/终态和租户资源有界，前述清理计划的零读库验收保留 |
 | Q2 扫描与动态过滤 | Connectors、Planner、Coordination、Worker Native | 物理扫描字节和最长分片实测下降，覆盖完整。真实 SQL 的跨 stage filter 在 probe 到达前产生可见剪裁，晚到/缺失仍返回等价结果 |
-| Q3 物理计划 | Planner、Protocol、Native、Shuffle | 掌握算子阶段和两侧分区，局部聚合实测减少 Shuffle。启用 AQE 前通过映射完整性、重试与 SQL 等价验证 |
+| Q3 物理计划 | Planner、Protocol、Native、Shuffle | 单输入 AQE 已通过真实 SQL 的四分区到单消费任务与完整结果验证。量化局部聚合、阈值和尾时延，并对多输入、偏斜与重放验证映射完整性 |
 | Q4 Native 与结果 | Worker Native、Transport、Client、Testing | 对比同一运算和相同消费后，确认被改路径的 CPU/bytes、峰值内存或端到端耗时下降 |
 
 Q0 先行，Q1 与 Q2 可独立验证。Q3 在有统计和 Exchange 覆盖证据后分别提交 Join 分布、预聚合和 AQE 改动。Q4 只修改已经归因的路径。性能对齐的发布证据包含报告、版本和数据身份、覆盖率和仍有差距的 SQL。
