@@ -207,9 +207,10 @@ public final class SplitFetcher {
         }
 
         Constraint constraint = desc.constraint();
+        var nativeBinding = NativeReadSplitBinding.prepare(catalog, session);
         List<ConnectorSplit> splits = drainSplits(catalog, session, tableHandle, constraint);
         LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size());
-        return splits.stream().map(split -> NativeReadSplitBinding.bind(split, catalog, session)).toList();
+        return splits.stream().map(nativeBinding::bind).toList();
     }
 
     private static ConnectorTableHandle applySnapshotOverride(

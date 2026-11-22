@@ -102,6 +102,7 @@ public final class SnapshotGenerationSplitPlanner {
             ConnectorSession session,
             ConnectorTableHandle pinned,
             String snapshotToken) {
+        var nativeBinding = NativeReadSplitBinding.prepare(catalog, session);
         ConnectorSplitSource source = catalog.getSplitManager().getSplits(
                 ConnectorTransactionHandle.empty(),
                 session,
@@ -123,7 +124,7 @@ public final class SnapshotGenerationSplitPlanner {
                 }
                 for (ConnectorSplit split : batch) {
                     result.add(validateSplit(
-                            NativeReadSplitBinding.bind(split, catalog, session), snapshotToken, objectIds));
+                            nativeBinding.bind(split), snapshotToken, objectIds));
                     if (result.size() > MAX_SPLITS) {
                         throw validation(
                                 "Snapshot exceeds the durable split planning limit: "

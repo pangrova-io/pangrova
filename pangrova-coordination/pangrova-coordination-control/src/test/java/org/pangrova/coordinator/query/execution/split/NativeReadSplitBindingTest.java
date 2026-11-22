@@ -49,34 +49,35 @@ class NativeReadSplitBindingTest {
     @Test
     void bindsOnlyTheCurrentTrustedDeploymentAndPreservesPhysicalIdentity() throws Exception {
         DataSplit source = split();
-        DataSplit bound = DataSplit.parseFrom(NativeReadSplitBinding.bind(
-                source.toByteArray(), catalog, session("tenant-a")));
+        var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
+        DataSplit bound = DataSplit.parseFrom(binding.bind(source.toByteArray()));
         assertThat(bound.getCatalog()).isEqualTo(CatalogExecutionBindings.from(catalog.getDescriptor()));
         assertThat(bound.toBuilder().clearCatalog().build()).isEqualTo(source);
-        assertThat(NativeReadSplitBinding.bind(bound.toByteArray(), catalog, session("tenant-a")))
-                .isEqualTo(bound.toByteArray());
+        assertThat(binding.bind(bound.toByteArray())).isEqualTo(bound.toByteArray());
+        catalog.setState(CatalogState.SUSPENDED);
+        assertThatThrownBy(() -> binding.bind(source.toByteArray()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed during enumeration");
     }
 
     @Test
     void rejectsAStaleOrForgedDeploymentRatherThanOverwritingIt() {
         var stale = CatalogExecutionBindings.from(catalog.getDescriptor()).toBuilder()
                 .setCatalogRevision(catalog.getDescriptor().revision() + 1).build();
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(
-                split().toBuilder().setCatalog(stale).build().toByteArray(), catalog, session("tenant-a")))
+        var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
+        assertThatThrownBy(() -> binding.bind(split().toBuilder().setCatalog(stale).build().toByteArray()))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("conflicts");
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(
-                split().toBuilder().setConnectorId("other").build().toByteArray(), catalog, session("tenant-a")))
+        assertThatThrownBy(() -> binding.bind(split().toBuilder().setConnectorId("other").build().toByteArray()))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
     void rejectsSuspendedCatalogUnauthorizedTenantAndAnonymousIdentity() {
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session("tenant-b")))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session("tenant-b")))
                 .isInstanceOf(AccessDeniedException.class);
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session(null)))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session(null)))
                 .isInstanceOf(AccessDeniedException.class);
         catalog.setState(CatalogState.SUSPENDED);
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session("tenant-a")))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session("tenant-a")))
                 .isInstanceOf(AccessDeniedException.class);
     }
 

@@ -196,6 +196,10 @@ passed directly to Native. Native receives only canonical `DataSplit` values;
 Iceberg/Paimon read fields live in the typed `FileSplitDetail` packed into
 `connector_detail`.
 
+The Coordinator prepares one catalog deployment fingerprint per Paimon or Lance
+split enumeration. Each split checks that the deployment is still active
+and carries that exact fingerprint into Native.
+
 ```protobuf
 /**
  * PangrovaReadExtension — table-level read extension within the Substrait Plan
