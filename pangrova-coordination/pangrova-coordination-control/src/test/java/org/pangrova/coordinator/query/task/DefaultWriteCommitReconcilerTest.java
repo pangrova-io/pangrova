@@ -20,6 +20,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,11 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
     }
 
     private static WriteCommitEntry pending(String tableName, List<byte[]> fragments, String writeMode) {
+        return pending(tableName, fragments, writeMode, null);
+    }
+
+    private static WriteCommitEntry pending(String tableName, List<byte[]> fragments, String writeMode,
+            CdcSourceIdentity cdcSource) {
         byte[] binding = ConnectorWriteBindingFactory.create(
                 catalog(new RecordingMetadata()),
                 new TestOutputHandle(new SchemaTableName("sales", "orders"), writeMode, false))
@@ -86,7 +92,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                         37L,
                         binding,
                         "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null),
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null, cdcSource),
                 fragments);
         return new WriteCommitEntry(
                 "q1",
@@ -106,7 +112,22 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 null,
                 null,
                 0L,
-                null, null, null);
+                null, null, cdcSource);
+    }
+
+    @Test
+    void quarantinesLegacyCdcMutationOnAConnectorWithoutAnOrderedSink() {
+        var metadata = new RecordingMetadata();
+        var reconciler = new DefaultWriteCommitReconciler(
+                new InMemoryWriteCommitJournal(), ignored -> catalog(metadata));
+        var source = new CdcSourceIdentity("orders", "checkpoint-1",
+                List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 10, 11)));
+
+        var outcome = reconciler.reconcile(pending(TABLE, List.of(new byte[]{1}), "MERGE", source));
+
+        assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
+        assertThat(metadata.decodeCount.get()).isZero();
+        assertThat(metadata.finishCount.get()).isZero();
     }
 
     @Test

@@ -79,6 +79,16 @@ public interface ConnectorWriteMetadata {
         throw new UnsupportedOperationException("beginMerge not supported");
     }
 
+    /** Allocates a row-kind-aware CDC sink against the exact target table. */
+    default ConnectorOutputTableHandle beginCdcMerge(ConnectorSession session, ConnectorTableHandle table) {
+        return beginMerge(session, table);
+    }
+
+    /** Whether merge handles can stage and replay before and after images through the CDC sink. */
+    default boolean supportsCdcMutations() {
+        return false;
+    }
+
     /** Begins an overwrite operation that atomically replaces all data in a table. */
     default ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
         throw new UnsupportedOperationException("beginOverwrite not supported");

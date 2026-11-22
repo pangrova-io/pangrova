@@ -120,8 +120,7 @@ public final class TaskStatusReceiver {
                 == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST) {
             var completions = cdcCompletions;
             if (completions == null) return false;
-            return completions.accept(expectedRequest, report,
-                    validation.canonicalStatus().orElseThrow());
+            return completions.accept(expectedRequest, report, validation.canonicalStatus());
         }
 
         boolean durableWork = isBackgroundTask(expectedRequest);
@@ -237,8 +236,8 @@ public final class TaskStatusReceiver {
         // Resource termination is exact-issued-attempt evidence. Retain it
         // before notifying the DAG, whose terminal callbacks can retire identity.
         if (expected != null) recordExecutionDrain(expected, validation);
-        if (expected != null && taskTracker.getTaskRequest(report.taskId()) == null) {
-            return true; // exact drain observer retired a speculative loser, not a new winner
+        if (isRetiredDrainedAttempt(report)) {
+            return true;
         }
         return processAcceptedStatus(report, owner, durable);
     }
@@ -272,7 +271,7 @@ public final class TaskStatusReceiver {
                     queryId, taskId, report, owningCoordinator);
         }
         if (!updateTaskState(queryId, taskId, report)) {
-            return false;
+            return isRetiredDrainedAttempt(report);
         }
 
         // Durable producer and export reports are committed before the shared
@@ -402,13 +401,20 @@ public final class TaskStatusReceiver {
         } catch (IllegalArgumentException e) {
             // The elected attempt can retire this loser after validation but
             // before its in-flight status reaches the state machine.
-            if (taskTracker.getTaskAttempt(taskId) == null) {
+            if (taskTracker.getTaskAttempt(taskId) == null || isRetiredDrainedAttempt(report)) {
                 return false;
             }
             throw e;
         }
     }
 
+
+    private boolean isRetiredDrainedAttempt(TaskStatusReport report) {
+        // An in-flight publication retains the issued request after speculative
+        // cancellation has removed its task state. Still acknowledge the exact
+        // report so its publication and drain obligations can complete.
+        return taskTracker.isRetiredDrainedAttempt(report.queryId(), report.taskId(), report.attempt());
+    }
 
     private static boolean isFinishedState(String state) {
         return "FINISHED".equals(state);

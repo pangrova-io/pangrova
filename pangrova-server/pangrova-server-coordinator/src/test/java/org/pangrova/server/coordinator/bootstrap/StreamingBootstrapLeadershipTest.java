@@ -74,8 +74,8 @@ class StreamingBootstrapLeadershipTest extends ContainerTestBase {
                     s -> { throw new AssertionError("follower must not create a sink"); }), "coordinator-b");
             var followerDdl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, followerScheduler, config,
                     CdcSourceRegistry.discover(getClass().getClassLoader())));
-            try (var bootstrap = new StreamingBootstrap(ddl, scheduler, null, null, null, null);
-                    var follower = new StreamingBootstrap(followerDdl, followerScheduler, null, null, null, null)) {
+            try (var bootstrap = new StreamingBootstrap(ddl, scheduler, null, null, null, null, null);
+                    var follower = new StreamingBootstrap(followerDdl, followerScheduler, null, null, null, null, null)) {
                 scheduler.start(state);
                 followerScheduler.start(state);
                 assertThat(created.get()).isZero();

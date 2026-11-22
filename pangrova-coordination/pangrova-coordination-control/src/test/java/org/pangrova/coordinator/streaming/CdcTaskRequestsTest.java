@@ -62,7 +62,7 @@ class CdcTaskRequestsTest {
                 .setNativeMemoryBytes(1_048_576).build();
     }
 
-    private static CdcIngestBinding binding() {
+    static CdcIngestBinding binding() {
         return CdcIngestBinding.newBuilder()
                 .setStreamId("stream-1")
                 .setTenantId("tenant-a")
@@ -72,6 +72,7 @@ class CdcTaskRequestsTest {
                 .setTargetTableUuid("00000000-0000-0000-0000-000000000001")
                 .setCommitIntentId("commit-1")
                 .setBaseSnapshotId(42L)
+                        .addAllowedOperations(org.pangrova.protocol.v2.CdcWriteOperation.CDC_WRITE_OPERATION_INSERT)
                 .setCommitIdentitySha256(Checksum.newBuilder()
                         .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(ByteString.copyFrom(new byte[32])))

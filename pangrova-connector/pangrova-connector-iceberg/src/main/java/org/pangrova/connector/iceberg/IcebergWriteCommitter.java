@@ -62,6 +62,16 @@ final class IcebergWriteCommitter {
         }
         IcebergCollectedFragments collected =
                 IcebergFragmentParser.collectAllFragments(icebergTable, handle, fragments);
+        boolean cdc = context != null && context.cdcSource() != null;
+        boolean cdcMutation = cdc && !IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode());
+        boolean hasCdcFragment = IcebergFragmentParser.CDC_MERGE.equals(collected.operation());
+        if (cdcMutation != hasCdcFragment || (cdcMutation && (!handle.requiresSingleCdcRange()
+                || fragments.size() != 1))) {
+            throw new UnsupportedOperationException("Iceberg CDC MERGE requires one typed mutation fragment");
+        }
+        if (cdc && !cdcMutation && collected.operation() != null && !"APPEND".equals(collected.operation())) {
+            throw new UnsupportedOperationException("Iceberg CDC INSERT accepts only append fragments");
+        }
         if (collected.operation() == null) {
             handleEmptyFragments(icebergTable, handle, tenantId, context);
             return;
@@ -235,7 +245,7 @@ final class IcebergWriteCommitter {
                     commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicDelete(
                                     icebergTable, handle, collected.deleteFiles(), tenantId, context), tableId);
-            case "MERGE" ->
+            case "MERGE", IcebergFragmentParser.CDC_MERGE ->
                     commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicMerge(icebergTable, handle,
                                     collected.dataFiles(), collected.deleteFiles(), tenantId, context), tableId);
@@ -373,7 +383,8 @@ final class IcebergWriteCommitter {
                                    List<DeleteFile> deleteFiles,
                                    String tenantId,
                                    DistributedWriteCommitContext context) {
-        if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
+        boolean cdc = context != null && context.cdcSource() != null;
+        if (!cdc && dataFiles.isEmpty() && deleteFiles.isEmpty()) {
             return;
         }
         List<DeleteFile> mergedDeleteFiles = mergeDeletionVectorsByDataFile(
@@ -381,7 +392,9 @@ final class IcebergWriteCommitter {
         // F-ICEBERG-01/04: validate from baseSnapshotId
         final long baseSnapshotIdMerge = handle.baseSnapshotId();
         commitExecutor.executeIdempotently(icebergTable, context, () -> {
-            var rowDelta = IcebergDeclarationCommit.bind(catalog, icebergTable, handle).newRowDelta();
+            var bound = cdc ? IcebergDeclarationCommit.bindCdcBase(catalog, icebergTable, handle)
+                    : IcebergDeclarationCommit.bind(catalog, icebergTable, handle);
+            var rowDelta = bound.newRowDelta();
             if (baseSnapshotIdMerge != IcebergOutputTableHandle.NO_SNAPSHOT) {
                 rowDelta.validateFromSnapshot(baseSnapshotIdMerge);
                 rowDelta.validateNoConflictingDataFiles();

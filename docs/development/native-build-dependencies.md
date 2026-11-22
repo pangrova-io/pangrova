@@ -53,8 +53,10 @@ arguments under `set -u`, while populated arrays preserve paths containing space
 CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
 jobs, keeping the compiler compatible with both the pinned Velox sources and the
 distribution's C++ libraries. It links a small static gflags consumer before
-building dependencies to catch ABI mismatches early. On macOS, CI selects an
-installed Homebrew LLVM of version 15 or newer, preferring the existing `llvm`
+building dependencies to catch ABI mismatches early. After a failed Native
+build, CI prints Ninja's JNI library link command to show the selected inputs.
+On macOS, CI selects an installed Homebrew LLVM of version 15 or newer,
+preferring the existing `llvm`
 (or newest installed `llvm@*`) formula instead of installing a possibly
 unavailable Intel bottle; only a machine without a suitable LLVM installs
 `llvm@17`. The selected prefix is exported as `PANGROVA_LLVM_PREFIX`. Without an
@@ -65,7 +67,8 @@ instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
 The same check requires the Homebrew Bison executable to satisfy Velox's
 minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
-keg when its executable is missing.
+keg when its executable is missing. CI also provisions the Flex keg and compiles
+against its `FlexLexer.h`, which Velox's generated C++ scanner includes.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
@@ -164,11 +167,13 @@ only in the build rules, not the cache. Pangrova asks the same helper for that
 baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
-Native test runs build the Java fixture with the project reactor, which
-resolves the locally published Iceberg candidate. Native and sanitizer jobs
-restore the Maven dependency cache with their fixture JDK setup, before the
-Iceberg SDK action publishes the pinned candidate locally. The reactor still
-builds the fixture from the checked-out source.
+Native and sanitizer jobs prepare the Lance Java fixture before compiling
+Native dependencies. They restore the fixture's Maven dependencies, publish
+the pinned Iceberg SDK locally, and build the broker from the checked-out
+reactor. The Maven dependency cache is saved as soon as the broker is ready.
+CTest uses that broker in the same checkout. Local test runs prepare it at
+startup unless given `--prepared-java` with a directory produced by
+`--prepare-java`.
 
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from

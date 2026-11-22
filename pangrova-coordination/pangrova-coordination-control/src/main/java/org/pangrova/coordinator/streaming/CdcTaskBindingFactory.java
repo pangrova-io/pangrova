@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.protocol.v2.CdcIngestBinding;
 import org.pangrova.protocol.v2.CdcSourceRange;
+import org.pangrova.protocol.v2.CdcWriteOperation;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
@@ -30,7 +31,7 @@ import java.util.Objects;
  */
 public final class CdcTaskBindingFactory {
 
-    private static final String INTENT_VERSION = "pangrova-cdc-task-intent-v1";
+    private static final String INTENT_VERSION = "pangrova-cdc-task-intent-v2";
 
     private CdcTaskBindingFactory() {}
 
@@ -62,8 +63,12 @@ public final class CdcTaskBindingFactory {
         }
         String commitIntentId = attempt.getTaskId() + ":" + attempt.getPlanEpoch();
         byte[] writeBinding = writePlan.writeBinding().toByteArray();
+        List<CdcWriteOperation> operations = CdcWriteAuthority.privileges(stream).stream()
+                .map(privilege -> CdcWriteOperation.valueOf("CDC_WRITE_OPERATION_" + privilege.name()))
+                .sorted()
+                .toList();
         byte[] identity = identity(attempt, stream, writeBinding, ordered,
-                targetTableUuid, baseSnapshotId);
+                targetTableUuid, baseSnapshotId, operations);
         CdcIngestBinding.Builder binding = CdcIngestBinding.newBuilder()
                 .setStreamId(stream.streamName())
                 .setTenantId(security.getTenantId())
@@ -76,7 +81,8 @@ public final class CdcTaskBindingFactory {
                         .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(ByteString.copyFrom(identity)))
                 .setTargetTableUuid(targetTableUuid)
-                .setBaseSnapshotId(baseSnapshotId);
+                .setBaseSnapshotId(baseSnapshotId)
+                .addAllAllowedOperations(operations);
         for (CdcTaskRange range : ordered) {
             binding.addRanges(CdcSourceRange.newBuilder()
                     .setTopic(range.topic()).setPartition(range.partition())
@@ -91,7 +97,8 @@ public final class CdcTaskBindingFactory {
             byte[] writeBinding,
             List<CdcTaskRange> ranges,
             String targetTableUuid,
-            long baseSnapshotId) {
+            long baseSnapshotId,
+            List<CdcWriteOperation> operations) {
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -116,6 +123,10 @@ public final class CdcTaskBindingFactory {
                 out.write(writeBinding);
                 writeString(out, targetTableUuid);
                 out.writeLong(baseSnapshotId);
+                out.writeInt(operations.size());
+                for (var operation : operations) {
+                    out.writeInt(operation.getNumber());
+                }
             }
             return DigestUtils.sha256().digest(bytes.toByteArray());
         } catch (IOException impossible) {

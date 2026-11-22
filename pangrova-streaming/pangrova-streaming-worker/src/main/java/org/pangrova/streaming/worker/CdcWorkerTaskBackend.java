@@ -4,6 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.protocol.v2.CdcIngestBinding;
 import org.pangrova.protocol.v2.CdcSourceRange;
+import org.pangrova.protocol.v2.CdcWriteOperation;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.protocol.v2.TaskKind;
@@ -22,10 +23,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -42,6 +43,7 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
 
     private static final Logger LOG = LoggerFactory.getLogger(CdcWorkerTaskBackend.class);
     private static final int MAX_ERROR_MESSAGE_LENGTH = 4096;
+    private static final long SHUTDOWN_TIMEOUT_MS = 30_000L;
 
     private final CdcWorkerTaskResourcesProvider resources;
     private final CdcWorkerTaskOptions options;
@@ -52,6 +54,7 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
     });
     private final ConcurrentHashMap<Long, Session> sessions = new ConcurrentHashMap<>();
     private final AtomicLong nextHandle = new AtomicLong();
+    private boolean closed;
 
     public CdcWorkerTaskBackend(
             CdcWorkerTaskResourcesProvider resources, CdcWorkerTaskOptions options) {
@@ -65,7 +68,10 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
     }
 
     @Override
-    public long create(TaskRequest request) {
+    public synchronized long create(TaskRequest request) {
+        if (closed) {
+            throw new IllegalStateException("Worker CDC backend is closed");
+        }
         Objects.requireNonNull(request, "request");
         if (request.getTaskKind() != TaskKind.TASK_KIND_CDC_INGEST
                 || !request.hasCdcIngest() || !request.hasAttempt()) {
@@ -76,7 +82,8 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
         if (!binding.getTenantId().equals(request.getSecurity().getTenantId())
                 || binding.getStreamId().isBlank()
                 || binding.getSourceOwnershipEpoch().isBlank()
-                || binding.getRangesCount() == 0) {
+                || binding.getRangesCount() == 0
+                || binding.getAllowedOperationsCount() == 0) {
             throw new IllegalArgumentException(
                     "Worker CDC binding differs from its admitted task identity");
         }
@@ -135,10 +142,11 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        closed = true;
         sessions.values().forEach(Session::cancel);
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, SHUTDOWN_TIMEOUT_MS);
         sessions.clear();
-        executor.shutdownNow();
     }
 
     private Session requireSession(long handle) {
@@ -153,7 +161,8 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
         private final TaskRequest request;
         private final CdcRangeIngestSpec spec;
         private final AtomicBoolean cancelled = new AtomicBoolean();
-        private volatile Future<?> future;
+        private boolean started;
+        private Thread runner;
         private volatile byte[] terminalReport;
         private volatile List<byte[]> stagedFragments = List.of();
 
@@ -162,26 +171,34 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
             this.spec = spec;
         }
 
-        private void start() {
+        private synchronized void start() {
             if (terminalReport != null) {
                 return;
             }
-            future = executor.submit(this::run);
+            if (started) {
+                throw new IllegalStateException("Worker CDC task was already started");
+            }
+            executor.execute(this::run);
+            started = true;
         }
 
         private boolean isFinished() {
             return terminalReport != null;
         }
 
-        private void cancel() {
+        private synchronized void cancel() {
+            if (terminalReport != null) return;
             cancelled.set(true);
-            Future<?> running = future;
-            if (running != null) {
-                running.cancel(true);
+            if (runner == null) {
+                terminalReport = cancelledReport();
+            } else {
+                runner.interrupt();
             }
-            complete(failure(TaskState.TASK_STATE_CANCELLED,
-                    ErrorClass.ERROR_CLASS_CANCELLED, "TASK_CANCELLED",
-                    "CDC task was cancelled by the control plane"));
+        }
+
+        private byte[] cancelledReport() {
+            return failure(TaskState.TASK_STATE_CANCELLED, ErrorClass.ERROR_CLASS_CANCELLED,
+                    "TASK_CANCELLED", "CDC task was cancelled by the control plane");
         }
 
         private List<byte[]> commitFragments() {
@@ -197,37 +214,49 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
         }
 
         private void run() {
-            CdcWorkerTaskResources opened = null;
+            synchronized (this) {
+                if (terminalReport != null) return;
+                runner = Thread.currentThread();
+            }
+            byte[] report;
+            List<byte[]> fragments = List.of();
             try {
-                opened = resources.open(request);
-                CdcRangeIngestResult result = new CdcRangeIngestor(
-                        spec, opened.sourceReader(), opened.converter(), opened.writer(),
-                        cancelled::get).ingest();
-                stagedFragments = result.commitFragments();
-                complete(WorkerTerminalTaskReports.workerExecuted(request));
+                CdcRangeIngestResult result;
+                try (var opened = resources.open(request)) {
+                    Set<CdcWriteOperation> allowed = Set.copyOf(request.getCdcIngest().getAllowedOperationsList());
+                    result = new CdcRangeIngestor(spec, opened.sourceReader(), opened.converter(), envelopes -> {
+                        for (var envelope : envelopes) {
+                            var operation = CdcWriteOperation.valueOf(
+                                    "CDC_WRITE_OPERATION_" + envelope.operation().name());
+                            if (!allowed.contains(operation)) {
+                                throw new IllegalArgumentException(
+                                        "CDC stream is not authorized for " + envelope.operation());
+                            }
+                        }
+                        return opened.writer().writeBatch(envelopes);
+                    }, cancelled::get).ingest(opened.writer().requiresSingleRange());
+                }
+                fragments = result.commitFragments();
+                report = WorkerTerminalTaskReports.workerExecuted(request);
                 LOG.info("event=worker_cdc_task_completed stream={} records={} fragments={}",
-                        spec.streamId(), result.consumedRecordCount(),
-                        result.commitFragments().size());
+                        spec.streamId(), result.consumedRecordCount(), fragments.size());
             } catch (CdcIngestCancelledException cancelledTask) {
-                complete(failure(TaskState.TASK_STATE_CANCELLED,
-                        ErrorClass.ERROR_CLASS_CANCELLED, "TASK_CANCELLED",
-                        cancelledTask.getMessage()));
+                report = cancelledReport();
             } catch (RuntimeException | Error failure) {
-                complete(failure(TaskState.TASK_STATE_FAILED,
+                report = failure(TaskState.TASK_STATE_FAILED,
                         ErrorClass.ERROR_CLASS_INTERNAL, "CDC_INGEST_FAILED",
-                        failure.getMessage() == null
-                                ? failure.getClass().getSimpleName() : failure.getMessage()));
+                        failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());
                 LOG.error("event=worker_cdc_task_failed stream={}", spec.streamId(), failure);
-            } finally {
-                closeQuietly(opened);
             }
-        }
-
-        private synchronized void complete(byte[] report) {
-            if (terminalReport != null) {
-                return;
+            synchronized (this) {
+                runner = null;
+                if (cancelled.get()) {
+                    terminalReport = cancelledReport();
+                } else {
+                    stagedFragments = fragments;
+                    terminalReport = report;
+                }
             }
-            terminalReport = report;
         }
 
         private byte[] failure(TaskState state, ErrorClass errorClass, String code, String detail) {
@@ -245,14 +274,4 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
         }
     }
 
-    private static void closeQuietly(CdcWorkerTaskResources resources) {
-        if (resources == null) {
-            return;
-        }
-        try {
-            resources.close();
-        } catch (RuntimeException failure) {
-            LOG.warn("event=worker_cdc_resource_close_failed", failure);
-        }
-    }
 }

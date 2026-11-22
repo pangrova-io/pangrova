@@ -433,13 +433,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Kafka: production stream I/O lives in pangrova-streaming; coordinator tests produce records directly. -->
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>kafka-clients</artifactId>
-            <scope>test</scope>
-        </dependency>
-
         <!-- Test dependencies -->
         <!-- Actual PG + fixed SDK source-authority fixtures; no production connector dependency. -->
         <dependency>
@@ -480,13 +473,6 @@
             <type>test-jar</type>
             <version>${project.version}</version>
             <classifier>tests</classifier>
-            <scope>test</scope>
-        </dependency>
-        <!-- Real Paimon Parquet SDK component tests; dependency is test-only in the connector. -->
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-mapreduce-client-core</artifactId>
-            <version>${hadoop.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

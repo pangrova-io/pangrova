@@ -66,6 +66,8 @@ WITH (
 | MERGE INTO | Supported | Row-level deletes via position delete files |
 | INSERT OVERWRITE | Supported | Dynamic and static overwrite |
 | COMPACT / OPTIMIZE | Connector procedures and standalone statement | `CALL catalog.compact(...)` performs compaction; the standalone SQL statement uses the controlled maintenance backend |
+| Clustering | Native sort declaration or interleaved keys | [Bounded Iceberg v2 rewrite](../../sql-reference/maintenance.md#clustering) with Worker staging and fenced Coordinator publication |
+| CDC | Append and bounded row mutations | [CDC SQL](../../sql-reference/streaming.md) lists the table, source partition, and row-image requirements |
 | VACUUM | Connector procedures only by default | Standalone `VACUUM` invokes orphan cleanup with a 24-hour cutoff, not snapshot expiration; use `CALL ...remove_orphan_files` / `expire_snapshots` |
 | Hidden partitioning | Supported | year/month/day/hour/bucket/truncate transforms |
 | Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, `$partitions`, and supported projections of `$files`/`$entries`. |
