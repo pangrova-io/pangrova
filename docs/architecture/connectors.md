@@ -303,6 +303,11 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 }
 ```
 
+Each Iceberg scan prepares column mappings once against its selected schema.
+The immutable mappings include historical names and UNKNOWN fields that the
+Native reader must materialize as NULL. File scan tasks share those mappings
+alongside their own residual predicate and delete receipts.
+
 ---
 
 ### 4.3 Managed Lance connector
