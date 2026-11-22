@@ -93,7 +93,6 @@ public record CoordinatorBootstrapConfig(
     public long speculationSingleTaskDurationThresholdMs() {
         return Long.getLong("pangrova.speculation.single-task-duration-threshold-ms", 0L);
     }
-    public boolean pullModeSplitAssignmentEnabled() { return featureFlags.pullModeSplitAssignment(); }
     public boolean cacheWritebackEnabled() { return featureFlags.cacheWriteback(); }
     public boolean indexingEnabled() { return featureFlags.indexing(); }
     public boolean embeddingEnabled() {
@@ -193,7 +192,7 @@ public record CoordinatorBootstrapConfig(
             boolean observability, boolean security, boolean metadata,
             boolean streaming, boolean governance, boolean resilience,
             boolean tenant, boolean operations,
-            boolean speculation, boolean pullModeSplitAssignment,
+            boolean speculation,
             boolean cacheWriteback, boolean indexing,
             boolean embedding, boolean ddlLeaderRouting,
             ShuffleMode shuffleMode, List<String> shuffleEndpoints, String shuffleProvider,
@@ -210,10 +209,10 @@ public record CoordinatorBootstrapConfig(
 
         public FeatureFlags(boolean observability, boolean security, boolean metadata, boolean streaming,
                 boolean governance, boolean resilience, boolean tenant, boolean operations, boolean speculation,
-                boolean pullModeSplitAssignment, boolean cacheWriteback, boolean indexing, boolean embedding,
+                boolean cacheWriteback, boolean indexing, boolean embedding,
                 boolean ddlLeaderRouting, ShuffleMode shuffleMode, List<String> shuffleEndpoints) {
             this(observability, security, metadata, streaming, governance, resilience, tenant, operations, speculation,
-                    pullModeSplitAssignment, cacheWriteback, indexing, embedding, ddlLeaderRouting, shuffleMode,
+                    cacheWriteback, indexing, embedding, ddlLeaderRouting, shuffleMode,
                     shuffleEndpoints, CoordinatorOptions.SHUFFLE_PROVIDER.defaultValue(), java.util.Map.of());
         }
 
@@ -222,10 +221,10 @@ public record CoordinatorBootstrapConfig(
         public FeatureFlags(boolean observability, boolean security, boolean metadata,
                             boolean streaming, boolean governance, boolean resilience,
                             boolean tenant, boolean operations,
-                            boolean speculation, boolean pullModeSplitAssignment,
+                            boolean speculation,
                             boolean cacheWriteback, boolean indexing) {
             this(observability, security, metadata, streaming, governance, resilience,
-                    tenant, operations, speculation, pullModeSplitAssignment,
+                    tenant, operations, speculation,
                     cacheWriteback, indexing, false, false, ShuffleMode.NATIVE, List.of());
         }
 
@@ -233,7 +232,7 @@ public record CoordinatorBootstrapConfig(
                             boolean streaming, boolean governance, boolean resilience,
                             boolean tenant, boolean operations) {
             this(observability, security, metadata, streaming, governance, resilience,
-                    tenant, operations, false, false, false, false,
+                    tenant, operations, false, false, false,
                     false, false, ShuffleMode.NATIVE, List.of());
         }
 
@@ -242,7 +241,7 @@ public record CoordinatorBootstrapConfig(
             return "FeatureFlags[observability=" + observability + ", security=" + security + ", metadata=" + metadata
                     + ", streaming=" + streaming + ", governance=" + governance + ", resilience=" + resilience
                     + ", tenant=" + tenant + ", operations=" + operations + ", speculation=" + speculation
-                    + ", pullModeSplitAssignment=" + pullModeSplitAssignment + ", cacheWriteback=" + cacheWriteback
+                    + ", cacheWriteback=" + cacheWriteback
                     + ", indexing=" + indexing + ", embedding=" + embedding + ", ddlLeaderRouting=" + ddlLeaderRouting
                     + ", shuffleMode=" + shuffleMode + ", shuffleProvider=" + shuffleProvider
                     + ", shuffleEndpointCount=" + shuffleEndpoints.size()
@@ -251,7 +250,7 @@ public record CoordinatorBootstrapConfig(
 
         public static FeatureFlags allDisabled() {
             return new FeatureFlags(false, false, false, false, false, false, false, false,
-                    false, false, false, false, false, false, ShuffleMode.NATIVE, List.of());
+                    false, false, false, false, false, ShuffleMode.NATIVE, List.of());
         }
     }
 

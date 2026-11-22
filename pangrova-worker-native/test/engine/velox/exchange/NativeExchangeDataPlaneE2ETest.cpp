@@ -406,9 +406,9 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   auto runner = makeConsumer(&output, probe, {file});
   runner->start();
   ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
-  auto rawStats = runner->collectTaskStats();
-  pangrova::protocol::v2::NativeTaskStats stats;
-  ASSERT_TRUE(stats.ParseFromArray(rawStats.data(), rawStats.size()));
+  const auto report_stats = runner->collectTaskStats();
+  ASSERT_TRUE(report_stats.has_value());
+  const auto& stats = *report_stats;
   const auto scan = std::find_if(stats.operator_stats().begin(), stats.operator_stats().end(),
       [](const auto& op) { return op.plan_node_id() == "probe-scan"; });
   ASSERT_NE(scan, stats.operator_stats().end());
@@ -774,7 +774,7 @@ TEST_F(
           .count() +
       60'000);
   registry.registerExternalSource(
-      consumerHandle, planNode, exchangeId, deadline, 4 * 1024 * 1024);
+      consumerHandle, planNode, exchangeId, deadline, 4 * 1024 * 1024, 1);
   registry.sealInput(consumerHandle, planNode, exchangeId, 1);
   auto binding = registry.takeSealedInput(consumerHandle, planNode);
   ASSERT_TRUE(binding.has_value());

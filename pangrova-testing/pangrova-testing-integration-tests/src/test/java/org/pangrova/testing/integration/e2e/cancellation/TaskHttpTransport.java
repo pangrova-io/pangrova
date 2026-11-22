@@ -2,7 +2,6 @@ package org.pangrova.testing.integration.e2e.cancellation;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
@@ -147,7 +146,7 @@ final class TaskHttpTransport implements AutoCloseable {
         Submission(byte[] body, Map<String, List<String>> headers) throws IOException {
             this.body = body.clone();
             this.headers = headers;
-            request = JsonMapperFactory.create().readValue(body, SubmitTaskRequest.class);
+            request = SubmitTaskRequest.decode(body);
         }
 
         byte[] body() { return body.clone(); }

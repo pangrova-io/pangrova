@@ -107,11 +107,10 @@ public final class IndexDdlExecutor implements AutoCloseable {
         if (accessControl.getRowFilter(user, tableRef.catalog(), tableRef.schema(), tableRef.table()).isPresent()) {
             throw new AccessDeniedException("Index build cannot bypass a source row filter on " + tableRef);
         }
-        for (String column : columns) {
-            if (accessControl.getColumnMask(
-                    user, tableRef.catalog(), tableRef.schema(), tableRef.table(), column).isPresent()) {
-                throw new AccessDeniedException("Index build cannot bypass a source column mask on " + tableRef);
-            }
+        if (columns.isEmpty()) return;
+        var masks = accessControl.getColumnMasks(user, tableRef.catalog(), tableRef.schema(), tableRef.table());
+        if (columns.stream().anyMatch(column -> masks.mask(column).isPresent())) {
+            throw new AccessDeniedException("Index build cannot bypass a source column mask on " + tableRef);
         }
     }
 

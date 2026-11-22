@@ -5,7 +5,6 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 
-import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -249,8 +248,8 @@ final class CopyNativeInputAssertions {
                 .addSplits(DataSplit.newBuilder().setSplitId("copy-input").setConnectorId("copy")
                         .setSourceId(scope.stagingAttemptId()).setDataObjectId(scope.canonicalSourceUrl())
                         .setOpaqueLocation(scope.canonicalSourceUrl()).setSourceSnapshot(proof.sourceVersionId())
-                        .setLength(proof.contentSize()).setConnectorDetail(Any.pack(FileSplitDetail.newBuilder()
-                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build()))).build();
+                        .setLength(proof.contentSize()).setFileDetail(FileSplitDetail.newBuilder()
+                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build())).build();
         return SubmitTaskRequest.from(request);
     }
 

@@ -2,7 +2,6 @@ package org.pangrova.protocol.rest.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
@@ -29,7 +28,6 @@ import java.util.Map;
 /** Ensures a generic feature export survives the canonical REST transport unchanged. */
 class TabularExportTaskRequestRoundTripTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
     void preservesGenericExportBindingSplitAndZeroRowPolicy() throws Exception {
@@ -92,8 +90,7 @@ class TabularExportTaskRequestRoundTripTest {
                 .build();
         SubmitTaskRequest encoded = SubmitTaskRequest.from(canonical);
 
-        SubmitTaskRequest decoded = MAPPER.readValue(
-                MAPPER.writeValueAsBytes(encoded), SubmitTaskRequest.class);
+        SubmitTaskRequest decoded = SubmitTaskRequest.decode(encoded.encode());
 
         assertThat(decoded.canonicalBytes()).isEqualTo(canonical.toByteArray());
         assertThat(decoded.taskRequest().getSplits(0)).isEqualTo(split);

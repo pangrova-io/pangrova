@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import com.sun.net.httpserver.HttpServer;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.pangrova.worker.task.report.TaskStatusReporter;
 
 import org.apache.arrow.flight.FlightClient;
@@ -10,7 +12,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.protocol.http.TaskStatusAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -25,15 +32,21 @@ import org.pangrova.execution.api.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.task.memory.MemoryRefs;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
 import java.nio.charset.StandardCharsets;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,11 +59,16 @@ import static org.awaitility.Awaitility.await;
 class OutputTaskMemoryReleaseTest {
     private ActualNativeTaskFixture runtime;
     private TaskManager manager;
+    private java.util.concurrent.ScheduledThreadPoolExecutor resultCleanup;
     private final RecordingTaskStatusReporter reports = new RecordingTaskStatusReporter();
 
     @AfterEach
     void closeActualOwners() {
         Throwable failure = null;
+        if (resultCleanup != null) {
+            failure = closeOwner(() -> org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                    resultCleanup, 3_000), failure);
+        }
         if (manager != null) {
             failure = closeOwner(manager::releaseTerminalTaskExecutors, failure);
             // This fixture may own real transports intentionally absent from TaskManager's dependencies.
@@ -76,10 +94,10 @@ class OutputTaskMemoryReleaseTest {
                 .isLessThanOrEqualTo(availableBeforeTask - info.allocatedBufferMemory());
         assertThat(runtime.drainEvidence(handle, request).getDrained()).isFalse();
 
+        startResultCleanup();
         consumeActualResult(request);
         awaitFinishedReport();
-        await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(handle, request).getDrained());
-        assertThat(manager.cleanupTerminalTasks(Duration.ofHours(1))).isEqualTo(1);
+        await().atMost(Duration.ofSeconds(20)).until(() -> manager.tasks.get(info.taskId()) == null);
         assertThat(info.executorHandle()).isZero();
         assertThat(info.allocatedBufferMemory()).isZero();
         assertThat(info.allocatedMemory()).isZero();
@@ -89,7 +107,7 @@ class OutputTaskMemoryReleaseTest {
         assertThat(receipt.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
         assertThat(receipt.hasNativeTaskStats()).isTrue();
-        assertThat(receipt.getNativeTaskStats().toByteArray()).isEqualTo(info.terminalTaskStats());
+        assertThat(receipt.getNativeTaskStats()).isEqualTo(info.terminalTaskStats());
         var released = reports.reports().stream().filter(value -> "FINISHED".equals(value.state())).toList();
         assertThat(released).hasSize(2);
         assertThat(released.get(1).reportSequence()).isGreaterThan(released.get(0).reportSequence());
@@ -112,11 +130,11 @@ class OutputTaskMemoryReleaseTest {
         };
         TaskInfo info = submit(request, "OUTPUT", observer);
         awaitUnconsumedResult(info, request);
+        startResultCleanup();
         consumeActualResult(request);
         awaitFinishedReport();
-        await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(info.executorHandle(), request).getDrained());
-        assertThatThrownBy(() -> manager.cleanupTerminalTasks(Duration.ofHours(1)))
-                .hasMessageContaining("cleanup sweep failed");
+        await().atMost(Duration.ofSeconds(20)).untilFalse(rejectFirstObservation);
+        resultCleanup.submit(() -> { }).get(3, java.util.concurrent.TimeUnit.SECONDS);
         assertThat(manager.tasks.get(info.taskId())).isSameAs(info);
         assertThat(info.resourcesReleased()).isTrue();
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
@@ -127,6 +145,118 @@ class OutputTaskMemoryReleaseTest {
         assertThat(attempts.get(1)).isSameAs(attempts.get(0));
         assertThat(attempts.get(1).canonicalTaskReport()).isEqualTo(info.executorReleaseReport());
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+    }
+
+    @Test
+    void periodicRetryKeepsTheExactReleasedEnvelopeUntilItsAcknowledgement() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long available = runtime.arbitrator().getAvailableMemory();
+        var request = runtime.valuesRequest(true);
+        var failures = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var retryAcknowledgement = new CompletableFuture<Void>();
+        var retryStarted = new CountDownLatch(1);
+        TaskInfo info = submit(request, "OUTPUT", new TaskStatusReporter() {
+            @Override
+            public void report(TaskStatusReport report) {
+                reports.report(report);
+            }
+
+            @Override
+            public CompletionStage<Void> reportTerminal(TaskStatusReport report) {
+                report(report);
+                if (!isNativeReleased(report)) return CompletableFuture.completedFuture(null);
+                if (failures.getAndSet(false)) {
+                    return CompletableFuture.failedFuture(new IllegalStateException("Released ACK lost"));
+                }
+                retryStarted.countDown();
+                return retryAcknowledgement;
+            }
+        });
+        try {
+            awaitUnconsumedResult(info, request);
+            startResultCleanup(Duration.ofSeconds(1));
+            consumeActualResult(request);
+            assertThat(retryStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(manager.tasks.get(info.taskId())).isSameAs(info);
+            assertThat(info.resourcesReleased()).isTrue();
+            assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+            var attempts = reports.reports().stream().filter(OutputTaskMemoryReleaseTest::isNativeReleased).toList();
+            assertThat(attempts).hasSize(2);
+            assertThat(attempts.get(1)).isSameAs(attempts.get(0));
+        } finally {
+            retryAcknowledgement.complete(null);
+        }
+        await().atMost(Duration.ofSeconds(5)).until(() -> manager.tasks.get(info.taskId()) == null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void blockedHttpAcknowledgementDoesNotDelayEitherResultsPhysicalRelease(boolean holdReleasedReport)
+            throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long available = runtime.arbitrator().getAvailableMemory();
+        var request = runtime.valuesRequest(true);
+        var secondRequest = runtime.valuesRequest(true);
+        var held = new CountDownLatch(1);
+        var acknowledge = new CountDownLatch(1);
+        var endpoint = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var httpHandlers = Executors.newFixedThreadPool(2);
+        endpoint.setExecutor(httpHandlers);
+        endpoint.createContext("/v1/task/status-report", exchange -> {
+            try (exchange) {
+                var report = TaskStatusWire.decode(exchange.getRequestBody().readAllBytes());
+                reports.report(report);
+                if (request.getAttempt().getTaskId().equals(report.taskId())
+                        && "FINISHED".equals(report.state()) && isNativeReleased(report) == holdReleasedReport) {
+                    held.countDown();
+                    if (!acknowledge.await(20, TimeUnit.SECONDS)) {
+                        exchange.sendResponseHeaders(504, -1);
+                        return;
+                    }
+                }
+                var ack = TaskStatusAck.newBuilder().setTaskId(report.taskId())
+                        .setSequence(report.reportSequence()).setDirective(TaskStatusAck.Directive.CONTINUE)
+                        .build().toByteArray();
+                exchange.getResponseHeaders().set("Content-Type", TaskStatusWire.MEDIA_TYPE);
+                exchange.sendResponseHeaders(200, ack.length);
+                exchange.getResponseBody().write(ack);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        endpoint.start();
+        try (var reporter = new RemoteTaskStatusReporter("http://127.0.0.1:" + endpoint.getAddress().getPort(),
+                TestObservability.TRACING, TestObservability.METRICS, null)) {
+            TaskInfo info = submit(request, "OUTPUT", reporter);
+            try {
+                awaitUnconsumedResult(info, request);
+                startResultCleanup();
+                consumeActualResult(request);
+                assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+                await().atMost(Duration.ofSeconds(5)).until(info::resourcesReleased);
+                assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+                assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased)
+                        .hasSize(holdReleasedReport ? 1 : 0);
+
+                String next = manager.submitTask(descriptor(secondRequest, "OUTPUT"), SubmitTaskRequest.from(secondRequest));
+                TaskInfo second = manager.tasks.get(next);
+                consumeActualResult(secondRequest);
+                await().atMost(Duration.ofSeconds(5)).until(() -> manager.tasks.get(second.taskId()) == null);
+                assertThat(second.resourcesReleased()).isTrue();
+                assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+                assertThat(manager.tasks.get(info.taskId())).isSameAs(info);
+                assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased)
+                        .hasSize(holdReleasedReport ? 2 : 1)
+                        .anyMatch(report -> report.taskId().equals(secondRequest.getAttempt().getTaskId()));
+            } finally {
+                acknowledge.countDown();
+            }
+            await().atMost(Duration.ofSeconds(5)).until(() -> manager.tasks.get(info.taskId()) == null);
+            assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased).hasSize(2);
+        } finally {
+            endpoint.stop(0);
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(httpHandlers, 3000);
+        }
     }
 
     private static boolean isNativeReleased(org.pangrova.protocol.rest.task.TaskStatusReport report) {
@@ -173,7 +303,7 @@ class OutputTaskMemoryReleaseTest {
         assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
         assertThat(report).isEqualTo(TaskReport.parseFrom(runtime.executor().getTaskStatus(info.executorHandle())));
-        assertThat(info.terminalTaskStats()).isNotEmpty();
+        assertThat(info.terminalTaskStats()).isEqualTo(report.getNativeTaskStats());
         assertThat(reports.reports()).anyMatch(value -> "RUNNING".equals(value.state())
                 && value.reportSequence() < finished.get(0).reportSequence());
         assertThat(info.executorHandle()).isPositive();
@@ -341,7 +471,7 @@ class OutputTaskMemoryReleaseTest {
 
     private TaskInfo submit(TaskRequest request, String taskType, TaskStatusReporter reporter) {
         var resources = new ResourceManager(runtime.arbitrator(), new ThreadBudgetTracker(8, 4, 2), new SpillManager());
-        var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "actual-native-completion"));
+        var monitor = Executors.newFixedThreadPool(2, task -> new Thread(task, "actual-native-completion"));
         manager = new TaskManager(new TaskManagerContext(reporter, runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
                 "actual-native-budget-worker", 0.0, runtime.admissionIncarnation());
@@ -352,6 +482,16 @@ class OutputTaskMemoryReleaseTest {
     private void awaitFinishedReport() {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(reports.reports()).anyMatch(report -> "FINISHED".equals(report.state())));
+    }
+
+    private void startResultCleanup() {
+        startResultCleanup(Duration.ofHours(1));
+    }
+
+    private void startResultCleanup(Duration interval) {
+        resultCleanup = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        resultCleanup.setRemoveOnCancelPolicy(true);
+        manager.startPeriodicCleanup(resultCleanup, Duration.ofHours(1), interval);
     }
 
     private void consumeActualResult(TaskRequest request) throws Exception {

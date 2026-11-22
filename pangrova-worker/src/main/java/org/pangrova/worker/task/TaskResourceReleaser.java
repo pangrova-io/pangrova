@@ -112,7 +112,7 @@ final class TaskResourceReleaser {
             byte[] receipt = releaseActualExecutor(info, handle);
             var report = validateFinalReceipt(info, receipt);
             info.setReleasedTaskStats(
-                    report.hasNativeTaskStats() ? report.getNativeTaskStats().toByteArray() : null);
+                    report.hasNativeTaskStats() ? report.getNativeTaskStats() : null);
             if (!info.compareAndSetExecutorHandle(handle, 0)) {
                 throw new IllegalStateException(
                         "Native executor handle changed during release: task=" + info.taskId());

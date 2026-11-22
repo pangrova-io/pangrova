@@ -38,6 +38,14 @@ public final class InMemoryRoleStore implements RoleStore {
     }
 
     @Override
+    public Set<String> effectiveRoles(String principal, Set<String> groups) {
+        Set<String> effective = new java.util.HashSet<>(rolesForUser(principal));
+        groups.forEach(group -> effective.addAll(rolesForGroup(group)));
+        effective.retainAll(roles.keySet());
+        return Set.copyOf(effective);
+    }
+
+    @Override
     public boolean createRole(Role role) {
         return roles.putIfAbsent(role.name(), role) == null;
     }

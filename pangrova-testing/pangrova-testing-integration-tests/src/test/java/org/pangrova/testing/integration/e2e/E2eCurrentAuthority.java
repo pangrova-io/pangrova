@@ -37,6 +37,7 @@ import javax.sql.DataSource;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Explicit PostgreSQL authority and production write-receipt wiring for authenticated SQL fixtures. */
 final class E2eCurrentAuthority {
@@ -72,10 +73,10 @@ final class E2eCurrentAuthority {
         roles.createRole(Role.of(SQL_ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, SQL_ROLE));
         var grants = new JdbcGrantStore(dataSource);
-        if (grants.listGrantsForRole(SQL_ROLE).isEmpty()) {
+        if (grants.listGrantsForRoles(Set.of(SQL_ROLE)).isEmpty()) {
             grants.addGrant(PrivilegeGrant.of(SQL_ROLE, Privilege.ALL, "TABLE", "*", "*", "*", null));
         }
-        if (grants.listGrantsForRole(SQL_ROLE).stream()
+        if (grants.listGrantsForRoles(Set.of(SQL_ROLE)).stream()
                 .noneMatch(grant -> grant.privilege() == Privilege.MANAGE_STORAGE_PROFILE
                         && grant.coversStorageProfile("*"))) {
             grants.addGrant(PrivilegeGrant.of(SQL_ROLE, Privilege.MANAGE_STORAGE_PROFILE,

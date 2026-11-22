@@ -1,0 +1,133 @@
+syntax = "proto3";
+package pangrova.protocol.http;
+
+option java_package = "org.pangrova.protocol.http";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/runtime.proto";
+import "pangrova/protocol/v2/task.proto";
+import "pangrova/protocol/v2/common.proto";
+import "pangrova/protocol/v2/result.proto";
+
+// Internal Coordinator-to-Worker HTTP transport. The private COPY ticket is
+// outside the canonical JNI descriptor closure.
+message TaskSubmission {
+  oneof payload {
+    pangrova.protocol.v2.TaskRequest task = 1;
+    CopyTaskSubmission copy = 2;
+  }
+}
+
+message CopyTaskSubmission {
+  // COPY redemption binds to the exact original task bytes.
+  bytes canonical_task = 1;
+  CopyTaskTicket ticket = 2;
+}
+
+message CopyTaskTicket {
+  string nonce = 1;
+  CopyTaskScope scope = 2;
+}
+
+message CopyTaskScope {
+  string tenant_id = 1;
+  string principal = 2;
+  string profile_name = 3;
+  string profile_incarnation_id = 4;
+  int64 profile_revision = 5;
+  string canonical_source_url = 6;
+  string managed_storage_root_uri = 7;
+  string managed_backend_identity_sha256 = 8;
+  string execution_id = 9;
+  string staging_attempt_id = 10;
+  string owner_id = 11;
+  string owner_incarnation = 12;
+  int64 control_epoch = 13;
+  int64 owner_fencing_token = 14;
+  int64 deadline_epoch_ms = 15;
+}
+
+message TaskSubmitAck {
+  oneof outcome {
+    TaskAdmitted admitted = 1;
+    TaskRejected rejected = 2;
+  }
+}
+
+message TaskAdmitted {
+  string task_id = 1;
+  TaskResultEndpoint result_endpoint = 2;
+  TaskShuffleEndpoint shuffle_endpoint = 3;
+}
+
+message TaskRejected {
+  string reason = 1;
+  string code = 2;
+}
+
+message TaskResultEndpoint {
+  string host = 1;
+  uint32 port = 2;
+  string ticket = 3;
+  string protocol = 4;
+}
+
+message TaskShuffleEndpoint {
+  string host = 1;
+  uint32 port = 2;
+  string tls_identity = 3;
+  // Partition IDs are contiguous and ordered from zero.
+  repeated pangrova.protocol.v2.ShufflePartitionTicket partition_tickets = 4;
+}
+
+// Worker-to-Coordinator delivery facts. Terminal evidence supplies its own
+// identity, lifecycle state, error, coverage and Native statistics.
+message TaskStatusDelivery {
+  string worker_id = 1;
+  uint64 sequence = 2;
+  int64 timestamp_ms = 3;
+  TaskRole role = 4;
+  oneof status {
+    TaskProgress progress = 5;
+    // Exact canonical v2 TaskReport bytes are needed for durable receipt hashes.
+    bytes terminal_report = 6;
+  }
+  pangrova.protocol.v2.NativeTaskStats supplemental_stats = 7;
+  TaskWriteEvidence write = 8;
+}
+
+message TaskProgress {
+  pangrova.protocol.v2.TaskAttemptId attempt = 1;
+  pangrova.protocol.v2.TaskState state = 2;
+}
+
+enum TaskRole {
+  TASK_ROLE_UNSPECIFIED = 0;
+  TASK_ROLE_COMPUTE = 1;
+  TASK_ROLE_OUTPUT = 2;
+  TASK_ROLE_WRITE = 3;
+  TASK_ROLE_BACKGROUND_BUILD = 4;
+  TASK_ROLE_BACKGROUND_VALIDATE = 5;
+  TASK_ROLE_BACKGROUND_EXPORT = 6;
+  TASK_ROLE_CDC_INGEST = 7;
+}
+
+message TaskWriteEvidence {
+  uint64 total_rows = 1;
+  uint64 total_bytes = 2;
+  bytes commit_metadata = 3;
+  repeated bytes commit_fragments = 4;
+}
+
+message TaskStatusAck {
+  string task_id = 1;
+  uint64 sequence = 2;
+  Directive directive = 3;
+
+  enum Directive {
+    DIRECTIVE_UNSPECIFIED = 0;
+    CONTINUE = 1;
+    STALE_REJECTED = 2;
+    RETIRED_RESULT_NOTICE = 3;
+  }
+}

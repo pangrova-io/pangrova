@@ -70,6 +70,26 @@ class ColumnMaskApplierTest {
     }
 
     @Test
+    void selfJoinReadsTableMasksOnceAndNextCompilationReadsCurrentPolicies() {
+        var masks = new java.util.ArrayList<>(List.of(new ColumnMask(
+                1L, "mask_dept", "default", "default", "orders",
+                "department", "'***'", List.of("analysts"), List.of(), true, null)));
+        var tableReads = new java.util.concurrent.atomic.AtomicInteger();
+        var applier = new ColumnMaskApplier(buildAccessControlWithMasks(masks, tableReads::incrementAndGet));
+        var query = COMPILER.compileForPolicyApplication(
+                "SELECT a.department, b.department FROM orders a JOIN orders b ON a.id = b.id").toPlannedQuery();
+        var identity = testIdentity("analyst", Set.of("analysts"));
+
+        assertThat(query.applyColumnMasks(applier, identity).effectivePlanDigest())
+                .isNotEqualTo(query.effectivePlanDigest());
+        assertThat(tableReads).hasValue(1);
+        masks.clear();
+        assertThat(query.applyColumnMasks(applier, identity).effectivePlanDigest())
+                .isEqualTo(query.effectivePlanDigest());
+        assertThat(tableReads).hasValue(2);
+    }
+
+    @Test
     void varcharColumnMaskApplied() {
         ColumnMask mask = new ColumnMask(
                 1L, "mask_dept", "default", "default", "orders",
@@ -238,9 +258,14 @@ class ColumnMaskApplierTest {
     }
 
     private static AccessControl buildAccessControlWithMasks(List<ColumnMask> masks) {
+        return buildAccessControlWithMasks(masks, () -> { });
+    }
+
+    private static AccessControl buildAccessControlWithMasks(List<ColumnMask> masks, Runnable tableRead) {
         EnrichedColumnMaskStore maskStore = new EnrichedColumnMaskStore() {
             @Override
             public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+                tableRead.run();
                 return masks.stream().filter(mask -> mask.catalogName().equals(catalog)
                         && mask.schemaName().equals(schema) && mask.tableName().equals(table)).toList();
             }

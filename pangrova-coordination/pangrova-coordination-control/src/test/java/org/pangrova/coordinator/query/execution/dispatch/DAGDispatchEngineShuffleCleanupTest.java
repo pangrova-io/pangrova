@@ -13,7 +13,6 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -134,7 +133,6 @@ class DAGDispatchEngineShuffleCleanupTest {
                 null,  // speculativeStageHandler
                 PipelineConfig.DISABLED,
                 shuffleManager,
-                new SplitAssignmentManager(),
                 null,  // resilienceRegistry
                 null); // stateJournal
         return new DAGDispatchEngine(

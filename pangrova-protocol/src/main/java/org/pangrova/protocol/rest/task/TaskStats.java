@@ -1,6 +1,7 @@
 package org.pangrova.protocol.rest.task;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.pangrova.protocol.v2.NativeTaskStats;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,5 +42,18 @@ public record TaskStats(
     public TaskStats {
         operatorStats = List.copyOf(Objects.requireNonNull(
                 operatorStats, "operatorStats must not be null"));
+    }
+
+    /** Projects canonical worker statistics for diagnostics. */
+    public static TaskStats fromNative(NativeTaskStats stats) {
+        var operators = stats.getOperatorStatsList().stream().map(op -> new OperatorStats(
+                op.getOperatorType(), op.getInputRows(), op.getOutputRows(), op.getInputBytes(),
+                op.getOutputBytes(), op.getCpuNanos(), op.getWallNanos(), op.getPlanNodeId(),
+                op.getMemoryBytes(), op.getPeakMemoryBytes(), op.getSpillBytes())).toList();
+        return new TaskStats(stats.getRowsRead(), stats.getBytesRead(), stats.getRowsWritten(),
+                stats.getBytesWritten(), stats.getElapsedTimeMs(), stats.getCpuTimeMs(), stats.getMemoryBytes(),
+                stats.getPeakMemoryBytes(), stats.getSpillBytes(), stats.getCacheHitBytes(), stats.getCacheMissBytes(),
+                0, 0, operators, stats.getBackpressureWaitMs(), stats.getCacheHitCount(), stats.getCacheMissCount(),
+                stats.getCacheEvictionCount(), stats.getCacheAdmissionRejectionCount());
     }
 }

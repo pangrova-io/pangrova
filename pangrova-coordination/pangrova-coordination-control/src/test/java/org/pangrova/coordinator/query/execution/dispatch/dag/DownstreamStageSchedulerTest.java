@@ -120,7 +120,7 @@ class DownstreamStageSchedulerTest {
 
     private static CountDownLatch drained(CoordinatorTaskTracker tracker, DAGExecutionState state) {
         var latch = new CountDownLatch(1);
-        tracker.addQueryOperationExitListener(queryId -> {
+        tracker.addQueryDrainProgressListener(queryId -> {
             if (queryId.equals(state.queryId())) latch.countDown();
         });
         return latch;

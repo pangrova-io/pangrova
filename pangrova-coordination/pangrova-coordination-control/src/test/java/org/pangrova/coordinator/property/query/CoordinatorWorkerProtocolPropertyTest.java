@@ -485,20 +485,27 @@ class CoordinatorWorkerProtocolPropertyTest {
                 .isEqualTo("catalog.db.table");
     }
 
-    // ── Property 36: SubmitTaskResponse field completeness ──
+    // Task admission acknowledgement outcomes
 
     @Property(tries = 10)
-    void submitTaskResponsePreservesAllFields(
+    void taskAcknowledgementCarriesExactlyOneOutcome(
             @ForAll("taskIds") String taskId,
-            @ForAll boolean accepted) {
-
-        String rejectReason = accepted ? null : "memory_exceeded";
-        SubmitTaskResponse resp = new SubmitTaskResponse(
-                accepted, rejectReason, taskId, null, null);
-
-        assertThat(resp.accepted()).isEqualTo(accepted);
-        assertThat(resp.rejectReason()).isEqualTo(rejectReason);
-        assertThat(resp.taskId()).isEqualTo(taskId);
+            @ForAll boolean accepted) throws Exception {
+        var ack = org.pangrova.protocol.http.TaskSubmitAck.newBuilder();
+        if (accepted) {
+            ack.setAdmitted(org.pangrova.protocol.http.TaskAdmitted.newBuilder().setTaskId(taskId));
+        } else {
+            ack.setRejected(org.pangrova.protocol.http.TaskRejected.newBuilder()
+                    .setCode("SERVICE_UNAVAILABLE").setReason("memory_exceeded"));
+        }
+        var decoded = org.pangrova.protocol.http.TaskSubmitAck.parseFrom(ack.build().toByteArray());
+        assertThat(decoded.hasAdmitted()).isEqualTo(accepted);
+        assertThat(decoded.hasRejected()).isEqualTo(!accepted);
+        if (accepted) {
+            assertThat(decoded.getAdmitted().getTaskId()).isEqualTo(taskId);
+        } else {
+            assertThat(decoded.getRejected().getReason()).isEqualTo("memory_exceeded");
+        }
     }
 
     // ── Property 36: TaskStatusReport ALL fields completeness ──
@@ -532,16 +539,18 @@ class CoordinatorWorkerProtocolPropertyTest {
         assertThat(report.timestampMs()).isEqualTo(ts);
     }
 
-    // ── Property 36: TaskStatusReportResponse field completeness ──
+    // ── Property 36: Task status acknowledgement field completeness ──
 
     @Property(tries = 10)
     void taskStatusReportResponsePreservesAllFields(
             @ForAll("taskIds") String taskId) {
 
-        TaskStatusReportResponse resp = new TaskStatusReportResponse(taskId, "CANCEL");
+        var ack = org.pangrova.protocol.http.TaskStatusAck.newBuilder().setTaskId(taskId)
+                .setSequence(3).setDirective(org.pangrova.protocol.http.TaskStatusAck.Directive.CONTINUE).build();
 
-        assertThat(resp.taskId()).isEqualTo(taskId);
-        assertThat(resp.command()).isEqualTo("CANCEL");
+        assertThat(ack.getTaskId()).isEqualTo(taskId);
+        assertThat(ack.getSequence()).isEqualTo(3);
+        assertThat(ack.getDirective()).isEqualTo(org.pangrova.protocol.http.TaskStatusAck.Directive.CONTINUE);
     }
 
     // ── Providers ──

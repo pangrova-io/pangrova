@@ -52,7 +52,9 @@ final class StageExchangeAccessValidator {
             GenerationExchangeRegistration registration, ExternalShuffleDescriptorEncoder encoder) {
         if (!input.getShuffleId().equals(registration.shuffleId())
                 || input.getPlanEpoch() != registration.planEpoch()
-                || input.getOutputPartitionId() != prepared.lease().partitionId()
+                || !input.hasSourcePartitionStart()
+                || input.getSourcePartitionStart() != prepared.lease().partitionId()
+                || input.getPublicationsCount() != 1
                 || input.getPartitionCount() != registration.partitionCount()
                 || input.getExpectedProducerPartitions() != registration.producerCount()) {
             throw new IllegalArgumentException("Consumer access changed the immutable allocation, epoch or cohort");

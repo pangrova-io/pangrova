@@ -65,7 +65,8 @@ class SubmitTaskRequestConverterTest {
     @Test
     void serializedPlanFragmentProvidesPlanBytes() {
         byte[] raw = "test-plan".getBytes();
-        var fragment = new org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.SerializedPlanFragment(raw);
+        var fragment = new org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.SerializedPlanFragment(
+                com.google.protobuf.ByteString.copyFrom(raw));
 
         assertThat(fragment.planBytes()).isEqualTo(raw);
         assertThat(fragment.getId().toString()).isEqualTo("serialized-fragment");

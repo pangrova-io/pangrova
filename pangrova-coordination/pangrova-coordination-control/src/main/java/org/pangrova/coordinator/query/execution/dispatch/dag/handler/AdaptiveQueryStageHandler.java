@@ -4,14 +4,7 @@ import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveQueryE
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-/**
- * Evaluates adaptive query re-optimization after each stage completes.
- * Delegates to {@link AdaptiveQueryEvaluator} for partition coalescing,
- * skew detection, and dynamic parallelism adjustments.
- *
- * <p>Only acts on FINISHED events — scheduling does not require
- * adaptive evaluation since no shuffle statistics are available yet.</p>
- */
+/** Observes potential adaptive changes from committed shuffle statistics. */
 public final class AdaptiveQueryStageHandler implements StageLifecycleHandler {
 
     private final AdaptiveQueryEvaluator adaptiveStageHandler;
@@ -32,6 +25,8 @@ public final class AdaptiveQueryStageHandler implements StageLifecycleHandler {
 
     @Override
     public void onFinished(StageLifecycleEvent event) {
-        adaptiveStageHandler.evaluateStageCompletion(event.stage());
+        if (event.stage().shuffleStatsReport() != null) {
+            adaptiveStageHandler.evaluateStageCompletion(event.stage());
+        }
     }
 }

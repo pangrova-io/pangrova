@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
@@ -22,7 +21,6 @@ import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
-import org.pangrova.table.api.policy.GovernanceBinding;
 
 /**
  * Cross-domain same-connection write authority: binds Metadata-owned policy projections with
@@ -50,16 +48,12 @@ public final class PostgresTableControlWriteAuthority implements TableControlWri
             TablePermission permission) throws SQLException {
         var table = permission.table();
         UUID tableId = identity(connection, permission);
-        var bindings = tableId == null ? List.<GovernanceBinding>of()
-                : PostgresTablePolicyRepository.list(connection, tableId);
-        var boundRows = tableId == null ? List.<org.pangrova.security.api.rowfilter.RowPolicy>of()
-                : JdbcRowPolicyStore.list(connection, tableId);
         return policies.observe(connection, principal, roles, permission,
-                rows -> projections.projectRows(tableId, table.catalog(), table.schema(), table.table(),
-                        Stream.concat(rows.stream(), boundRows.stream()).toList()),
-                (column, masks) -> projections.projectColumns(tableId, table.catalog(), table.schema(),
-                                table.table(), masks, bindings).stream()
-                        .filter(mask -> mask.columnName().equals(column)).toList());
+                () -> projections.projectRows(tableId, table.catalog(), table.schema(), table.table(),
+                        JdbcRowPolicyStore.listForCurrentTable(connection, table.catalog(), table.schema(),
+                                table.table(), tableId)),
+                masks -> projections.projectColumns(tableId, table.catalog(), table.schema(), table.table(), masks,
+                        tableId == null ? List.of() : PostgresTablePolicyRepository.list(connection, tableId)));
     }
 
     private static UUID identity(Connection connection, TablePermission permission)

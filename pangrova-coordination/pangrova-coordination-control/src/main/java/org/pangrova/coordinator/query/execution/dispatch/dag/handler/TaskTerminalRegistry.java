@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -43,11 +44,16 @@ public final class TaskTerminalRegistry {
 
     /** First terminal fact wins. A stage callback may synchronously retry or retire this DAG. */
     public void onTerminal(String query, String taskId, String state, QueryFailure error) {
+        onTerminal(query, taskId, state, error, null);
+    }
+
+    /** Records the elected physical attempt's summary with its first logical terminal event. */
+    public void onTerminal(String query, String taskId, String state, QueryFailure error, BuildKeyRange range) {
         if (!queryId.equals(query) || !("FINISHED".equals(state) || "FAILED".equals(state)
                 || "CANCELLED".equals(state))) {
             return;
         }
-        Event event = new Event(state, error);
+        Event event = new Event(state, error, range);
         Stage stage;
         int generation;
         synchronized (this) {
@@ -86,10 +92,10 @@ public final class TaskTerminalRegistry {
         private Event event;
     }
 
-    private record Event(String state, QueryFailure error) {
+    private record Event(String state, QueryFailure error, BuildKeyRange range) {
         private void deliver(Stage stage, String taskId, int generation) {
             if ("FINISHED".equals(state)) {
-                stage.onTaskFinished(taskId, generation);
+                stage.onTaskFinished(taskId, generation, range);
             } else {
                 QueryFailure cause = "CANCELLED".equals(state) && error == null
                         ? new QueryFailure("TASK_CANCELLED", "TaskCancelled", "Task was cancelled") : error;

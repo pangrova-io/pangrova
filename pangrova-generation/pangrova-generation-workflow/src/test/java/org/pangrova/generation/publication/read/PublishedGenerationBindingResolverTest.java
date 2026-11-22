@@ -1,5 +1,6 @@
 package org.pangrova.generation.publication.read;
 
+
 import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
@@ -26,7 +27,6 @@ import org.pangrova.protocol.v2.OperatorBindingSet;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,10 +46,10 @@ class PublishedGenerationBindingResolverTest {
         StoreStub store = new StoreStub(outputs("object-a"));
         PublishedGenerationBindingResolver resolver =
                 new PublishedGenerationBindingResolver(store);
-        String split = splitWithScanDetail("object-a", "snapshot-1");
+        DataSplit split = splitWithScanDetail("object-a", "snapshot-1");
         assertThat(split).isNotEqualTo(split("object-a", "snapshot-1"));
 
-        var resolved = resolver.resolveTemplate(intent(), List.of(split)).orElseThrow();
+        var resolved = resolver.resolveTemplate(intent(), List.of(split)).orElseThrow().binding();
         assertThat(resolved.getSplitObjectsCount()).isZero();
         assertThat(resolved.hasBindingChecksum()).isFalse();
 
@@ -83,9 +83,9 @@ class PublishedGenerationBindingResolverTest {
         StoreStub store = new StoreStub(outputs("object-a").subList(0, 2));
         PublishedGenerationBindingResolver resolver =
                 new PublishedGenerationBindingResolver(store);
-        String split = split("object-a", "snapshot-1");
+        DataSplit split = split("object-a", "snapshot-1");
         var template = resolver.resolveTemplate(intent(), List.of(split))
-                .orElseThrow();
+                .orElseThrow().binding();
 
         assertThatThrownBy(() -> resolver.materializeForTask(
                 TENANT,
@@ -104,9 +104,9 @@ class PublishedGenerationBindingResolverTest {
         StoreStub store = new StoreStub(bm25Outputs("object-a"), true);
         PublishedGenerationBindingResolver resolver =
                 new PublishedGenerationBindingResolver(store);
-        String split = split("object-a", "snapshot-1");
+        DataSplit split = split("object-a", "snapshot-1");
 
-        var resolved = resolver.resolveTemplate(bm25Intent(), List.of(split)).orElseThrow();
+        var resolved = resolver.resolveTemplate(bm25Intent(), List.of(split)).orElseThrow().binding();
         OperatorBinding taskBinding = resolver.materializeForTask(
                 TENANT,
                 List.of(OperatorBinding.newBuilder()
@@ -129,18 +129,19 @@ class PublishedGenerationBindingResolverTest {
     @Test
     void purePreparedMaterializationUsesOnlyExactReadEvidenceAndIgnoresOtherSourceLegs() {
         StoreStub store = new StoreStub(outputs("object-a"));
-        String encoded = split("object-a", "snapshot-1");
-        var artifact = new PublishedGenerationBindingResolver(store).resolveTemplate(intent(), List.of(encoded))
-                .orElseThrow();
+        DataSplit requested = split("object-a", "snapshot-1");
+        var artifact = new PublishedGenerationBindingResolver(store).resolveTemplate(intent(), List.of(requested))
+                .orElseThrow().binding();
         var binding = OperatorBinding.newBuilder().setPlanNodeId("retrieval-1")
                 .setCapability(BuiltInCapabilityCatalog.diskAnnRetrievalPlanRef()).addArtifacts(artifact).build();
         var manifest = store.findPublishedGeneration(TENANT, "index-1", "7", "snapshot-1").orElseThrow();
         var evidence = new PublishedInput(manifest, outputs("object-a"), Set.of("object-a"));
-        String otherSource = Base64.getEncoder().encodeToString(DataSplit.newBuilder()
+        DataSplit otherSource = DataSplit.newBuilder()
                 .setSplitId("other-split").setConnectorId("test").setSourceId("catalog.schema.other")
                 .setSourceSnapshot("other-snapshot").setDataObjectId("other-object")
-                .setOpaqueLocation("s3://bucket/other").build().toByteArray());
-        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(binding), List.of(encoded, otherSource),
+                .setOpaqueLocation("s3://bucket/other").build();
+        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(binding),
+                List.of(requested, otherSource),
                 Map.of(PublishedGenerationBindingResolver.publicationRead(artifact), evidence));
         PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
         assertThat(result.get(0).getArtifacts(0).getSplitObjectsList())
@@ -151,15 +152,16 @@ class PublishedGenerationBindingResolverTest {
     @Test
     void purePreparedMaterializationRejectsMissingEvidenceCoverageAndWrongSnapshot() {
         StoreStub store = new StoreStub(outputs("object-a"));
-        String encoded = split("object-a", "snapshot-1");
-        var artifact = new PublishedGenerationBindingResolver(store).resolveTemplate(intent(), List.of(encoded))
-                .orElseThrow();
+        DataSplit requested = split("object-a", "snapshot-1");
+        var artifact = new PublishedGenerationBindingResolver(store).resolveTemplate(intent(), List.of(requested))
+                .orElseThrow().binding();
         var binding = OperatorBinding.newBuilder().setPlanNodeId("retrieval-1").addArtifacts(artifact).build();
         var manifest = store.findPublishedGeneration(TENANT, "index-1", "7", "snapshot-1").orElseThrow();
         var key = PublishedGenerationBindingResolver.publicationRead(artifact);
-        assertThatThrownBy(() -> PublishedGenerationBindingResolver.materializePrepared(List.of(binding), List.of(encoded), Map.of()))
+        var splits = List.of(requested);
+        assertThatThrownBy(() -> PublishedGenerationBindingResolver.materializePrepared(List.of(binding), splits, Map.of()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("differs");
-        assertThatThrownBy(() -> PublishedGenerationBindingResolver.materializePrepared(List.of(binding), List.of(encoded),
+        assertThatThrownBy(() -> PublishedGenerationBindingResolver.materializePrepared(List.of(binding), splits,
                 Map.of(key, new PublishedInput(manifest, outputs("object-a"), Set.of("object-b")))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("coverage");
         assertThatThrownBy(() -> PublishedGenerationBindingResolver.materializePrepared(List.of(binding),
@@ -178,9 +180,9 @@ class PublishedGenerationBindingResolverTest {
                 "catalog.schema.table", "snapshot-1", GenerationSourceCoverage.COMPLETE_GENERATION);
     }
 
-    private static String split(String objectId, String snapshot) {
+    private static DataSplit split(String objectId, String snapshot) {
         String location = "s3://bucket/" + objectId;
-        DataSplit value = DataSplit.newBuilder()
+        return DataSplit.newBuilder()
                 .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
                         "test", "catalog.schema.table", snapshot, objectId, location, 0, 0))
                 .setConnectorId("test")
@@ -189,18 +191,16 @@ class PublishedGenerationBindingResolverTest {
                 .setDataObjectId(objectId)
                 .setOpaqueLocation(location)
                 .build();
-        return Base64.getEncoder().encodeToString(value.toByteArray());
     }
 
-    private static String splitWithScanDetail(String objectId, String snapshot) throws Exception {
-        DataSplit base = DataSplit.parseFrom(Base64.getDecoder().decode(split(objectId, snapshot)));
+    private static DataSplit splitWithScanDetail(String objectId, String snapshot) {
+        DataSplit base = split(objectId, snapshot);
         var detail = org.pangrova.protocol.v2.FileSplitDetail.newBuilder()
                 .setFileFormat(org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET)
                 .setSplitConstraint(org.pangrova.protocol.v2.SplitConstraint.newBuilder()
                         .setPredicate(com.google.protobuf.ByteString.copyFromUtf8("query predicate")))
                 .build();
-        return Base64.getEncoder().encodeToString(
-                org.pangrova.protocol.source.DataSplitProtoCodec.withFileDetail(base, detail).toByteArray());
+        return org.pangrova.protocol.source.DataSplitProtoCodec.withFileDetail(base, detail);
     }
 
     private static List<GenerationOutput> outputs(String sourceObjectId) {
@@ -352,7 +352,7 @@ class PublishedGenerationBindingResolverTest {
                 loadPublishedSourceSplits(String tenantId, String jobId,
                         java.util.Set<String> sourceObjectIds) {
             if (!sourceObjectIds.equals(Set.of("object-a"))) return java.util.Map.of();
-            byte[] bytes = java.util.Base64.getDecoder().decode(split("object-a", "snapshot-1"));
+            byte[] bytes = split("object-a", "snapshot-1").toByteArray();
             return java.util.Map.of("object-a",
                     org.pangrova.generation.api.page.GenerationSplit.of("object-a", bytes));
         }

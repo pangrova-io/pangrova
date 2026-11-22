@@ -48,7 +48,7 @@ public final class WorkerComponentRefs {
     private org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
     private TaskManager taskManager;
     private WorkerTaskOwnership taskOwnership;
-    private RemoteTaskStatusReporter statusReporter;
+    private Runnable closeStatusReporter;
     private WorkerHttpServer httpServer;
     private HeartbeatSender heartbeatSender;
     private ScheduledExecutorService heartbeatExecutor;
@@ -110,12 +110,14 @@ public final class WorkerComponentRefs {
         return taskManager;
     }
 
-    public RemoteTaskStatusReporter statusReporter() {
-        return statusReporter;
+    public void retainStatusReporter(RemoteTaskStatusReporter reporter) {
+        closeStatusReporter = reporter::close;
     }
 
-    public void setStatusReporter(RemoteTaskStatusReporter reporter) {
-        statusReporter = reporter;
+    public void closeStatusReporter() {
+        if (closeStatusReporter == null) return;
+        closeStatusReporter.run();
+        closeStatusReporter = null;
     }
 
     public void setTaskManager(TaskManager v) {

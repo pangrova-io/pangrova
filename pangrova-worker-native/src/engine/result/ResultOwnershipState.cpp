@@ -2,6 +2,7 @@
 
 #include <arrow/array.h>
 #include <stdexcept>
+#include <utility>
 #include "engine/result/ResultPendingRead.h"
 
 namespace pangrova::result {
@@ -10,8 +11,13 @@ bool ResultOwnershipState::Evidence::drained() const {
       active_readers == 0 && retained_batch_owners == 0;
 }
 void ResultOwnershipState::stopProducer() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  evidence_.producer_stopped = true;
+  std::function<void()> notify;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    evidence_.producer_stopped = true;
+    notify = takeDrainedListenerLocked();
+  }
+  if (notify) notify();
 }
 void ResultOwnershipState::revokeAuthority() {
   std::shared_ptr<ResultPendingRead> pending;
@@ -24,8 +30,13 @@ void ResultOwnershipState::revokeAuthority() {
 }
 void ResultOwnershipState::revokeAndClearQueue() {
   revokeAuthority();
-  std::lock_guard<std::mutex> lock(mutex_);
-  evidence_.queue_cleared = true;
+  std::function<void()> notify;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    evidence_.queue_cleared = true;
+    notify = takeDrainedListenerLocked();
+  }
+  if (notify) notify();
 }
 arrow::Status ResultOwnershipState::attachPendingRead(const std::shared_ptr<ResultPendingRead>& pending) {
   bool revoked;
@@ -60,22 +71,50 @@ void ResultOwnershipState::acquireReader() {
   ++evidence_.active_readers;
 }
 void ResultOwnershipState::releaseReader() noexcept {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (evidence_.active_readers == 0) std::terminate();
-  --evidence_.active_readers;
+  std::function<void()> notify;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (evidence_.active_readers == 0) std::terminate();
+    --evidence_.active_readers;
+    notify = takeDrainedListenerLocked();
+  }
+  if (notify) notify();
 }
 void ResultOwnershipState::acquireBatch() {
   std::lock_guard<std::mutex> lock(mutex_);
   ++evidence_.retained_batch_owners;
 }
 void ResultOwnershipState::releaseBatch() noexcept {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (evidence_.retained_batch_owners == 0) std::terminate();
-  --evidence_.retained_batch_owners;
+  std::function<void()> notify;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (evidence_.retained_batch_owners == 0) std::terminate();
+    --evidence_.retained_batch_owners;
+    notify = takeDrainedListenerLocked();
+  }
+  if (notify) notify();
 }
 ResultOwnershipState::Evidence ResultOwnershipState::evidence() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return evidence_;
+}
+
+void ResultOwnershipState::watchDrain(std::function<void()> listener) {
+  if (!listener) throw std::invalid_argument("Result drain listener is required");
+  std::function<void()> notify;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (drain_watched_) throw std::logic_error("Result drain already has a listener");
+    drain_watched_ = true;
+    drained_listener_ = std::move(listener);
+    notify = takeDrainedListenerLocked();
+  }
+  if (notify) notify();
+}
+
+std::function<void()> ResultOwnershipState::takeDrainedListenerLocked() {
+  if (drained_listener_ && evidence_.drained()) return std::exchange(drained_listener_, {});
+  return {};
 }
 
 namespace {

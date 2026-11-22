@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
@@ -429,7 +430,7 @@ class IcebergMetadataTest {
             try {
                 var splits = source.getNextBatch(10);
                 assertThat(splits).singleElement().isInstanceOf(IcebergSystemTableSplit.class);
-                DataSplit proto = DataSplit.parseFrom(splits.get(0).toSplitInfoProto());
+                DataSplit proto = DataSplit.parseFrom(CanonicalConnectorSplit.from(splits.get(0)).toByteArray());
                 assertThat(proto.getConnectorId()).isEqualTo("iceberg");
                 assertThat(proto.getOpaqueLocation()).isEqualTo(system.metadataLocation());
                 assertThat(proto.getSourceSnapshot()).isEqualTo(system.metadataLocation());

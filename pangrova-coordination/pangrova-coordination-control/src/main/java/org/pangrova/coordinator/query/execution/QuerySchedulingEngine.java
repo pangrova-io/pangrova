@@ -17,7 +17,7 @@ import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
 
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 
 import org.pangrova.query.api.enums.QueryState;
 
@@ -368,9 +368,12 @@ final class QuerySchedulingEngine {
                 .MAX_TASKS_PER_WORKER;
         int clusterParallelismLimit = workerCount > Integer.MAX_VALUE / tasksPerWorker
                 ? Integer.MAX_VALUE : Math.max(1, workerCount * tasksPerWorker);
-        var fragments = artifactIntents.isEmpty()
+        var merge = retrievalIntents.collectRetrievalMergeIntent(ctx.vectorSearchNode(), ctx.rerankerPlan());
+        java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
+        boolean needsRetrievalReducer = merge.isPresent() || rerank.isPresent();
+        var fragments = artifactIntents.isEmpty() && !needsRetrievalReducer
                 ? plannedQuery.fragmentForCluster(clusterParallelismLimit)
-                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit);
+                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit, needsRetrievalReducer);
         ctx.vectorSearchNode().ifPresent(vector -> LOG.info(
                 "event=vector_retrieval_plan queryId={} indexId={} intentCount={} stageCount={}",
                 session.queryId(), vector.indexId(), artifactIntents.size(),
@@ -384,14 +387,12 @@ final class QuerySchedulingEngine {
                         d.partitionSpec(), writeFileFormat(session.queryId()), 0,
                         connectorWriteBinding(session.queryId())))
                 .orElse(null);
-        java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
         var dagQueryContext = new QueryExecutionScope(
                 new org.pangrova.execution.authority.StageExecutionContext.Live(session),
                 ctx.snapshotOverrides(), ctx.originalSql(),
                 ctx.preOptColumnNames(), writeConfig,
                 artifactIntents,
-                retrievalIntents.collectRetrievalMergeIntent(ctx.vectorSearchNode(), ctx.rerankerPlan()),
-                rerank);
+                merge, rerank);
 
         DispatchResult result = deps.dagEngine().dispatch(
                 session, dag, ctx.compiler(), deps.workerSelector(),

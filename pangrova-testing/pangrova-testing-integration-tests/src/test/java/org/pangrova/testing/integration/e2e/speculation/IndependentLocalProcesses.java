@@ -380,7 +380,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + coordinatorPort
                         + "/v1/task/status-report"))
                 .header("Authorization", "Bearer " + internalSecret)
-                .header("Content-Type", "application/json").timeout(Duration.ofSeconds(30))
+                .header("Content-Type", org.pangrova.protocol.rest.task.TaskStatusWire.MEDIA_TYPE).timeout(Duration.ofSeconds(30))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(actual.body())).build();
         return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
     }

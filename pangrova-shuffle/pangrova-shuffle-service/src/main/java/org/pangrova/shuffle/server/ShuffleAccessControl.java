@@ -228,6 +228,18 @@ final class ShuffleAccessControl {
                 clock.millis());
     }
 
+    void verifyTask(
+            CapabilityOperation operation,
+            String shuffleId,
+            TaskAttemptId attempt,
+            org.pangrova.protocol.v2.ShuffleAccessCapability capability) {
+        if (!validShuffleId(shuffleId)) {
+            throw new IllegalArgumentException("shuffle id is invalid");
+        }
+        capabilities.verify(capability, CapabilityScope.forTask(
+                operation, shuffleId, attempt.getExecutionOwner(), attempt), clock.millis());
+    }
+
     org.pangrova.protocol.v2.ShuffleAccessCapability issue(
             CapabilityOperation operation,
             String shuffleId,
@@ -283,13 +295,18 @@ final class ShuffleAccessControl {
             TaskAttemptId attempt) {
         // The consumer stage has its own plan epoch; only query and live owner
         // must match the producer allocation before its exact grant is checked.
-        if (!validOwner(attempt.getExecutionOwner())
-                || !attempt.getExecutionOwner().equals(allocation.owner())
-                || !attempt.getQueryOrJobId().equals(allocation.identity().queryId())
-                || attempt.getStageId() < 0 || attempt.getPartitionId() < 0
-                || attempt.getPlanEpoch() <= 0 || !attemptFenceValid(attempt)) {
+        if (!attempt.getExecutionOwner().equals(allocation.owner())
+                || !attempt.getQueryOrJobId().equals(allocation.identity().queryId())) {
             throw new SecurityException("consumer attempt does not match allocation fence");
         }
+        requireConsumerIdentity(attempt);
     }
 
+    static void requireConsumerIdentity(TaskAttemptId attempt) {
+        if (!validOwner(attempt.getExecutionOwner()) || attempt.getQueryOrJobId().isBlank()
+                || attempt.getStageId() < 0 || attempt.getPartitionId() < 0
+                || attempt.getPlanEpoch() <= 0 || !attemptFenceValid(attempt)) {
+            throw new SecurityException("consumer attempt identity is incomplete");
+        }
+    }
 }

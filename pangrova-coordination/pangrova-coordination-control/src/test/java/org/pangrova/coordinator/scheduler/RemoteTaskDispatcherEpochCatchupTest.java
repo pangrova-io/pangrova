@@ -16,14 +16,17 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskAdmitted;
+import org.pangrova.protocol.http.TaskRejected;
+import org.pangrova.protocol.http.TaskResultEndpoint;
+import org.pangrova.protocol.http.TaskShuffleEndpoint;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.common.enums.MemoryPressure;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,7 +55,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
         HttpServer server = startServer(body -> {
             requests.incrementAndGet();
             epoch.set(3);
-            return new Reply(425, "epoch ahead");
+            return epochAhead();
         });
         try (RemoteTaskDispatcher dispatcher = dispatcher(epoch)) {
             var future = dispatcher.dispatchAsync(request(), worker(server.getAddress().getPort()));
@@ -68,7 +71,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
 
     @Test
     void persistentEpochAheadIsControlFencedRatherThanWorkerBusy() throws Exception {
-        HttpServer server = startServer(body -> new Reply(425, "epoch ahead"));
+        HttpServer server = startServer(body -> epochAhead());
         try (RemoteTaskDispatcher dispatcher = dispatcher(new AtomicLong(2))) {
             var future = dispatcher.dispatchAsync(request(), worker(server.getAddress().getPort()));
             assertThatThrownBy(() -> future.get(20, TimeUnit.SECONDS))
@@ -80,6 +83,43 @@ class RemoteTaskDispatcherEpochCatchupTest {
         }
     }
 
+    @Test
+    void rejectsAcknowledgementForADifferentTask() throws Exception {
+        assertRejectedAcknowledgement(admitted("other-task").build(),
+                "Worker acknowledgement does not match the submitted task identity");
+    }
+
+    @Test
+    void rejectsShuffleTicketsOutsideTheirPartitionPositions() throws Exception {
+        var shuffle = TaskShuffleEndpoint.newBuilder().setHost("127.0.0.1").setPort(1)
+                .addPartitionTickets(org.pangrova.protocol.v2.ShufflePartitionTicket.newBuilder()
+                        .setPartitionId(1).setSignedTicket(com.google.protobuf.ByteString.copyFromUtf8("opaque"))
+                        .setExpiresAtEpochMs(System.currentTimeMillis() + 60_000));
+        assertRejectedAcknowledgement(admitted("task-epoch").setShuffleEndpoint(shuffle).build(),
+                "Invalid shuffle ticket for partition 0");
+    }
+
+    private static void assertRejectedAcknowledgement(TaskAdmitted ack, String reason) throws Exception {
+        HttpServer server = startServer(body -> new Reply(200, TaskSubmitAck.newBuilder().setAdmitted(ack).build()));
+        try (RemoteTaskDispatcher dispatcher = dispatcher(new AtomicLong(2))) {
+            assertThatThrownBy(() -> dispatcher.dispatch(request(), worker(server.getAddress().getPort())))
+                    .isInstanceOf(TaskDispatchException.class).hasRootCauseMessage(reason);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static Reply epochAhead() {
+        return new Reply(425, TaskSubmitAck.newBuilder().setRejected(
+                TaskRejected.newBuilder().setCode("CONTROL_EPOCH_AHEAD").setReason("epoch ahead")).build());
+    }
+
+    private static TaskAdmitted.Builder admitted(String taskId) {
+        var endpoint = TaskResultEndpoint.newBuilder().setHost("127.0.0.1").setPort(1)
+                .setTicket("ticket").setProtocol(org.pangrova.common.client.enums.ResultProtocol.GRPC.value());
+        return TaskAdmitted.newBuilder().setTaskId(taskId).setResultEndpoint(endpoint);
+    }
+
     private static void verifyCatchup(boolean async) throws Exception {
         AtomicInteger requests = new AtomicInteger();
         AtomicReference<byte[]> first = new AtomicReference<>();
@@ -87,13 +127,11 @@ class RemoteTaskDispatcherEpochCatchupTest {
         HttpServer server = startServer(body -> {
             if (requests.incrementAndGet() == 1) {
                 first.set(body);
-                return new Reply(425, "epoch ahead");
+                return epochAhead();
             }
             second.set(body);
-            var endpoint = new ResultEndpoint("127.0.0.1", 1, "ticket",
-                    org.pangrova.common.client.enums.ResultProtocol.GRPC.value());
-            var accepted = new SubmitTaskResponse(true, null, "task-epoch", endpoint, null);
-            return new Reply(200, JsonMapperFactory.shared().writeValueAsString(accepted));
+            return new Reply(200, TaskSubmitAck.newBuilder().setAdmitted(
+                    admitted("task-epoch")).build());
         });
         try (RemoteTaskDispatcher dispatcher = dispatcher(new AtomicLong(2))) {
             WorkerInfo worker = worker(server.getAddress().getPort());
@@ -106,8 +144,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
                             org.pangrova.common.client.enums.ResultProtocol.GRPC.value()));
             assertThat(requests).hasValue(2);
             assertThat(Arrays.equals(first.get(), second.get())).isTrue();
-            SubmitTaskRequest sent = JsonMapperFactory.shared()
-                    .readValue(first.get(), SubmitTaskRequest.class);
+            SubmitTaskRequest sent = SubmitTaskRequest.decode(first.get());
             assertThat(sent.taskRequest().getAttempt().getControlEpoch()).isEqualTo(2);
             assertThat(ExecutionOwnerIdentity.from(
                     sent.taskRequest().getAttempt().getExecutionOwner()))
@@ -153,8 +190,11 @@ class RemoteTaskDispatcherEpochCatchupTest {
         server.createContext("/v1/task", exchange -> {
             try {
                 byte[] body = exchange.getRequestBody().readAllBytes();
+                assertThat(exchange.getRequestHeaders().getFirst("Content-Type")).isEqualTo(SubmitTaskRequest.MEDIA_TYPE);
+                assertThat(exchange.getRequestHeaders().getFirst("Accept")).isEqualTo(SubmitTaskRequest.MEDIA_TYPE);
                 Reply reply = responder.respond(body);
-                byte[] bytes = reply.body().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                byte[] bytes = reply.body().toByteArray();
+                exchange.getResponseHeaders().set("Content-Type", SubmitTaskRequest.MEDIA_TYPE);
                 exchange.sendResponseHeaders(reply.status(), bytes.length);
                 exchange.getResponseBody().write(bytes);
             } finally {
@@ -170,5 +210,5 @@ class RemoteTaskDispatcherEpochCatchupTest {
         Reply respond(byte[] body) throws IOException;
     }
 
-    private record Reply(int status, String body) {}
+    private record Reply(int status, TaskSubmitAck body) {}
 }

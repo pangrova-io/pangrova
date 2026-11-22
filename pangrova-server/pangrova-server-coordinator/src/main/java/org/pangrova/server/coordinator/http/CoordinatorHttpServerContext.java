@@ -3,7 +3,6 @@ package org.pangrova.server.coordinator.http;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.query.runtime.QueryManager;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -29,7 +28,6 @@ import java.util.function.LongSupplier;
  * @param workerManager         worker registry for heartbeat processing (nullable)
  * @param profilerEndpoint      query profiling endpoint (nullable)
  * @param cdcHandler            CDC lifecycle manager SPI (nullable)
- * @param splitAssignmentManager pull-mode split assignment manager (nullable — split endpoint skipped if null)
  * @param coordinatorEpochSupplier current cluster control term published to Workers (never null)
  * @param copySourceReadResource optional COPY source-read endpoint
  * @param fileSpaceFilesResource optional Volume/Stage Files API ticket endpoint
@@ -43,7 +41,6 @@ public record CoordinatorHttpServerContext(
         WorkerManager workerManager,
         ProfilerEndpoint profilerEndpoint,
         CdcLifecycleManager cdcHandler,
-        SplitAssignmentManager splitAssignmentManager,
         QueryProfileService queryProfileService,
         MetadataService metadataService,
         String internalAuthSecret,
@@ -69,20 +66,19 @@ public record CoordinatorHttpServerContext(
             WorkerManager workerManager,
             ProfilerEndpoint profilerEndpoint,
             CdcLifecycleManager cdcHandler,
-            SplitAssignmentManager splitAssignmentManager,
             QueryProfileService queryProfileService,
             MetadataService metadataService,
             String internalAuthSecret,
             LongSupplier coordinatorEpochSupplier) {
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
-                splitAssignmentManager, queryProfileService, metadataService,
+                queryProfileService, metadataService,
                 internalAuthSecret, coordinatorEpochSupplier, null, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
     // CHECKSTYLE.OFF: ParameterNumber
-    /** Backward-compatible constructor with internal auth and single-node epoch. */
+    /** Constructor with internal auth and single-node epoch. */
     public CoordinatorHttpServerContext(
             TaskStatusReceiver receiver,
             QueryManager queryManager,
@@ -92,20 +88,18 @@ public record CoordinatorHttpServerContext(
             WorkerManager workerManager,
             ProfilerEndpoint profilerEndpoint,
             CdcLifecycleManager cdcHandler,
-            SplitAssignmentManager splitAssignmentManager,
             QueryProfileService queryProfileService,
             MetadataService metadataService,
             String internalAuthSecret) {
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
-                splitAssignmentManager, queryProfileService, metadataService,
+                queryProfileService, metadataService,
                 internalAuthSecret, () -> 1L);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
     // CHECKSTYLE.OFF: ParameterNumber
-    // Backward-compatible signature: call sites (including tests) pass all dependencies positionally.
-    /** Backward-compatible 11-arg constructor without internalAuthSecret. */
+    /** Constructor using the default internal authentication settings. */
     public CoordinatorHttpServerContext(
             TaskStatusReceiver receiver,
             QueryManager queryManager,
@@ -115,18 +109,16 @@ public record CoordinatorHttpServerContext(
             WorkerManager workerManager,
             ProfilerEndpoint profilerEndpoint,
             CdcLifecycleManager cdcHandler,
-            SplitAssignmentManager splitAssignmentManager,
             QueryProfileService queryProfileService,
             MetadataService metadataService) {
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
-                splitAssignmentManager, queryProfileService, metadataService, null, () -> 1L);
+                queryProfileService, metadataService, null, () -> 1L);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
     // CHECKSTYLE.OFF: ParameterNumber
-    // Backward-compatible signature: call sites (including tests) pass all dependencies positionally.
-    /** Convenience constructor without splitAssignmentManager, queryProfileService, and metadataService. */
+    /** Convenience constructor for servers without profiling or metadata services. */
     public CoordinatorHttpServerContext(
             TaskStatusReceiver receiver,
             QueryManager queryManager,
@@ -138,7 +130,7 @@ public record CoordinatorHttpServerContext(
             CdcLifecycleManager cdcHandler) {
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
-                null, null, null, null, () -> 1L);
+                null, null, null, () -> 1L);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
@@ -146,6 +138,6 @@ public record CoordinatorHttpServerContext(
     public static CoordinatorHttpServerContext minimal(TaskStatusReceiver receiver) {
         return new CoordinatorHttpServerContext(
                 receiver, null, null, null, null, null, null, null,
-                null, null, null, null, () -> 1L);
+                null, null, null, () -> 1L);
     }
 }

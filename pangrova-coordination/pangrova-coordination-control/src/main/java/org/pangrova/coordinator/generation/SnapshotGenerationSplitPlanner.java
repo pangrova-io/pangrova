@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.generation;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.split.NativeReadSplitBinding;
@@ -142,37 +141,34 @@ public final class SnapshotGenerationSplitPlanner {
             ConnectorSplit connectorSplit,
             String snapshotToken,
             Set<String> objectIds) {
-        byte[] bytes = connectorSplit.toSplitInfoProto();
-        if (bytes == null || bytes.length == 0) {
-            throw validation("Connector split has no canonical v2 DataSplit encoding");
-        }
+        DataSplit split;
         try {
-            DataSplit split = DataSplit.parseFrom(bytes);
-            if (!split.getUnknownFields().asMap().isEmpty()
-                    || split.getSplitId().isBlank()
-                    || split.getConnectorId().isBlank()
-                    || split.getDataObjectId().isBlank()
-                    || split.getOpaqueLocation().isBlank()
-                    || !split.getSourceSnapshot().equals(snapshotToken)) {
-                throw validation("Connector split identity does not match the pinned snapshot");
-            }
-            FileSplitDetail detail = DataSplitProtoCodec.fileDetail(split);
-            if (detail.hasPaimon()
-                    && (detail.getPaimon().getNeedsMerge()
-                    || detail.getPaimon().getLsmLevelsCount() > 1)) {
-                throw validation(
-                        "Paimon MOR splits require a primary-key row locator; "
-                                + "physical-position artifact publication is unsafe");
-            }
-            if (!objectIds.add(split.getDataObjectId())) {
-                throw validation(
-                        "One source object produced multiple build splits; "
-                                + "segment identity must be explicit before distributed publication");
-            }
-            return GenerationSplit.of(split.getDataObjectId(), bytes);
-        } catch (InvalidProtocolBufferException failure) {
-            throw validation("Connector split is not a canonical v2 DataSplit", failure);
+            split = org.pangrova.protocol.source.CanonicalConnectorSplit.from(connectorSplit);
+        } catch (IllegalArgumentException failure) {
+            throw validation("Connector split has no canonical v2 DataSplit", failure);
         }
+        if (!split.getUnknownFields().asMap().isEmpty()
+                || split.getSplitId().isBlank()
+                || split.getConnectorId().isBlank()
+                || split.getDataObjectId().isBlank()
+                || split.getOpaqueLocation().isBlank()
+                || !split.getSourceSnapshot().equals(snapshotToken)) {
+            throw validation("Connector split identity does not match the pinned snapshot");
+        }
+        FileSplitDetail detail = DataSplitProtoCodec.fileDetail(split);
+        if (detail.hasPaimon()
+                && (detail.getPaimon().getNeedsMerge()
+                || detail.getPaimon().getLsmLevelsCount() > 1)) {
+            throw validation(
+                    "Paimon MOR splits require a primary-key row locator; "
+                            + "physical-position artifact publication is unsafe");
+        }
+        if (!objectIds.add(split.getDataObjectId())) {
+            throw validation(
+                    "One source object produced multiple build splits; "
+                            + "segment identity must be explicit before distributed publication");
+        }
+        return GenerationSplit.of(split.getDataObjectId(), split.toByteArray());
     }
 
     private static PangrovaException validation(String message) {

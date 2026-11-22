@@ -185,7 +185,8 @@ class TaskCancellationResourceCleanupTest {
             runtime.awaitFinished(handle);
             assertThat(tasks.manager().transition(info.taskId(), org.pangrova.worker.enums.TaskState.RUNNING)).isTrue();
             info.setTerminalTaskReport(runtime.executor().getTaskStatus(handle));
-            info.setTerminalTaskStats(runtime.executor().getTaskStats(handle));
+            info.setTerminalTaskStats(org.pangrova.protocol.v2.NativeTaskStats.parseFrom(
+                    runtime.executor().getTaskStats(handle)));
             var failure = new AtomicReference<Throwable>();
             Thread completion = completionThread(tasks, info, failure);
             try (var lease = new ActualNativeHandleLease(runtime.executor(), handle)) {

@@ -23,7 +23,7 @@ public interface ExecutionAnchorStore {
     /**
      * Acquires an inactive or expired execution and allocates its next token.
      *
-     * @return the acquired anchor, or empty while another live owner holds it
+     * @return the acquired anchor, or empty while a live owner or its durable read window protects it
      */
     Optional<ExecutionAnchor> tryAcquire(
             String executionId,
@@ -46,7 +46,10 @@ public interface ExecutionAnchorStore {
             String ownerIncarnation,
             Duration leaseDuration);
 
-    /** Releases the exact fenced owner, preserving takeover eligibility for unresolved durable writes. */
+    /**
+     * Retires the exact fenced owner and preserves unresolved write recovery.
+     * Outstanding read windows can delay a successor.
+     */
     boolean release(ExecutionAnchor anchor);
 
     /** Makes one exact fenced execution immediately eligible for takeover. */
@@ -56,8 +59,8 @@ public interface ExecutionAnchorStore {
     int yieldOwned(String ownerId, String ownerIncarnation);
 
     /**
-     * Atomically takes over at most {@code maxBatchSize} expired live executions,
-     * allocating a new token for every claimed execution.
+     * Atomically takes over at most {@code maxBatchSize} expired live executions
+     * whose read windows have drained, allocating a new token for each claim.
      */
     List<ExecutionAnchor> claimExpired(
             String newOwnerId,

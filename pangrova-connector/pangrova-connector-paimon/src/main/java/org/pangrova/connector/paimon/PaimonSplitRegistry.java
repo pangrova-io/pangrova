@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -34,7 +35,8 @@ public final class PaimonSplitRegistry implements AutoCloseable {
 
     private final int maxSize;
     private final long ttlNanos;
-    private final Map<Long, Registration> registrations = new HashMap<>();
+    // Registration time is assigned under this registry's monitor, in insertion order.
+    private final Map<Long, Registration> registrations = new LinkedHashMap<>();
     private final Map<String, QueryScope> queries = new HashMap<>();
     private boolean sealed;
 
@@ -75,6 +77,11 @@ public final class PaimonSplitRegistry implements AutoCloseable {
         }
         queries.put(queryId, new QueryScope(authority));
         return true;
+    }
+
+    synchronized void requireActiveQuery(ConnectorQueryAuthority authority) {
+        requireOpen();
+        requireActive(requireScope(authority));
     }
 
     ConnectorReadBinding bindRead(ConnectorQueryAuthority authority, PaimonTableHandle selector,
@@ -252,13 +259,15 @@ public final class PaimonSplitRegistry implements AutoCloseable {
 
     private void removeExpiredRegistrations() {
         long now = System.nanoTime();
-        registrations.entrySet().removeIf(entry -> {
+        var entries = registrations.entrySet().iterator();
+        while (entries.hasNext()) {
+            var entry = entries.next();
             Registration registration = entry.getValue();
-            if (registration.scope.readers.containsKey(entry.getKey())) return false;
-            if (now - registration.registeredNanos < ttlNanos) return false;
+            if (now - registration.registeredNanos < ttlNanos) return;
+            if (registration.scope.readers.containsKey(entry.getKey())) continue;
             registration.scope.ids.remove(entry.getKey());
-            return true;
-        });
+            entries.remove();
+        }
     }
 
     private QueryScope requireScope(ConnectorQueryAuthority authority) {

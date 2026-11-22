@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
 import org.pangrova.connector.api.enums.ReadSnapshotState;
@@ -63,7 +64,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             assertThat(owner.statistics(new QualifiedTableName("bound", "db", "rows")).rowCount()).isEqualTo(3);
             assertThat(fixture.splits(binding, Map.of())).isNotEmpty().allSatisfy(split -> {
                 try {
-                    var wire = DataSplit.parseFrom(split.toSplitInfoProto());
+                    var wire = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
                     assertThat(wire.getSourceSnapshot()).isEqualTo(Long.toString(binding.snapshotId().orElseThrow()));
                     assertThat(wire.getCatalog()).isEqualTo(CatalogExecutionBindings.from(
                             fixture.bootstrap.catalogRegistry().getCatalog("bound").getDescriptor()));

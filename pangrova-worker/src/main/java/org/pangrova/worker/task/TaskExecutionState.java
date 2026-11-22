@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 
 import java.util.concurrent.CountDownLatch;
@@ -10,7 +11,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
-import org.pangrova.worker.buffer.OutputBufferManager;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
@@ -65,9 +65,6 @@ final class TaskExecutionState {
     private final AtomicLong outputBatches = new AtomicLong(0);
     private final AtomicLong outputBytes = new AtomicLong(0);
 
-    // Buffer reference (legacy path)
-    private final AtomicReference<OutputBufferManager> taskBuffer = new AtomicReference<>();
-
     // Write commit metadata (set by NativeWriteExecutor.commitWrite)
     private final AtomicReference<byte[]> commitMetadata = new AtomicReference<>();
 
@@ -79,7 +76,7 @@ final class TaskExecutionState {
     private final AtomicReference<byte[]> terminalTaskReport = new AtomicReference<>();
 
     // Canonical v2 NativeTaskStats captured before the native handle is released.
-    private final AtomicReference<byte[]> terminalTaskStats = new AtomicReference<>();
+    private final AtomicReference<NativeTaskStats> terminalTaskStats = new AtomicReference<>();
 
     // Per-task shuffle server port (set by TaskLifecycleManager.startShuffleViaSpi)
     private final AtomicLong shufflePort = new AtomicLong(0);
@@ -194,12 +191,6 @@ final class TaskExecutionState {
 
     void addOutputBytes(long bytes) { outputBytes.addAndGet(bytes); }
 
-    // --- Buffer ---
-
-    OutputBufferManager taskBuffer() { return taskBuffer.get(); }
-
-    void setTaskBuffer(OutputBufferManager buffer) { taskBuffer.set(buffer); }
-
     // --- Write commit metadata ---
 
     byte[] commitMetadata() { return commitMetadata.get(); }
@@ -224,15 +215,12 @@ final class TaskExecutionState {
         }
     }
 
-    byte[] terminalTaskStats() {
-        byte[] value = terminalTaskStats.get();
-        return value == null ? null : value.clone();
+    NativeTaskStats terminalTaskStats() {
+        return terminalTaskStats.get();
     }
 
-    void setTerminalTaskStats(byte[] stats) {
-        if (stats != null && stats.length > 0) {
-            terminalTaskStats.compareAndSet(null, stats.clone());
-        }
+    void setTerminalTaskStats(NativeTaskStats stats) {
+        terminalTaskStats.compareAndSet(null, stats);
     }
 
     java.util.List<byte[]> terminalCommitFragments() {
@@ -245,8 +233,8 @@ final class TaskExecutionState {
                 : fragments.stream().map(byte[]::clone).toList());
     }
 
-    void setReleasedTaskStats(byte[] stats) {
-        terminalTaskStats.set(stats == null ? null : stats.clone());
+    void setReleasedTaskStats(NativeTaskStats stats) {
+        terminalTaskStats.set(stats);
     }
 
     // --- Shuffle port ---

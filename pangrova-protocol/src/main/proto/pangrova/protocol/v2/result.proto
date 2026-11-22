@@ -251,6 +251,16 @@ message NativeTaskStats {
   // Worker-local scalar index decisions before Velox split enqueue.
   uint64 index_splits_evaluated = 19;
   uint64 index_splits_skipped = 20;
+  // Present only for a completed requested build-key scan of the exchange output.
+  BuildKeyRange build_key_range = 21;
+}
+
+// Inclusive signed bounds on all non-null build keys. Empty means every output
+// row was visited and no non-null build key existed in this attempt.
+message BuildKeyRange {
+  sint64 minimum = 1;
+  sint64 maximum = 2;
+  bool empty = 3;
 }
 
 // Generic report produced by one fenced background work page. Outputs are

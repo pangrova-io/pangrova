@@ -45,7 +45,7 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
             NativeRuntime.nativeRegisterEgress(callbacks);
             var producer = service.registerProducer(base -> runtime.bindWorker(withActualExchangeSink(base)));
             var request = producer.request();
-            long producerHandle = producerExecutor.createTask(request.toByteArray());
+            long producerHandle = producerExecutor.createTask(request);
             producerExecutor.startTask(producerHandle);
             await().atMost(Duration.ofSeconds(20)).until(() -> producerExecutor.isFinished(producerHandle));
             var produced = TaskReport.parseFrom(producerExecutor.getTaskStatus(producerHandle));

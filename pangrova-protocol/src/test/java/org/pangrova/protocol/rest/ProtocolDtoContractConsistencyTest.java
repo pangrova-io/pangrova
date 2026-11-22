@@ -2,7 +2,6 @@ package org.pangrova.protocol.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
@@ -41,13 +40,13 @@ class ProtocolDtoContractConsistencyTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void submitTaskRequestExposesOnlyCanonicalJsonPayload() throws Exception {
-        var jsonProperty = SubmitTaskRequest.class
-                .getMethod("canonicalTaskRequest")
-                .getAnnotation(JsonProperty.class);
-
-        assertThat(jsonProperty).isNotNull();
-        assertThat(jsonProperty.value()).isEqualTo("canonical_task_request");
+    void submitTaskUsesCanonicalPayloadOutsideTheJniBoundary() {
+        var submission = org.pangrova.protocol.http.TaskSubmission.getDescriptor();
+        assertThat(submission.getFields()).extracting(field -> field.getName()).containsExactly("task", "copy");
+        assertThat(submission.findFieldByName("task").getMessageType())
+                .isEqualTo(org.pangrova.protocol.v2.TaskRequest.getDescriptor());
+        assertThat(org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors.descriptorSet().getFileList())
+                .extracting(file -> file.getName()).doesNotContain(submission.getFile().getName());
     }
 
     @Test
@@ -91,15 +90,15 @@ class ProtocolDtoContractConsistencyTest {
     // Field count drift guard
     // -----------------------------------------------------------------------
 
-    /**
-     * Guards against silent field additions by tracking expected field counts.
-     * When a field is added to any protocol DTO, this test fails, forcing
-     * the developer to update the expected count and verify symmetry.
-     */
     @Test
-    void protocolDtoFieldCountsMatchExpected() {
-        assertFieldCount(TaskStatusReport.class, 16,
-                "TaskStatusReport field count changed — verify canonical report projection");
+    void reportWireSeparatesProgressFromTerminalEvidence() {
+        var report = org.pangrova.protocol.http.TaskStatusDelivery.getDescriptor();
+        assertThat(report.getFields()).extracting(field -> field.getName()).containsExactly(
+                "worker_id", "sequence", "timestamp_ms", "role", "progress", "terminal_report",
+                "supplemental_stats", "write");
+        assertThat(report.getOneofs()).singleElement().satisfies(status ->
+                assertThat(status.getFields()).extracting(field -> field.getName())
+                        .containsExactly("progress", "terminal_report"));
     }
 
     // -----------------------------------------------------------------------
@@ -112,9 +111,4 @@ class ProtocolDtoContractConsistencyTest {
                 .collect(Collectors.toSet());
     }
 
-    private static void assertFieldCount(
-            Class<? extends Record> recordClass, int expected, String message) {
-        int actual = recordClass.getRecordComponents().length;
-        assertThat(actual).as(message + " (was %d, now %d)", expected, actual).isEqualTo(expected);
-    }
 }

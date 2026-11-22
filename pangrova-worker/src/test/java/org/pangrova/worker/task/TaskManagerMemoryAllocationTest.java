@@ -78,7 +78,7 @@ class TaskManagerMemoryAllocationTest {
                                 runtime.resultPort(),
                                 null,
                                 new TaskResource.ResultBinding("grpc", runtime.resultTickets()))) {
-            var response = resource.submitTask(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))));
+            var response = resource.submitTask(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))).encode(), null);
             assertThat(response.getStatus()).isEqualTo(503);
             assertUnregistered(tasks);
         }

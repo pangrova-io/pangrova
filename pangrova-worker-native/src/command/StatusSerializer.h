@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "engine/executor/driver/TaskExecutor.h"
+#include "pangrova/protocol/v2/result.pb.h"
 
 // Forward declare execution framework types to avoid pulling heavy headers.
 namespace facebook::velox::cache {
@@ -18,6 +19,9 @@ struct CacheStats;
 }
 
 namespace pangrova::jni {
+
+// Keep the polling state and the state in the full report on the same wire enum.
+pangrova::protocol::v2::TaskState toProtoTaskState(executor::ExecutorState state);
 
 // Serialize TaskExecutor state to proto wire format.
 std::vector<uint8_t> serializeTaskStatus(executor::TaskExecutor& executor);

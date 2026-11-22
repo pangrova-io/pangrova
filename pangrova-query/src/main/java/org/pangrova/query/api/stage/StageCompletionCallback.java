@@ -14,6 +14,27 @@ public interface StageCompletionCallback {
      */
     void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error);
 
+    /** Carries the elected physical attempt's build summary with the logical terminal event. */
+    default void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
+            BuildKeyRange buildKeyRange) {
+        onTaskTerminal(queryId, taskId, state, error);
+    }
+
+    /** Inclusive signed bounds, or a complete summary with no non-null keys. */
+    record BuildKeyRange(long minimum, long maximum, boolean empty) {
+        public BuildKeyRange {
+            if (minimum > maximum || (empty && (minimum != 0 || maximum != 0))) {
+                throw new IllegalArgumentException("Invalid build key range");
+            }
+        }
+
+        public BuildKeyRange merge(BuildKeyRange other) {
+            if (empty) return other;
+            if (other.empty) return this;
+            return new BuildKeyRange(Math.min(minimum, other.minimum), Math.max(maximum, other.maximum), false);
+        }
+    }
+
     /** Includes a retired DAG whose terminal outcome is still retained for late task reports. */
     boolean ownsQueryCompletion(String queryId);
 

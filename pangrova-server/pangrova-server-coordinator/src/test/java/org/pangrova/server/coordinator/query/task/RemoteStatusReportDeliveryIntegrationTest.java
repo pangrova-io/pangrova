@@ -6,10 +6,10 @@ import org.pangrova.query.api.enums.QueryState;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.constants.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
+import org.pangrova.protocol.http.TaskStatusAck;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
@@ -68,10 +68,14 @@ class RemoteStatusReportDeliveryIntegrationTest {
     void cancelledReport_retriesOnTransientFailure() throws Exception {
         try (var fixture = scenario("CANCELLED", true, 2, 0)) {
             fixture.cancel();
-            assertActualDrained(fixture.actualReleasedReport("CANCELLED"), TaskState.TASK_STATE_CANCELLED);
+            var actual = fixture.actualReleasedReport("CANCELLED");
+            assertActualDrained(actual, TaskState.TASK_STATE_CANCELLED);
             awaitAttempts(fixture, 3);
-            assertThat(fixture.relay().matchingAttempts()).hasSize(3);
-            assertThat(accepted(fixture.relay().matchingAttempts())).isEqualTo(1);
+            var attempts = fixture.relay().matchingAttempts();
+            assertThat(attempts).hasSize(3);
+            assertThat(accepted(attempts)).isEqualTo(1);
+            byte[] original = TaskStatusWire.encode(actual);
+            for (var attempt : attempts) assertThat(attempt.body()).containsExactly(original);
             assertThat(fixture.failedReports()).isZero();
             fixture.recoverAndDrain();
         }
@@ -79,17 +83,14 @@ class RemoteStatusReportDeliveryIntegrationTest {
 
     @Test
     void nonFinalStateReport_doesNotRetry() throws Exception {
-        try (var fixture = scenario("SCHEDULED", false, 1, 0)) {
+        try (var fixture = scenario("PENDING", false, 1, 0)) {
             fixture.finish();
             fixture.actualReleasedReport("FINISHED");
             var actual = fixture.actualRunningReport();
-            // Explicit transport input: the current collector does not emit SCHEDULED.
-            // All issued identity fields are retained; this is not Native state evidence.
-            var scheduled = new TaskStatusReport(actual.taskId(), actual.queryId(), actual.stageId(),
-                    actual.partitionId(), actual.taskType(), actual.workerId(), "SCHEDULED", actual.stats(),
-                    actual.error(), actual.writeResult(), actual.reportSequence(), actual.timestampMs(),
-                    actual.errorCode(), actual.errorMetadata(), actual.attempt(), actual.canonicalTaskReport());
-            fixture.reporter().report(scheduled);
+            // Exercise the non-running progress branch using the issued identity.
+            var pending = TaskStatusReport.fromAttempt(actual.reportedAttempt(), actual.taskType(), actual.workerId(),
+                    "PENDING", actual.stats(), null, null, actual.reportSequence(), actual.timestampMs(), null);
+            fixture.reporter().report(pending);
             assertThat(fixture.relay().matchingAttempts()).hasSize(1);
             assertThat(fixture.failedReports()).isZero();
             fixture.recoverAndDrain();
@@ -123,10 +124,10 @@ class RemoteStatusReportDeliveryIntegrationTest {
             var attempts = fixture.relay().matchingAttempts();
             assertThat(attempts).hasSize(3);
             assertThat(accepted(attempts)).isEqualTo(3);
-            byte[] original = JsonMapperFactory.shared().writeValueAsBytes(actual);
+            byte[] original = TaskStatusWire.encode(actual);
             for (var attempt : attempts) {
                 assertThat(attempt.body()).containsExactly(original);
-                var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+                var report = TaskStatusWire.decode(attempt.body());
                 assertThat(report.reportSequence()).isEqualTo(actual.reportSequence());
                 assertThat(report.canonicalTaskReport()).containsExactly(actual.canonicalTaskReport());
             }
@@ -164,11 +165,17 @@ class RemoteStatusReportDeliveryIntegrationTest {
             assertThat(attempt.authorization()).isEqualTo("Bearer " + NativeReportDeliveryFixture.SECRET);
             assertThat(accepted(List.of(attempt))).isEqualTo(1);
             var unauthenticated = HttpRequest.newBuilder(fixture.coordinatorUri().resolve("/v1/task/status-report"))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(JsonMapperFactory.shared().writeValueAsBytes(actual)))
+                    .header("Content-Type", TaskStatusWire.MEDIA_TYPE)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(TaskStatusWire.encode(actual)))
                     .build();
             var rejected = fixture.http().httpClient().send(unauthenticated, HttpResponse.BodyHandlers.ofByteArray());
             assertThat(rejected.statusCode()).isEqualTo(401);
+            var oldMedia = HttpRequest.newBuilder(fixture.coordinatorUri().resolve("/v1/task/status-report"))
+                    .header("Authorization", "Bearer " + NativeReportDeliveryFixture.SECRET)
+                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}"))
+                    .build();
+            assertThat(fixture.http().httpClient().send(oldMedia, HttpResponse.BodyHandlers.discarding()).statusCode())
+                    .isEqualTo(415);
             fixture.recoverAndDrain();
             assertFortyTwo(fixture);
         }
@@ -195,14 +202,19 @@ class RemoteStatusReportDeliveryIntegrationTest {
             fixture.startWithoutConsumingResult();
             var actual = fixture.actualRunningReport();
             assertThat(actual.canonicalTaskReport()).isNull();
-            assertThat(deliverActualProgress(fixture, actual).command()).isEqualTo("CONTINUE");
-            var changed = new TaskStatusReport(actual.taskId(), actual.queryId(), actual.stageId(),
-                    actual.partitionId(), actual.taskType(), actual.workerId(), actual.state(), null,
-                    actual.error(), actual.writeResult(), actual.reportSequence(), actual.timestampMs(),
-                    actual.errorCode(), actual.errorMetadata(), actual.attempt(), actual.canonicalTaskReport());
+            assertThat(deliverActualProgress(fixture, actual).getDirective()).isEqualTo(TaskStatusAck.Directive.CONTINUE);
+            var changed = TaskStatusReport.fromAttempt(actual.reportedAttempt(), actual.taskType(), actual.workerId(),
+                    actual.state(), null, actual.error(), actual.writeResult(), actual.reportSequence(),
+                    actual.timestampMs(), actual.canonicalTaskReport());
             assertThat(actual.stats()).isNotNull();
-            assertThat(deliverActualProgress(fixture, changed).command()).isEqualTo("STALE_REJECTED");
-            assertThat(deliverActualProgress(fixture, actual).command()).isEqualTo("CONTINUE");
+            assertThat(deliverActualProgress(fixture, changed).getDirective()).isEqualTo(TaskStatusAck.Directive.STALE_REJECTED);
+            var fencedAttempt = actual.reportedAttempt().toBuilder()
+                    .setControlEpoch(actual.reportedAttempt().getControlEpoch() + 1).build();
+            var fenced = TaskStatusReport.fromAttempt(fencedAttempt, actual.taskType(), actual.workerId(),
+                    actual.state(), actual.stats(), actual.error(), actual.writeResult(), actual.reportSequence(),
+                    actual.timestampMs(), null);
+            assertThat(deliverActualProgress(fixture, fenced).getDirective()).isEqualTo(TaskStatusAck.Directive.STALE_REJECTED);
+            assertThat(deliverActualProgress(fixture, actual).getDirective()).isEqualTo(TaskStatusAck.Directive.CONTINUE);
             fixture.consumeResult();
             fixture.recoverAndDrain();
             assertFortyTwo(fixture);
@@ -259,27 +271,28 @@ class RemoteStatusReportDeliveryIntegrationTest {
         var attempts = fixture.relay().matchingAttempts();
         assertThat(attempts).hasSize(count);
         assertThat(accepted(attempts)).isEqualTo(count);
-        byte[] original = JsonMapperFactory.shared().writeValueAsBytes(actual);
+        byte[] original = TaskStatusWire.encode(actual);
         for (var attempt : attempts) {
             assertThat(attempt.body()).containsExactly(original);
-            var retried = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+            var retried = TaskStatusWire.decode(attempt.body());
             assertThat(retried.reportSequence()).isEqualTo(actual.reportSequence());
             assertThat(retried.canonicalTaskReport()).containsExactly(actual.canonicalTaskReport());
         }
     }
 
-    private static TaskStatusReportResponse deliverActualProgress(
+    private static TaskStatusAck deliverActualProgress(
             NativeReportDeliveryFixture fixture, TaskStatusReport report) throws Exception {
         var request = HttpRequest.newBuilder(fixture.coordinatorUri().resolve("/v1/task/status-report"))
                 .timeout(Duration.ofSeconds(5))
-                .header("Content-Type", "application/json")
+                .header("Content-Type", TaskStatusWire.MEDIA_TYPE)
                 .header("Authorization", "Bearer " + NativeReportDeliveryFixture.SECRET)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(JsonMapperFactory.shared().writeValueAsBytes(report)))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(TaskStatusWire.encode(report)))
                 .build();
         var response = fixture.http().httpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
         assertThat(response.statusCode()).isEqualTo(200);
-        var acknowledgment = JsonMapperFactory.shared().readValue(response.body(), TaskStatusReportResponse.class);
-        assertThat(acknowledgment.taskId()).isEqualTo(report.taskId());
+        var acknowledgment = TaskStatusAck.parseFrom(response.body());
+        assertThat(acknowledgment.getTaskId()).isEqualTo(report.taskId());
+        assertThat(acknowledgment.getSequence()).isEqualTo(report.reportSequence());
         return acknowledgment;
     }
 
@@ -300,9 +313,10 @@ class RemoteStatusReportDeliveryIntegrationTest {
             var response = attempt.response().get();
             if (response == null || response.statusCode() != 200) return false;
             try {
-                var ack = JsonMapperFactory.shared().readValue(response.body(), TaskStatusReportResponse.class);
-                var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
-                return ack.taskId().equals(report.taskId()) && ack.command().equals("CONTINUE");
+                var ack = TaskStatusAck.parseFrom(response.body());
+                var report = TaskStatusWire.decode(attempt.body());
+                return ack.getTaskId().equals(report.taskId()) && ack.getSequence() == report.reportSequence()
+                        && ack.getDirective() == TaskStatusAck.Directive.CONTINUE;
             } catch (java.io.IOException failure) {
                 throw new IllegalStateException("Actual Coordinator returned malformed metadata ACK", failure);
             }

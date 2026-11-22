@@ -275,7 +275,7 @@ proto::DataSplit* addFileSplit(
     storage->set_tenant_id(request.security().tenant_id());
     storage->set_warehouse_uri("/data");
   }
-  split->mutable_connector_detail()->PackFrom(detail);
+  *split->mutable_file_detail() = detail;
   return split;
 }
 
@@ -706,8 +706,8 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   partition->set_column_name("region");
   partition->mutable_value()->set_string_value("apac");
 
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(split->has_file_detail());
+  auto detail = split->file_detail();
   auto* mapping = detail.mutable_schema_evolution()->add_column_mappings();
   mapping->set_source_field_id(1);
   mapping->set_target_field_id(2);
@@ -720,7 +720,7 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   auto* delete_file = iceberg->add_delete_files();
   delete_file->set_opaque_location("/delete/positions.parquet");
   delete_file->set_delete_type(proto::DELETE_FILE_TYPE_POSITION);
-  split->mutable_connector_detail()->PackFrom(detail);
+  *split->mutable_file_detail() = detail;
 
   auto config = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(config.splits.size(), 1U);
@@ -730,6 +730,7 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   EXPECT_EQ(parsed.table_name, "catalog.schema.items");
   EXPECT_EQ(parsed.file_path, "/data/part-0.parquet");
   EXPECT_EQ(parsed.file_format, split::FileFormatType::PARQUET);
+  EXPECT_TRUE(parsed.file_scan_detail.empty());
   EXPECT_EQ(parsed.partition_values.at("region"), "apac");
   ASSERT_EQ(parsed.column_mappings.size(), 1U);
   EXPECT_EQ(parsed.column_mappings.front().target_name, "new_col");
@@ -739,6 +740,16 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   EXPECT_EQ(
       parsed.iceberg->delete_files.front().file_path,
       "/delete/positions.parquet");
+
+  split->mutable_file_detail()->add_index_eval_hints()->set_data_file_path(split->opaque_location());
+  auto with_index = parseTaskConfig(serializeRaw(request));
+  EXPECT_EQ(with_index.splits.front().file_scan_detail, split->file_detail().SerializeAsString());
+}
+
+TEST(ParseTaskConfigTest, RejectsDataSplitWithoutTypedFileDetail) {
+  auto request = validRequest();
+  addFileSplit(request)->clear_file_detail();
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
 TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrift) {
@@ -751,11 +762,11 @@ TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrif
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(4096);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(
       proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -785,11 +796,11 @@ TEST(ParseTaskConfigTest, ParsesPinnedIcebergRefsAndRejectsIdentityDrift) {
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(4096);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(
       proto::SystemTableSplitDetail::ICEBERG_REFS);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -817,8 +828,8 @@ TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplica
   data->set_data_object_id("s3://warehouse/manifest.avro");
   data->set_opaque_location(data->data_object_id());
   data->set_start_offset(0);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data->has_file_detail());
+  auto detail = data->file_detail();
   auto* system = detail.mutable_system_table();
   system->set_kind(proto::SystemTableSplitDetail::ICEBERG_FILES);
   system->set_snapshot_id(7);
@@ -837,7 +848,7 @@ TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplica
   field->set_result_type("long");
   field->set_field_id(1000);
   field->set_name("renamed_id");
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   const auto parsed = parseTaskConfig(serializeRaw(request));
   const auto& fields = parsed.splits.at(0).system_table_iceberg_partition_specs.at(0).fields;
   ASSERT_EQ(fields.size(), 1);
@@ -845,15 +856,15 @@ TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplica
   EXPECT_EQ(fields[0].name, "renamed_id");
 
   field->set_field_id(0);
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   field->set_field_id(1000);
   *spec->add_fields() = *field;
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   spec->mutable_fields()->RemoveLast();
   system->set_iceberg_child_spec_id(1);
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -869,8 +880,8 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonFileManifestAndRejectsMixedSourceKin
   data->set_opaque_location(manifest);
   data->set_start_offset(0);
   data->set_length(256);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data->has_file_detail());
+  auto detail = data->file_detail();
   auto* system = detail.mutable_system_table();
   system->set_kind(proto::SystemTableSplitDetail::PAIMON_FILES);
   system->set_snapshot_id(7);
@@ -883,26 +894,26 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonFileManifestAndRejectsMixedSourceKin
   auto* selected = context->add_files();
   selected->set_identifier_sha256(std::string(32, 'd'));
   selected->set_file_uri("s3://warehouse/db/orders/bucket-0/a.parquet");
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1);
   EXPECT_EQ(parsed.splits[0].system_table, split::SystemTableKind::PAIMON_FILES);
   EXPECT_EQ(parsed.splits[0].system_table_paimon_files_context, context->SerializeAsString());
 
   system->set_iceberg_format_version(2);
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   system->clear_iceberg_format_version();
   context->mutable_snapshot()->set_sha256("short");
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   context->mutable_snapshot()->set_sha256(std::string(32, 'c'));
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   data->set_source_snapshot("different-snapshot");
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   data->set_source_snapshot(snapshot);
   system->set_kind(proto::SystemTableSplitDetail::ICEBERG_FILES);
-  data->mutable_connector_detail()->PackFrom(detail);
+  *data->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -917,13 +928,13 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonSnapshotObjectAndRejectsKindDrift) {
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(256);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(
       proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS);
   detail.mutable_system_table()->set_snapshot_id(7);
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -933,14 +944,14 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonSnapshotObjectAndRejectsKindDrift) {
   EXPECT_EQ(parsed.splits.front().system_table_object_sha256, std::string(32, 'b'));
 
   detail.mutable_system_table()->set_snapshot_id(0);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   detail.mutable_system_table()->set_snapshot_id(7);
   detail.mutable_system_table()->clear_object_sha256();
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   data_split->set_connector_id("iceberg");
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
@@ -956,12 +967,12 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonTagAndRejectsIdentityDrift) {
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(256);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_TAGS);
   detail.mutable_system_table()->set_tag_name("v1");
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -969,11 +980,11 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonTagAndRejectsIdentityDrift) {
   EXPECT_EQ(parsed.splits.front().system_table_tag_name, "v1");
 
   detail.mutable_system_table()->set_tag_name("v2");
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   detail.mutable_system_table()->set_tag_name("v1");
   detail.mutable_system_table()->set_snapshot_id(7);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -988,12 +999,12 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonOptionsAndRejectsSchemaDrift) {
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(256);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_OPTIONS);
   detail.mutable_system_table()->set_schema_id(2);
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -1002,7 +1013,7 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonOptionsAndRejectsSchemaDrift) {
   EXPECT_EQ(parsed.splits.front().system_table_schema_id.value(), 2);
 
   detail.mutable_system_table()->set_schema_id(3);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -1017,12 +1028,12 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonSchemasAndRejectsWrongObject) {
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(256);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_SCHEMAS);
   detail.mutable_system_table()->set_schema_id(0);
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -1030,7 +1041,7 @@ TEST(ParseTaskConfigTest, ParsesPinnedPaimonSchemasAndRejectsWrongObject) {
   EXPECT_EQ(parsed.splits.front().system_table_schema_id.value(), 0);
 
   detail.mutable_system_table()->set_schema_id(1);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -1045,15 +1056,15 @@ TEST(ParseTaskConfigTest, ParsesLocalPaimonBranchDirectoryAndRejectsWrongIdentit
   data_split->set_opaque_location(location);
   data_split->set_start_offset(0);
   data_split->set_length(0);
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(data_split->has_file_detail());
+  auto detail = data_split->file_detail();
   detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_BRANCHES);
   detail.mutable_system_table()->set_branch_name("feature beta");
   detail.mutable_system_table()->set_directory_mtime_ms(1700000000123);
   detail.mutable_system_table()->set_directory_device(2);
   detail.mutable_system_table()->set_directory_inode(42);
   detail.mutable_system_table()->set_directory_zone_offset_seconds(8 * 3600);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
 
   auto parsed = parseTaskConfig(serializeRaw(request));
   ASSERT_EQ(parsed.splits.size(), 1U);
@@ -1065,15 +1076,15 @@ TEST(ParseTaskConfigTest, ParsesLocalPaimonBranchDirectoryAndRejectsWrongIdentit
   EXPECT_EQ(parsed.splits.front().system_table_directory_zone_offset_seconds, 8 * 3600);
 
   detail.mutable_system_table()->set_branch_name("other");
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   detail.mutable_system_table()->set_branch_name("feature beta");
   detail.mutable_system_table()->set_object_sha256(std::string(32, 'x'));
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   detail.mutable_system_table()->clear_object_sha256();
   detail.mutable_system_table()->set_directory_zone_offset_seconds(19 * 3600);
-  data_split->mutable_connector_detail()->PackFrom(detail);
+  *data_split->mutable_file_detail() = detail;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -1092,8 +1103,8 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
   auto request = validRequest();
   auto* split = addFileSplit(request, proto::FILE_FORMAT_ORC);
   split->set_connector_id("paimon");
-  proto::FileSplitDetail detail;
-  ASSERT_TRUE(split->connector_detail().UnpackTo(&detail));
+  ASSERT_TRUE(split->has_file_detail());
+  auto detail = split->file_detail();
   auto* paimon = detail.mutable_paimon();
   paimon->mutable_merge_policy()->set_remove_record_on_delete(true);
   paimon->set_read_mode(proto::PAIMON_READ_MODE_CHANGELOG);
@@ -1108,7 +1119,7 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
   file->mutable_scan()->set_physical_rows(100);
   file->mutable_scan()->set_row_end(100);
   file->mutable_scan()->mutable_schema_evolution();
-  split->mutable_connector_detail()->PackFrom(detail);
+  *split->mutable_file_detail() = detail;
 
   auto config = parseTaskConfig(serializeRaw(request));
   ASSERT_TRUE(config.splits.front().paimon.has_value());
@@ -1120,6 +1131,7 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
   EXPECT_EQ(
       config.splits.front().paimon->lsm_levels.front().files.front().file_path,
       "/data/l0.orc");
+  EXPECT_TRUE(config.splits.front().paimon->lsm_levels.front().files.front().file_scan_detail.empty());
 }
 
 TEST(ParseTaskConfigTest, ParsesCanonicalLanceSplit) {

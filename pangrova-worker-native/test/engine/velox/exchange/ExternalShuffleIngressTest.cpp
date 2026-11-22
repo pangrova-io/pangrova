@@ -55,7 +55,7 @@ TEST(ExternalShuffleIngressTest, ReassemblesCanonicalChunks) {
   const auto checksum = sha256(batch);
   ExternalShuffleIngress ingress(
       4 * kExternalShuffleChunkBytes, 8 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 1);
 
   ingress.push(chunk(0, batch, 0, checksum));
   ingress.push(chunk(0, batch, 1, checksum));
@@ -73,7 +73,7 @@ TEST(ExternalShuffleIngressTest, RejectsNonCanonicalLayoutBeforeAssembly) {
   const auto checksum = sha256(batch);
   ExternalShuffleIngress ingress(
       4 * kExternalShuffleChunkBytes, 8 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 1);
 
   auto invalid_count = chunk(0, batch, 0, checksum);
   invalid_count.chunk_count = 3;
@@ -89,7 +89,7 @@ TEST(ExternalShuffleIngressTest, CorruptAssemblyReleasesReservationForRetry) {
   const auto checksum = sha256(batch);
   ExternalShuffleIngress ingress(
       2 * kExternalShuffleChunkBytes, 4 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 1);
 
   ingress.push(chunk(0, batch, 0, checksum));
   auto corrupt = chunk(0, batch, 1, checksum);
@@ -107,7 +107,7 @@ TEST(ExternalShuffleIngressTest, MidBatchTerminalReleasesReservationForRetry) {
   const auto checksum = sha256(batch);
   ExternalShuffleIngress ingress(
       2 * kExternalShuffleChunkBytes, 4 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 1);
 
   ingress.push(chunk(0, batch, 0, checksum));
   EXPECT_THROW(ingress.finish(0), std::logic_error);
@@ -122,7 +122,7 @@ TEST(ExternalShuffleIngressTest, AppliesBackpressureUntilBufferedBatchIsTaken) {
   const std::string second(kExternalShuffleChunkBytes, 'e');
   ExternalShuffleIngress ingress(
       kExternalShuffleChunkBytes, 2 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 2);
   ingress.push(chunk(0, first, 0, sha256(first)));
 
   auto blocked = std::async(std::launch::async, [&] {
@@ -139,12 +139,25 @@ TEST(ExternalShuffleIngressTest, AppliesBackpressureUntilBufferedBatchIsTaken) {
             ExternalShuffleIngress::ResultKind::kData);
 }
 
+TEST(ExternalShuffleIngressTest, TerminalRequiresAllPublishedBatches) {
+  const std::string first{"first"};
+  const std::string second{"second"};
+  ExternalShuffleIngress ingress(
+      kExternalShuffleChunkBytes, 2 * kExternalShuffleChunkBytes,
+      deadlineAfter(std::chrono::minutes(1)), 2);
+  ingress.push(chunk(0, first, 0, sha256(first)));
+  EXPECT_THROW(ingress.finish(0), std::logic_error);
+  ingress.push(chunk(1, second, 0, sha256(second)));
+  EXPECT_THROW(ingress.push(chunk(2, second, 0, sha256(second))), std::logic_error);
+  EXPECT_NO_THROW(ingress.finish(1));
+}
+
 TEST(ExternalShuffleIngressTest, CancelAndDeadlineReleaseIncompleteBatch) {
   const std::string batch(kExternalShuffleChunkBytes + 1, 'f');
   const auto checksum = sha256(batch);
   ExternalShuffleIngress cancelled(
       2 * kExternalShuffleChunkBytes, 4 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::minutes(1)));
+      deadlineAfter(std::chrono::minutes(1)), 1);
   cancelled.push(chunk(0, batch, 0, checksum));
   cancelled.cancel();
   EXPECT_EQ(cancelled.take(std::chrono::seconds(1)).kind,
@@ -152,7 +165,7 @@ TEST(ExternalShuffleIngressTest, CancelAndDeadlineReleaseIncompleteBatch) {
 
   ExternalShuffleIngress expired(
       2 * kExternalShuffleChunkBytes, 4 * kExternalShuffleChunkBytes,
-      deadlineAfter(std::chrono::milliseconds(20)));
+      deadlineAfter(std::chrono::milliseconds(20)), 1);
   expired.push(chunk(0, batch, 0, checksum));
   EXPECT_EQ(expired.take(std::chrono::seconds(1)).kind,
             ExternalShuffleIngress::ResultKind::kFailed);

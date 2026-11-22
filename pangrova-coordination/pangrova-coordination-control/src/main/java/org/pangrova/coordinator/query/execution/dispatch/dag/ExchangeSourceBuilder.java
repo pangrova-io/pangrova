@@ -1,25 +1,21 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.planner.enums.StagePlanMode;
-import org.pangrova.query.api.task.QuerySplit;
 
 import org.pangrova.execution.task.StageDispatchRecord;
 
-import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 import com.google.protobuf.ByteString;
 import java.util.HexFormat;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.analysis.StagePlanAccess;
-import org.pangrova.planner.analysis.SplitSourceDescriptor;
+import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.protocol.v2.DirectExchangeInput;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.ExchangePartitionSource;
@@ -27,110 +23,62 @@ import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
 
-/**
- * Builds exchange sources for downstream stages in a DAG dispatch.
- * Resolves upstream task locations and fetches splits for leaf stages.
- */
+/** Freezes an admitted producer cohort before binding individual consumer partitions. */
 final class ExchangeSourceBuilder {
     private static final long MIN_TICKET_VALIDITY_MS = 30_000L;
 
     private ExchangeSourceBuilder() {}
 
-    /**
-     * Collects exchange sources from upstream dispatched tasks for the given stage
-     * and consumer partition. Each consumer task receives its own partitionId so
-     * hash-exchange plans with downstream parallelism N create N consumers pulling
-     * partitions 0..N-1.
-     *
-     * @param partitionId the consumer task's partition index (0-based)
-     */
-    static List<ExchangeInputBinding> buildExchangeInputs(
-            StageNode stage, StageDAG dag,
-            List<StageDispatchRecord> allDispatched,
-            int partitionId) {
-        return buildExchangeInputs(stage, dag, allDispatched, partitionId, null);
+    @FunctionalInterface
+    interface PartitionInput {
+        ExchangeInputBinding bind(int partitionId, WorkerInfo localConsumer);
     }
 
-    static List<ExchangeInputBinding> buildExchangeInputs(StageNode stage, StageDAG dag,
-            List<StageDispatchRecord> allDispatched, int partitionId,
-            org.pangrova.coordinator.worker.WorkerInfo localConsumer) {
+    record StageInputs(List<PartitionInput> inputs) {
+        private static final StageInputs EMPTY = new StageInputs(List.of());
+
+        StageInputs {
+            inputs = List.copyOf(inputs);
+        }
+
+        List<ExchangeInputBinding> bind(int partitionId, WorkerInfo localConsumer) {
+            return inputs.isEmpty() ? List.of()
+                    : inputs.stream().map(input -> input.bind(partitionId, localConsumer)).toList();
+        }
+    }
+
+    static StageInputs prepare(StageNode stage, StageDAG dag, List<StageDispatchRecord> allDispatched) {
         List<Integer> upstreamIdList = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (upstreamIdList.isEmpty()) {
-            return List.of();
+            return StageInputs.EMPTY;
         }
-        List<ExchangeInputBinding> inputs = new ArrayList<>();
+        List<PartitionInput> inputs = new ArrayList<>();
         Set<Integer> upstreamIds = Set.copyOf(upstreamIdList);
+        Stage consumer = dag.findStage(stage.stageId());
+        List<PartitionGroup> grouped = consumer == null ? List.of() : consumer.coalescedInputRanges();
         for (StageEdge edge : dag.stageEdges()) {
             if (edge.downstreamStageId() != stage.stageId()
                     || !upstreamIds.contains(edge.upstreamStageId())) {
                 continue;
             }
-            List<StageDispatchRecord> producers = allDispatched.stream()
-                    .filter(record -> record.stageId() == edge.upstreamStageId())
-                    .toList();
             Stage upstream = dag.findStage(edge.upstreamStageId());
-            if (upstream != null && upstream.shuffleHandle() != null
-                    && !upstream.shuffleHandle().endpoints().isEmpty()) {
-                inputs.add(externalInput(upstream, edge, partitionId));
+            if (upstream != null && upstream.shuffleHandle() != null) {
+                inputs.add(externalInput(upstream.publishedShuffle(), edge, grouped));
             } else {
-                if (producers.isEmpty()) {
-                    throw new IllegalStateException("No producer tasks for exchange " + edge.exchangeId());
-                }
                 if (stage.stagePlan().mode() == StagePlanMode.DURABLE_REPLAY) {
                     throw new IllegalStateException("Durable exchange has no persisted external shuffle allocation: "
                             + edge.exchangeId());
                 }
-                inputs.add(directInput(producers, edge, partitionId, localConsumer));
+                List<StageDispatchRecord> producers = allDispatched.stream()
+                        .filter(record -> record.stageId() == edge.upstreamStageId())
+                        .toList();
+                if (producers.isEmpty()) {
+                    throw new IllegalStateException("No producer tasks for exchange " + edge.exchangeId());
+                }
+                inputs.add((partition, worker) -> directInput(producers, edge, partition, worker));
             }
         }
-        return List.copyOf(inputs);
-    }
-
-    /**
-     * Fetches splits with file path metadata for cache affinity routing.
-     * Non-leaf stages return an empty list.
-     */
-    static List<QuerySplit> fetchSplitsWithFilePaths(
-            StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
-            org.pangrova.query.api.session.QuerySession session) {
-        return fetchSplitsWithFilePaths(stage, dag, catalogRegistry, java.util.Map.of(), session);
-    }
-
-    /**
-     * Fetches splits with snapshot overrides for time-travel queries.
-     * Non-leaf stages return an empty list.
-     */
-    static List<QuerySplit> fetchSplitsWithFilePaths(
-            StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
-            java.util.Map<String, Long> snapshotOverrides,
-            org.pangrova.query.api.session.QuerySession session) {
-        List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
-        if (!upstreamIds.isEmpty()) {
-            return List.of();
-        }
-        StagePlanAccess fragment = stage.stagePlan();
-        List<SplitSourceDescriptor> sources = fragment.splitSources();
-        List<String> outputColumns = fragment.queryOutputColumns();
-        return SplitFetcher.fetchSplitsWithFilePaths(
-                sources, catalogRegistry, snapshotOverrides, outputColumns, session);
-    }
-
-    /**
-     * Fetches splits with index-based filtering for leaf stages.
-     * Non-leaf stages return an empty list.
-     */
-    static List<QuerySplit> fetchSplitsWithIndexFiltering(
-            StageNode stage, StageDAG dag,
-            org.pangrova.coordinator.indexing.IndexAwareSplitFetcher fetcher,
-            java.util.Map<String, Long> snapshotOverrides,
-            String queryId,
-            org.pangrova.query.api.session.QuerySession session) {
-        List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
-        if (!upstreamIds.isEmpty()) {
-            return List.of();
-        }
-        return fetcher.fetchAndFilterSplits(
-                stage.stagePlan().requireLiveFragment(), snapshotOverrides, queryId, session);
+        return new StageInputs(inputs);
     }
 
     private static ExchangeInputBinding directInput(
@@ -184,8 +132,11 @@ final class ExchangeSourceBuilder {
                             + rec.result().taskId());
         }
         var attempt = producerRequest.taskRequest().getAttempt();
-        var ticket = endpoint.ticketFor(partitionId);
-        if (ticket.expiresAtEpochMs() <= System.currentTimeMillis() + MIN_TICKET_VALIDITY_MS) {
+        if (partitionId < 0 || partitionId >= endpoint.getPartitionTicketsCount()) {
+            throw new IllegalStateException("Producer is missing shuffle ticket for partition " + partitionId);
+        }
+        var ticket = endpoint.getPartitionTickets(partitionId);
+        if (ticket.getExpiresAtEpochMs() <= System.currentTimeMillis() + MIN_TICKET_VALIDITY_MS) {
             throw new IllegalStateException(
                     "Producer shuffle ticket expires before safe consumer bind: task="
                             + rec.result().taskId() + " exchange=" + edge.exchangeId());
@@ -198,37 +149,24 @@ final class ExchangeSourceBuilder {
                 .setPlanEpoch(attempt.getPlanEpoch())
                 .setAttemptId(attempt.getAttemptId())
                 .setFencingToken(attempt.getFencingToken())
-                .setHost(endpoint.host())
-                .setPort(endpoint.port())
-                .setTlsIdentity(endpoint.tlsIdentity())
-                .setSignedTicket(ByteString.copyFrom(
-                        Base64.getDecoder().decode(ticket.signedTicket())))
-                .setTicketExpiresAtEpochMs(ticket.expiresAtEpochMs())
+                .setHost(endpoint.getHost())
+                .setPort(endpoint.getPort())
+                .setTlsIdentity(endpoint.getTlsIdentity())
+                .setSignedTicket(ticket.getSignedTicket())
+                .setTicketExpiresAtEpochMs(ticket.getExpiresAtEpochMs())
                 .build();
     }
 
-    private static ExchangeInputBinding externalInput(
-            Stage upstream, StageEdge edge, int partitionId) {
-        var published = upstream.publishedShuffle();
+    private static PartitionInput externalInput(Stage.PublishedShuffle published, StageEdge edge,
+            List<PartitionGroup> grouped) {
         var receipt = published.receipt();
         var handle = published.handle();
         handle.validatePartitionCoverage(edge.partitionCount());
-        var partition = receipt.partitions().get(partitionId);
-        if (partition == null) {
-            throw new IllegalArgumentException("Partition outside published shuffle: " + partitionId);
-        }
         ExternalShuffleInput.Builder external = ExternalShuffleInput.newBuilder()
                 .setShuffleId(receipt.publication().allocationId())
-                .setOutputPartitionId(partitionId)
                 .setPartitionCount(edge.partitionCount())
                 .setPlanEpoch(receipt.publication().generation())
                 .setExecutionOwner(published.owner())
-                .setPublication(ShufflePartitionPublication.newBuilder()
-                        .setLastSequence(partition.lastSequence())
-                        .setTotalBytes(partition.bytes())
-                        .setTotalRows(partition.rows())
-                        .setManifestSha256(ByteString.copyFrom(
-                                HexFormat.of().parseHex(partition.manifestSha256()))))
                 .setExpectedProducerPartitions(receipt.producerCount())
                 .setExpectedProducerSetChecksum(org.pangrova.protocol.v2.Checksum
                         .newBuilder()
@@ -253,7 +191,7 @@ final class ExchangeSourceBuilder {
                         .setPartitionStart(endpoint.partitionStart())
                         .setPartitionEnd(endpoint.partitionEnd())
                         .setTlsIdentity(endpoint.tlsIdentity())));
-        return ExchangeInputBinding.newBuilder()
+        var shared = ExchangeInputBinding.newBuilder()
                 .setPlanNodeId("exchange-input-" + edge.exchangeId())
                 .setExchangeId(edge.exchangeId())
                 .setExpectedSourcePartitions(1)
@@ -261,6 +199,23 @@ final class ExchangeSourceBuilder {
                 .setReadMode(protocolReadMode(edge))
                 .setExternal(external)
                 .build();
+        return (partitionId, worker) -> {
+            int start = grouped.isEmpty() ? partitionId : grouped.get(partitionId).startInclusive();
+            int end = grouped.isEmpty() ? partitionId + 1 : grouped.get(partitionId).endExclusive();
+            var binding = shared.getExternal().toBuilder().setSourcePartitionStart(start);
+            for (int id = start; id < end; id++) {
+                var partition = receipt.partitions().get(id);
+                if (partition == null) {
+                    throw new IllegalArgumentException("Partition outside published shuffle: " + id);
+                }
+                binding.addPublications(ShufflePartitionPublication.newBuilder()
+                        .setLastSequence(partition.lastSequence())
+                        .setTotalBytes(partition.bytes())
+                        .setTotalRows(partition.rows())
+                        .setManifestSha256(ByteString.copyFrom(HexFormat.of().parseHex(partition.manifestSha256()))));
+            }
+            return shared.toBuilder().setExternal(binding).build();
+        };
     }
 
     private static org.pangrova.protocol.v2.ExchangeReadMode protocolReadMode(

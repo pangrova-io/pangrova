@@ -68,7 +68,7 @@ class NativeTaskExecutorConcurrentCloseTest {
             var request = fixture.valuesRequest(false);
             fixture.stopTransports();
             fixture.executor().close();
-            assertThatThrownBy(() -> fixture.executor().createTask(request.toByteArray()))
+            assertThatThrownBy(() -> fixture.executor().createTask(request))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed")
                     .isInstanceOf(NativeTaskCreationFailure.class)
                     .satisfies(failure -> {

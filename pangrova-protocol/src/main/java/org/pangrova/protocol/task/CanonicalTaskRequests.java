@@ -4,7 +4,6 @@ import org.pangrova.protocol.resource.StageResourceGrants;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
@@ -21,6 +20,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 
 /** Canonical v2 task construction and Worker-admission validation. */
 public final class CanonicalTaskRequests {
+    public static final int MAX_EXTERNAL_PARTITIONS_PER_INPUT = 32;
 
     public static final int MAX_COVERAGE_IDENTITIES = 4_096;
     private static final int SHA256_BYTES = 32;
@@ -143,6 +143,13 @@ public final class CanonicalTaskRequests {
         validateCoverageIdentityBounds(request);
         validateExchangeInputs(request);
         validateRuntimeFilters(request);
+        if (request.hasBuildKeyOrdinal() && (request.getBuildKeyOrdinal() < 0
+                || request.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
+                || !request.getExecutionOptions().hasShuffle()
+                || request.getExecutionOptions().getDirectResultOutput()
+                || request.getExchangeInputsCount() != 0)) {
+            throw new IllegalArgumentException("Runtime-filter build key requires a leaf shuffle producer");
+        }
     }
 
     private static void validateSerializedOutputGrant(TaskRequest request) {
@@ -155,8 +162,15 @@ public final class CanonicalTaskRequests {
 
     static void validateCoverageIdentityBounds(TaskRequest request) {
         HashSet<SourceKey> sources = new HashSet<>();
+        SourceKey previous = null;
         for (var split : request.getSplitsList()) {
-            sources.add(new SourceKey(split.getSourceId(), split.getSourceSnapshot()));
+            String source = split.getSourceId();
+            String snapshot = split.getSourceSnapshot();
+            if (previous != null && previous.id().equals(source) && previous.snapshot().equals(snapshot)) {
+                continue;
+            }
+            previous = new SourceKey(source, snapshot);
+            sources.add(previous);
             if (sources.size() > MAX_COVERAGE_IDENTITIES) {
                 throw new IllegalArgumentException(
                         "TaskRequest has too many source snapshot coverage identities");
@@ -269,9 +283,8 @@ public final class CanonicalTaskRequests {
     }
 
     private static boolean hasMatchingPlanDigest(TaskRequest request) {
-        return Arrays.equals(
-                ProtocolChecksums.sha256(request.getSubstraitPlan().toByteArray()).getDigest().toByteArray(),
-                request.getSubstraitPlanChecksum().getDigest().toByteArray());
+        return ProtocolChecksums.sha256(request.getSubstraitPlan()).getDigest()
+                .equals(request.getSubstraitPlanChecksum().getDigest());
     }
 
     private static void requireDeadline(long deadlineEpochMs) {
@@ -391,6 +404,7 @@ public final class CanonicalTaskRequests {
                     }
                 }
             } else if (!validExternalInput(input.getExternal())
+                    || !input.getExternal().getExecutionOwner().equals(request.getAttempt().getExecutionOwner())
                     || input.getExternal().getDeadlineEpochMs() != request.getDeadlineEpochMs()) {
                 throw new IllegalArgumentException(
                         "TaskRequest external shuffle input is incomplete");
@@ -426,7 +440,7 @@ public final class CanonicalTaskRequests {
     public static boolean validExternalInput(
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         return validExternalIdentity(external)
-                && validPartitionPublication(external.getPublication())
+                && validPublications(external.getPublicationsList())
                 && external.getExpectedProducerPartitions() > 0
                 && external.getExpectedProducerSetChecksum().getAlgorithm() == Checksum.Algorithm.ALGORITHM_SHA256
                 && external.getExpectedProducerSetChecksum().getDigest().size() == SHA256_BYTES
@@ -434,6 +448,18 @@ public final class CanonicalTaskRequests {
                 && validExternalAddress(external)
                 && exactPartitionCoverage(
                         external.getEndpointsList(), external.getPartitionCount());
+    }
+
+    private static boolean validPublications(java.util.List<ShufflePartitionPublication> publications) {
+        long batches = 0;
+        for (var publication : publications) {
+            if (!validPartitionPublication(publication)
+                    || publication.getLastSequence() + 1 > Long.MAX_VALUE - batches) {
+                return false;
+            }
+            batches += publication.getLastSequence() + 1;
+        }
+        return true;
     }
 
     /** Checks coordinator-attested partition bounds before a Worker opens any external read. */
@@ -451,8 +477,12 @@ public final class CanonicalTaskRequests {
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         var owner = external.getExecutionOwner();
         return !external.getShuffleId().isBlank()
-                && external.getOutputPartitionId() >= 0
-                && external.getOutputPartitionId() < external.getPartitionCount()
+                && external.hasSourcePartitionStart()
+                && external.getSourcePartitionStart() >= 0
+                && external.getPartitionCount() > 0
+                && external.getPublicationsCount() >= 1
+                && external.getPublicationsCount() <= MAX_EXTERNAL_PARTITIONS_PER_INPUT
+                && external.getPublicationsCount() <= external.getPartitionCount() - external.getSourcePartitionStart()
                 && external.getPlanEpoch() > 0
                 && external.hasExecutionOwner()
                 && !owner.getOwnerId().isBlank()

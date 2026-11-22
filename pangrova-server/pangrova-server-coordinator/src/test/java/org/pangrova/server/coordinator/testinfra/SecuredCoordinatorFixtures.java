@@ -19,7 +19,7 @@ public final class SecuredCoordinatorFixtures {
                 flags.observability(), flags.security() || secureQuery,
                 flags.metadata() || secureQuery,
                 flags.streaming(), flags.governance(), flags.resilience(), flags.tenant(), flags.operations(),
-                flags.speculation(), flags.pullModeSplitAssignment(), flags.cacheWriteback(), flags.indexing(),
+                flags.speculation(), flags.cacheWriteback(), flags.indexing(),
                 flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints(),
                 flags.shuffleProvider(), flags.shuffleProviderSettings());
         var security = config.securityConfig();

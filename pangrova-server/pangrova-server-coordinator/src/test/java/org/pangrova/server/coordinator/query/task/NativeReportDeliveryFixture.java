@@ -93,7 +93,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         connectQueries(execution, tracker, journal);
         authentication = new AuthenticationManager(List.of());
         coordinator = new CoordinatorHttpServer(0, new CoordinatorHttpServerContext(worker.statusReceiver(),
-                queries, null, authentication, null, workers, null, null, null, null, null, SECRET, () -> 1L));
+                queries, null, authentication, null, workers, null, null, null, null, SECRET, () -> 1L));
         coordinator.start();
         relay = new StatusReportHttpRelay(coordinatorUri());
         relay.select(state, drained, before, after);

@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 
@@ -27,6 +26,6 @@ class DAGTaskDeadlineConfigurationTest {
         };
         return new DAGDispatchContext(uninvoked, new CoordinatorTaskTracker(), null, null,
                 timeoutSeconds, null, null, null, PipelineConfig.DISABLED,
-                null, new SplitAssignmentManager(), null, null);
+                null, null, null);
     }
 }

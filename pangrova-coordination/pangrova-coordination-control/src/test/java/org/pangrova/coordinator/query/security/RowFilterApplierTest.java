@@ -14,6 +14,7 @@ import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.api.rowfilter.RowPolicyStore;
 import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.type.RelDataType;
@@ -29,6 +30,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
 
@@ -89,6 +92,24 @@ class RowFilterApplierTest {
         assertThat(condition).isInstanceOf(RexCall.class);
         RexCall call = (RexCall) condition;
         assertThat(call.getKind()).isEqualTo(SqlKind.EQUALS);
+    }
+
+    @Test
+    void selfJoinReadsOnePolicyPerCompilationIncludingAbsence() {
+        RowPolicy policy = new RowPolicy(1L, "sales_only", "default", "default", "orders",
+                "department = 'sales'", List.of("sales_team"), true, 100, null);
+        AtomicInteger reads = new AtomicInteger();
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(
+                () -> reads.getAndIncrement() == 0 ? List.of(policy) : List.of()));
+        RelNode plan = COMPILER.compileToRelNode("SELECT a.id FROM orders a JOIN orders b ON a.id = b.id");
+        UserIdentity identity = testIdentity("user1", Set.of("sales_team"));
+
+        RelNode filtered = applier.applyRowFilters(plan, identity);
+        assertThat(RelOptUtil.toString(filtered).lines().filter(line -> line.contains("LogicalFilter"))).hasSize(2);
+        assertThat(reads.get()).isEqualTo(1);
+
+        assertThat(applier.applyRowFilters(plan, identity)).isSameAs(plan);
+        assertThat(reads.get()).isEqualTo(2);
     }
 
     @Test
@@ -255,10 +276,14 @@ class RowFilterApplierTest {
     }
 
     private static AccessControl buildAccessControlWithPolicies(List<RowPolicy> policies) {
+        return buildAccessControlWithPolicies(() -> policies);
+    }
+
+    private static AccessControl buildAccessControlWithPolicies(Supplier<List<RowPolicy>> policies) {
         RowPolicyStore policyStore = new RowPolicyStore() {
             @Override
             public List<RowPolicy> getPolicies(String c, String s, String t) {
-                return policies.stream()
+                return policies.get().stream()
                         .filter(p -> p.catalogName().equals(c) && p.schemaName().equals(s)
                                 && p.tableName().equals(t))
                         .toList();

@@ -201,7 +201,7 @@ class StatementPermissionMappingTest {
         tasks.put(DropMaterializedViewStatement.class, noOp);
         var factory = new MetadataExecutionFactory(tasks);
         var context = new StatementDispatcherContext(
-                null, null, List.of(factory), List.of(), accessControl);
+                null, List.of(factory), List.of(), accessControl);
         return new StatementDispatcher(context);
     }
 

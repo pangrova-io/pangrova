@@ -228,9 +228,6 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                         dmlDispatch, queryDispatcherRef, routingTaskTracker,
                         coordinatorResultService, null, routingWorkerManager)
                 : null;
-        if (sd != null) {
-            sd.updateCompiler(compiler);
-        }
         var queryDispatcher = new QueryDispatcher(deps, sd);
         wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);

@@ -101,7 +101,7 @@ struct PhysicalFileConfig {
   std::string file_path;
   FileFormatType file_format = FileFormatType::PARQUET;
   uint64_t file_size = 0;
-  std::string file_scan_detail;
+  std::string file_scan_detail;  // Encoded read unit for the Lance C FFI.
   uint64_t min_sequence_number = 0;
   uint64_t max_sequence_number = 0;
   std::vector<ColumnMappingConfig> column_mappings;
@@ -141,16 +141,16 @@ struct PaimonConfig {
   std::unordered_map<std::string, std::string> partition_values;
 };
 
-// Simplified split configuration mirroring proto SplitInfo.
-// Used until proto generation is available.
+// Execution-facing split after validation of the canonical task.
 struct SplitConfig {
   std::string split_id;
   std::string connector_id;  // "iceberg" or "paimon"
   std::string table_name;    // Logical table name for split routing in multi-table joins.
   std::string source_snapshot;  // Immutable table snapshot pinned by the query.
   std::string data_object_id;   // Stable object identity within source_snapshot.
-  // JNI-local catalog credentials and canonical FileSplitDetail read unit.
+  // JNI-local catalog credentials.
   std::string storage_binding;
+  // Present only for Lance C FFI, an attached index hint or a Paimon deletion vector.
   std::string file_scan_detail;
   bool physical_lance_file = false;
   std::string file_path;

@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
@@ -325,7 +326,7 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(DataSplitProtoCodec.stringPartitionValues(info))
@@ -405,7 +406,7 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
         assertThat(detail.getReadMode())
@@ -457,7 +458,7 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
         assertThat(detail.getReadMode())
@@ -480,7 +481,7 @@ class IcebergSplitManagerTest {
         assertThat(readSnapshot).isNotEqualTo(firstSnapshot);
         assertThat(splits).hasSize(2);
         for (ConnectorSplit split : splits) {
-            DataSplit proto = DataSplit.parseFrom(split.toSplitInfoProto());
+            DataSplit proto = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
             assertThat(proto.getSourceId())
                     .isEqualTo("test_catalog.db.full_snapshot_identity");
             assertThat(proto.getSourceSnapshot()).isEqualTo(Long.toString(readSnapshot));
@@ -522,7 +523,7 @@ class IcebergSplitManagerTest {
         assertThat(constraint.partitionValues()).containsEntry("country", "US");
 
         // Verify proto-level split_constraint carries partition values
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
         assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .containsEntry("country", "US");

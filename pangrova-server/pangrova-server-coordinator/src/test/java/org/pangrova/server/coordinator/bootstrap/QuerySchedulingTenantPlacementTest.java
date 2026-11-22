@@ -98,7 +98,7 @@ class QuerySchedulingTenantPlacementTest {
                 worker.cpuUtilization(), worker.runningTaskCount(), worker.availableMemoryBytes(),
                 worker.lastHeartbeat(), worker.performanceScore(), pool, worker.protocolVersion(), worker.rackId(),
                 worker.dataLocality(), worker.cacheSummary(), worker.capabilityInventory(), worker.copyTaskTlsPort(),
-                worker.workerExecutionIdentity(), worker.shuffleDeployment());
+                worker.workerExecutionIdentity(), worker.shuffleDeployment(), worker.cdcIngestSupported());
     }
 
     private static Tenant tenant(TenantStatus status, String pool) {

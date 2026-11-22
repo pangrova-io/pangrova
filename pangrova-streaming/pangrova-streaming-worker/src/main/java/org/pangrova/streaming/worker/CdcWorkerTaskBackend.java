@@ -25,8 +25,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -116,6 +118,11 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
     }
 
     @Override
+    public boolean awaitFinished(long handle, int waitMillis) throws InterruptedException {
+        return requireSession(handle).terminal.await(waitMillis, TimeUnit.MILLISECONDS);
+    }
+
+    @Override
     public byte[] getTaskStatus(long handle) {
         return requireSession(handle).requireTerminalReport();
     }
@@ -161,6 +168,7 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
         private final TaskRequest request;
         private final CdcRangeIngestSpec spec;
         private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final CountDownLatch terminal = new CountDownLatch(1);
         private boolean started;
         private Thread runner;
         private volatile byte[] terminalReport;
@@ -190,10 +198,15 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
             if (terminalReport != null) return;
             cancelled.set(true);
             if (runner == null) {
-                terminalReport = cancelledReport();
+                complete(cancelledReport());
             } else {
                 runner.interrupt();
             }
+        }
+
+        private void complete(byte[] report) {
+            terminalReport = report;
+            terminal.countDown();
         }
 
         private byte[] cancelledReport() {
@@ -251,10 +264,10 @@ public final class CdcWorkerTaskBackend implements WorkerExecutedTaskBackend {
             synchronized (this) {
                 runner = null;
                 if (cancelled.get()) {
-                    terminalReport = cancelledReport();
+                    complete(cancelledReport());
                 } else {
                     stagedFragments = fragments;
-                    terminalReport = report;
+                    complete(report);
                 }
             }
         }

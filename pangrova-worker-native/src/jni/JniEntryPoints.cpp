@@ -22,8 +22,10 @@
 #include "jni/RuntimeInitializer.h"
 #include "command/resource/HandleRegistry.h"
 #include "engine/observability/NativeTracer.h"
+#include "engine/observability/PangrovaLog.h"
 #include "engine/observability/SpanScope.h"
 #include "engine/shuffle/ShuffleEgressExecutor.h"
+#include "engine/shuffle/ShuffleTransferLimits.h"
 #include "engine/shuffle/ShuffleTicketKeys.h"
 #include "udf/JvmScalarFunction.h"
 #include "engine/velox/exchange/PangrovaExchangeSource.h"
@@ -47,6 +49,77 @@ namespace pangrova::jni {
 // ---------------------------------------------------------------------------
 namespace {
 std::atomic<JavaVM*> g_cached_jvm{nullptr};
+
+// A Native reader or exported Arrow buffer can exit on a non-Java thread.
+class ResultDrainJniEnv {
+ public:
+  explicit ResultDrainJniEnv(JavaVM* vm) : vm_(vm) {
+    const auto status = vm_->GetEnv(reinterpret_cast<void**>(&env_), JNI_VERSION_1_8);
+    if (status == JNI_EDETACHED) {
+      attached_ = vm_->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env_), nullptr) == JNI_OK;
+      if (!attached_) env_ = nullptr;
+    } else if (status != JNI_OK) {
+      env_ = nullptr;
+    }
+  }
+
+  ResultDrainJniEnv(const ResultDrainJniEnv&) = delete;
+  ResultDrainJniEnv& operator=(const ResultDrainJniEnv&) = delete;
+
+  ~ResultDrainJniEnv() { if (attached_) vm_->DetachCurrentThread(); }
+  JNIEnv* get() const { return env_; }
+
+ private:
+  JavaVM* vm_;
+  JNIEnv* env_ = nullptr;
+  bool attached_ = false;
+};
+
+class ResultDrainUpcall {
+ public:
+  ResultDrainUpcall(JNIEnv* env, jobject runnable, int64_t handle)
+      : vm_(globalJavaVM()), run_(globalJniCache().runnable_run), handle_(handle) {
+    if (!vm_ || !run_ || !runnable) throw std::invalid_argument("Result drain callback is unavailable");
+    runnable_ = env->NewGlobalRef(runnable);
+    if (!runnable_) throw std::runtime_error("Could not retain result drain callback");
+  }
+
+  ResultDrainUpcall(const ResultDrainUpcall&) = delete;
+  ResultDrainUpcall& operator=(const ResultDrainUpcall&) = delete;
+
+  ~ResultDrainUpcall() {
+    if (!runnable_) return;
+    ResultDrainJniEnv thread(vm_);
+    if (auto* env = thread.get()) {
+      env->DeleteGlobalRef(runnable_);
+    } else {
+      PANGROVA_LOG_ERROR << "event=result_drain_callback_release_failed executor_handle=" << handle_;
+    }
+  }
+
+  void notify() noexcept {
+    ResultDrainJniEnv thread(vm_);
+    auto* env = thread.get();
+    if (!env) {
+      PANGROVA_LOG_ERROR << "event=result_drain_callback_attach_failed executor_handle=" << handle_;
+      return;
+    }
+    env->CallVoidMethod(runnable_, run_);
+    if (env->ExceptionCheck()) {
+      PANGROVA_LOG_ERROR << "event=result_drain_callback_failed executor_handle=" << handle_;
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+    }
+    env->DeleteGlobalRef(runnable_);
+    runnable_ = nullptr;
+  }
+
+ private:
+  JavaVM* vm_;
+  jmethodID run_;
+  int64_t handle_;
+  jobject runnable_ = nullptr;
+};
 
 std::shared_ptr<pangrova::executor::TaskExecutor> constructTaskExecutor(
     JNIEnv* env, pangrova::executor::TaskExecutorConfig config) {
@@ -150,6 +223,9 @@ void initJniReferenceCache(JNIEnv* env) {
         findAndCacheClass(env, "org/apache/arrow/c/ArrowArray");
     g_jni_cache.arrow_schema_class =
         findAndCacheClass(env, "org/apache/arrow/c/ArrowSchema");
+    g_jni_cache.runnable_class = findAndCacheClass(env, "java/lang/Runnable");
+    g_jni_cache.runnable_run = env->GetMethodID(g_jni_cache.runnable_class, "run", "()V");
+    if (!g_jni_cache.runnable_run) throw std::runtime_error("JNI GetMethodID failed for Runnable.run()");
 
     // Cache jmethodID values (stable for class lifetime).
     g_jni_cache.exception_constructor = env->GetMethodID(
@@ -181,6 +257,8 @@ void initJniReferenceCache(JNIEnv* env) {
     deleteGlobalRefSafe(env, g_jni_cache.native_exception_class);
     deleteGlobalRefSafe(env, g_jni_cache.arrow_array_class);
     deleteGlobalRefSafe(env, g_jni_cache.arrow_schema_class);
+    deleteGlobalRefSafe(env, g_jni_cache.runnable_class);
+    g_jni_cache.runnable_run = nullptr;
     g_jni_cache.exception_constructor = nullptr;
     g_jni_cache.arrow_array_address = nullptr;
     g_jni_cache.arrow_schema_address = nullptr;
@@ -199,11 +277,13 @@ void releaseJniReferenceCache(JNIEnv* env) {
   deleteGlobalRefSafe(env, g_jni_cache.native_exception_class);
   deleteGlobalRefSafe(env, g_jni_cache.arrow_array_class);
   deleteGlobalRefSafe(env, g_jni_cache.arrow_schema_class);
+  deleteGlobalRefSafe(env, g_jni_cache.runnable_class);
 
   // Zero out method IDs for safety.
   g_jni_cache.exception_constructor = nullptr;
   g_jni_cache.arrow_array_address = nullptr;
   g_jni_cache.arrow_schema_address = nullptr;
+  g_jni_cache.runnable_run = nullptr;
 
   g_jni_cache_initialized = false;
 }
@@ -569,6 +649,33 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
 // nativeGetNextBatchColumnar — REMOVED: data path migrated to C++ FlightResultServer.
 // nativeGetShuffleBatch — REMOVED: shuffle path migrated to native FlightShuffleServer.
 
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeWatchResultDrain0(
+    JNIEnv* env, jclass, jlong executorHandle, jobject callback) {
+  try {
+    auto executor = lookupExecutor(env, executorHandle);
+    if (!executor) return;
+    auto listener = std::make_shared<pangrova::jni::ResultDrainUpcall>(env, callback, executorHandle);
+    executor->watchResultDrain([listener = std::move(listener)] { listener->notify(); });
+  } JNI_CATCH_AND_THROW(env)
+}
+
+JNIEXPORT jint JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeReadTaskState0(
+    JNIEnv* env, jclass, jlong executorHandle, jint waitMillis) {
+  try {
+    if (waitMillis < 0) throw std::invalid_argument("Task state wait must be non-negative");
+    const auto executor = lookupExecutor(env, executorHandle);
+    if (executor) {
+      const auto state = waitMillis == 0
+          ? executor->state()
+          : executor->awaitTerminal(std::chrono::milliseconds(waitMillis));
+      return static_cast<jint>(pangrova::jni::toProtoTaskState(state));
+    }
+  } JNI_CATCH_AND_THROW(env)
+  return pangrova::protocol::v2::TASK_STATE_UNSPECIFIED;
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeGetTaskStatus0(
     JNIEnv* env, jclass, jlong executorHandle) {
@@ -667,6 +774,31 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCommand0(
         data, static_cast<int64_t>(executorHandle));
     jbyteArray out = toJbyteArray(env, result);
     return static_cast<jbyteArray>(frame.popWithResult(out));
+  } JNI_CATCH_AND_THROW(env)
+  return nullptr;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativePushExchangeChunk0(
+    JNIEnv* env, jclass, jlong executorHandle, jbyteArray metadata, jbyteArray data) {
+  pangrova::jni::JniLocalFrameGuard frame(env, 8);
+  if (!frame.valid()) {
+    pangrova::jni::throwJniCallException(env, "PushLocalFrame failed in nativePushExchangeChunk");
+    return nullptr;
+  }
+  try {
+    if (!metadata || !data) throw std::invalid_argument("Exchange chunk requires metadata and data");
+    const jsize length = env->GetArrayLength(data);
+    if (length <= 0 ||
+        static_cast<size_t>(length) > pangrova::shuffle::kCanonicalShuffleChunkBytes) {
+      throw std::invalid_argument("Exchange chunk exceeds canonical payload bounds");
+    }
+    std::string bytes(static_cast<size_t>(length), '\0');
+    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte*>(bytes.data()));
+    if (env->ExceptionCheck()) return nullptr;
+    auto result = pangrova::jni::dispatchExchangeChunk(
+        toVector(env, metadata), static_cast<int64_t>(executorHandle), std::move(bytes));
+    return static_cast<jbyteArray>(frame.popWithResult(toJbyteArray(env, result)));
   } JNI_CATCH_AND_THROW(env)
   return nullptr;
 }

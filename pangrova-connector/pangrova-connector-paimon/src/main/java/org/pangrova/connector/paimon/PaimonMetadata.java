@@ -307,6 +307,10 @@ public class PaimonMetadata implements ConnectorMetadata {
         PaimonReadBindings.validate(catalog, binding);
     }
 
+    boolean ownsReadContext(Catalog candidateCatalog, PaimonSplitRegistry candidateRegistry) {
+        return getClass() == PaimonMetadata.class && catalog == candidateCatalog && splitRegistry == candidateRegistry;
+    }
+
     @Override
     public ConnectorOutputTableHandle createTable(ConnectorSession session, ConnectorTableMetadata metadata) {
         return writes.create(metadata);

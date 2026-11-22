@@ -153,6 +153,7 @@ struct TaskExecutorConfig {
   // replayed through a second JNI command path.
   std::vector<pangrova::protocol::v2::RuntimeFilterBinding>
       initial_runtime_filters;
+  std::optional<uint32_t> build_key_ordinal;
   std::vector<split::SplitConfig> splits;
   std::unordered_map<std::string, std::string> session_properties;
   ResourceLimitConfig resource_limit;
@@ -231,6 +232,7 @@ class TaskExecutor {
   int getNextBatch(facebook::velox::RowVectorPtr& row_vector);
   // Status — delegates to TaskLifecycle.
   ExecutorState state() const;
+  ExecutorState awaitTerminal(std::chrono::milliseconds timeout) const;
   std::string taskId() const;
   std::string queryId() const;
   int32_t stageId() const;
@@ -249,6 +251,7 @@ class TaskExecutor {
   int64_t nativeMemoryLimitBytes() const;
   const std::string& callbackContext() const;
   bool isResultTask() const;
+  void watchResultDrain(std::function<void()> listener) const;
   int32_t shufflePartitionCount() const;
   bool usesExternalShuffle() const;
   bool usesLocalDiskShuffle() const;
@@ -286,8 +289,7 @@ class TaskExecutor {
   observability::NativeMetricsCollector& metricsCollector();
 
   // Collect task stats from Velox TaskStats via VeloxTaskRunner.
-  // Returns serialized proto bytes; empty if VeloxTaskRunner is unavailable.
-  std::vector<uint8_t> collectTaskStats() const;
+  std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
   uint64_t requestedObjectReadBytes() const;
 

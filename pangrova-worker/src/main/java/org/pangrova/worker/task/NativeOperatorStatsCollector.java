@@ -2,6 +2,7 @@ package org.pangrova.worker.task;
 
 import org.pangrova.protocol.rest.task.OperatorStats;
 import org.pangrova.protocol.rest.task.TaskStats;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,44 +75,28 @@ final class NativeOperatorStatsCollector {
         }
     }
 
-    /**
-     * Strictly decodes the complete canonical task statistics envelope.
-     * Terminal status reporting uses this method so missing or malformed
-     * Native telemetry cannot be rewritten as an all-zero success record.
-     */
-    static TaskStats decodeTaskStats(byte[] rawTaskStats) {
-        if (rawTaskStats == null || rawTaskStats.length == 0) {
-            throw new IllegalArgumentException("Canonical NativeTaskStats is empty");
-        }
-        try {
-            org.pangrova.protocol.v2.NativeTaskStats protoStats =
-                    org.pangrova.protocol.v2.NativeTaskStats.parseFrom(rawTaskStats);
-            List<OperatorStats> operators = mapOperatorStats(
-                    protoStats.getOperatorStatsList());
-            return new TaskStats(
-                    protoStats.getRowsRead(),
-                    protoStats.getBytesRead(),
-                    protoStats.getRowsWritten(),
-                    protoStats.getBytesWritten(),
-                    protoStats.getElapsedTimeMs(),
-                    protoStats.getCpuTimeMs(),
-                    protoStats.getMemoryBytes(),
-                    protoStats.getPeakMemoryBytes(),
-                    protoStats.getSpillBytes(),
-                    protoStats.getCacheHitBytes(),
-                    protoStats.getCacheMissBytes(),
-                    0,
-                    0,
-                    operators,
-                    protoStats.getBackpressureWaitMs(),
-                    protoStats.getCacheHitCount(),
-                    protoStats.getCacheMissCount(),
-                    protoStats.getCacheEvictionCount(),
-                    protoStats.getCacheAdmissionRejectionCount());
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalArgumentException(
-                    "Canonical NativeTaskStats is malformed", malformed);
-        }
+    /** Projects already captured Native statistics into the report summary. */
+    static TaskStats toTaskStats(NativeTaskStats protoStats) {
+        return new TaskStats(
+                protoStats.getRowsRead(),
+                protoStats.getBytesRead(),
+                protoStats.getRowsWritten(),
+                protoStats.getBytesWritten(),
+                protoStats.getElapsedTimeMs(),
+                protoStats.getCpuTimeMs(),
+                protoStats.getMemoryBytes(),
+                protoStats.getPeakMemoryBytes(),
+                protoStats.getSpillBytes(),
+                protoStats.getCacheHitBytes(),
+                protoStats.getCacheMissBytes(),
+                0,
+                0,
+                mapOperatorStats(protoStats.getOperatorStatsList()),
+                protoStats.getBackpressureWaitMs(),
+                protoStats.getCacheHitCount(),
+                protoStats.getCacheMissCount(),
+                protoStats.getCacheEvictionCount(),
+                protoStats.getCacheAdmissionRejectionCount());
     }
 
     private static List<OperatorStats> mapOperatorStats(

@@ -124,7 +124,7 @@ void PlanExecutionDriver::release() {
   auto stats = collectTaskStats();
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
-    if (!stats.empty()) final_task_stats_ = std::move(stats);
+    if (stats) final_task_stats_ = std::move(stats);
   }
   if (read_budget) read_budget->stopAndDrain();
   runner->releaseTaskAndWaitForDeletion();
@@ -154,16 +154,11 @@ void PlanExecutionDriver::closeDatasetWriter() {
   dataset_writer_.reset();
 }
 
-std::vector<uint8_t> PlanExecutionDriver::collectTaskStats() const {
-  // Hold the runner fence until this actual snapshot is observed/serialized;
-  // release publishes final_task_stats_ under the same fence before deletion.
+std::optional<protocol::v2::NativeTaskStats> PlanExecutionDriver::collectTaskStats() const {
+  // The runner fence also protects the final snapshot published before deletion.
   std::lock_guard<std::mutex> lock(runner_mutex_);
-  if (!final_task_stats_.empty()) return final_task_stats_;
-  auto* task = active_runner_ ? active_runner_->veloxTask() : nullptr;
-  if (!task) return {};
-  const auto stats = task->taskStats();
-  metrics_.observeColumnarReadTaskStats(stats);
-  return active_runner_->collectTaskStats();
+  if (final_task_stats_) return final_task_stats_;
+  return active_runner_ ? active_runner_->collectTaskStats(&metrics_) : std::nullopt;
 }
 
 uint64_t PlanExecutionDriver::requestedObjectReadBytes() const {
@@ -177,7 +172,7 @@ uint64_t PlanExecutionDriver::requestedObjectReadBytes() const {
 
 bool PlanExecutionDriver::hasFinalTaskStats() const {
   std::lock_guard<std::mutex> lock(runner_mutex_);
-  return !final_task_stats_.empty();
+  return final_task_stats_.has_value();
 }
 
 void PlanExecutionDriver::cancel() {
@@ -216,6 +211,16 @@ void PlanExecutionDriver::notifyFailure(const std::string& message) {
 velox::VeloxTaskRunner* PlanExecutionDriver::veloxTaskRunner() const {
   std::lock_guard<std::mutex> lock(runner_mutex_);
   return active_runner_.get();
+}
+
+void PlanExecutionDriver::watchResultDrain(std::function<void()> listener) const {
+  std::shared_ptr<velox::VeloxTaskRunner> runner;
+  {
+    std::lock_guard<std::mutex> lock(runner_mutex_);
+    runner = active_runner_;
+  }
+  if (!runner) throw std::logic_error("Finished result task has no active runner");
+  runner->watchResultDrain(std::move(listener));
 }
 
 std::optional<facebook::velox::RowTypePtr>

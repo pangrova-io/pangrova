@@ -11,7 +11,6 @@ import org.pangrova.security.api.exception.AccessDeniedException;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 /** Reads and persists row policies under their stable table identity; names are diagnostic. */
 public final class TableControlRowPolicyStore implements RowPolicyStore {
@@ -34,8 +33,8 @@ public final class TableControlRowPolicyStore implements RowPolicyStore {
             }
         }
         UUID tableId = record.map(TableControlRecord::tableId).orElse(null);
-        return project(tableId, catalog, schema, table, storage.getPolicies(catalog, schema, table),
-                tableId == null ? List.of() : storage.getPolicies(tableId));
+        return project(tableId, catalog, schema, table, storage.getPoliciesForCurrentTable(catalog, schema, table,
+                tableId));
     }
 
     @Override
@@ -55,12 +54,12 @@ public final class TableControlRowPolicyStore implements RowPolicyStore {
 
     /** Pure projection shared with transaction-bound background authorization. */
     public static List<RowPolicy> project(UUID tableId, String catalog, String schema, String table,
-            List<RowPolicy> named, List<RowPolicy> bound) {
-        if (named.stream().anyMatch(policy -> policy.tableId() == null)) {
+            List<RowPolicy> policies) {
+        if (policies.stream().anyMatch(policy -> policy.tableId() == null)) {
             throw new AccessDeniedException("Row policy has no proven stable table binding; explicitly rebind it");
         }
         if (tableId == null) return List.of();
-        return Stream.concat(named.stream(), bound.stream()).distinct()
+        return policies.stream().distinct()
                 .filter(policy -> tableId.equals(policy.tableId()))
                 .map(policy -> at(policy, tableId, catalog, schema, table)).toList();
     }

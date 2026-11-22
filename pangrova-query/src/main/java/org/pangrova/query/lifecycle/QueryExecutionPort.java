@@ -44,9 +44,6 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Retries pending task cancellations under the execution owner. */
     void retryPendingCancels();
 
-    /** Registers a listener invoked once execution resources physically drain. */
-    void addExecutionDrainListener(Consumer<String> listener);
-
-    /** Registers a listener invoked when a query operation exits. */
-    void addQueryOperationExitListener(Consumer<String> listener);
+    /** Registers a listener for local operation exit and exact task drain progress. */
+    void addQueryDrainProgressListener(Consumer<String> listener);
 }

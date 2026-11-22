@@ -7,7 +7,6 @@ import org.pangrova.file.api.enums.FileSpaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,12 +47,7 @@ public final class DynamicRbacAccessControl implements AccessControl {
         if (user == null || user.principal() == null || user.principal().isBlank()) {
             throw new AuthorizationDeniedException("Authenticated principal is required");
         }
-        Set<String> roles = new HashSet<>(roleStore.rolesForUser(user.principal()));
-        for (String group : user.groups()) {
-            roles.addAll(roleStore.rolesForGroup(group));
-        }
-        roles.removeIf(role -> roleStore.findRole(role).isEmpty());
-        return Set.copyOf(roles);
+        return roleStore.effectiveRoles(user.principal(), user.groups());
     }
 
     @Override
@@ -303,9 +297,9 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     @Override
-    public Optional<String> getColumnMask(UserIdentity user, String catalog, String schema,
-                                          String table, String column) {
-        return maskProcessor.getMask(user, effectiveRoles(user), catalog, schema, table, column);
+    public org.pangrova.security.api.mask.TableColumnMasks getColumnMasks(
+            UserIdentity user, String catalog, String schema, String table) {
+        return maskProcessor.getMasks(user, effectiveRoles(user), catalog, schema, table);
     }
 
     private List<PrivilegeGrant> resolveGrants(UserIdentity user) {
@@ -313,9 +307,7 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     private List<PrivilegeGrant> resolveGrants(Set<String> roles) {
-        return grantStore.listGrants().stream()
-                .filter(g -> roles.contains(g.roleName()))
-                .toList();
+        return roles.isEmpty() ? List.of() : grantStore.listGrantsForRoles(roles);
     }
 
     private void requireTableGrant(UserIdentity user, String catalog, String schema,

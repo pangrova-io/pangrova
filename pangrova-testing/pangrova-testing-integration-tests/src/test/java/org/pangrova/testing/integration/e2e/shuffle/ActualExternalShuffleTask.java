@@ -32,12 +32,17 @@ final class ActualExternalShuffleTask {
     private ActualExternalShuffleTask() {}
 
     static TaskRequest consumer(ActualShuffleService.AdmittedProducer producer) {
+        return consumer(producer, 1);
+    }
+
+    static TaskRequest consumer(ActualShuffleService.AdmittedProducer producer, int sourcePartitions) {
         var schema = NamedStruct.newBuilder().addNames("value");
         schema.getStructBuilder().setNullability(Type.Nullability.NULLABILITY_REQUIRED)
                 .addTypesBuilder().getI64Builder().setNullability(Type.Nullability.NULLABILITY_REQUIRED);
         var detail = ExchangeInputDetail.newBuilder().setPlanNodeId(PLAN_NODE).setExchangeId(EXCHANGE_ID)
                 .setUpstreamStageId(producer.request().getAttempt().getStageId()).setDownstreamStageId(4)
-                .setDistribution(ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON).setPartitionCount(1)
+                .setDistribution(sourcePartitions == 1 ? ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON
+                        : ExchangeDistribution.EXCHANGE_DISTRIBUTION_HASH).setPartitionCount(sourcePartitions)
                 .setOutputSchema(schema).setBatchSerde(BatchSerde.BATCH_SERDE_ARROW_BATCH).setRequireComplete(true);
         var envelope = RelationDetailEnvelope.newBuilder().setSchemaVersion(1).setExchangeInput(detail).build();
         var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());

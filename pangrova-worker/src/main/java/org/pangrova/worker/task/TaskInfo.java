@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 
 import java.time.Instant;
@@ -9,7 +10,6 @@ import org.pangrova.worker.task.memory.TaskMemoryAccount;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.worker.buffer.OutputBufferManager;
 
 /**
  * Task tracking record: immutable metadata + delegated mutable execution state.
@@ -34,6 +34,8 @@ public final class TaskInfo {
     private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
     private final TaskNativeCreation nativeCreation = new TaskNativeCreation();
     private final TaskTerminalPublication terminalPublication = new TaskTerminalPublication();
+    @org.pangrova.common.concurrent.GuardedBy("this")
+    private TaskResultRelease resultRelease;
 
     TaskInfo(
             String taskId,
@@ -80,6 +82,31 @@ public final class TaskInfo {
 
     boolean retryCleanup() {
         return cleanupRetry.retry();
+    }
+
+    synchronized boolean installResultRelease(TaskResultRelease registration) {
+        if (resultRelease != null) return false;
+        resultRelease = registration;
+        return true;
+    }
+
+    void cancelResultRelease() {
+        TaskResultRelease registration;
+        synchronized (this) {
+            registration = resultRelease;
+            resultRelease = null;
+        }
+        if (registration != null) registration.cancel();
+    }
+
+    boolean scheduleRegisteredResultCleanup(Instant cutoff) {
+        TaskResultRelease registration;
+        synchronized (this) {
+            registration = resultRelease;
+        }
+        if (registration == null) return false;
+        registration.retryOrExpire(TaskCleanupScheduler.terminalRetentionElapsed(this, cutoff));
+        return true;
     }
 
     // --- State machine (delegated) ---
@@ -217,6 +244,23 @@ public final class TaskInfo {
         terminalPublication.publish(released, prepare, send);
     }
 
+    java.util.concurrent.CompletionStage<Void> publishResultStatus(
+            boolean released,
+            java.util.function.Supplier<org.pangrova.protocol.rest.task.TaskStatusReport> prepare,
+            java.util.function.Function<org.pangrova.protocol.rest.task.TaskStatusReport,
+                    java.util.concurrent.CompletionStage<Void>> send,
+            Runnable onAcknowledgement) {
+        if (released && !resourcesReleased()) {
+            throw new IllegalStateException("Terminal publication precedes actual resource release");
+        }
+        return terminalPublication.publishAsync(released, prepare, send, onAcknowledgement);
+    }
+
+    void retryInitialResultStatus(java.util.function.Function<org.pangrova.protocol.rest.task.TaskStatusReport,
+            java.util.concurrent.CompletionStage<Void>> send) {
+        terminalPublication.retryFailedInitialDelivery(send);
+    }
+
     // --- Resource accounting (delegated) ---
 
     /** Shares the one reservation account with this package's lifecycle and reporting owners. */
@@ -266,16 +310,6 @@ public final class TaskInfo {
         execution.addOutputBytes(bytes);
     }
 
-    // --- Buffer (delegated) ---
-
-    public OutputBufferManager taskBuffer() {
-        return execution.taskBuffer();
-    }
-
-    public void setTaskBuffer(OutputBufferManager buffer) {
-        execution.setTaskBuffer(buffer);
-    }
-
     // --- Derived queries ---
 
     public boolean isWriteTask() {
@@ -310,11 +344,11 @@ public final class TaskInfo {
         execution.setTerminalTaskReport(status);
     }
 
-    public byte[] terminalTaskStats() {
+    NativeTaskStats terminalTaskStats() {
         return execution.terminalTaskStats();
     }
 
-    public void setTerminalTaskStats(byte[] stats) {
+    void setTerminalTaskStats(NativeTaskStats stats) {
         execution.setTerminalTaskStats(stats);
     }
 
@@ -326,7 +360,7 @@ public final class TaskInfo {
         execution.setTerminalCommitFragments(fragments);
     }
 
-    void setReleasedTaskStats(byte[] stats) {
+    void setReleasedTaskStats(NativeTaskStats stats) {
         execution.setReleasedTaskStats(stats);
     }
 

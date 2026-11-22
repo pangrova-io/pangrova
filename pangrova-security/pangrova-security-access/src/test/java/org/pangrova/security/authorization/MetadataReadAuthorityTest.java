@@ -52,7 +52,7 @@ class MetadataReadAuthorityTest {
         store.saveColumnMask(mask("first", "priority", List.of(), List.of("readers"), true));
         store.saveColumnMask(mask("later", "priority", List.of(), List.of(), true));
         var access = authority(store, null);
-        assertThat(access.getColumnMask(USER, "cat", "sch", "orders", "priority")).isEmpty();
+        assertThat(access.getColumnMasks(USER, "cat", "sch", "orders").mask("priority")).isEmpty();
         assertThatCode(() -> access.checkCanReadTableMetadata(USER, "cat", "sch", "orders"))
                 .doesNotThrowAnyException();
         store.saveColumnMask(mask("historical", "retired_column", List.of(), List.of(), true));
@@ -90,11 +90,12 @@ class MetadataReadAuthorityTest {
         var changingGrants = new GrantStore() {
             @Override
             public List<PrivilegeGrant> listGrants() {
-                roles.revokeRoleFromUser(USER.principal(), "readers");
-                return List.of(grant);
+                throw new AssertionError("Authorization must read only the effective role grants");
             }
-            @Override public List<PrivilegeGrant> listGrantsForRole(String role) {
-                return role.equals("readers") ? List.of(grant) : List.of();
+            @Override
+            public List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames) {
+                roles.revokeRoleFromUser(USER.principal(), "readers");
+                return roleNames.contains("readers") ? List.of(grant) : List.of();
             }
             @Override public void addGrant(PrivilegeGrant value) { throw new UnsupportedOperationException(); }
             @Override public boolean revokeGrant(String id) { throw new UnsupportedOperationException(); }

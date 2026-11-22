@@ -105,15 +105,14 @@ class IndependentClientCancellationE2ETest extends ContainerTestBase {
                 if (!id.equals(report.queryId()) || !"FINISHED".equals(report.state())
                         || response == null || response.statusCode() != 200) continue;
                 var canonical = TaskReport.parseFrom(report.canonicalTaskReport());
-                var ack = org.pangrova.common.json.JsonMapperFactory.shared().readValue(
-                        response.body(), org.pangrova.protocol.rest.task.TaskStatusReportResponse.class);
-                assertThat(ack.taskId()).isEqualTo(report.taskId());
-                receipts.add(canonical.getExecutionDrainState().name() + "/" + ack.command());
+                var ack = org.pangrova.protocol.http.TaskStatusAck.parseFrom(response.body());
+                assertThat(ack.getTaskId()).isEqualTo(report.taskId());
+                assertThat(ack.getSequence()).isEqualTo(report.reportSequence());
+                receipts.add(canonical.getExecutionDrainState().name() + "/" + ack.getDirective().name());
             }
             assertThat(receipts).as("terminal acknowledgements for %s", id).contains(
                     "EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED/CONTINUE",
-                    "EXECUTION_DRAIN_STATE_UNSPECIFIED/" + org.pangrova.protocol.constants
-                            .TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE);
+                    "EXECUTION_DRAIN_STATE_UNSPECIFIED/" + org.pangrova.protocol.http.TaskStatusAck.Directive.RETIRED_RESULT_NOTICE.name());
         });
     }
 

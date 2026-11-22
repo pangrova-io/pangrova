@@ -16,7 +16,7 @@ class ConnectorIssuedScopeTest {
     void connectorOperationExitNotifiesTerminalCleanupAfterTheLastLease() {
         var tracker = new CoordinatorTaskTracker();
         var exits = new java.util.ArrayList<String>();
-        tracker.addQueryOperationExitListener(exits::add);
+        tracker.addQueryDrainProgressListener(exits::add);
         var authority = tracker.openQueryIssuance("connector-query");
         var first = authority.enterOperation();
         var second = authority.enterOperation();

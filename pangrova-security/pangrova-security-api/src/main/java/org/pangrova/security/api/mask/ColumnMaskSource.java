@@ -2,7 +2,6 @@ package org.pangrova.security.api.mask;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import java.util.Optional;
 import java.util.Set;
 
 import org.pangrova.security.api.identity.UserIdentity;
@@ -16,9 +15,9 @@ import org.pangrova.security.api.identity.UserIdentity;
 @Experimental
 public interface ColumnMaskSource {
 
-    /** Returns the rendered mask for a single column, if a policy applies. */
-    Optional<String> getMask(UserIdentity user, Set<String> effectiveRoles,
-                             String catalog, String schema, String table, String column);
+    /** Captures policies for one table using the supplied current subject roles. */
+    TableColumnMasks getMasks(UserIdentity user, Set<String> effectiveRoles,
+            String catalog, String schema, String table);
 
     /** Reports whether any column of the table would be masked for the caller. */
     boolean hasApplicableMask(UserIdentity user, Set<String> effectiveRoles,

@@ -230,9 +230,10 @@ message DirectExchangeInput {
 // External shuffle provider. Data is read by the consuming Worker directly
 // from the selected endpoint and never flows through the Coordinator.
 message ExternalShuffleInput {
+  reserved 3, 12;
+  reserved "output_partition_id", "publication";
   string shuffle_id = 1;
   repeated ShuffleServiceEndpoint endpoints = 2;
-  int32 output_partition_id = 3;
   uint64 plan_epoch = 4;
   ExecutionOwnerIdentity execution_owner = 5;
   uint64 deadline_epoch_ms = 6;
@@ -241,8 +242,10 @@ message ExternalShuffleInput {
   ShuffleServiceAddress commit_address = 9;
   uint32 expected_producer_partitions = 10;
   Checksum expected_producer_set_checksum = 11;
-  // Coordinator publication evidence for exactly output_partition_id.
-  ShufflePartitionPublication publication = 12;
+  // Original published coordinates, independent of the physical consumer.
+  // Receipt i is for source_partition_start + i, including explicit empties.
+  optional int32 source_partition_start = 13;
+  repeated ShufflePartitionPublication publications = 14;
 }
 
 enum RuntimeFilterScope {

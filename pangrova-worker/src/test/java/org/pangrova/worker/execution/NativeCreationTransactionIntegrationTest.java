@@ -38,7 +38,7 @@ class NativeCreationTransactionIntegrationTest {
                     .addResultColumnTypes(ResultColumnLogicalType.newBuilder().setColumnIndex(0)).build();
             CanonicalTaskRequests.validateForAdmission(request);
             try {
-                fixture.executor().createTask(request.toByteArray());
+                fixture.executor().createTask(request);
                 throw new AssertionError("Actual Native configuration must reject non-result metadata");
             } catch (NativeTaskCreationFailure failure) {
                 assertThat(failure.withoutNativeOwner()).isTrue();

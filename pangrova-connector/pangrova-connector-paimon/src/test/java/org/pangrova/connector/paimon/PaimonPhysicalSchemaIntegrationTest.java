@@ -51,7 +51,9 @@ class PaimonPhysicalSchemaIntegrationTest {
             var physical = split.dataFiles().get(0);
             assertThat(physical.schemaId()).isZero();
             assertThat(current.schema().id()).isPositive();
-            var evolution = PaimonPartitionExtractor.extractSchemaEvolution(physical, current);
+            var mappings = new PaimonPartitionExtractor.SchemaEvolution(current);
+            var evolution = mappings.forSource(physical.schemaId());
+            assertThat(mappings.forSource(physical.schemaId())).isSameAs(evolution);
             assertThat(evolution.columnMappings()).filteredOn(mapping -> mapping.targetName().equals("renamed"))
                     .singleElement().satisfies(mapping -> {
                         assertThat(mapping.sourceName()).isEqualTo("label");
@@ -64,7 +66,13 @@ class PaimonPhysicalSchemaIntegrationTest {
                 assertThat(promotion.sourceType()).isEqualTo("INTEGER");
                 assertThat(promotion.targetType()).isEqualTo("BIGINT");
             });
-            var lsm = PaimonDataFileExtractor.extractLsmLevels(current, split).get(0).files().get(0);
+            var currentMapping = mappings.forSource(current.schema().id());
+            assertThat(currentMapping.typePromotions()).isEmpty();
+            assertThat(currentMapping.columnMappings()).allSatisfy(mapping -> {
+                assertThat(mapping.sourceName()).isEqualTo(mapping.targetName());
+                assertThat(mapping.sourceFieldId()).isEqualTo(mapping.targetFieldId());
+            });
+            var lsm = PaimonDataFileExtractor.extractLsmLevels(mappings, split).get(0).files().get(0);
             assertThat(lsm.columnMappings()).isEqualTo(evolution.columnMappings());
             assertThat(lsm.typePromotions()).isEqualTo(evolution.typePromotions());
         }

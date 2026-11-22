@@ -24,4 +24,12 @@ public interface Constraint {
 
     /** Empty constraint — no filtering. */
     Constraint EMPTY = Map::of;
+
+    /** Proven empty row domain. The bound read still requires authority validation. */
+    Constraint NONE = new Constraint() {
+        @Override
+        public Map<ColumnHandle, Domain> getDomains() {
+            return Map.of();
+        }
+    };
 }

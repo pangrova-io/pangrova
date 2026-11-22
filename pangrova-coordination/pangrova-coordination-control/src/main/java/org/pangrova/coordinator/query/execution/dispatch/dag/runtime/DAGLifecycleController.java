@@ -184,8 +184,14 @@ public final class DAGLifecycleController {
     /** Routes a terminal task report to its owning stage. */
     public void onTaskTerminal(
             String queryId, String taskId, String state, QueryFailure error) {
+        onTaskTerminal(queryId, taskId, state, error, null);
+    }
+
+    /** Relays the summary only to the live owner of the original logical task slot. */
+    public void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
+            org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange range) {
         RegisteredDAG owner = queryDags.get(queryId);
-        if (owner != null) owner.terminals().onTerminal(queryId, taskId, state, error);
+        if (owner != null) owner.terminals().onTerminal(queryId, taskId, state, error, range);
     }
 
     /** A retained terminal signal also owns late reports until query cleanup. */

@@ -206,7 +206,6 @@ public final class CoordinatorBootstrap {
                 observability.tracingProvider(), security.authenticationManager(),
                 query.taskStatusReceiver(), query, query.workerManager(),
                 moduleWiring.getCdcLifecycleManager(), this,
-                query.splitAssignmentManager(),
                 metadataBootstrap != null ? metadataBootstrap.metadataService() : null);
     }
 

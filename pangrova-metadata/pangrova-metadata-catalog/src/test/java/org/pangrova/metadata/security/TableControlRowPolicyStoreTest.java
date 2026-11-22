@@ -109,9 +109,14 @@ class TableControlRowPolicyStoreTest {
                 org.pangrova.security.api.policy.PrivilegeGrant.of("reader", org.pangrova.security.api.enums.Privilege.ALL,
                         "TABLE", "cat", "db", "*", null));
         policies.savePolicy(policy("orders", "id > 0"));
+        requireDeferredPolicy("orders");
         var pending = control.renames().begin(control.find("cat", "db", "orders").orElseThrow(), "db", "renamed");
         control.renames().complete(pending, Optional.of(identity("original")), Optional.empty());
-        var table = new org.pangrova.connector.api.metadata.table.QualifiedTableName("cat", "db", "renamed");
+        requireDeferredPolicy("renamed");
+    }
+
+    private void requireDeferredPolicy(String tableName) throws Exception {
+        var table = new org.pangrova.connector.api.metadata.table.QualifiedTableName("cat", "db", tableName);
         var raw = org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(table, Set.of("id"), table);
         var transformed = new org.pangrova.security.api.authorization.DeferredAuthorizationScope(List.of(
                 new org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission(table, Set.of("id"),

@@ -59,7 +59,9 @@ final class WorkerTaskRegistry {
     }
 
     boolean remove(TaskInfo info) {
-        return owners.remove(info.taskId(), info);
+        if (!owners.remove(info.taskId(), info)) return false;
+        info.cancelResultRelease();
+        return true;
     }
 
     TaskInfo get(String taskId) { return owners.get(taskId); }

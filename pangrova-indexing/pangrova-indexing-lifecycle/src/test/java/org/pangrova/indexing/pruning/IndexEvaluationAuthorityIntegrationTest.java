@@ -1,5 +1,6 @@
 package org.pangrova.indexing.pruning;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
 import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
@@ -253,8 +254,9 @@ class IndexEvaluationAuthorityIntegrationTest {
             assertThat(filter.filterSplits(splits, List.of(next), "lake", null, "snap-1")).isSameAs(splits);
             var active = (IndexEvaluatedSplit) filter.filterSplits(splits, List.of(first), "lake",
                     null, "snap-0").get(0);
-            var wireHints = IndexEvalHintProtoCodec.extractHints(
-                    DataSplit.parseFrom(IndexEvalHintProtoCodec.serializeWithHints(active)));
+            var enriched = IndexEvalHintProtoCodec.withHints(
+                    DataSplit.parseFrom(CanonicalConnectorSplit.from(active.unwrap()).toByteArray()), active.evalResult());
+            var wireHints = IndexEvalHintProtoCodec.extractHints(DataSplit.parseFrom(enriched.toByteArray()));
             assertThat(wireHints).singleElement().satisfies(hint -> {
                 assertThat(hint.indexFilePath()).isEqualTo("published-0");
                 assertThat(hint.indexSizeBytes()).isEqualTo(12L);

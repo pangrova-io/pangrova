@@ -4,11 +4,12 @@ import org.pangrova.shuffle.api.coordinator.ExternalShuffleDescriptorEncoder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.execution.stage.QueryExecutionScope;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,6 +25,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.DAGStagePlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.BuildFilterGate;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.shuffle.api.coordinator.RecoverableShuffleControl;
@@ -50,6 +52,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private final LeafStageDispatcher leafStageDispatcher;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
+    private final CoalescedShuffleInputs coalescedShuffleInputs;
     private final DownstreamStageScheduler downstreamStageScheduler;
     private final DAGLifecycleController lifecycle;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
@@ -73,6 +76,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         this.stagePlanBinder = new DAGStagePlanBinder(new RetrievalGenerationResolver(artifactResolver),
                 generatedValueReads);
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
+        this.coalescedShuffleInputs = new CoalescedShuffleInputs(dependencies.adaptiveQueryConfig());
         this.downstreamStageScheduler = new DownstreamStageScheduler(dependencies.taskTracker());
         this.lifecycle = new DAGLifecycleController(
                 dependencies.dispatcher(), canceller,
@@ -165,10 +169,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             WorkerSelector workerSelector,
             long timeoutMs,
             Consumer<DispatchResult> resultReadySink) {
+        var scope = lifecycle.queryContext(session.queryId());
+        var filter = scope == null || scope.writeConfig() != null ? null : BuildFilterGate.create(dag);
         DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
                 compiler, pipelineConfig.localShuffle() && !dag.stageEdges().isEmpty()
                         ? new org.pangrova.coordinator.scheduler.placement.LocalShufflePlacement(workerSelector)
-                        : workerSelector, null, resultReadySink);
+                        : workerSelector, null, resultReadySink, filter);
         lifecycle.registerLiveExecution(state);
         try {
             registerListeners(state);
@@ -207,6 +213,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             case RUNNING -> onStageRunning(stage, state);
             case FINISHED -> {
                 fireHandlerEvent(stage, state, StageLifecycleHandler::onFinished);
+                if (state.buildFilter() != null) state.buildFilter().onFinished(stage);
                 onStageFinished(state);
             }
             case FAILED -> onFailedState(stage, state);
@@ -265,6 +272,10 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     "DAG has no root stages for query " + state.queryId());
         }
         roots.forEach(stage -> scheduleStage(stage, state));
+        if (state.buildFilter() != null) {
+            state.buildFilter().releaseProbe(state.completion());
+            scheduleStage(state.dag().findStage(state.buildFilter().plan().probeStageId()), state);
+        }
     }
 
     private void onStageRunning(Stage stage, DAGExecutionState state) {
@@ -346,13 +357,15 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void scheduleStage(Stage stage, DAGExecutionState state) {
-        if (state.cancelled().get() || !state.dag().admitInputs(stage.stageId())
+        if (state.cancelled().get() || (state.buildFilter() != null && state.buildFilter().blocks(stage.stageId()))
+                || !state.dag().admitInputs(stage.stageId())
                 || !stage.stateMachine().tryTransitionTo(
                         StageState.SCHEDULING)) {
             return;
         }
-        fireHandlerEvent(stage, state, StageLifecycleHandler::onScheduling);
         try {
+            freezePhysicalInputs(stage, state);
+            fireHandlerEvent(stage, state, StageLifecycleHandler::onScheduling);
             PreparedStage prepared = prepareStage(stage, state);
             List<PartitionDispatch> partitions =
                     leafStageDispatcher.dispatchLeafStage(prepared.dispatch());
@@ -364,12 +377,27 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         }
     }
 
+    private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
+        if (state.durable() != null) return;
+        var context = lifecycle.queryContext(state.queryId());
+        if (context == null || context.writeConfig() != null || context.retrievalMerge().isPresent()
+                || !context.retrievalArtifacts().isEmpty()) {
+            return;
+        }
+        var inputs = coalescedShuffleInputs.select(stage, state.dag());
+        stage.freezeCoalescedInputs(inputs);
+        if (inputs.isCoalesced()) {
+            LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={}",
+                    state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount());
+        }
+    }
+
     private PreparedStage prepareStage(Stage stage, DAGExecutionState state) {
         if (state.durable() != null) {
             return new PreparedStage(stage.plan(), new LeafStageDispatcher.LeafDispatch(
                     state.execution(), stage.plan(), state.durable().boundPlan(stage.plan()), List.of(), null,
                     state.dag(), state.dispatched(), null, false,
-                    state.durable().control().planEpoch(stage.stageId()), state.durable()));
+                    state.durable().control().planEpoch(stage.stageId()), state.durable(), OptionalInt.empty()));
         }
         StageNode plan = stage.plan();
         if (stage.retryCount() > 0) {
@@ -378,8 +406,9 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         }
         QueryExecutionScope queryContext = lifecycle.queryContext(state.queryId());
         lifecycle.emitStageLineage(state.queryId(), plan, true);
-        SerializedPlanFragment serialized = state.serializePlan(
-                plan, queryContext == null ? List.of() : queryContext.preOptColumnNames());
+        boolean outputStage = state.dag().findDownstreamEdge(plan.stageId()) == null;
+        List<String> visibleColumns = queryContext == null ? List.of() : queryContext.preOptColumnNames();
+        SerializedPlanFragment serialized = state.serializePlan(plan, visibleColumns);
         if (queryContext != null && !queryContext.retrievalArtifacts().isEmpty()) {
             LOG.info("event=retrieval_stage_hints queryId={} stageId={} hints={}",
                     state.queryId(), plan.stageId(), serialized.retrievalTopKHints().stream()
@@ -389,10 +418,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 plan, queryContext == null ? null : queryContext.requireLiveSession(),
                 queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
                 queryContext == null || queryContext.writeConfig() == null
-                        ? null : queryContext.writeConfig().writeMode());
+                        ? null : queryContext.writeConfig().writeMode(), state.buildFilter());
+        org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
+                () -> splits.stream().map(QuerySplit::data).iterator(), state.queryId(), plan.stageId());
         BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
-                serialized, plan, splits, queryContext, state.session(), state.workerSelector(),
-                state.dag().findDownstreamEdge(plan.stageId()) == null));
+                serialized, plan, splits, queryContext, state.session(), state.workerSelector(), outputStage));
         // Only the terminal stage owns the table write. Upstream stages must
         // produce their ExchangeRel shuffle output with a shuffle task binding.
         var writeConfig = queryContext == null
@@ -402,7 +432,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,
                 !serialized.retrievalTopKHints().isEmpty(),
-                Math.addExact(stage.currentGeneration(), 1L), null);
+                Math.addExact(stage.currentGeneration(), 1L), null,
+                state.buildFilter() == null ? OptionalInt.empty() : state.buildFilter().buildOrdinal(stage.stageId()));
         return new PreparedStage(plan, dispatch);
     }
 
@@ -517,6 +548,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     public void onTaskTerminal(
             String queryId, String taskId, String state, QueryFailure error) {
         lifecycle.onTaskTerminal(queryId, taskId, state, error);
+    }
+
+    @Override
+    public void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
+            BuildKeyRange range) {
+        lifecycle.onTaskTerminal(queryId, taskId, state, error, range);
     }
 
     /** Removes all per-query dispatch state. */

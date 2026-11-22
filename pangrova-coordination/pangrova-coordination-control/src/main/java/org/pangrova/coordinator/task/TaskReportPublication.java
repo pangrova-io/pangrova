@@ -1,9 +1,12 @@
 package org.pangrova.coordinator.task;
 
+import com.google.protobuf.ByteString;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.pangrova.protocol.checksum.ProtocolChecksums;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.TaskAttemptId;
 
 /** An actual report-operation lease; its publication obligation survives failed journal/side effects. */
 @javax.annotation.concurrent.NotThreadSafe
@@ -47,7 +50,7 @@ public final class TaskReportPublication implements AutoCloseable {
         final boolean resourceOnly;
         final long sequence;
         final long timestamp;
-        final byte[] canonicalDigest;
+        final ByteString canonicalDigest;
         final org.pangrova.protocol.rest.task.TaskStats stats;
         final org.pangrova.common.client.error.ErrorDetail error;
         final org.pangrova.protocol.rest.data.WriteResultDescriptor writeResult;
@@ -65,6 +68,7 @@ public final class TaskReportPublication implements AutoCloseable {
         final int stageId;
         final int partitionId;
         final TaskAttemptDescriptor attempt;
+        final TaskAttemptId reportedAttempt;
 
         Fact(SubmitTaskRequest request,
                 org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {
@@ -81,19 +85,19 @@ public final class TaskReportPublication implements AutoCloseable {
             stageId = report.stageId();
             partitionId = report.partitionId();
             attempt = report.attempt();
+            reportedAttempt = report.reportedAttempt();
             stats = report.stats();
             error = report.error();
             writeResult = report.writeResult();
             errorCode = report.errorCode();
             errorMetadata = report.errorMetadata();
-            byte[] canonical = report.canonicalTaskReport();
-            canonicalDigest = canonical == null ? null
-                    : org.pangrova.common.util.DigestUtils.sha256().digest(canonical);
+            var canonical = report.canonicalEvidence();
+            canonicalDigest = canonical == null ? null : ProtocolChecksums.sha256(canonical).getDigest();
         }
 
         boolean matches(org.pangrova.protocol.rest.task.TaskStatusReport retry) {
             return matchesIdentity(retry) && matchesPayload(retry)
-                    && matchesCanonical(retry.canonicalTaskReport());
+                    && matchesCanonical(retry.canonicalEvidence());
         }
 
         private boolean matchesIdentity(TaskStatusReport retry) {
@@ -101,7 +105,8 @@ public final class TaskReportPublication implements AutoCloseable {
                     && taskId.equals(retry.taskId()) && queryId.equals(retry.queryId())
                     && workerId.equals(retry.workerId()) && state.equals(retry.state())
                     && java.util.Objects.equals(taskType, retry.taskType()) && stageId == retry.stageId()
-                    && partitionId == retry.partitionId() && attempt.equals(retry.attempt());
+                    && partitionId == retry.partitionId() && attempt.equals(retry.attempt())
+                    && java.util.Objects.equals(reportedAttempt, retry.reportedAttempt());
         }
 
         private boolean matchesPayload(TaskStatusReport retry) {
@@ -112,10 +117,9 @@ public final class TaskReportPublication implements AutoCloseable {
                     && java.util.Objects.equals(errorMetadata, retry.errorMetadata());
         }
 
-        private boolean matchesCanonical(byte[] canonical) {
+        private boolean matchesCanonical(ByteString canonical) {
             if (canonicalDigest == null || canonical == null) return canonicalDigest == null && canonical == null;
-            return java.security.MessageDigest.isEqual(canonicalDigest,
-                    org.pangrova.common.util.DigestUtils.sha256().digest(canonical));
+            return canonicalDigest.equals(ProtocolChecksums.sha256(canonical).getDigest());
         }
     }
 }

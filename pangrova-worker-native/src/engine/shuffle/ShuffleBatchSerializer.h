@@ -19,6 +19,7 @@ namespace pangrova::shuffle {
 
 inline constexpr size_t kMaxCanonicalShuffleBatchBytes =
     kCanonicalShuffleBatchBytes;
+inline constexpr size_t kSerializedPageOverheadBytes = 64 * 1024;
 
 struct SerializedShuffleSlice {
   std::unique_ptr<folly::IOBuf> data;
@@ -62,7 +63,8 @@ class ShuffleBatchSerializer {
   // A single row that cannot fit fails with SHUFFLE_ROW_EXCEEDS_BATCH_LIMIT.
   std::vector<SerializedShuffleSlice> serializeBatches(
       const facebook::velox::RowVectorPtr& vector,
-      facebook::velox::memory::MemoryPool* pool);
+      facebook::velox::memory::MemoryPool* pool,
+      size_t maximum_page_bytes = kMaxCanonicalShuffleBatchBytes);
 
   // Deserialize Arrow bytes back to RowVector. The shared serde performs a
   // governed contiguous-input copy before importing Arrow buffer ownership.
@@ -76,17 +78,20 @@ class ShuffleBatchSerializer {
       const facebook::velox::RowVectorPtr& vector,
       facebook::velox::vector_size_t begin,
       facebook::velox::vector_size_t size,
-      facebook::velox::memory::MemoryPool* pool);
+      facebook::velox::memory::MemoryPool* pool,
+      size_t maximum_page_bytes);
 
   void serializeBoundedRange(
       const facebook::velox::RowVectorPtr& vector,
       facebook::velox::vector_size_t begin,
       facebook::velox::vector_size_t size,
       facebook::velox::memory::MemoryPool* pool,
+      size_t maximum_page_bytes,
       std::vector<SerializedShuffleSlice>& output);
 
   std::vector<uint64_t> estimateRowBytes(
-      const facebook::velox::RowVectorPtr& vector);
+      const facebook::velox::RowVectorPtr& vector,
+      size_t maximum_page_bytes);
 
   const Config config_;
   const facebook::velox::common::CompressionKind compression_kind_;

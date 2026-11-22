@@ -96,9 +96,8 @@ class GeneratedValuePublicationIntegrationTest {
 
     private void assertClaimConnectionEvidence(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
             JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
-        String encoded = java.util.Base64.getEncoder().encodeToString(split.toByteArray());
         var read = new GeneratedValueGenerationBindingResolver(publicationStore, store).resolveTemplate(
-                TENANT, "scan-claim", SOURCE_ID, "embedding", SNAPSHOT, List.of(encoded)).orElseThrow();
+                TENANT, "scan-claim", SOURCE_ID, "embedding", SNAPSHOT, List.of(split)).orElseThrow().binding();
         var original = dispatch();
         var sink = OperatorBindingSet.parseFrom(original.stageGraph().requireStage(0).bindingSetBytes())
                 .getBindings(0);
@@ -128,7 +127,8 @@ class GeneratedValuePublicationIntegrationTest {
                             new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
                             0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
                         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
-                        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(encoded),
+                        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read),
+                                List.of(split),
                                 prepared.publications());
                         PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
                         assertThat(prepared.publications()).hasSize(1);
@@ -215,12 +215,12 @@ class GeneratedValuePublicationIntegrationTest {
                                           JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) {
         GeneratedValueGenerationBindingResolver resolver =
                 new GeneratedValueGenerationBindingResolver(publicationStore, buildStore);
-        String encodedSplit = java.util.Base64.getEncoder()
-                .encodeToString(split.toByteArray());
-        OperatorBinding template = resolver.resolveTemplate(
+        var resolved = resolver.resolveTemplate(
                 TENANT, "scan-a", SOURCE_ID, "embedding",
-                SNAPSHOT, List.of(encodedSplit))
+                SNAPSHOT, List.of(split))
                 .orElseThrow();
+        assertThat(resolved.definitionSnapshot()).isEqualTo(dispatch().authorizationScope().definitionSnapshot());
+        OperatorBinding template = resolved.binding();
         assertThat(template.getCapability().getCapabilityId())
                 .isEqualTo(BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_ID);
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
@@ -234,7 +234,8 @@ class GeneratedValuePublicationIntegrationTest {
                 org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID);
 
         OperatorBinding taskBinding = resolver.materializeForTask(
-                TENANT, List.of(template), List.of(encodedSplit)).get(0);
+                TENANT, List.of(template),
+                List.of(split)).get(0);
         assertThat(taskBinding.getArtifacts(0).getSplitObjectsList())
                 .extracting(object -> object.getObjectRole())
                 .containsExactly("GENERATED_VALUES", "ROW_LOCATORS");
@@ -245,13 +246,13 @@ class GeneratedValuePublicationIntegrationTest {
                 new PublishedGenerationBindingResolver.GenerationResolutionIntent(TENANT, ARTIFACT_ID,
                         GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, GENERATION, SOURCE_ID, SNAPSHOT,
                         GenerationSourceCoverage.COMPLETE_GENERATION),
-                List.of(encodedSplit))).isEmpty();
-        String changedSource = java.util.Base64.getEncoder().encodeToString(split.toBuilder()
+                List.of(split))).isEmpty();
+        DataSplit changedSource = split.toBuilder()
                 .setOpaqueLocation("s3://warehouse/replaced-object.parquet")
                 .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
                         "iceberg", SOURCE_ID, SNAPSHOT, "object-a",
                         "s3://warehouse/replaced-object.parquet", 0, 0))
-                .build().toByteArray());
+                .build();
         assertThatThrownBy(() -> resolver.resolveTemplate(
                 TENANT, "changed-scan", SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exactly cover");

@@ -4,6 +4,7 @@ import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Phase 1: DDL/DML statement dispatch.
@@ -40,12 +41,15 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=ddl_dml_skip reason=metadata_disabled");
             return new PhaseResult.Continue(context);
         }
-        org.pangrova.parser.api.ast.Statement parsed = null;
+        Statement parsed;
         try {
             parsed = context.compiler().parseToAst(context.sql());
         } catch (RuntimeException parseFailure) {
             // Preserve the existing dispatch fallback for SQL handled directly
             // by Calcite; CompilationPhase will report unsupported syntax.
+            LOG.debug("event=parser_fallback sql_length={} error={}",
+                    context.sql().length(), parseFailure.getMessage());
+            parsed = null;
         }
         var metadataQuery = ShowMetadataQueryExpander.expand(parsed,
                 (name, kind) -> {
@@ -60,7 +64,7 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
         }
         DispatchResult result = statementDispatcher.tryDispatch(
                 context.stateMachine(),
-                context.sql(),
+                parsed,
                 context.session().queryId(),
                 context.session());
         if (result != null) {

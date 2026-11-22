@@ -119,7 +119,7 @@ void PendingEndpointRegistry::registerSource(int64_t executor_handle,
 void PendingEndpointRegistry::registerExternalSource(
     int64_t executor_handle, const std::string& plan_node_id,
     const std::string& exchange_id, uint64_t deadline_epoch_ms,
-    size_t max_batch_bytes) {
+    size_t max_batch_bytes, int64_t expected_batches) {
   if (executor_handle <= 0 || plan_node_id.empty() || exchange_id.empty() ||
       deadline_epoch_ms == 0 || max_batch_bytes == 0) {
     throw std::invalid_argument(
@@ -127,7 +127,7 @@ void PendingEndpointRegistry::registerExternalSource(
   }
   auto ingress = std::make_shared<ExternalShuffleIngress>(
       std::min(kExternalIngressBufferBytes, max_batch_bytes), max_batch_bytes,
-      deadline_epoch_ms);
+      deadline_epoch_ms, expected_batches);
   std::lock_guard<std::mutex> lock(mutex_);
   auto external_executor = external_ingresses_.find(executor_handle);
   if (external_executor != external_ingresses_.end() &&

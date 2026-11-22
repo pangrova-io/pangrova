@@ -23,6 +23,7 @@ import org.pangrova.protocol.v2.ArtifactWorkKind;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.CoveragePolicy;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionPolicy;
 import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.OperatorBinding;
@@ -44,8 +45,14 @@ import java.util.stream.Collectors;
 public final class GenerationPartitionBindings {
     private GenerationPartitionBindings() {}
 
+    public record BoundPartition(BoundExecutionPlan plan, List<DataSplit> splits) {
+        public BoundPartition {
+            splits = List.copyOf(splits);
+        }
+    }
+
     /** Does not borrow a connection, discover a model, resolve a publication, or perform any network I/O. */
-    public static BoundExecutionPlan bind(PreparedPartition prepared, Instant now) {
+    public static BoundPartition bind(PreparedPartition prepared, Instant now) {
         var lease = prepared.lease();
         var job = prepared.job();
         var spec = prepared.authority().dispatchSpec();
@@ -54,14 +61,14 @@ public final class GenerationPartitionBindings {
             throw new IllegalArgumentException("claimed page differs from its persisted stage contract");
         }
         GenerationDispatchProtocolValidator.validatePlan(stage);
-        GenerationDispatchProtocolValidator.validateSplits(job, lease.splits());
+        var splits = GenerationDispatchProtocolValidator.parseSplits(job, lease.splits());
         var frozen = FrozenStageBindings.read(stage, spec.stageGraph().modelSnapshots());
         var materialized = PublishedGenerationBindingResolver.materializePrepared(frozen.operatorBindings(),
-                lease.splits().stream().map(split -> java.util.Base64.getEncoder()
-                        .encodeToString(split.canonicalSplitBytes())).toList(), prepared.publications());
+                splits, prepared.publications());
         List<OperatorBinding> bindings = bindAttempt(job, spec, lease, now,
                 GenerationPartitionResources.bind(materialized), prepared.dependencyOutputs());
-        return new BoundExecutionPlan(frozen.planBytes(), bindings, frozen.resultColumnTypes());
+        return new BoundPartition(
+                new BoundExecutionPlan(frozen.planBytes(), bindings, frozen.resultColumnTypes()), splits);
     }
 
     private static List<OperatorBinding> bindAttempt(

@@ -4,7 +4,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import java.util.function.Supplier;
 import java.util.Optional;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.indexing.pruning.IndexSplitFilter;
@@ -111,14 +111,15 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
      * Coordinator dispatch code calls this overload to avoid importing Calcite types.
      *
      * @param fragment          plan fragment (encapsulates RelNode)
+     * @param sources           bound scan descriptors and their exact planning constraints
      * @param snapshotOverrides time-travel snapshot overrides (table FQN → snapshot ID)
      * @param queryId           query identifier for logging
      * @return filtered splits with file path metadata
      */
     public List<QuerySplit> fetchAndFilterSplits(
-            PlanFragment fragment, Map<String, Long> snapshotOverrides,
+            PlanFragment fragment, List<SplitSourceDescriptor> sources, Map<String, Long> snapshotOverrides,
             String queryId, QuerySession session) {
-        return fetchAndFilterSplits(fragment.splitSources(), fragment.queryOutputColumns(),
+        return fetchAndFilterSplits(sources, fragment.queryOutputColumns(),
                 fragment::singleScanPredicates, snapshotOverrides, queryId, session);
     }
 

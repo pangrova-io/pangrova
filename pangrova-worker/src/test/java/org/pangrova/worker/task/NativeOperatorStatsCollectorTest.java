@@ -15,8 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NativeOperatorStatsCollectorTest {
 
     @Test
-    void decodeTaskStats_preservesSemanticCacheUsage() {
-        byte[] rawStats = NativeTaskStats.newBuilder()
+    void toTaskStats_preservesSemanticCacheUsage() {
+        var stats = NativeTaskStats.newBuilder()
                 .setRowsRead(7)
                 .setCacheHitBytes(512)
                 .setCacheMissBytes(1024)
@@ -24,10 +24,9 @@ class NativeOperatorStatsCollectorTest {
                 .setCacheMissCount(2)
                 .setCacheEvictionCount(1)
                 .setCacheAdmissionRejectionCount(4)
-                .build()
-                .toByteArray();
+                .build();
 
-        TaskStats result = NativeOperatorStatsCollector.decodeTaskStats(rawStats);
+        TaskStats result = NativeOperatorStatsCollector.toTaskStats(stats);
 
         assertThat(result.rowsRead()).isEqualTo(7);
         assertThat(result.cacheHitBytes()).isEqualTo(512);

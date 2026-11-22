@@ -7,7 +7,7 @@ import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.execution.binding.TaskRequestFactory;
 import org.pangrova.execution.api.stage.TaskStage;
 import org.pangrova.execution.api.enums.TaskPurpose;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.execution.task.StageDispatchRecord;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +29,7 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,16 +89,20 @@ final class LeafStageDispatcher {
             List<StageDispatchRecord> dispatched,
             org.pangrova.protocol.rest.config.WriteConfig writeConfig,
             boolean distributedRetrieval,
-            long planEpoch, DurableStageRuntime durable) {
+            long planEpoch, DurableStageRuntime durable, java.util.OptionalInt buildKeyOrdinal) {
         org.pangrova.query.api.session.QuerySession session() {
             return execution.requireLiveSession();
         }
     }
 
+    private record SourceObjectSplits(List<QuerySplit> splits, long weight) {}
+
     private record PreparedDispatch(
+            TaskRequestFactory.FrozenStagePlan stagePlan,
+            ExchangeSourceBuilder.StageInputs exchangeInputs,
             WorkerSelector placement,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
-            List<List<String>> partitionedSplits,
+            List<List<DataSplit>> partitionedSplits,
             List<List<String>> partitionFilePaths,
             boolean leafStage,
             int taskCount) {}
@@ -124,34 +129,35 @@ final class LeafStageDispatcher {
     }
 
     private PreparedDispatch prepareDispatch(LeafDispatch input) {
-        var session = input.session();
         var plan = input.plan();
         var shuffleConfig = buildShuffleConfig(plan, input.dag(), remoteShuffle, localShuffle);
-        List<String> allSplits = input.splitsWithPaths().stream()
-                .map(QuerySplit::serializedData).toList();
-        boolean leafStage = !input.splitsWithPaths().isEmpty();
+        var splits = input.splitsWithPaths();
+        boolean leafStage = !splits.isEmpty();
         boolean hasArtifactBindings = input.boundPlan().operatorBindings().stream()
                 .anyMatch(binding -> binding.getArtifactsCount() > 0);
-        int taskCount = taskCount(input, shuffleConfig, allSplits,
-                leafStage, hasArtifactBindings);
-        TaskRequestFactory.validateSplitSources(
-                allSplits, session.queryId(), plan.stageId());
-        List<List<String>> partitionedSplits = hasArtifactBindings
-                ? partitionArtifactSplits(allSplits, taskCount)
-                : StageSplitPartitions.partitionSplits(allSplits, taskCount);
-        List<List<String>> partitionFilePaths = StageSplitPartitions.buildPartitionFilePaths(
-                input.splitsWithPaths(), partitionedSplits);
-        return new PreparedDispatch(input.workerSelector().bindStagePlacement(session.tenantId()),
-                shuffleConfig, partitionedSplits,
-                partitionFilePaths, leafStage, taskCount);
+        var artifactGroups = hasArtifactBindings ? groupSourceObjects(splits) : List.<SourceObjectSplits>of();
+        int taskCount = taskCount(input, shuffleConfig, leafStage, hasArtifactBindings, artifactGroups.size());
+        var assigned = hasArtifactBindings
+                ? partitionArtifactSplits(artifactGroups, taskCount)
+                : StageSplitPartitions.partitionSplits(splits, taskCount,
+                        QuerySplit::estimatedScanBytes);
+        var partitionedSplits = assigned.stream()
+                .map(partition -> partition.stream().map(QuerySplit::data).toList()).toList();
+        var partitionFilePaths = assigned.stream()
+                .map(partition -> partition.stream().flatMap(split -> split.filePaths().stream()).toList())
+                .toList();
+        return new PreparedDispatch(new TaskRequestFactory.FrozenStagePlan(input.boundPlan().planBytes()),
+                ExchangeSourceBuilder.prepare(plan, input.dag(), input.dispatched()),
+                input.workerSelector().bindStagePlacement(input.session().tenantId()),
+                shuffleConfig, partitionedSplits, partitionFilePaths, leafStage, taskCount);
     }
 
     private int taskCount(
             LeafDispatch input,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
-            List<String> splits,
             boolean leafStage,
-            boolean hasArtifactBindings) {
+            boolean hasArtifactBindings,
+            int artifactSourceCount) {
         int workerCount = input.workerSelector().activeWorkerCount();
         if (workerCount <= 0) {
             throw new org.pangrova.scheduler.api.exception.NoAvailableWorkerException(
@@ -160,8 +166,11 @@ final class LeafStageDispatcher {
         int rawParallelism = rawParallelism(input, leafStage, workerCount);
         int clusterCap = workerCount > Integer.MAX_VALUE / WorkerSelector.MAX_TASKS_PER_WORKER
                 ? Integer.MAX_VALUE : workerCount * WorkerSelector.MAX_TASKS_PER_WORKER;
-        int taskCount = taskCountForGraph(input.plan(), input.dag(), remoteShuffle, rawParallelism, clusterCap);
-        if (hasArtifactBindings) taskCount = artifactTaskCount(input, splits, taskCount);
+        var stage = input.dag().findStage(input.plan().stageId());
+        int taskCount = stage != null && !stage.coalescedInputRanges().isEmpty()
+                ? stage.physicalTaskCount()
+                : taskCountForGraph(input.plan(), input.dag(), remoteShuffle, rawParallelism, clusterCap);
+        if (hasArtifactBindings) taskCount = artifactTaskCount(input, artifactSourceCount, taskCount);
         boolean outputStage = input.dag().findDownstreamEdge(
                 input.plan().stageId()) == null;
         if (outputStage && shuffleConfig == null && !input.distributedRetrieval()
@@ -171,8 +180,8 @@ final class LeafStageDispatcher {
         return taskCount;
     }
 
-    private int artifactTaskCount(LeafDispatch input, List<String> splits, int taskCount) {
-        int count = Math.min(taskCount, countSourceObjects(splits));
+    private int artifactTaskCount(LeafDispatch input, int artifactSourceCount, int taskCount) {
+        int count = Math.min(taskCount, Math.max(1, artifactSourceCount));
         if (count != taskCount && requiresExactPartitionCount(input.plan(), input.dag(), remoteShuffle)) {
             throw new IllegalStateException("Artifact-bound task count cannot change an allocated exchange cohort");
         }
@@ -215,6 +224,7 @@ final class LeafStageDispatcher {
 
     private List<DAGDispatchEngine.PartitionDispatch> dispatchDurable(LeafDispatch input) {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
+        ExchangeSourceBuilder.StageInputs exchangeInputs = null;
         DurableStageRuntime.StageTasks stageTasks = null;
         for (int partition = 0; partition < input.plan().parallelism(); partition++) {
             var progress = input.durable().inspect(input.plan().stageId(), partition);
@@ -224,9 +234,12 @@ final class LeafStageDispatcher {
                         java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
                 continue;
             }
-            if (stageTasks == null) stageTasks = input.durable().bindStageTasks(input.plan().stageId());
+            if (exchangeInputs == null) {
+                exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
+                stageTasks = input.durable().bindStageTasks(input.plan().stageId());
+            }
             var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
-                    ExchangeSourceBuilder.buildExchangeInputs(input.plan(), input.dag(), input.dispatched(), partition),
+                    exchangeInputs.bind(partition, null),
                     buildShuffleConfig(input.plan(), input.dag(), true),
                     shuffleHandle(input.dag(), input.plan().stageId()), descriptorEncoder);
             var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
@@ -260,25 +273,25 @@ final class LeafStageDispatcher {
             WorkerInfo selectedWorker) {
         var attempt = org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(
                 input.planEpoch(), 0);
-        var sources = ExchangeSourceBuilder.buildExchangeInputs(
-                input.plan(), input.dag(), input.dispatched(), partition, localShuffle ? selectedWorker : null);
+        var sources = prepared.exchangeInputs().bind(partition, localShuffle ? selectedWorker : null);
+        var stage = input.dag().findStage(input.plan().stageId());
         var limit = prepared.placement().computeResourceLimit(
-                input.plan().parallelism(), 1, selectedWorker);
-        List<String> taskSplits = prepared.partitionedSplits().get(partition);
+                stage == null ? input.plan().parallelism() : stage.physicalTaskCount(), 1, selectedWorker);
+        List<DataSplit> taskSplits = prepared.partitionedSplits().get(partition);
         var taskBindings = materializeArtifactBindings(
                 input.session().tenantId(),
                 input.boundPlan().operatorBindings(), taskSplits);
         if (input.writeConfig() != null) {
             return TaskRequestFactory.buildDmlWriteRequest(
                     new TaskRequestFactory.DmlWriteTask(
-                            input.session(), input.boundPlan().planBytes(),
+                            input.session(), prepared.stagePlan(),
                             dmlResourceGrant(limit), sources, taskBindings,
                             taskSplits, input.writeConfig(),
                             taskTimeoutSeconds, attempt));
         }
         return TaskRequestFactory.buildLeafTaskRequest(
                 new TaskRequestFactory.LeafTask(
-                        input.execution(), input.boundPlan().planBytes(),
+                        input.execution(), prepared.stagePlan(),
                         new TaskStage(input.plan().stageId(), TaskPurpose.valueOf(input.plan().taskType())),
                         partition, limit, sources,
                         prepared.shuffleConfig(), taskSplits,
@@ -286,7 +299,7 @@ final class LeafStageDispatcher {
                                 java.time.Duration.ofSeconds(taskTimeoutSeconds), java.time.Instant.now()),
                         attempt, taskBindings,
                         shuffleHandle(input.dag(), input.plan().stageId()),
-                        input.boundPlan().resultColumnTypes()));
+                        input.boundPlan().resultColumnTypes()), input.buildKeyOrdinal());
     }
 
     private static org.pangrova.protocol.v2.StageResourceGrant dmlResourceGrant(
@@ -359,7 +372,7 @@ final class LeafStageDispatcher {
     private List<org.pangrova.protocol.v2.OperatorBinding> materializeArtifactBindings(
             String tenantId,
             List<org.pangrova.protocol.v2.OperatorBinding> bindings,
-            List<String> taskSplits) {
+            List<DataSplit> taskSplits) {
         boolean requiresArtifacts = bindings.stream()
                 .anyMatch(binding -> binding.getArtifactsCount() > 0);
         if (!requiresArtifacts) {
@@ -373,55 +386,24 @@ final class LeafStageDispatcher {
                 tenantId, bindings, taskSplits));
     }
 
-    private static int countSourceObjects(List<String> splits) {
-        return Math.max(1, (int) splits.stream()
-                .map(LeafStageDispatcher::sourceObjectId)
-                .distinct().count());
+    private static List<SourceObjectSplits> groupSourceObjects(List<QuerySplit> splits) {
+        var grouped = new java.util.LinkedHashMap<String, List<QuerySplit>>();
+        for (var split : splits) {
+            grouped.computeIfAbsent(split.data().getDataObjectId(), ignored -> new ArrayList<>()).add(split);
+        }
+        return grouped.values().stream()
+                .map(group -> new SourceObjectSplits(group, group.stream()
+                        .mapToLong(split -> Math.max(1L, split.estimatedScanBytes()))
+                        .reduce(0L, (left, right) -> left + Math.min(Long.MAX_VALUE - left, right))))
+                .toList();
     }
 
     /** Keeps every split of one immutable source object on one Native task. */
-    static List<List<String>> partitionArtifactSplits(
-            List<String> splits, int numPartitions) {
-        java.util.Map<String, List<String>> grouped = new java.util.LinkedHashMap<>();
-        for (String split : splits) {
-            grouped.computeIfAbsent(sourceObjectId(split), ignored -> new ArrayList<>())
-                    .add(split);
-        }
-        List<List<String>> groups = new ArrayList<>(grouped.values());
-        groups.sort((left, right) -> Long.compare(
-                right.stream().mapToLong(String::length).sum(),
-                left.stream().mapToLong(String::length).sum()));
-        List<List<String>> result = new ArrayList<>(numPartitions);
-        long[] loads = new long[numPartitions];
-        for (int i = 0; i < numPartitions; i++) {
-            result.add(new ArrayList<>());
-        }
-        for (List<String> group : groups) {
-            int target = 0;
-            for (int partition = 1; partition < numPartitions; partition++) {
-                if (loads[partition] < loads[target]) {
-                    target = partition;
-                }
-            }
-            result.get(target).addAll(group);
-            loads[target] += group.stream().mapToLong(String::length).sum();
-        }
-        return result;
-    }
-
-    private static String sourceObjectId(String encodedSplit) {
-        try {
-            var split = org.pangrova.protocol.v2.DataSplit.parseFrom(
-                    java.util.Base64.getDecoder().decode(encodedSplit));
-            if (split.getDataObjectId().isBlank()) {
-                throw new IllegalArgumentException("split data_object_id is blank");
-            }
-            return split.getDataObjectId();
-        } catch (com.google.protobuf.InvalidProtocolBufferException
-                | IllegalArgumentException failure) {
-            throw new IllegalArgumentException(
-                    "cannot partition artifact split by source object", failure);
-        }
+    private static List<List<QuerySplit>> partitionArtifactSplits(
+            List<SourceObjectSplits> groups, int numPartitions) {
+        return StageSplitPartitions.partitionSplits(groups, numPartitions, SourceObjectSplits::weight)
+                .stream().map(partition -> partition.stream().flatMap(group -> group.splits().stream()).toList())
+                .toList();
     }
 
     private static org.pangrova.shuffle.api.ShuffleHandle shuffleHandle(

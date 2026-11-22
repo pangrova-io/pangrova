@@ -9,6 +9,7 @@ import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,14 +46,16 @@ class JdbcGrantStoreTest extends ContainerTestBase {
     }
 
     @Test
-    void listGrantsForRole() {
+    void listGrantsForRoles() {
         store.addGrant(PrivilegeGrant.of("analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null));
         store.addGrant(PrivilegeGrant.of("admin", Privilege.ALL, "TABLE", "*", "*", "*", null));
         store.addGrant(PrivilegeGrant.of("analyst", Privilege.INSERT, "TABLE", "iceberg", "default", "events", null));
+        store.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "iceberg", "default", "events", null));
 
-        List<PrivilegeGrant> analystGrants = store.listGrantsForRole("analyst");
-        assertThat(analystGrants).hasSize(2);
-        assertThat(analystGrants).allMatch(g -> g.roleName().equals("analyst"));
+        assertThat(store.listGrantsForRoles(Set.of("reader", "analyst", "unknown")))
+                .extracting(PrivilegeGrant::roleName)
+                .containsExactly("analyst", "analyst", "reader");
+        assertThat(store.listGrantsForRoles(Set.of())).isEmpty();
     }
 
     @Test

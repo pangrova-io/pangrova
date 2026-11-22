@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -228,6 +229,24 @@ class IcebergReadBindingIntegrationTest {
     }
 
     @Test
+    void aCatalogWrapperCannotServeAnExpiredBoundSnapshotFromItsCache() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "cached_expired");
+            write(table, 2);
+            var cached = org.apache.iceberg.CachingCatalog.wrap(catalog);
+            var metadata = new IcebergMetadata(cached, "bound");
+            var selected = bind(metadata, "cached_expired");
+            write(table, 4);
+            table.expireSnapshots().expireSnapshotId(selected.snapshotId().orElseThrow()).commit();
+            var manager = new IcebergSplitManager("bound", cached, new IcebergExpressionToSubstrait());
+
+            assertThatThrownBy(() -> manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                    SESSION, metadata, selected, DynamicFilter.ALL, Constraint.EMPTY))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("unavailable");
+        }
+    }
+
+    @Test
     void refsBindingPinsMetadataObjectAcrossReferenceChanges() throws Exception {
         try (var catalog = catalog()) {
             Table table = create(catalog, "reference_rows");
@@ -241,7 +260,7 @@ class IcebergReadBindingIntegrationTest {
                     "name", "type", "snapshot_id", "max_reference_age_in_ms",
                     "min_snapshots_to_keep", "max_snapshot_age_in_ms");
             var original = splits(catalog, selected).get(0);
-            var detail = org.pangrova.protocol.source.DataSplitProtoCodec.fileDetail(original);
+            var detail = original.getFileDetail();
             assertThat(detail.getSystemTable().getKind())
                     .isEqualTo(org.pangrova.protocol.v2.SystemTableSplitDetail.Kind.ICEBERG_REFS);
             assertThat(original.getSourceId()).endsWith("reference_rows$refs");
@@ -354,7 +373,7 @@ class IcebergReadBindingIntegrationTest {
         try {
             while (!source.isFinished()) {
                 for (var split : source.getNextBatch(100)) {
-                    result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(split.toSplitInfoProto()));
+                    result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray()));
                 }
             }
         } finally {

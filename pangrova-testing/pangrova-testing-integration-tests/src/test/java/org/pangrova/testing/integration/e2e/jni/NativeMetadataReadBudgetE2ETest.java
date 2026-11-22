@@ -2,7 +2,6 @@ package org.pangrova.testing.integration.e2e.jni;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
-import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Plan;
 import org.junit.jupiter.api.Test;
@@ -102,7 +101,7 @@ class NativeMetadataReadBudgetE2ETest extends SqlE2ETestBase {
                 .addSplits(DataSplit.newBuilder().setSplitId("snapshot-7").setConnectorId("paimon")
                         .setSourceId("orders$snapshots").setSourceSnapshot("snapshot-7")
                         .setDataObjectId(file.toUri().toString()).setOpaqueLocation(file.toUri().toString())
-                        .setLength(Files.size(file)).setConnectorDetail(Any.pack(detail)));
+                        .setLength(Files.size(file)).setFileDetail(detail));
         task.getResourceGrantBuilder().setObjectStoreReadBytes(grant);
         return task.build();
     }

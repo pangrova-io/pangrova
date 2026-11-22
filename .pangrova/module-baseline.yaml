@@ -1081,7 +1081,6 @@ artifacts:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
-      - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.enums
@@ -1115,7 +1114,6 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
       - org.pangrova.coordinator.query.execution.dispatch.task.stream
       - org.pangrova.coordinator.query.execution.security
-      - org.pangrova.coordinator.query.execution.split
       - org.pangrova.coordinator.query.scheduling
       - org.pangrova.coordinator.query.security
       - org.pangrova.coordinator.query.session
@@ -1231,6 +1229,7 @@ artifacts:
       - org.pangrova.execution.authority
       - org.pangrova.execution.binding
       - org.pangrova.execution.deadline
+      - org.pangrova.execution.split
       - org.pangrova.execution.stage
       - org.pangrova.execution.stage.binding
       - org.pangrova.execution.stage.enums
@@ -3367,7 +3366,6 @@ artifacts:
         - pangrova-persistence-workflow-api
         - pangrova-security-access
         - pangrova-security-api
-        - pangrova-table
       test:
         - pangrova-metadata-api
         - pangrova-persistence-catalog-api
@@ -3625,7 +3623,6 @@ artifacts:
       - org.pangrova.query.api.session
       - org.pangrova.query.api.stage
       - org.pangrova.query.api.submission
-      - org.pangrova.query.api.task
       - org.pangrova.query.api.write
       - org.pangrova.query.audit
       - org.pangrova.query.dispatch
@@ -3682,7 +3679,6 @@ artifacts:
       - org.pangrova.query.api.session
       - org.pangrova.query.api.stage
       - org.pangrova.query.api.submission
-      - org.pangrova.query.api.task
       - org.pangrova.query.api.write
       - org.pangrova.query.audit
       - org.pangrova.query.dispatch
@@ -5309,7 +5305,6 @@ artifacts:
       - org.pangrova.worker.resource.thread
       - org.pangrova.worker.result
       - org.pangrova.worker.shuffle
-      - org.pangrova.worker.split
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.report

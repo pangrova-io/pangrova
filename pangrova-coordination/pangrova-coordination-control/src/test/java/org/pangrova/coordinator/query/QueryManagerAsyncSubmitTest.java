@@ -551,8 +551,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public void cleanupQuery(String queryId) {
-            // no-op in test
+        public boolean tryCleanupQuery(String queryId) {
+            return true;
         }
 
         @Override

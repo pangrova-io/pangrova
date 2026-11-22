@@ -100,8 +100,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, nanoClock);
-        this.queryDispatcher.addExecutionDrainListener(terminalCleanup::onExecutionDrain);
-        this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
+        this.queryDispatcher.addQueryDrainProgressListener(terminalCleanup::onDrainProgress);
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions);
         this.auditBridge = java.util.Objects.requireNonNull(deps.audit(), "audit");

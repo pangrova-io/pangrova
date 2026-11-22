@@ -105,9 +105,50 @@ Overlapping ranges are a deployment error even though each entry is individually
 | `database.password-file` | path | required | File containing the database password; mount it as a secret |
 | `database.maximum-pool-size` | int | `32` | Connection-pool size; must be positive |
 
-The service shares the metadata database with the Coordinator and Workers but owns only the
-shuffle publication records it creates. Grant the minimum schema privileges required by the
-deployed migrations.
+The service shares the Coordinator's authority database. Apply the metadata
+migrations, including `V120__execution_read_windows.sql`, before starting it.
+This release initializes the Shuffle schema through `V10__write_window_reservations.sql`.
+Use an empty Shuffle schema and object prefix for the new deployment.
+Use the permissions required by the Shuffle schema and grant the service
+`SELECT` and the column-level `UPDATE` privilege needed for row locking on
+`public.execution_anchor`. Grant `SELECT`, `INSERT`, `UPDATE`, and `DELETE`
+on `public.execution_read_window`. [PostgreSQL 16 locking privileges](https://www.postgresql.org/docs/16/sql-select.html)
+
+Each active read obtains up to one second of authority from PostgreSQL. The
+read admission transaction loads the requested partition's publication receipt
+and installs the object pin. Other published partitions are left out of that
+read. The service measures elapsed monotonic and wall-clock time from before
+the grant request and stops using it 50 ms early. Over a window the database
+clock must advance by less than that margin beyond the reader's elapsed time.
+Keep host clocks disciplined with time synchronization that slews adjustments.
+
+A finalized partition with at most 256 batches carries its index in the
+publication receipt. For larger partitions the receipt contains a directory of
+immutable object pages with up to 4,096 entries each. Reads seek by output
+sequence, verify the fetched page and decode at most 256 entries at a time.
+PostgreSQL is used for stream admission, timed authority renewal and pin release.
+
+Each producer stream reuses its locally verified task capability until it changes
+or expires. One PostgreSQL transaction checks the live execution owner, scope,
+allocation and attempt, then reserves the producer's object prefix. A reservation
+admits up to 128 distinct batches over at most one second. The writer stops
+using the window 50 ms early for clock uncertainty. Object PUTs run outside
+transactions. One publication transaction rechecks the live fences, publishes
+the ordered inventory as a group and consumes the reservation. The stream
+flushes its last group before acknowledging the producer's half-close.
+
+An unconfirmed object PUT surfaces immediately to the write stream when the SDK
+reports failure. The SDK performs a single attempt for each PUT. Its reservation
+protects the object prefix through the configured call deadline plus 60 seconds
+for drain. Cleanup closes new admission, waits for protected writes and records
+any expired reservation as a tombstone before deleting objects. Writers for
+different stages of the same query share the scope lock. Each allocation
+serializes its batch sequence and producer-winner updates.
+
+When terminal cleanup closes the scope, the current execution owner can renew
+cleanup access while in-flight I/O drains. A successor can recover cleanup
+access after acquiring the durable anchor. The scope and its allocations stay
+closed to new data access during recovery.
 
 ## object-storage
 
@@ -153,6 +194,11 @@ unverified connection.
 
 The `limits` section is optional; defaults apply when it is absent. Values are validated as
 exact 32-bit integers.
+
+Open reads share a separate in-memory index allowance of the smaller of 64 MiB
+and `limits.max-inflight-bytes`. The allowance covers cached directories and
+pages plus decoded entries retained while a client pauses. A rejected read
+releases its object pin before responding with `RESOURCE_EXHAUSTED`.
 
 ## Validation summary
 

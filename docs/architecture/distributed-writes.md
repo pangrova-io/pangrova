@@ -104,7 +104,7 @@ Implemented chain:
 
 ```
 SQL → Parser/Planner → Stage/Task dispatch → Worker NativeWriteExecutor
-    → TaskStatusReport write result → TaskStatusReceiver
+    → binary TaskStatusDelivery write evidence → TaskStatusReceiver
     → WriteCommitJournal → ConnectorMetadata.finishDistributedWrite()
 ```
 
@@ -140,6 +140,12 @@ There is an inherently ambiguous boundary between an external catalog commit and
 marking its local journal committed. A coordinator crash or timeout in that interval cannot prove
 from the RPC result alone whether publication happened. Recovery therefore needs both a durable
 redo record and an externally visible idempotency marker.
+
+A successful PostgreSQL journal insert uses the affected-row count as evidence
+inside the transaction. Duplicate event IDs trigger an exact readback, and
+query events with lineage still commit with their outbox rows. The coordinator
+uses one loaded COMMITTED write entry for recovery, COPY proof, and deferred
+work acknowledgement.
 
 ### Failure Scenarios
 

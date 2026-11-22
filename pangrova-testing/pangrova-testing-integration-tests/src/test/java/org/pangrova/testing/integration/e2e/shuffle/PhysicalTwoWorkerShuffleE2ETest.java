@@ -4,7 +4,13 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestReporter;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.OperatorStats;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.WorkerExecutionIdentity;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -17,7 +23,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -146,6 +155,226 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
 
     @Test
     void joinAndGlobalTopKUseBothPhysicalWorkers() {
+        var expected = Set.of(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+        var drainedWorkers = new ConcurrentHashMap<String, Set<WorkerExecutionIdentity>>();
+        var capture = new AtomicReference<>(drainedWorkers);
+        taskTracker.addExecutionDrainListener(receipt -> {
+            var targets = capture.get();
+            if (targets != null
+                    && receipt.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+                var attempt = receipt.getAttempt();
+                targets.computeIfAbsent(attempt.getQueryOrJobId(), ignored -> ConcurrentHashMap.newKeySet())
+                        .add(attempt.getWorkerExecutionIdentity());
+            }
+        });
+        try {
+            requireDistributedResultAndDrain(drainedWorkers, expected);
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    @Test
+    void scalarAggregatesReduceOnEachScanWorkerBeforeGather() {
+        var result = executeWithScanAggregates("SELECT COUNT(*) AS total, "
+                + "COUNT(CASE WHEN score >= 40 THEN score END) AS matched, "
+                + "MIN(score) FILTER (WHERE score >= 80) AS no_match, MAX(score) AS highest FROM " + orders);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getLong("total")).isEqualTo(80L);
+            assertThat(row.getLong("matched")).isEqualTo(40L);
+            assertThat(row.getRaw("no_match")).isNull();
+            assertThat(row.getLong("highest")).isEqualTo(79L);
+        });
+        assertThat(result.scannedRows()).isEqualTo(80);
+        assertThat(result.localAggregates()).allSatisfy(stat -> assertThat(stat.getOutputRows()).isOne());
+    }
+
+    @Test
+    void observedLowCardinalityGroupsReduceBeforeHashExchange(TestReporter metrics) {
+        StringBuilder insert = new StringBuilder("INSERT INTO " + regions + " VALUES (1000, NULL)");
+        for (int row = 0; row < 80; row++) {
+            insert.append(", (").append(1001 + row).append(", 'region-").append(row % 4).append("')");
+        }
+        sqlRunner.execute(insert.toString());
+        var observed = sqlRunner.execute("SELECT COUNT(*) AS rows, COUNT(DISTINCT region) AS ndv, "
+                + "COUNT(region) AS nonnull FROM " + regions).get(0);
+        long rows = observed.getLong("rows");
+        var groups = new TableStatistics.ColumnStatistics(rows - observed.getLong("nonnull"),
+                observed.getLong("ndv"), null, null, -1);
+        var analyzed = sqlRunner.execute("ANALYZE TABLE " + regions).get(0);
+        assertThat(analyzed.getLong("row_count")).isEqualTo(rows);
+        metadataBootstrap.catalogRegistry().tableStatistics().record(CATALOG, SCHEMA,
+                regions.substring(regions.lastIndexOf('.') + 1), new TableStatistics(rows, -1, Map.of("region", groups)),
+                "ANALYZE", analyzed.getString("version_token"));
+
+        var result = executeWithScanAggregates(
+                "SELECT region, COUNT(*) AS total, MAX(id) AS highest FROM " + regions + " GROUP BY region");
+        assertThat(result.rows()).hasSize(5).allSatisfy(row -> {
+            String region = row.getString("region");
+            if (region == null) {
+                assertThat(row.getLong("total")).isEqualTo(1L);
+                assertThat(row.getLong("highest")).isEqualTo(1000L);
+            } else {
+                assertThat(row.getLong("total")).isEqualTo(40L);
+                assertThat(row.getLong("highest")).isEqualTo(1077L + Integer.parseInt(region.substring(7)));
+            }
+        });
+        long shuffledRows = result.localAggregates().stream().mapToLong(OperatorStats::getOutputRows).sum();
+        assertThat(result.scannedRows()).isEqualTo(161);
+        assertThat(shuffledRows).isBetween(5L, 5L * result.localAggregates().size()).isLessThan(result.scannedRows());
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(result.scannedRows()),
+                "partial_shuffle_rows", Long.toString(shuffledRows)));
+    }
+
+    @Test
+    void completedBuildPrunesPinnedIcebergPartitionsBeforeWorkerDispatch(TestReporter metrics) {
+        String prefix = orders + "_filter";
+        String probe = prefix + "_probe";
+        String build = prefix + "_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (13), (13), (14), (NULL)");
+
+        String projected = "SELECT p.id, p.payload FROM " + probe + " p";
+        String join = " JOIN " + build + " b ON ";
+        String condition = "p.id = b.id ORDER BY p.id";
+        var unpruned = executeWithDrainedReports(projected + join + "ABS(p.id) = b.id ORDER BY p.id");
+        var pruned = executeWithDrainedReports(projected + join + condition);
+        var outer = executeWithDrainedReports(projected + " LEFT" + join + condition);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(13L, 13L, 14L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload")).containsExactly(113L, 113L, 114L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(outer.rows()).hasSize(41);
+        assertThat(outer.buildRanges()).isEmpty();
+        assertThat(outer.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(unpruned.buildRanges()).isEmpty();
+        assertThat(pruned.buildRanges()).singleElement().satisfies(range -> {
+            assertThat(range.getEmpty()).isFalse();
+            assertThat(range.getMinimum()).isEqualTo(13L);
+            assertThat(range.getMaximum()).isEqualTo(14L);
+        });
+        assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(pruned.sourceSplits(probe)).isEqualTo(2L);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=runtime_filter_probe_comparison fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
+        assertThat(unpruned.sourceReadBytes(probe)).isGreaterThan(pruned.sourceReadBytes(probe));
+        assertThat(pruned.sourceReadBytes(probe)).isPositive();
+        metrics.publishEntry(Map.of("full_probe_splits", Long.toString(unpruned.sourceSplits(probe)),
+                "filtered_probe_splits", Long.toString(pruned.sourceSplits(probe)),
+                "full_probe_read_bytes", Long.toString(unpruned.sourceReadBytes(probe)),
+                "filtered_probe_read_bytes", Long.toString(pruned.sourceReadBytes(probe))));
+
+        String allNull = prefix + "_null_build";
+        sqlRunner.executeDdl("CREATE TABLE " + allNull + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + allNull + " VALUES (NULL)");
+        var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
+        assertThat(empty.rows()).isEmpty();
+        assertThat(empty.sourceSplits(probe)).isZero();
+        assertThat(empty.buildRanges()).singleElement().satisfies(range -> assertThat(range.getEmpty()).isTrue());
+    }
+
+    private static DrainedQuery executeWithDrainedReports(String sql) {
+        var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
+        taskTracker.addExecutionDrainListener(report -> {
+            var reports = capture.get();
+            if (reports != null && report.hasNativeTaskStats()) {
+                reports.put(report.getAttempt().getTaskId(), report);
+            }
+        });
+        var before = new HashSet<>(queryManager.getStateMachines().keySet());
+        try {
+            var rows = sqlRunner.execute(sql);
+            var issued = new HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            String queryId = issued.iterator().next();
+            Awaitility.await("Native execution drained").atMost(Duration.ofSeconds(30))
+                    .ignoreExceptionsInstanceOf(IllegalStateException.class).untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(queryId);
+                        assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    });
+            return new DrainedQuery(rows, capture.get().values().stream()
+                    .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList());
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports) {
+        List<org.pangrova.protocol.v2.BuildKeyRange> buildRanges() {
+            return reports.stream().map(TaskReport::getNativeTaskStats)
+                    .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeyRange)
+                    .map(org.pangrova.protocol.v2.NativeTaskStats::getBuildKeyRange).toList();
+        }
+
+        long sourceSplits(String source) {
+            return reports.stream().flatMap(report -> report.getCoverage().getSourceSnapshotsList().stream())
+                    .filter(coverage -> coverage.getSourceId().equals(source))
+                    .mapToLong(org.pangrova.protocol.v2.SourceSnapshotReport::getCompletedWorkUnits).sum();
+        }
+
+        long sourceReadBytes(String source) {
+            return reports.stream().filter(report -> report.getCoverage().getSourceSnapshotsList().stream()
+                            .anyMatch(coverage -> coverage.getSourceId().equals(source)))
+                    .mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
+        }
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql) {
+        var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
+        taskTracker.addExecutionDrainListener(report -> {
+            var reports = capture.get();
+            if (reports != null && report.hasNativeTaskStats()) {
+                reports.put(report.getAttempt().getTaskId(), report);
+            }
+        });
+        var before = new HashSet<>(queryManager.getStateMachines().keySet());
+        try {
+            var rows = sqlRunner.execute(sql);
+            var issued = new HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            String queryId = issued.iterator().next();
+            var aggregateResult = new AtomicReference<ScanAggregates>();
+            Awaitility.await("Native scan and aggregation receipts").atMost(Duration.ofSeconds(30))
+                    .ignoreExceptionsInstanceOf(IllegalStateException.class)
+                    .untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(queryId);
+                        var scanWorkers = capture.get().values().stream()
+                                .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId))
+                                .filter(report -> report.getNativeTaskStats().getOperatorStatsList().stream()
+                                        .anyMatch(stat -> stat.getOperatorType().equals("TableScan")))
+                                .toList();
+                        assertThat(scanWorkers).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                                .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                                        workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+                        var scanStats = scanWorkers.stream().flatMap(report ->
+                                report.getNativeTaskStats().getOperatorStatsList().stream()).toList();
+                        long scannedRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals("TableScan"))
+                                .mapToLong(OperatorStats::getOutputRows).sum();
+                        var localReductions = scanStats.stream()
+                                .filter(stat -> stat.getOperatorType().equals("Aggregation"))
+                                .toList();
+                        assertThat(localReductions).hasSameSizeAs(scanWorkers);
+                        aggregateResult.set(new ScanAggregates(rows, scannedRows, localReductions));
+                    });
+            return aggregateResult.get();
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    private record ScanAggregates(List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates) {}
+
+    private void requireDistributedResultAndDrain(Map<String, Set<WorkerExecutionIdentity>> drainedWorkers,
+            Set<WorkerExecutionIdentity> expected) {
         Set<String> before = queryManager.getStateMachines().keySet();
         String sql = "SELECT o.id, MAX(o.score) AS score, c.label, r.region FROM "
                         + orders + " o JOIN " + customers + " c ON o.id = c.id "
@@ -189,16 +418,15 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(queryManager.getStateMachines().get(queryId).getStageStates())
                 .as("public SQL must plan multiple distributed stages")
                 .hasSizeGreaterThanOrEqualTo(2);
-        Set<String> taskWorkers = new HashSet<>();
-        for (String taskId : taskTracker.getTaskIds(queryId)) {
-            taskWorkers.add(taskTracker.getWorkerForTask(taskId));
-        }
-        assertThat(taskWorkers).contains(WORKER_ID, SECOND_WORKER_ID);
         Awaitility.await("both physical Workers release every issued task")
                 .atMost(Duration.ofSeconds(90))
                 .pollInterval(Duration.ofMillis(100))
                 .ignoreExceptionsInstanceOf(IllegalStateException.class)
-                .untilAsserted(() -> taskTracker.requireQueryExecutionDrained(queryId));
+                .untilAsserted(() -> {
+                    taskTracker.requireQueryExecutionDrained(queryId);
+                    assertThat(drainedWorkers.getOrDefault(queryId, Set.of())).containsAll(expected);
+                    assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                });
     }
 
     private static void seedTablesBeforeSecondWorkerJoins() {

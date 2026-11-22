@@ -424,8 +424,9 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public void cleanupQuery(String queryId) {
+        public boolean tryCleanupQuery(String queryId) {
             cleanupCount.incrementAndGet();
+            return true;
         }
     }
 }

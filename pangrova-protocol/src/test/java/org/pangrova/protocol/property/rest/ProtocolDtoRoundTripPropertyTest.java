@@ -23,11 +23,15 @@ import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.task.OperatorStats;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskAdmitted;
+import org.pangrova.protocol.http.TaskRejected;
+import org.pangrova.protocol.http.TaskResultEndpoint;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
+import org.pangrova.protocol.http.TaskStatusAck;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.task.TaskStatusResponse;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
@@ -156,29 +160,29 @@ class ProtocolDtoRoundTripPropertyTest {
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
     void submitTaskRequestRoundTrip(
-            @ForAll("submitTaskRequests") SubmitTaskRequest original) {
-        assertRoundTrip(original, SubmitTaskRequest.class);
+            @ForAll("submitTaskRequests") SubmitTaskRequest original) throws Exception {
+        assertThat(SubmitTaskRequest.decode(original.encode())).isEqualTo(original);
     }
 
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
-    void submitTaskResponseRoundTrip(
-            @ForAll("submitTaskResponses") SubmitTaskResponse original) {
-        assertRoundTrip(original, SubmitTaskResponse.class);
+    void taskAcknowledgementRoundTrip(
+            @ForAll("taskAcknowledgements") TaskSubmitAck original) throws Exception {
+        assertThat(TaskSubmitAck.parseFrom(original.toByteArray())).isEqualTo(original);
     }
 
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
     void taskStatusReportRoundTrip(
-            @ForAll("taskStatusReports") TaskStatusReport original) {
-        assertRoundTrip(original, TaskStatusReport.class);
+            @ForAll("taskStatusReports") TaskStatusReport original) throws Exception {
+        assertThat(TaskStatusWire.decode(TaskStatusWire.encode(original))).isEqualTo(original);
     }
 
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
     void taskStatusReportResponseRoundTrip(
-            @ForAll("taskStatusReportResponses") TaskStatusReportResponse original) {
-        assertRoundTrip(original, TaskStatusReportResponse.class);
+            @ForAll("taskStatusReportResponses") TaskStatusAck original) throws Exception {
+        assertThat(TaskStatusAck.parseFrom(original.toByteArray())).isEqualTo(original);
     }
 
     @Property(tries = 10)
@@ -412,47 +416,44 @@ class ProtocolDtoRoundTripPropertyTest {
     }
 
     @Provide
-    Arbitrary<SubmitTaskResponse> submitTaskResponses() {
-        return Combinators.combine(
-                Arbitraries.of(true, false),
-                Arbitraries.strings().alpha().ofMinLength(0).ofMaxLength(30).injectNull(0.5),
-                nonBlankString(),
-                resultEndpoints().injectNull(0.5)
-        ).as((accepted, reason, taskId, endpoint) ->
-                new SubmitTaskResponse(accepted, reason, taskId, endpoint, null));
+    Arbitrary<TaskSubmitAck> taskAcknowledgements() {
+        return Combinators.combine(Arbitraries.of(true, false), nonBlankString(), nonBlankString(),
+                resultEndpoints().injectNull(0.5))
+                .as((accepted, reason, taskId, endpoint) -> {
+                    var ack = TaskSubmitAck.newBuilder();
+                    if (!accepted) {
+                        return ack.setRejected(TaskRejected.newBuilder()
+                                .setCode("BAD_REQUEST").setReason(reason)).build();
+                    }
+                    var admitted = TaskAdmitted.newBuilder().setTaskId(taskId);
+                    if (endpoint != null) {
+                        admitted.setResultEndpoint(TaskResultEndpoint.newBuilder()
+                                .setHost(endpoint.host()).setPort(endpoint.port())
+                                .setTicket(endpoint.ticket()).setProtocol(endpoint.protocol()));
+                    }
+                    return ack.setAdmitted(admitted).build();
+                });
     }
 
     @Provide
     Arbitrary<TaskStatusReport> taskStatusReports() {
-        return Combinators.combine(
-                nonBlankString(),
-                nonBlankString(),
-                Arbitraries.integers().between(0, 100),
-                Arbitraries.integers().between(0, 100),
-                Arbitraries.of("QUERY", "WRITE", "SHUFFLE")
-        ).as(TaskIdTuple::new)
-        .flatMap(tuple -> Combinators.combine(
-                nonBlankString(),
-                Arbitraries.of("RUNNING", "FINISHED", "FAILED", "CANCELLED"),
-                taskStatsList().injectNull(0.2),
-                errorDetails().injectNull(0.7),
-                writeResults().injectNull(0.7),
-                Arbitraries.longs().between(0, 1_000_000),
-                Arbitraries.longs().between(1_700_000_000_000L, 1_800_000_000_000L)
-        ).as((workerId, state, stats, error, wr, seq, ts) ->
-                new TaskStatusReport(
-                        tuple.id, tuple.queryId, tuple.stageId,
-                        tuple.partitionId, tuple.taskType,
-                        workerId, state, stats, error, wr, seq, ts,
-                        null, null, TaskAttemptDescriptor.of(1, 0))));
+        return Combinators.combine(nonBlankString(), nonBlankString(), nonBlankString(),
+                Arbitraries.of("RUNNING", "PENDING", "FLUSHING"),
+                Arbitraries.longs().between(1, 1_000_000)).as((id, query, worker, state, sequence) -> {
+                    var attempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder().setTaskId(id)
+                            .setQueryOrJobId(query).setPlanEpoch(1).setFencingToken(1).build();
+                    return TaskStatusReport.fromAttempt(attempt, "COMPUTE", worker, state,
+                            null, null, null, sequence, 1_700_000_000_000L, null);
+                });
     }
 
     @Provide
-    Arbitrary<TaskStatusReportResponse> taskStatusReportResponses() {
-        return Combinators.combine(
-                nonBlankString(),
-                Arbitraries.of("ACK", "CANCEL", "ABORT").injectNull(0.3)
-        ).as(TaskStatusReportResponse::new);
+    Arbitrary<TaskStatusAck> taskStatusReportResponses() {
+        return Combinators.combine(nonBlankString(), Arbitraries.longs().between(1, 1_000_000),
+                Arbitraries.of(TaskStatusAck.Directive.CONTINUE, TaskStatusAck.Directive.STALE_REJECTED,
+                        TaskStatusAck.Directive.RETIRED_RESULT_NOTICE))
+                .as((taskId, sequence, directive) -> TaskStatusAck.newBuilder().setTaskId(taskId)
+                        .setSequence(sequence).setDirective(directive).build());
     }
 
     @Provide

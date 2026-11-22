@@ -8,6 +8,7 @@ import org.pangrova.worker.task.report.TaskStatusReporter;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
@@ -255,6 +256,10 @@ public class TaskManager implements AutoCloseable {
         return submissionHandler.submitTask(descriptor, request);
     }
 
+    public String submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
+        return submissionHandler.submitValidatedTask(descriptor, request);
+    }
+
     public String submitTask(TaskDescriptor descriptor) {
         return submissionHandler.submitTask(descriptor);
     }
@@ -414,17 +419,12 @@ public class TaskManager implements AutoCloseable {
         long evaluated = 0;
         long skipped = 0;
         for (TaskInfo info : tasks.values()) {
-            byte[] bytes = info.terminalTaskStats();
-            if (bytes == null || bytes.length == 0) {
+            var stats = info.terminalTaskStats();
+            if (stats == null || stats.getSerializedSize() == 0) {
                 continue;
             }
-            try {
-                var stats = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(bytes);
-                evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
-                skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
-            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-                throw new IllegalStateException("Captured NativeTaskStats is malformed", malformed);
-            }
+            evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
+            skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
         }
         return new IndexSplitTotals(evaluated, skipped);
     }
@@ -489,7 +489,7 @@ public class TaskManager implements AutoCloseable {
                 tasks, retention, info -> {
                     drainExecutor.releaseTerminalTask(info);
                     removeCoordinatorIndex(info);
-                }, drainExecutor::resultResourcesDrained);
+                });
     }
 
     /**
@@ -523,6 +523,11 @@ public class TaskManager implements AutoCloseable {
             @Override
             public void clearCoordinatorIndex(TaskInfo info) {
                 removeCoordinatorIndex(info);
+            }
+
+            @Override
+            public void watchFinishedResult(TaskInfo info) {
+                drainExecutor.watchFinishedResult(info, taskExecutor, TaskManager.this::removeCoordinatorIndex);
             }
 
             @Override

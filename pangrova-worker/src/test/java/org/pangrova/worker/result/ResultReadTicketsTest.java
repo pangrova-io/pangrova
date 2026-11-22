@@ -1,6 +1,8 @@
 package org.pangrova.worker.result;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.ResultReadGrant;
 import org.pangrova.protocol.v2.ResultReadScope;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
@@ -32,7 +34,8 @@ class ResultReadTicketsTest {
     @Test
     void producerEndpointPreservesAddressAndAuthenticatesTheCompleteAuthority() throws Exception {
         TaskRequest request = request();
-        var endpoint = new ResultReadTickets(key).endpoint(request, "worker-host", 8082, "grpc");
+        var endpoint = new ResultReadTickets(key).endpoint(validated(request),
+                "worker-host", 8082, "grpc");
         assertThat(endpoint.host()).isEqualTo("worker-host");
         assertThat(endpoint.port()).isEqualTo(8082);
         assertThat(endpoint.protocol()).isEqualTo("grpc");
@@ -57,14 +60,19 @@ class ResultReadTicketsTest {
     void refusesAbsentKeyExpiredAttemptAndTasksWithNoResultStream() {
         assertThatThrownBy(() -> new ResultReadTickets(new byte[31])).isInstanceOf(IllegalArgumentException.class);
         var tickets = new ResultReadTickets(key);
-        assertThatThrownBy(() -> tickets.issue(request().toBuilder().setDeadlineEpochMs(1).build()))
+        assertThatThrownBy(() -> tickets.issue(validated(request().toBuilder()
+                .setDeadlineEpochMs(1).build())))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> tickets.issue(request().toBuilder()
-                .setExecutionOptions(TaskExecutionOptions.getDefaultInstance()).build()))
+        assertThatThrownBy(() -> tickets.issue(validated(request().toBuilder()
+                .setExecutionOptions(TaskExecutionOptions.getDefaultInstance()).build())))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> tickets.issue(request().toBuilder()
-                .setResourceGrant(request().getResourceGrant().toBuilder().clearShuffleBufferBytes()).build()))
+        assertThatThrownBy(() -> tickets.issue(validated(request().toBuilder()
+                .setResourceGrant(request().getResourceGrant().toBuilder().clearShuffleBufferBytes()).build())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Serialized output requires a positive serialized-buffer grant");
+    }
+
+    private static ValidatedTaskSubmission validated(TaskRequest request) {
+        return new ValidatedTaskSubmission(SubmitTaskRequest.from(request));
     }
 }

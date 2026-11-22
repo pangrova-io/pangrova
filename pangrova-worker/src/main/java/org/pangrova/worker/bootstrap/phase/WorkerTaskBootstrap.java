@@ -66,7 +66,7 @@ public final class WorkerTaskBootstrap {
         }
         injectShuffleHmacKey(refs);
         RemoteTaskStatusReporter reporter = createStatusReporter(config, observability);
-        refs.setStatusReporter(reporter);
+        refs.retainStatusReporter(reporter);
         MemoryRefs memoryDeps =
                 new MemoryRefs(
                         refs.resourceManager(),

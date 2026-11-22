@@ -55,6 +55,21 @@ class JdbcRowPolicyStoreTest extends ContainerTestBase {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void currentTableReadIncludesRenamedBindingAndUnboundNameOnly() throws Exception {
+        var store = new JdbcRowPolicyStore(MigratedPostgres.create());
+        UUID current = UUID.randomUUID();
+        store.savePolicy(policy(current, "old_name", "id > 0", true));
+        store.savePolicy(policy(UUID.randomUUID(), "orders", "id > 10", true));
+        store.savePolicy(policy(null, "orders", "id > 20", true));
+        store.savePolicy(policy(null, "other_table", "id > 30", true));
+
+        assertThat(store.getPoliciesForCurrentTable("cat", "db", "orders", current))
+                .extracting(RowPolicy::filterExpression).containsExactly("id > 0", "id > 20");
+        assertThat(store.getPoliciesForCurrentTable("cat", "db", "orders", null))
+                .extracting(RowPolicy::filterExpression).containsExactly("id > 20");
+    }
+
     private static RowPolicy policy(UUID tableId, String table, String expression, boolean enabled) {
         return new RowPolicy(0, "rows", "cat", "db", table, expression, List.of("reader"), enabled, 1, tableId);
     }

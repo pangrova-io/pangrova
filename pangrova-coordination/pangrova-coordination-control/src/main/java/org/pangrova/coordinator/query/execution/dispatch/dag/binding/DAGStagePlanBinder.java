@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 
 import org.pangrova.planner.api.result.ResultColumnModel;
 
@@ -51,11 +51,11 @@ public final class DAGStagePlanBinder {
         var plan = input.plan();
         var splits = input.splits();
         var queryContext = input.queryContext();
-        BoundExecutionPlan generated = generatedValueReadResolver == null
+        BoundExecutionPlan generated = generatedValueReadResolver == null || splits.isEmpty()
                 ? new BoundExecutionPlan(serialized.planBytes(), List.of())
                 : generatedValueReadResolver.bindReadOverlays(serialized.planBytes(), input.session(),
-                        splits.stream().map(QuerySplit::serializedData).toList(),
-                        queryContext.snapshotOverrides());
+                        splits.stream().map(QuerySplit::data).toList(),
+                        plan.stagePlan().splitSources());
         SerializedPlanFragment readable = new SerializedPlanFragment(generated.planBytes(),
                 serialized.retrievalTopKHints(), serialized.aiInvocationHints());
         Map<String, ResolvedRetrievalGeneration> artifacts =

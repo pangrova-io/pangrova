@@ -91,19 +91,17 @@ class SemanticViewSqlIntegrationTest {
         AtomicReference<StatementResult> completed = new AtomicReference<>();
         StatementDispatcher dispatcher = dispatcher(fullAccess(), completed);
 
-        dispatcher.tryDispatch(null, createSql(1, false, "gross_revenue"),
+        dispatch(dispatcher, createSql(1, false, "gross_revenue"),
                 "q-create", session);
-        dispatcher.tryDispatch(null, createSql(1, true, "gross_revenue"),
+        dispatch(dispatcher, createSql(1, true, "gross_revenue"),
                 "q-create-idempotent", session);
-        dispatcher.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1",
+        dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1",
                 "q-publish-initial", session);
-        dispatcher.tryDispatch(null, createSql(2, false, "net_revenue"),
+        dispatch(dispatcher, createSql(2, false, "net_revenue"),
                 "q-create-v2", session);
-        dispatcher.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
+        dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
                 "q-publish-v2", session);
-        dispatcher.tryDispatch(null, "SHOW SEMANTIC VIEWS FROM lake.sales",
+        dispatch(dispatcher, "SHOW SEMANTIC VIEWS FROM lake.sales",
                 "q-show", session);
 
         assertThat(store.listVersions(VIEW)).hasSize(2);
@@ -125,28 +123,22 @@ class SemanticViewSqlIntegrationTest {
     @Test
     void ifNotExistsRejectsDifferentContentAndPublishRejectsStaleFence() {
         StatementDispatcher dispatcher = dispatcher(fullAccess(), new AtomicReference<>());
-        dispatcher.tryDispatch(null, createSql(1, false, "gross_revenue"),
+        dispatch(dispatcher, createSql(1, false, "gross_revenue"),
                 "q-create", session);
-        dispatcher.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1",
+        dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1",
                 "q-publish", session);
-        dispatcher.tryDispatch(null, createSql(2, false, "net_revenue"),
+        dispatch(dispatcher, createSql(2, false, "net_revenue"),
                 "q-create-v2", session);
-        dispatcher.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
+        dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
                 "q-publish-v2", session);
-        dispatcher.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1 EXPECTING EPOCH 2",
+        dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1 EXPECTING EPOCH 2",
                 "q-publish-v1-again", session);
 
-        assertThatThrownBy(() -> dispatcher.tryDispatch(
-                null, createSql(1, true, "changed"), "q-conflict", session))
+        assertThatThrownBy(() -> dispatch(dispatcher, createSql(1, true, "changed"), "q-conflict", session))
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(failure -> assertThat(((PangrovaException) failure).getErrorCode())
                         .isEqualTo(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE));
-        assertThatThrownBy(() -> dispatcher.tryDispatch(
-                null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
+        assertThatThrownBy(() -> dispatch(dispatcher, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1",
                 "q-stale", session))
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(failure -> assertThat(((PangrovaException) failure).getErrorCode())
@@ -160,8 +152,7 @@ class SemanticViewSqlIntegrationTest {
                         "TABLE", "lake", "sales", "revenue", null)));
         StatementDispatcher deniedDispatcher = dispatcher(createOnly, new AtomicReference<>());
 
-        assertThatThrownBy(() -> deniedDispatcher.tryDispatch(
-                null, createSql(1, false, "gross_revenue"), "q-denied", session))
+        assertThatThrownBy(() -> dispatch(deniedDispatcher, createSql(1, false, "gross_revenue"), "q-denied", session))
                 .isInstanceOf(org.pangrova.security.api.exception.AuthorizationDeniedException.class);
         assertThat(store.listVersions(VIEW)).isEmpty();
 
@@ -185,16 +176,15 @@ class SemanticViewSqlIntegrationTest {
     @Test
     void publicationRechecksCurrentSourceAccessBeforeAdvancingEpoch() {
         var authorized = dispatcher(fullAccess(), new AtomicReference<>());
-        authorized.tryDispatch(null, createSql(1, false, "gross_revenue"), "q-v1", session);
-        authorized.tryDispatch(null, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1", "q-publish", session);
-        authorized.tryDispatch(null, createSql(2, false, "net_revenue"), "q-v2", session);
+        dispatch(authorized, createSql(1, false, "gross_revenue"), "q-v1", session);
+        dispatch(authorized, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 1", "q-publish", session);
+        dispatch(authorized, createSql(2, false, "net_revenue"), "q-v2", session);
 
         AccessControl alterViewOnly = rbac(List.of(
                 PrivilegeGrant.of("semantic-admin", Privilege.ALTER,
                         "TABLE", "lake", "sales", "revenue", null)));
         var denied = dispatcher(alterViewOnly, new AtomicReference<>());
-        assertThatThrownBy(() -> denied.tryDispatch(null,
-                "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1", "q-denied", session))
+        assertThatThrownBy(() -> dispatch(denied, "ALTER SEMANTIC VIEW revenue PUBLISH VERSION 2 EXPECTING EPOCH 1", "q-denied", session))
                 .isInstanceOf(org.pangrova.security.api.exception.AuthorizationDeniedException.class);
         var unchanged = store.findPublication(VIEW).orElseThrow();
         assertThat(unchanged.activeVersion()).isEqualTo(1);
@@ -204,7 +194,7 @@ class SemanticViewSqlIntegrationTest {
     @Test
     void tenantAndSessionNamespaceAreEnforcedForShow() {
         StatementDispatcher dispatcher = dispatcher(fullAccess(), new AtomicReference<>());
-        dispatcher.tryDispatch(null, createSql(1, false, "gross_revenue"),
+        dispatch(dispatcher, createSql(1, false, "gross_revenue"),
                 "q-create", session);
 
         var otherTenant = new QuerySession(
@@ -237,6 +227,11 @@ class SemanticViewSqlIntegrationTest {
         assertThat(StatementClassifier.isShow(show)).isTrue();
     }
 
+    private static void dispatch(
+            StatementDispatcher dispatcher, String sql, String queryId, QuerySession session) {
+        dispatcher.tryDispatch(null, new SqlCompiler().parseToAst(sql), queryId, session);
+    }
+
     private StatementDispatcher dispatcher(
             AccessControl accessControl,
             AtomicReference<StatementResult> completed) {
@@ -247,7 +242,7 @@ class SemanticViewSqlIntegrationTest {
         tasks.put(ShowSemanticViewsStatement.class, new ShowSemanticViewsTask(service));
         var factory = new MetadataExecutionFactory(tasks);
         var context = new StatementDispatcherContext(
-                new SqlCompiler(), null, List.of(factory),
+                null, List.of(factory),
                 List.of(event -> completed.set(event.result())), accessControl);
         return new StatementDispatcher(context);
     }

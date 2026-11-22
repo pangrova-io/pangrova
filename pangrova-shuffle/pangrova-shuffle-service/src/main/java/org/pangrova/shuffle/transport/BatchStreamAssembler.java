@@ -1,10 +1,11 @@
 package org.pangrova.shuffle.transport;
 
-import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
@@ -34,13 +35,19 @@ public final class BatchStreamAssembler {
     public CompleteWriteBatch accept(WriteBatchRequest request) {
         requireStreamIdentity(request);
         BatchChunk chunk = request.getChunk();
-        requireChunk(request, chunk);
+        byte[] chunkChecksum = requireChunk(request, chunk);
         BatchKey key = new BatchKey(request.getPartitionId(), chunk.getBatchSequence());
-        PartialBatch batch = partial.computeIfAbsent(key, ignored -> new PartialBatch(request));
         int chunkBytes = chunk.getData().size();
         if (bufferedBytes + chunkBytes > maxBatchBytes) {
             throw new IllegalArgumentException("write stream has too much incomplete data");
         }
+        if (chunk.getChunkCount() == 1 && !partial.containsKey(key)) {
+            if (chunkBytes > chunk.getBatchSizeBytes()) {
+                throw new IllegalArgumentException("batch chunks exceed declared size");
+            }
+            return complete(request, chunk.getData(), chunkChecksum);
+        }
+        PartialBatch batch = partial.computeIfAbsent(key, ignored -> new PartialBatch(request));
         batch.append(request);
         bufferedBytes += chunkBytes;
         if (!batch.complete()) {
@@ -58,6 +65,12 @@ public final class BatchStreamAssembler {
         }
     }
 
+    /** Drops the staged payload when the owning RPC has stopped processing chunks. */
+    public void discard() {
+        partial.clear();
+        bufferedBytes = 0;
+    }
+
     private void requireStreamIdentity(WriteBatchRequest request) {
         if (request.getStreamSequence() != nextStreamSequence++) {
             throw new IllegalArgumentException("write stream sequence is not contiguous");
@@ -71,7 +84,7 @@ public final class BatchStreamAssembler {
         }
     }
 
-    private void requireChunk(WriteBatchRequest request, BatchChunk chunk) {
+    private byte[] requireChunk(WriteBatchRequest request, BatchChunk chunk) {
         int dataSize = chunk.getData().size();
         if (!validRequestHeader(request, chunk)
                 || !validChunkSizing(request, chunk, dataSize)) {
@@ -79,12 +92,12 @@ public final class BatchStreamAssembler {
         }
         byte[] chunkChecksum = ShuffleChecksums.requireSha256(
                 chunk.getChunkChecksum(), "chunk checksum");
-        if (!MessageDigest.isEqual(chunkChecksum,
-                ShuffleChecksums.sha256(chunk.getData().toByteArray()))) {
+        if (!MessageDigest.isEqual(chunkChecksum, ShuffleChecksums.sha256(chunk.getData()))) {
             throw new ShuffleServiceException(FailureKind.CORRUPT,
                     "write chunk checksum does not match payload");
         }
         ShuffleChecksums.requireSha256(chunk.getBatchChecksum(), "batch checksum");
+        return chunkChecksum;
     }
 
     private boolean validRequestHeader(WriteBatchRequest request, BatchChunk chunk) {
@@ -92,7 +105,7 @@ public final class BatchStreamAssembler {
                 && request.getRowCount() > 0
                 && request.getCodec() == CompressionCodec.COMPRESSION_CODEC_NONE
                 && chunk.getBatchSequence() >= 0 && chunk.getChunkCount() > 0
-                && chunk.getChunkIndex() < chunk.getChunkCount();
+                && chunk.getChunkIndex() >= 0 && chunk.getChunkIndex() < chunk.getChunkCount();
     }
 
     private boolean validChunkSizing(
@@ -107,14 +120,27 @@ public final class BatchStreamAssembler {
 
     private record BatchKey(int partitionId, long sequence) {}
 
+    private static CompleteWriteBatch complete(
+            WriteBatchRequest request, ByteString canonical, byte[] actualChecksum) {
+        BatchChunk chunk = request.getChunk();
+        byte[] expected = ShuffleChecksums.requireSha256(chunk.getBatchChecksum(), "batch checksum");
+        if (canonical.size() != chunk.getBatchSizeBytes() || !MessageDigest.isEqual(actualChecksum, expected)) {
+            throw new ShuffleServiceException(FailureKind.CORRUPT,
+                    "complete batch does not match declared size or checksum");
+        }
+        return new CompleteWriteBatch(request.getShuffleId(), request.getPartitionId(),
+                chunk.getBatchSequence(), request.getRowCount(),
+                request.getProducerAttempt(), request.getAccessCapability(), canonical, expected);
+    }
+
     private static final class PartialBatch {
         private final WriteBatchRequest first;
-        private final ByteArrayOutputStream data;
+        private final ByteString.Output data;
         private int nextChunk;
 
         private PartialBatch(WriteBatchRequest first) {
             this.first = first;
-            this.data = new ByteArrayOutputStream();
+            this.data = ByteString.newOutput(first.getChunk().getData().size());
         }
 
         private void append(WriteBatchRequest request) {
@@ -124,12 +150,17 @@ public final class BatchStreamAssembler {
                     || !sameRequestMetadata(request)) {
                 throw new IllegalArgumentException("batch chunks disagree on immutable metadata");
             }
-            byte[] chunk = actual.getData().toByteArray();
-            data.write(chunk, 0, chunk.length);
-            nextChunk++;
-            if (data.size() > expected.getBatchSizeBytes()) {
+            ByteString chunk = actual.getData();
+            if ((long) data.size() + chunk.size() > expected.getBatchSizeBytes()) {
                 throw new IllegalArgumentException("batch chunks exceed declared size");
             }
+            // ByteString.writeTo(OutputStream) first materializes a defensive array.
+            try (var input = chunk.newInput()) {
+                input.transferTo(data);
+            } catch (IOException failure) {
+                throw new IllegalStateException("in-memory shuffle batch staging failed", failure);
+            }
+            nextChunk++;
         }
 
         private boolean sameRequestMetadata(WriteBatchRequest request) {
@@ -155,17 +186,8 @@ public final class BatchStreamAssembler {
         }
 
         private CompleteWriteBatch finish() {
-            byte[] canonical = data.toByteArray();
-            byte[] expected = ShuffleChecksums.requireSha256(
-                    first.getChunk().getBatchChecksum(), "batch checksum");
-            if (canonical.length != first.getChunk().getBatchSizeBytes()
-                    || !MessageDigest.isEqual(ShuffleChecksums.sha256(canonical), expected)) {
-                throw new ShuffleServiceException(FailureKind.CORRUPT,
-                        "complete batch does not match declared size or checksum");
-            }
-            return new CompleteWriteBatch(first.getShuffleId(), first.getPartitionId(),
-                    first.getChunk().getBatchSequence(), first.getRowCount(),
-                    first.getProducerAttempt(), first.getAccessCapability(), canonical, expected);
+            ByteString canonical = data.toByteString();
+            return BatchStreamAssembler.complete(first, canonical, ShuffleChecksums.sha256(canonical));
         }
     }
 }

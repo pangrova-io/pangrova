@@ -90,6 +90,10 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+执行协议原子切换通过独立发布候选验证。使用同一源码重新构建 C++20 Release Native，加载实际 JNI 库，运行全部 4,347 项 CTest，包括真实 PostgreSQL 的 Lance 夹具。92 项定向 Java 回归通过，覆盖 SQL 鉴权、快照与统计、双 Worker、HTTP 状态交付、端到端 Native Flight、COPY 来源、Native 读配额和 Connector 数据读取。持久 Shuffle 另通过 22 项真实 PostgreSQL 与 MinIO 回归。共享 Native 夹具冲突的用例使用独立 Maven 调用复验。锁定的 Protobuf descriptor、模块边界和定向 Checkstyle 检查通过。
+
+实施批次 93 统一取消响应和终态上报中的物理释放回执。Worker 在 Native 已给出匹配的取消终态时沿用同一份回执，包括没有错误字段的正常取消。Coordinator 继续对已受理的释放身份、状态及错误分类作精确校验。真实故障回归丢弃前两次取消上报，第三次获 ACK，三个二进制请求逐字节一致。
+
 实施批次 91–92 将已准入查询的目录和 schema 名称绑定到同一查询权限范围。受控的 Calcite 测试连续查找八次，只触发一次目录列表和一次 schema 列表。下一条查询能看到新 schema，真实 PostgreSQL 和 Lance 的管理会话仍即时看到各租户的创建操作。Calcite 的直接查表和显式列名共用同一元数据入口。夹具有 1,000 张无关表，直接查表记录零次枚举和一次命名句柄读取，显式列出表名新增一次枚举和零次句柄读取。36 项定向 Java 回归和 Checkstyle 通过。
 
 实施批次 90 将大小写别名和系统表使用的名称解析统一到已认证的目录版本。首次缺失仅枚举一次。过期前的缓存缺失仍刷新一次，以发现其他 Coordinator 创建的表。受控测试确认首次和后续缺失各执行一次枚举，外部新表在下一次查找可见，目录失败继续传播。38 项定向 Java 与 15 项真实 Native 读取回归通过。 独立发布分支另通过 81 项查询绑定、统计、Calcite 与 PostgreSQL 联合测试及 Checkstyle。

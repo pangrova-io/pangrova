@@ -303,8 +303,8 @@ class RbacAccessControlRoleStoreTest {
         }
 
         @Override
-        public synchronized List<PrivilegeGrant> listGrantsForRole(String roleName) {
-            return grants.stream().filter(g -> g.roleName().equals(roleName)).toList();
+        public synchronized List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames) {
+            return grants.stream().filter(g -> roleNames.contains(g.roleName())).toList();
         }
 
         @Override

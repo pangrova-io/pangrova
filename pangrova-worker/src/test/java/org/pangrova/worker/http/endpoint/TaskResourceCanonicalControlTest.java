@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
@@ -30,9 +30,9 @@ class TaskResourceCanonicalControlTest {
             String canonical = "canonical-task";
             var original = request(runtime, canonical);
             var owner = fixture.preparePending(original.taskRequest());
-            try (Response submitted = resource.submitTask(original)) {
+            try (Response submitted = resource.submitTask(original.encode(), null)) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
-                assertThat(((SubmitTaskResponse) submitted.getEntity()).taskId())
+                assertThat(TaskSubmitAck.parseFrom((byte[]) submitted.getEntity()).getAdmitted().getTaskId())
                         .isEqualTo(canonical);
             }
             String local = manager.resolveWorkerTaskId(canonical);
@@ -48,7 +48,7 @@ class TaskResourceCanonicalControlTest {
             assertThat(owner.allocatedBufferMemory()).isZero();
             assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLED);
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
-            try (Response delayed = resource.submitTask(original)) {
+            try (Response delayed = resource.submitTask(original.encode(), null)) {
                 assertThat(delayed.getStatus()).isEqualTo(409);
             }
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
@@ -74,7 +74,7 @@ class TaskResourceCanonicalControlTest {
             var manager = fixture.manager();
             var original = request(runtime, "canonical-task");
             var owner = fixture.preparePending(original.taskRequest());
-            try (Response submitted = resource.submitTask(original)) {
+            try (Response submitted = resource.submitTask(original.encode(), null)) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
             }
             String local = manager.resolveWorkerTaskId("canonical-task");
@@ -111,7 +111,7 @@ class TaskResourceCanonicalControlTest {
                                 org.pangrova.protocol.v2.ExecutionDrainState
                                         .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
                 assertThat(manager.resolveWorkerTaskId("absent")).isNull();
-                try (Response late = resource.submitTask(original)) {
+                try (Response late = resource.submitTask(original.encode(), null)) {
                     assertThat(late.getStatus()).isEqualTo(409);
                 }
                 assertThat(runtime.nodePool().getUsedBytes()).isZero();
@@ -138,12 +138,12 @@ class TaskResourceCanonicalControlTest {
                 var fixture = new ActualTaskManagerFixture(runtime, "control-http");
                 var resource = resource(fixture.manager(), runtime)) {
             TaskRequest request = runtime.valuesRequest(true);
-            try (Response submitted = resource.submitTask(SubmitTaskRequest.from(request))) {
+            try (Response submitted = resource.submitTask(SubmitTaskRequest.from(request).encode(), null)) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
-                var response = (SubmitTaskResponse) submitted.getEntity();
-                assertThat(response.accepted()).isTrue();
-                assertThat(response.taskId()).isEqualTo(request.getAttempt().getTaskId());
-                assertThat(response.resultEndpoint()).isNotNull();
+                var ack = TaskSubmitAck.parseFrom((byte[]) submitted.getEntity());
+                assertThat(ack.hasAdmitted()).isTrue();
+                assertThat(ack.getAdmitted().getTaskId()).isEqualTo(request.getAttempt().getTaskId());
+                assertThat(ack.getAdmitted().hasResultEndpoint()).isTrue();
             }
             var owner = fixture.admittedTask(request);
             var actual = fixture.consume(owner);

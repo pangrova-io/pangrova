@@ -117,7 +117,7 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
     }
 
     void cleanupActualWorkerOwners() {
-        worker.taskManager().cleanupTerminalTasks(Duration.ofHours(1));
+        worker.taskManager().cleanupTerminalTasks(Duration.ZERO);
     }
 
     void requireUnacknowledgedExecutionTerminalRetries() {

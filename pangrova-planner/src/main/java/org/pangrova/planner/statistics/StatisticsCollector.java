@@ -1,8 +1,5 @@
 package org.pangrova.planner.statistics;
 
-import org.pangrova.planner.api.statistics.Histogram;
-import org.pangrova.planner.api.statistics.HistogramBucket;
-
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.time.Duration;
@@ -26,7 +23,6 @@ public class StatisticsCollector {
 
     private static final Logger LOG = LoggerFactory.getLogger(StatisticsCollector.class);
 
-    static final int HISTOGRAM_BUCKET_COUNT = 256;
     static final double LOW_CARDINALITY_RATIO = 0.01;
 
     private final Map<QualifiedTableName, PlannerTableStatistics> store =
@@ -234,67 +230,15 @@ public class StatisticsCollector {
 
     private org.pangrova.planner.api.statistics.ColumnStatistics convertFromSpi(
             ColumnStatistics spiCol, long tableRowCount) {
-        if (spiCol == null) {
-            return new org.pangrova.planner.api.statistics.ColumnStatistics(
-                    tableRowCount, 0, null, null, tableRowCount, 8.0, Optional.empty(), 0.5);
-        }
-        long ndv = spiCol.ndv() >= 0 ? spiCol.ndv() : tableRowCount;
-        Optional<Histogram> histogram = buildHistogramFromStats(
-                spiCol.min(), spiCol.max(), ndv, tableRowCount);
+        ColumnStatistics evidence = spiCol == null ? ColumnStatistics.UNKNOWN : spiCol;
         return new org.pangrova.planner.api.statistics.ColumnStatistics(
                 tableRowCount,
-                spiCol.nullCount() >= 0 ? spiCol.nullCount() : 0,
-                spiCol.min(), spiCol.max(),
-                ndv,
-                spiCol.avgSize() >= 0 ? spiCol.avgSize() : 8.0,
-                histogram,
-                1.0);
-    }
-
-    /**
-     * Builds an approximate equi-depth histogram from min/max/NDV/rowCount.
-     * When min and max are numeric, divides the range into uniform buckets.
-     * Returns empty when min/max are unavailable or non-numeric.
-     */
-    static Optional<Histogram> buildHistogramFromStats(
-            Comparable<?> min, Comparable<?> max, long ndv, long rowCount) {
-        if (min == null || max == null || rowCount <= 0 || ndv <= 0) {
-            return Optional.empty();
-        }
-        return buildNumericHistogram(min, max, ndv, rowCount);
-    }
-
-    private static Optional<Histogram> buildNumericHistogram(
-            Comparable<?> min, Comparable<?> max, long ndv, long rowCount) {
-        if (!(min instanceof Number minNum) || !(max instanceof Number maxNum)) {
-            return Optional.empty();
-        }
-        double minVal = minNum.doubleValue();
-        double maxVal = maxNum.doubleValue();
-        if (minVal >= maxVal) {
-            return Optional.empty();
-        }
-        int bucketCount = (int) Math.min(HISTOGRAM_BUCKET_COUNT, ndv);
-        if (bucketCount <= 0) {
-            return Optional.empty();
-        }
-        List<HistogramBucket> buckets = buildEquiDepthBuckets(minVal, maxVal, bucketCount, rowCount, ndv);
-        LOG.debug("event=histogram_built bucketCount={} rowCount={} ndv={}", bucketCount, rowCount, ndv);
-        return Optional.of(new Histogram(bucketCount, buckets));
-    }
-
-    private static List<HistogramBucket> buildEquiDepthBuckets(
-            double minVal, double maxVal, int bucketCount, long rowCount, long ndv) {
-        double step = (maxVal - minVal) / bucketCount;
-        long rowsPerBucket = Math.max(1, rowCount / bucketCount);
-        long distinctPerBucket = Math.max(1, ndv / bucketCount);
-        List<HistogramBucket> buckets = new java.util.ArrayList<>(bucketCount);
-        for (int i = 0; i < bucketCount; i++) {
-            double lower = minVal + i * step;
-            double upper = (i == bucketCount - 1) ? maxVal : minVal + (i + 1) * step;
-            buckets.add(new HistogramBucket(lower, upper, rowsPerBucket, distinctPerBucket));
-        }
-        return buckets;
+                evidence.nullCount(),
+                evidence.min(), evidence.max(),
+                evidence.ndv(),
+                evidence.avgSize(),
+                Optional.empty(),
+                spiCol == null ? 0.5 : 1.0);
     }
 
     /**

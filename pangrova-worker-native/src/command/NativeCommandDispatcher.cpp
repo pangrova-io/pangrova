@@ -198,20 +198,26 @@ validateExternalEndpointCoverage(const proto::ExternalShuffleInput& external) {
 
 std::string
 validateExternalSource(const proto::ExternalShuffleInput& external,
-                       const pangrova::executor::TaskExecutor& executor) {
+                       const pangrova::executor::TaskExecutor& executor,
+                       int64_t& expected_batches) {
+  constexpr int kMaxSourcePartitions = 32;
   if (external.shuffle_id().empty() || external.partition_count() == 0 ||
       external.partition_count() >
           static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
-      external.output_partition_id() < 0 ||
-      external.output_partition_id() >=
-          static_cast<int64_t>(external.partition_count()) ||
+      !external.has_source_partition_start() ||
+      external.source_partition_start() < 0 ||
+      external.publications_size() <= 0 ||
+      external.publications_size() > kMaxSourcePartitions ||
+      static_cast<int64_t>(external.source_partition_start()) +
+              external.publications_size() >
+          external.partition_count() ||
       external.plan_epoch() == 0 || !external.has_execution_owner()) {
     return "External shuffle source is missing required identity fields";
   }
   const auto& owner = external.execution_owner();
-  if (external.plan_epoch() != executor.planEpoch() ||
-      external.output_partition_id() != executor.partitionId() ||
-      owner.owner_id() != executor.ownerId() ||
+  // The published input is a producer generation. The command's own attempt
+  // is validated independently, so a retried consumer keeps the same inputs.
+  if (owner.owner_id() != executor.ownerId() ||
       owner.owner_incarnation() != executor.ownerIncarnation() ||
       owner.fencing_token() != executor.ownerFencingToken()) {
     return "External shuffle source identity does not match the executor";
@@ -242,16 +248,20 @@ validateExternalSource(const proto::ExternalShuffleInput& external,
       external.expected_producer_set_checksum().digest().size() != 32) {
     return "External shuffle source is missing service or producer metadata";
   }
-  const auto& publication = external.publication();
-  if (!publication.has_last_sequence() || publication.last_sequence() < -1 ||
-      !publication.has_total_rows() || publication.total_rows() < 0 ||
-      !publication.has_total_bytes() || publication.total_bytes() < 0 ||
-      publication.manifest_sha256().size() != 32 ||
-      (publication.last_sequence() == -1
-           ? publication.total_rows() != 0 || publication.total_bytes() != 0
-           : publication.last_sequence() >= publication.total_rows() ||
-                 publication.last_sequence() >= publication.total_bytes())) {
-    return "Invalid coordinator shuffle partition publication";
+  for (const auto& publication : external.publications()) {
+    if (!publication.has_last_sequence() || publication.last_sequence() < -1 ||
+        !publication.has_total_rows() || publication.total_rows() < 0 ||
+        !publication.has_total_bytes() || publication.total_bytes() < 0 ||
+        publication.manifest_sha256().size() != 32 ||
+        (publication.last_sequence() == -1
+             ? publication.total_rows() != 0 || publication.total_bytes() != 0
+             : publication.last_sequence() >= publication.total_rows() ||
+                   publication.last_sequence() >= publication.total_bytes()) ||
+        publication.last_sequence() + 1 >
+            std::numeric_limits<int64_t>::max() - expected_batches) {
+      return "Invalid coordinator shuffle partition publication";
+    }
+    expected_batches += publication.last_sequence() + 1;
   }
   return validateExternalEndpointCoverage(external);
 }
@@ -781,8 +791,9 @@ void handleConnectExchangeSource(const proto::RuntimeCommand& cmd,
   }
   if (request.transport_case() ==
       proto::ConnectExchangeSourceRequest::kExternal) {
+    int64_t expected_batches = 0;
     const auto validation =
-        validateExternalSource(request.external(), *executor);
+        validateExternalSource(request.external(), *executor, expected_batches);
     if (!validation.empty()) {
       resp = errorResponse(validation, proto::ERROR_CLASS_INVALID_REQUEST,
                            "INVALID_EXTERNAL_SHUFFLE_SOURCE");
@@ -791,13 +802,15 @@ void handleConnectExchangeSource(const proto::RuntimeCommand& cmd,
     pangrova::velox::PendingEndpointRegistry::instance().registerExternalSource(
         executor_handle, request.plan_node_id(), request.exchange_id(),
         request.external().deadline_epoch_ms(),
-        externalShuffleMaxBatchBytes(*executor));
+        externalShuffleMaxBatchBytes(*executor), expected_batches);
     PANGROVA_LOG(INFO) << "event=external_exchange_source_registered"
                        << " plan_node_id=" << request.plan_node_id()
                        << " exchange_id=" << request.exchange_id()
                        << " shuffle_id=" << request.external().shuffle_id()
-                       << " output_partition_id="
-                       << request.external().output_partition_id();
+                       << " source_partition_start="
+                       << request.external().source_partition_start()
+                       << " source_partition_count="
+                       << request.external().publications_size();
     resp = successResponse();
     return;
   }
@@ -851,6 +864,7 @@ void handleConnectExchangeSource(const proto::RuntimeCommand& cmd,
 
 void handlePushExchangeBatch(const proto::RuntimeCommand& cmd,
                              int64_t executor_handle,
+                             std::string data,
                              proto::RuntimeCommandResponse& resp) {
   if (executor_handle <= 0) {
     resp = errorResponse(
@@ -878,8 +892,8 @@ void handlePushExchangeBatch(const proto::RuntimeCommand& cmd,
   const auto max_batch_bytes = externalShuffleMaxBatchBytes(*executor);
   const bool valid_bounds =
       chunk.batch_sequence() >= 0 && chunk.chunk_count() > 0 &&
-      chunk.chunk_index() < chunk.chunk_count() && !chunk.data().empty() &&
-      chunk.data().size() <= pangrova::velox::kExternalShuffleChunkBytes &&
+      chunk.chunk_index() < chunk.chunk_count() && chunk.data().empty() &&
+      !data.empty() && data.size() <= pangrova::velox::kExternalShuffleChunkBytes &&
       chunk.batch_size_bytes() > 0 &&
       chunk.batch_size_bytes() <= max_batch_bytes;
   const bool valid_checksums =
@@ -912,14 +926,14 @@ void handlePushExchangeBatch(const proto::RuntimeCommand& cmd,
       : chunk.batch_size_bytes() -
           static_cast<uint64_t>(chunk.chunk_index()) *
               pangrova::velox::kExternalShuffleChunkBytes;
-  if (expected_chunk_size != chunk.data().size()) {
+  if (expected_chunk_size != data.size()) {
     resp = errorResponse(
         "External exchange chunk layout is not canonical",
         proto::ERROR_CLASS_INVALID_REQUEST,
         "INVALID_EXCHANGE_CHUNK_LAYOUT");
     return;
   }
-  const auto actual_checksum = sha256(chunk.data());
+  const auto actual_checksum = sha256(data);
   if (!constantTimeEqual(
           chunk.chunk_checksum().digest(), actual_checksum)) {
     resp = errorResponse("External exchange chunk checksum mismatch",
@@ -932,7 +946,7 @@ void handlePushExchangeBatch(const proto::RuntimeCommand& cmd,
   native_chunk.chunk_index = chunk.chunk_index();
   native_chunk.chunk_count = chunk.chunk_count();
   native_chunk.batch_size_bytes = chunk.batch_size_bytes();
-  native_chunk.data = std::move(*request.mutable_chunk()->mutable_data());
+  native_chunk.data = std::move(data);
   native_chunk.batch_checksum = chunk.batch_checksum().digest();
   try {
     pangrova::velox::PendingEndpointRegistry::instance().pushExternalBatch(
@@ -1025,7 +1039,8 @@ void handleCancelAttempt(int64_t executor_handle,
 }
 
 std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
-                                           int64_t executor_handle) {
+                                           int64_t executor_handle,
+                                           std::string exchange_data = {}) {
   proto::RuntimeCommandResponse resp;
   if (!cmd.has_protocol() || cmd.protocol().major() != 2) {
     return serializeResponse(errorResponse(
@@ -1095,7 +1110,7 @@ std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
       handleNoMoreExchangeSources(cmd, executor_handle, resp);
       break;
     case proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH:
-      handlePushExchangeBatch(cmd, executor_handle, resp);
+      handlePushExchangeBatch(cmd, executor_handle, std::move(exchange_data), resp);
       break;
     case proto::RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE:
       handleFinishExchangeSource(cmd, executor_handle, resp);
@@ -1148,6 +1163,18 @@ dispatchCommandWithHandle(const std::vector<uint8_t>& command_proto,
         proto::ERROR_CLASS_INVALID_REQUEST, "MALFORMED_COMMAND_ENVELOPE"));
   }
   return dispatchParsedCommand(cmd, executor_handle);
+}
+
+std::vector<uint8_t> dispatchExchangeChunk(
+    const std::vector<uint8_t>& metadata, int64_t executor_handle, std::string data) {
+  proto::RuntimeCommand cmd;
+  if (!cmd.ParseFromArray(metadata.data(), static_cast<int>(metadata.size())) ||
+      cmd.command_type() != proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH) {
+    return serializeResponse(errorResponse(
+        "Exchange chunk requires canonical PUSH_EXCHANGE_BATCH metadata",
+        proto::ERROR_CLASS_INVALID_REQUEST, "MALFORMED_EXCHANGE_CHUNK_METADATA"));
+  }
+  return dispatchParsedCommand(cmd, executor_handle, std::move(data));
 }
 
 void shutdownFlightResultServer() {

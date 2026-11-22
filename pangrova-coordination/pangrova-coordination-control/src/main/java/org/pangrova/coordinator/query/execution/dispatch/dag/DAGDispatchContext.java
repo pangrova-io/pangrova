@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -30,7 +29,6 @@ public record DAGDispatchContext(
         SpeculativeStageHandler speculativeStageHandler,
         PipelineConfig pipelineConfig,
         ShuffleLifecycleManager shuffleLifecycleManager,
-        SplitAssignmentManager splitAssignmentManager,
         ResilienceRegistry resilienceRegistry,
         QueryStateJournal stateJournal
 ) {
@@ -40,7 +38,6 @@ public record DAGDispatchContext(
     public DAGDispatchContext {
         checkNotNull(dispatcher, "dispatcher must not be null");
         // catalogRegistry: nullable — absent in minimal bootstrap without metadata module
-        checkNotNull(splitAssignmentManager, "splitAssignmentManager must not be null");
         if (taskTimeoutSeconds < 0) {
             throw new IllegalArgumentException("Configured task timeout must not be negative");
         }

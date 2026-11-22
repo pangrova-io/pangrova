@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.stage;
 
 import org.pangrova.query.api.enums.StageState;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 
 import org.pangrova.query.api.stage.StageRetryPolicy;
 import org.pangrova.query.stage.StageStateMachine;
@@ -58,6 +59,39 @@ class StageTest {
 
         stage.onTaskFinished("t2");
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+    }
+
+    @Test
+    void buildRangeUsesExactlyOneSuccessfulReportForEveryCurrentSlot() {
+        Stage stage = Stage.create(dummyNode(0), "q1");
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("first");
+        stage.addTaskId("second");
+        int generation = stage.currentGeneration();
+
+        stage.onTaskFinished("first", generation, new BuildKeyRange(-8, -2, false));
+        stage.onTaskFinished("first", generation, new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE, false));
+        stage.onTaskFinished("second", generation + 1, new BuildKeyRange(-40, 40, false));
+        assertThat(stage.completeBuildKeyRange()).isNull();
+        stage.onTaskFinished("second", generation, new BuildKeyRange(0, 0, true));
+
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        assertThat(stage.completeBuildKeyRange()).isEqualTo(new BuildKeyRange(-8, -2, false));
+    }
+
+    @Test
+    void missingBuildRangePreservesFullProbeEvenWhenEveryTaskSucceeded() {
+        Stage stage = Stage.create(dummyNode(0), "q1");
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("first");
+        stage.addTaskId("second");
+        stage.onTaskFinished("first", stage.currentGeneration(), new BuildKeyRange(0, 0, true));
+        stage.onTaskFinished("second");
+
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        assertThat(stage.completeBuildKeyRange()).isNull();
     }
 
     @Test

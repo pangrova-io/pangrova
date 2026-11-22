@@ -13,6 +13,8 @@ import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.DataSplit;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -141,18 +143,25 @@ public final class GenerationDispatchProtocolValidator {
     }
 
     /** Requires every exact persisted source allocation to match the executable storage contract. */
-    public static void validateSplits(
+    public static List<DataSplit> parseSplits(
             GenerationJob job, List<GenerationSplit> stored) {
+        var result = new ArrayList<DataSplit>(stored.size());
+        var splitIds = new HashSet<String>();
         for (GenerationSplit durable : stored) {
             try {
                 DataSplit split = DataSplit.parseFrom(durable.canonicalSplitBytes());
                 validateSplitIdentity(job, durable, split);
                 DataSplitProtoCodec.fileDetail(split);
+                if (!splitIds.add(split.getSplitId())) {
+                    throw new IllegalArgumentException("Duplicate durable canonical split identity");
+                }
+                result.add(split);
             } catch (InvalidProtocolBufferException e) {
                 throw new IllegalArgumentException(
                         "durable canonical split is malformed", e);
             }
         }
+        return List.copyOf(result);
     }
 
     private static void validateSplitIdentity(

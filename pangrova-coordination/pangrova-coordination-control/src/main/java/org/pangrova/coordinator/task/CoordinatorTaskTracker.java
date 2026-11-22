@@ -41,7 +41,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
     private final TaskIdentityRegistry taskIdentityStore = new TaskIdentityRegistry();
 
     public CoordinatorTaskTracker() {
-        taskIdentityStore.onConnectorOperationExit(this::notifyQueryOperationExit);
+        taskIdentityStore.onConnectorOperationExit(this::notifyQueryDrainProgress);
     }
 
     /** Registers a logical task under the query issuance authority. */
@@ -85,6 +85,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
             }
             taskWorkerAssignment.remove(taskId);
             timingTracker.clearTaskTracking(taskId);
+            notifyQueryDrainProgress(queryId);
         }
     }
 
@@ -397,7 +398,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         try {
             return new QueryIssuanceOperation(() -> {
                 exited.run();
-                notifyQueryOperationExit(queryId);
+                notifyQueryDrainProgress(queryId);
             });
         } catch (RuntimeException | Error failure) {
             exited.run();
@@ -411,7 +412,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         try {
             return new QueryIssuanceOperation(() -> {
                 exited.run();
-                notifyQueryOperationExit(queryId);
+                notifyQueryDrainProgress(queryId);
             });
         } catch (RuntimeException | Error failure) {
             exited.run();
@@ -420,16 +421,16 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
     }
 
     private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
-            queryOperationExitListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+            queryDrainProgressListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    private void notifyQueryOperationExit(String queryId) {
+    private void notifyQueryDrainProgress(String queryId) {
         if (taskIdentityStore.queryOperationsDrained(queryId)) {
-            queryOperationExitListeners.forEach(listener -> listener.accept(queryId));
+            queryDrainProgressListeners.forEach(listener -> listener.accept(queryId));
         }
     }
 
-    public void addQueryOperationExitListener(java.util.function.Consumer<String> listener) {
-        queryOperationExitListeners.add(java.util.Objects.requireNonNull(listener));
+    public void addQueryDrainProgressListener(java.util.function.Consumer<String> listener) {
+        queryDrainProgressListeners.add(java.util.Objects.requireNonNull(listener));
     }
 
     /** Returns whether this exact report still owns a required publication or observer retry. */
@@ -444,7 +445,7 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         // Rechecking completed notifications here would block the very callback that completes them.
         return taskIdentityStore.enterReport(request, report, resourceOnly,
                 () -> publishExecutionDrain(report.taskId()),
-                () -> notifyQueryOperationExit(report.queryId()));
+                () -> notifyQueryDrainProgress(report.queryId()));
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */
@@ -457,9 +458,20 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
 
     public List<IssuedTask> sealQueryIssuance(String queryId) { return taskIdentityStore.sealQuery(queryId); }
 
+    /** Seals issuance and claims cleanup after local operations and issued tasks have drained. */
+    public boolean tryClaimQueryCleanup(String queryId) {
+        if (!taskIdentityStore.tryClaimQueryCleanup(queryId)) return false;
+        requireRetainedTaskDrain(queryId);
+        return true;
+    }
+
     /** Requires exact physical drain receipts for every retained task. */
     public void requireQueryExecutionDrained(String queryId) {
         taskIdentityStore.requireQueryDrained(queryId);
+        requireRetainedTaskDrain(queryId);
+    }
+
+    private void requireRetainedTaskDrain(String queryId) {
         var tasks = queryTasks.get(queryId);
         if (tasks != null) {
             for (String taskId : tasks.keySet()) {
@@ -543,18 +555,18 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         return taskIdentityStore.scheduledEvent(taskId);
     }
 
+    /** Retains exact task drain evidence and signals progress after required report publication. */
     public void recordExecutionDrain(SubmitTaskRequest request, org.pangrova.protocol.v2.TaskReport report) {
         taskIdentityStore.recordExecutionDrain(request, report);
-        notifyExecutionDrain(report.getAttempt().getTaskId());
+        var attempt = report.getAttempt();
+        if (taskIdentityStore.drainNotificationReady(attempt.getTaskId())) {
+            publishExecutionDrain(attempt.getTaskId());
+            // Cancel responses can retain exact drain evidence outside a report publication.
+            notifyQueryDrainProgress(attempt.getQueryOrJobId());
+        }
     }
 
     private final TaskExecutionDrainNotifications executionDrainListeners = new TaskExecutionDrainNotifications();
-
-    private void notifyExecutionDrain(String taskId) {
-        if (taskIdentityStore.drainNotificationReady(taskId)) {
-            publishExecutionDrain(taskId);
-        }
-    }
 
     private void publishExecutionDrain(String taskId) {
         taskIdentityStore.executionDrainReceipt(taskId).ifPresent(executionDrainListeners::publish);

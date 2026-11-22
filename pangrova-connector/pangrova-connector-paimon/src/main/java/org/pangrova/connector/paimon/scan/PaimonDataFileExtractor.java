@@ -8,7 +8,6 @@ import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
-import org.apache.paimon.table.source.Split;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,22 +55,19 @@ public final class PaimonDataFileExtractor {
      * Builds LSM level descriptors from a Paimon DataSplit's data files,
      * grouped by {@link DataFileMeta#level()}.
      *
-     * @param table           exact target table schema
-     * @param split           Paimon split
+     * @param evolution       physical-to-target mappings for the selected scan
+     * @param dataSplit       exact SDK split
      * @return list of LSM levels with resolved physical file paths; empty if not a DataSplit
      */
     public static List<PaimonLsmLevel> extractLsmLevels(
-            Table table, Split split) {
-        if (!(split instanceof DataSplit dataSplit)) {
-            return List.of();
-        }
+            PaimonPartitionExtractor.SchemaEvolution evolution, DataSplit dataSplit) {
         List<DataFileMeta> dataFiles = dataSplit.dataFiles();
         if (dataFiles == null || dataFiles.isEmpty()) {
             return List.of();
         }
 
         Map<Integer, LevelAccumulator> levelMap =
-                accumulateByLevel(table, dataSplit, dataFiles);
+                accumulateByLevel(evolution, dataSplit, dataFiles);
         List<PaimonLsmLevel> levels = toLsmLevels(levelMap);
 
         LOG.debug("event=paimon_lsm_levels_extracted level_count={} total_files={}",
@@ -80,7 +76,7 @@ public final class PaimonDataFileExtractor {
     }
 
     private static Map<Integer, LevelAccumulator> accumulateByLevel(
-            Table table, DataSplit dataSplit, List<DataFileMeta> dataFiles) {
+            PaimonPartitionExtractor.SchemaEvolution evolution, DataSplit dataSplit, List<DataFileMeta> dataFiles) {
         // Sort files by minSequenceNumber ascending within each level so that
         // older files get lower reader indices and newer files get higher ones.
         // The native DeduplicateMergeReader uses reader_index as synthetic
@@ -92,12 +88,12 @@ public final class PaimonDataFileExtractor {
         Map<Integer, LevelAccumulator> levelMap = new LinkedHashMap<>();
         for (DataFileMeta file : sorted) {
             String fullPath = buildFilePath(dataSplit, file);
-            var evolution = PaimonPartitionExtractor.extractSchemaEvolution(file, table);
+            var mapping = evolution.forSource(file.schemaId());
             levelMap.computeIfAbsent(file.level(), LevelAccumulator::new)
                     .addFile(new PaimonLsmFile(new PaimonPhysicalFile(fullPath, file.fileFormat(),
                             file.fileSize(), file.rowCount(), file.schemaId()),
                             file.minSequenceNumber(), file.maxSequenceNumber(), deletionVector(dataSplit, file),
-                            evolution.columnMappings(), evolution.typePromotions()));
+                            mapping.columnMappings(), mapping.typePromotions()));
         }
         return levelMap;
     }

@@ -969,7 +969,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         null,
                         null,
                         null,
-                        null,
                         metadataBootstrap.metadataService(),
                         E2E_INTERNAL_AUTH_SECRET,
                         () -> requireE2ECoordination().getCurrentEpoch()));
@@ -1523,7 +1522,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * <p>This follows the industry-standard pattern used by Trino, Dremio, and
      * Spark Connect for server-streaming RPCs.</p>
      */
-    private static final long FLIGHT_BATCH_IDLE_TIMEOUT_SECONDS = 60;
+    private static final long FLIGHT_BATCH_IDLE_TIMEOUT_SECONDS =
+            org.pangrova.transport.client.FlightResultFetcher.BATCH_IDLE_TIMEOUT_SECONDS;
 
     /**
      * Daemon-thread executor for async {@code stream.next()} calls.
@@ -1550,7 +1550,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * This means:</p>
      * <ul>
      *   <li>Large result sets that continuously produce batches — never timeout</li>
-     *   <li>Stuck tasks that stop producing data — detected within 60s</li>
+     *   <li>Stuck tasks that stop producing data — detected within the production client idle window</li>
      * </ul>
      *
      * <h4>Retry strategy</h4>
@@ -2209,14 +2209,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 E2E_INTERNAL_AUTH_SECRET, "grpc").withBindHost(IN_PROCESS_WORKER_HOST);
         closeQuietly(fileSpaceAccessors, "file_space_accessors");
         fileSpaceAccessors = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
-        var catalogs = java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime");
         WorkerHttpServer server = new WorkerHttpServer(
                 httpConfig, taskManager, exchangeTransport, healthEndpoint,
-                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager, catalogs),
+                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
+                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}),
-                new org.pangrova.worker.http.endpoint.ReclusterStageResource(catalogs));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2275,7 +2274,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         registerDurableMaterializationTasks();
         var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
         SqlCompiler compiler = buildSqlCompiler();
-        statementDispatcher.updateCompiler(compiler);
         closeQuietly(sharedTaskDispatcher, "task_dispatcher");
         RemoteTaskDispatcher httpDispatcher = createE2ETaskDispatcher();
         sharedTaskDispatcher = httpDispatcher;
@@ -2288,11 +2286,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 E2eCurrentAuthority.configuredSpillBudget(NATIVE_WRITE_STAGE_BYTES), null);
         var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
                 compiler, security, scheduling,
-                metadataBootstrap.catalogRegistry(), null, 0L, null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
+                metadataBootstrap.catalogRegistry(), null, 0L,
+                null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
                 new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         sharedArtifactBuildStore),
                 new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(
-                        metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
+                        sharedArtifactBuildStore,
                         ModelAuthorityFixtures.artifacts().generatedPublications(stateStoreDataSource)));
         var queryDispatcher = new QueryDispatcher(
                 deps, statementDispatcher, null, sharedWriteAuthoritySupplier);
@@ -2491,7 +2490,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.task.CoordinatorTaskTracker tt,
             org.pangrova.coordinator.result.CoordinatorResultService resultSvc,
             org.pangrova.ai.control.embedding.EmbeddingModelRegistry embeddingRegistry,
-            WorkerManager workers) {
+            WorkerManager embeddingWorkers) {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder::invalidateTableCaches);
@@ -2507,8 +2506,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 catalog, maintenancePolicyService,
                 new org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
-        controlledMaintenance.setReclusterDispatcher(new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
-                workers::getActiveWorkers, E2E_INTERNAL_AUTH_SECRET));
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -2558,15 +2555,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
-        tasks.put(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.SetClusteringOrderTask(
-                        controlledMaintenance::setClusteringOrder));
-        tasks.put(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ReclusterTableTask(
-                        controlledMaintenance::recluster));
-        tasks.put(org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ShowClusteringStatusTask(
-                        controlledMaintenance::showClusteringStatus));
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
@@ -2653,7 +2641,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         if (embeddingRegistry != null) {
             org.pangrova.server.coordinator.bootstrap.EmbeddingModelTaskRegistration.register(
-                    metadataFactory, embeddingRegistry, workers);
+                    metadataFactory, embeddingRegistry, embeddingWorkers);
         }
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
@@ -2677,7 +2665,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         factories.add(planFactory);
 
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                null, resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
+                resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }
 
@@ -2799,7 +2787,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
                 .withSessionPlanner(session -> {
                     var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
-                            metadataBootstrap.catalogRegistry(), session);
+                            metadataBootstrap.catalogRegistry(), session,
+                            metadataBootstrap.catalogRegistry().tableStatistics());
                     var readerPin = new org.pangrova.coordinator.materialization.MaterializationReadPin(
                             java.util.Optional.of(readerPinLeases()), session);
                     var durableRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
@@ -2819,8 +2808,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             session, currentAccessControl,
                                             java.time.Instant.now(), readerPin).orElse(null);
                     var deps = new org.pangrova.planner.analysis.PlannerContext(
-                            new org.pangrova.planner.statistics.StatisticsCollector(
-                                    bindings::statistics),
+                            new org.pangrova.planner.statistics.StatisticsCollector(bindings::statistics),
                             mvCatalog,
                             durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,

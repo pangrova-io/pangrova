@@ -18,7 +18,6 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.parser.api.ast.Statement;
-import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,14 +34,12 @@ public final class StatementDispatcher {
 
     private final Map<Class<? extends Statement>, StatementExecutionFactory<?>> registry;
     private final List<StatementCompletionListener> listeners;
-    private volatile SqlCompiler compiler;
     private final CoordinatorResultService resultService;
     private final AccessControl accessControl;
     private final DdlLeadershipGuard ddlGuard;
 
     /** Creates a statement dispatcher from its execution dependencies. */
     public StatementDispatcher(StatementDispatcherContext deps) {
-        this.compiler = deps.compiler();
         this.resultService = deps.resultService();
         this.accessControl = deps.accessControl();
         this.ddlGuard = deps.ddlGuard();
@@ -52,21 +49,13 @@ public final class StatementDispatcher {
     }
 
     /**
-     * Attempts to dispatch a DDL/DML statement.
-     * Returns null if the SQL is not a routable statement.
+     * Attempts to dispatch the AST selected by the query phase.
+     * Returns null if the statement belongs to relational planning.
      */
     public DispatchResult tryDispatch(
-            QueryStateMachine sm, String sql,
+            QueryStateMachine sm, Statement ast,
             String queryId, QuerySession session) {
-        // Snapshot the volatile compiler reference once per dispatch to ensure
-        // a consistent compiler version throughout this request's lifecycle.
-        SqlCompiler currentCompiler = this.compiler;
-        Statement ast = parseAstOrNull(sql);
-        if (ast == null) {
-            return null;
-        }
-
-        if (!isRoutable(ast)) {
+        if (ast == null || !isRoutable(ast)) {
             return null;
         }
         // DDL leader routing guard: when enabled, rejects DDL on non-leader nodes
@@ -108,11 +97,6 @@ public final class StatementDispatcher {
         StatementResult result = executeUnchecked(factory, ast, context);
         fireCompletionEvent(queryId, ast, result, session);
         return toDispatchResult(result, queryId, sm);
-    }
-
-    /** Updates the compiler reference after schema changes. */
-    public void updateCompiler(SqlCompiler newCompiler) {
-        this.compiler = newCompiler;
     }
 
     /** Registers additional factories after construction for dynamic handlers. */
@@ -178,15 +162,6 @@ public final class StatementDispatcher {
         sm.tryTransition(QueryState.FINISHING);
         sm.tryTransition(QueryState.FINISHED);
         return null;
-    }
-
-    private Statement parseAstOrNull(String sql) {
-        try {
-            return compiler.parseToAst(sql);
-        } catch (Exception e) {
-            LOG.debug("event=parser_fallback sql_length={} error={}", sql.length(), e.getMessage());
-            return null;
-        }
     }
 
     @SuppressWarnings("unchecked")

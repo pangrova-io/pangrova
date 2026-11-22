@@ -33,10 +33,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
             try {
                 ShuffleExecutionOwner owner = ownerResolver.resolve(queryId);
                 requireLiveAnchor(connection, queryId, owner);
-                if (scopeExists(connection, queryId)) {
-                    scopeExistsForOwner(connection, queryId, owner);
-                }
-                insertIntent(connection, queryId);
+                recordIntent(connection, queryId, owner);
                 connection.commit();
             } catch (Exception failure) {
                 connection.rollback();
@@ -102,17 +99,6 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
-    private static boolean scopeExists(Connection connection, String queryId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM shuffle.shuffle_query_scope WHERE query_id = ?")) {
-            statement.setString(1, queryId);
-            try (ResultSet rows = statement.executeQuery()) {
-                return rows.next();
-            }
-        }
-    }
-
     private static void requireLiveAnchor(
             Connection connection, String queryId, ShuffleExecutionOwner owner)
             throws SQLException {
@@ -132,34 +118,35 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
-    private static boolean scopeExistsForOwner(
+    private static void recordIntent(
             Connection connection, String queryId, ShuffleExecutionOwner owner)
             throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT owner_id, owner_incarnation, owner_fencing_token "
-                        + "FROM shuffle.shuffle_query_scope WHERE query_id = ? FOR UPDATE")) {
-            statement.setString(1, queryId);
+        // Take this statement's snapshot after acquiring the anchor lock. Any
+        // registration that previously held the anchor must now be visible.
+        String sql = """
+                WITH locked_scope AS MATERIALIZED (
+                    SELECT owner_id = ? AND owner_incarnation = ? AND owner_fencing_token = ? AS owner_matches
+                    FROM shuffle.shuffle_query_scope WHERE query_id = ? FOR UPDATE
+                ), admission AS MATERIALIZED (
+                    SELECT COALESCE((SELECT owner_matches FROM locked_scope), true) AS allowed
+                ), recorded AS (
+                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id)
+                    SELECT ? FROM admission WHERE allowed
+                    ON CONFLICT (query_id) DO NOTHING
+                )
+                SELECT allowed FROM admission
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, owner.ownerId());
+            statement.setString(2, owner.ownerIncarnation());
+            statement.setLong(3, owner.fencingToken());
+            statement.setString(4, queryId);
+            statement.setString(5, queryId);
             try (ResultSet rows = statement.executeQuery()) {
-                if (!rows.next()) {
-                    return false;
-                }
-                if (!rows.getString(1).equals(owner.ownerId())
-                        || !rows.getString(2).equals(owner.ownerIncarnation())
-                        || rows.getLong(3) != owner.fencingToken()) {
+                if (!rows.next() || !rows.getBoolean(1)) {
                     throw new SecurityException("shuffle cleanup intent scope owner mismatch");
                 }
-                return true;
             }
-        }
-    }
-
-    private static void insertIntent(Connection connection, String queryId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO shuffle.shuffle_cleanup_intent (query_id) VALUES (?) "
-                        + "ON CONFLICT (query_id) DO NOTHING")) {
-            statement.setString(1, queryId);
-            statement.executeUpdate();
         }
     }
 }

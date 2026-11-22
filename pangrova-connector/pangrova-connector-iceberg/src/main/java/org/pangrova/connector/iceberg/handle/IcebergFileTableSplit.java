@@ -8,11 +8,12 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 /** One child manifest whose parent list and own bytes are pinned for a Native $files scan. */
 public record IcebergFileTableSplit(IcebergFileTableHandle selection,
-        IcebergFileTableHandle.ManifestObject manifest) implements ConnectorSplit {
+        IcebergFileTableHandle.ManifestObject manifest) implements CanonicalConnectorSplit {
     public IcebergFileTableSplit {
         Objects.requireNonNull(selection, "selection");
         Objects.requireNonNull(manifest, "manifest");
@@ -32,7 +33,7 @@ public record IcebergFileTableSplit(IcebergFileTableHandle selection,
     }
 
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         var list = selection.manifestSelection();
         var system = SystemTableSplitDetail.newBuilder()
                 .setKind(selection.entries()
@@ -57,6 +58,6 @@ public record IcebergFileTableSplit(IcebergFileTableHandle selection,
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "iceberg", selection.tableName(), list.manifestListLocation(),
                 manifest.uri(), manifest.uri(), 0,
-                manifest.length(), Map.of(), detail)).toByteArray();
+                manifest.length(), Map.of(), detail));
     }
 }

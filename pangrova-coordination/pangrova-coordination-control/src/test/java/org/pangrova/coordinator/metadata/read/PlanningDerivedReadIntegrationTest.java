@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
@@ -76,7 +77,7 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             assertThat(fixture.splits(plan.splitSources().get(0).readBinding().orElseThrow(), Map.of()))
                     .isNotEmpty().allSatisfy(split -> {
                         try {
-                            var wire = DataSplit.parseFrom(split.toSplitInfoProto());
+                            var wire = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
                             assertThat(wire.getSourceSnapshot()).isEqualTo(
                                     Long.toString(selected.snapshotId().orElseThrow()));
                         } catch (com.google.protobuf.InvalidProtocolBufferException error) {

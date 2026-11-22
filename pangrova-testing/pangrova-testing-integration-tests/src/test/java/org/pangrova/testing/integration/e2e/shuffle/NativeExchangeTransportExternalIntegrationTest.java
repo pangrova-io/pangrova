@@ -45,7 +45,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
     private NativeExchangeTransport transport;
 
     @BeforeEach void start() throws Exception {
-        service = new ActualShuffleService(directory, 1, 1);
+        service = new ActualShuffleService(directory, 4, 2);
         nativeRuntime = new ActualNativeTaskFixture();
         transport = new NativeExchangeTransport(nativeRuntime.executor(), service.clientPool());
     }
@@ -87,6 +87,58 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         assertThat(released.getAttempt()).isEqualTo(request.getAttempt());
         assertThat(released.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
         assertThat(released.hasNativeTaskStats()).isTrue();
+    }
+
+    @Test void consumesFourCommittedPartitionsWithOneNativeInputAcrossTwoEndpoints() throws Exception {
+        var producer = service.registerProducer();
+        var attempt = producer.request().getAttempt();
+        try (var egress = new RemoteShuffleByteEgress(service.clientPool())) {
+            assertThat(egress.installTask(producer.request())).isTrue();
+            for (int partition : List.of(0, 2, 3)) {
+                int rows = 10 + partition;
+                egress.onPartitionBatch(attempt.getQueryOrJobId(), attempt.getTaskId(), partition,
+                        rows, ByteBuffer.wrap(ActualExternalShuffleTask.arrowBatch(rows)));
+            }
+            egress.onTaskCompleted(attempt.getQueryOrJobId(), attempt.getTaskId());
+        }
+        var receipt = service.finalizeProducer(producer);
+        assertThat(receipt.partitions()).hasSize(4);
+        assertThat(receipt.partitions().get(1).lastSequence()).isEqualTo(-1);
+
+        long upstreamEpoch = attempt.getPlanEpoch();
+        var grouped = readRange(producer, 0, 0, 4, upstreamEpoch + 1);
+        assertThat(grouped).hasSize(35);
+        for (int endpoint = 0; endpoint < 2; endpoint++) {
+            int first = 2 * endpoint;
+            assertThat(service.wire(endpoint).requests.stream().map(frame -> frame.message())
+                    .filter(ReadPartitionRequest.class::isInstance).map(ReadPartitionRequest.class::cast)
+                    .peek(read -> assertThat(read.getConsumerAttempt().getPlanEpoch()).isEqualTo(upstreamEpoch + 1))
+                    .map(ReadPartitionRequest::getPartitionId)).containsExactly(first, first + 1);
+        }
+        var original = new ArrayList<Long>();
+        for (int partition = 0; partition < 4; partition++) {
+            original.addAll(readRange(producer, partition, partition, partition + 1, upstreamEpoch));
+        }
+        assertThat(grouped).containsExactlyInAnyOrderElementsOf(original);
+        assertThat(grouped.stream().mapToLong(Long::longValue).sum()).isEqualTo(45L + 66L + 78L);
+    }
+
+    private List<Long> readRange(ActualShuffleService.AdmittedProducer producer,
+                                 int taskPartition, int start, int end, long consumerEpoch) throws Exception {
+        var base = ActualExternalShuffleTask.consumer(producer, 4);
+        var request = nativeRuntime.bindWorker(base.toBuilder().setAttempt(base.getAttempt().toBuilder()
+                .setPartitionId(taskPartition).setPlanEpoch(consumerEpoch)).build());
+        var binding = input(service.delegateRead(producer, request, start, end).input());
+        var admitted = request.toBuilder().addExchangeInputs(binding).build();
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(admitted);
+        long handle = nativeRuntime.createPending(admitted);
+        transport.bindInputs(handle, admitted.getAttempt(), admitted.getExchangeInputsList());
+        nativeRuntime.executor().startTask(handle);
+        var result = ActualNativeResultReader.read(nativeRuntime, admitted);
+        assertThat(nativeRuntime.awaitFinished(handle).getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+        transport.releaseInputs(handle);
+        assertThat(nativeRuntime.executor().releaseTask(handle)).isPresent();
+        return result.values();
     }
 
     private void verifyOriginalOpaqueChunkBoundary() throws Exception {
@@ -148,10 +200,10 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
         var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
-        var published = binding.input().getPublication();
+        var published = binding.input().getPublications(0);
         var differentDigest = published.getManifestSha256().toByteArray();
         differentDigest[0] ^= 1;
-        var mismatched = binding.input().toBuilder().setPublication(published.toBuilder()
+        var mismatched = binding.input().toBuilder().setPublications(0, published.toBuilder()
                 .setManifestSha256(com.google.protobuf.ByteString.copyFrom(differentDigest))).build();
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(mismatched)));
@@ -218,6 +270,8 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
     private static ExchangeInputBinding input(ExternalShuffleInput binding) {
         return ExchangeInputBinding.newBuilder().setPlanNodeId(ActualExternalShuffleTask.PLAN_NODE)
                 .setExchangeId(ActualExternalShuffleTask.EXCHANGE_ID).setExpectedSourcePartitions(1)
+                .setNoMoreSources(true)
+                .setReadMode(org.pangrova.protocol.v2.ExchangeReadMode.EXCHANGE_READ_MODE_BLOCKING)
                 .setExternal(binding).build();
     }
 }

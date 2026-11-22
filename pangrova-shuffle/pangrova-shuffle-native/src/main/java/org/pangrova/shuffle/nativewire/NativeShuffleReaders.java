@@ -5,8 +5,14 @@ import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.api.worker.ShuffleReader;
 
-/** Takes validated Native wire bindings and opens readers scoped to the given consumer. */
+/** Takes Native wire bindings and prepares readers scoped to their original published partitions. */
 public interface NativeShuffleReaders extends AutoCloseable {
-    ShuffleReader<BatchChunk> open(ExternalShuffleInput binding, ExchangeTaskAttempt consumer);
+    PartitionReaders prepare(ExternalShuffleInput binding, ExchangeTaskAttempt consumer);
+
+    @FunctionalInterface
+    interface PartitionReaders {
+        ShuffleReader<BatchChunk> open(int publicationIndex);
+    }
+
     @Override void close();
 }

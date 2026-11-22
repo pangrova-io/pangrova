@@ -17,6 +17,7 @@
 #include "engine/executor/queue/OutputQueue.h"
 #include "engine/observability/NativeMetricsCollector.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
+#include "pangrova/protocol/v2/result.pb.h"
 #include "velox/type/Type.h"
 #include "velox/type/Filter.h"
 #include "velox/common/memory/Memory.h"
@@ -86,7 +87,7 @@ class PlanExecutionDriver {
   void release();
 
   // Final actual producer statistics survive Task deletion until receipt handoff.
-  std::vector<uint8_t> collectTaskStats() const;
+  std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
   uint64_t requestedObjectReadBytes() const;
 
@@ -101,6 +102,7 @@ class PlanExecutionDriver {
   // Access the active VeloxTaskRunner (may be null if not yet started).
   // Thread-safe: protected by runner_mutex_.
   velox::VeloxTaskRunner* veloxTaskRunner() const;
+  void watchResultDrain(std::function<void()> listener) const;
 
   // Look up the output RowType for a TableScan node by plan_node_id.
   // Returns the RowType if found, or std::nullopt if unknown.
@@ -195,7 +197,7 @@ class PlanExecutionDriver {
   std::shared_ptr<lance::LancePhysicalBatchWriter> physical_writer_;
   std::shared_ptr<lance::LanceBatchWriter> dataset_writer_;
   // @GuardedBy: runner_mutex_; snapshot before actual Task deletion.
-  std::vector<uint8_t> final_task_stats_;
+  std::optional<protocol::v2::NativeTaskStats> final_task_stats_;
 
   // TableScan planNodeId → output RowType mapping.
   // Copied from VeloxPlanConverter after plan conversion.

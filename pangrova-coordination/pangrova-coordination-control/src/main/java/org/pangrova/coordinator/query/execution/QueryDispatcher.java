@@ -23,7 +23,6 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
@@ -98,10 +97,9 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         var securityApplier = createSecurityApplier(deps);
         var queryTracer = tracingProvider != null
                 ? new QueryTracer(tracingProvider) : null;
-        var splitMgr = resolveSplitAssignmentManager(deps);
-        this.workerSelector = createWorkerSelector(deps, splitMgr);
+        this.workerSelector = createWorkerSelector(deps);
         this.writeAuthorityResolver = writeAuthorityResolver;
-        var dagEngine = createDagEngine(deps, splitMgr);
+        var dagEngine = createDagEngine(deps);
         long dagDispatchTimeoutMs = deps.taskTimeoutSeconds() > 0
                 ? deps.taskTimeoutSeconds() * 1000L : DEFAULT_DAG_DISPATCH_TIMEOUT_MS;
 
@@ -121,7 +119,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
         this.ownershipTracker = new QueryOwnershipTracker(
                 deps.taskTracker(), deps.workerManager(),
-                deps.catalogRegistry(), splitMgr, dagEngine.cancelRetrier());
+                deps.catalogRegistry(), dagEngine.cancelRetrier());
         this.ownershipTracker.initFromContext(
                 deps.haService(), deps.coordinatorId());
     }
@@ -254,25 +252,23 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
     public void retireQueryIssuance(String queryId) { taskTracker.retireQueryIssuance(queryId); }
 
-    public void addExecutionDrainListener(java.util.function.Consumer<String> listener) {
-        taskTracker.addExecutionDrainListener(report -> listener.accept(report.getAttempt().getQueryOrJobId()));
-    }
-
-    public void addQueryOperationExitListener(java.util.function.Consumer<String> listener) {
-        taskTracker.addQueryOperationExitListener(listener);
+    public void addQueryDrainProgressListener(java.util.function.Consumer<String> listener) {
+        taskTracker.addQueryDrainProgressListener(listener);
     }
 
     @Override
-    public void cleanupQuery(String queryId) {
-        ownershipTracker.cleanupQuery(queryId);
+    public boolean tryCleanupQuery(String queryId) {
+        if (!ownershipTracker.tryCleanupQuery(queryId)) return false;
         schedulingEngine.dagEngine().clearQuery(queryId);
+        return true;
     }
 
     /** Cleans the actual local creation scope without touching foreign execution ownership. */
     @Override
-    public void cleanupUnadmittedQuery(String queryId) {
-        ownershipTracker.cleanupLocalQuery(queryId);
+    public boolean tryCleanupUnadmittedQuery(String queryId) {
+        if (!ownershipTracker.tryCleanupLocalQuery(queryId)) return false;
         schedulingEngine.dagEngine().clearQuery(queryId);
+        return true;
     }
 
     /** Wires the one durable remote Shuffle cleanup path. */
@@ -344,13 +340,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
                 deps.columnMaskApplier(), deps.rowFilterApplier());
     }
 
-    private static SplitAssignmentManager resolveSplitAssignmentManager(
-            QueryDispatcherContext deps) {
-        return deps.splitAssignmentManager() != null
-                ? deps.splitAssignmentManager()
-                : new SplitAssignmentManager();
-    }
-
     /** Returns the exact Worker placement strategy used by dispatched tasks. */
     public WorkerSelector workerSelector() { return workerSelector; }
 
@@ -361,16 +350,16 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     public WriteAuthorityResolver writeAuthorityResolver() { return writeAuthorityResolver; }
 
     private static DefaultWorkerSelector createWorkerSelector(
-            QueryDispatcherContext deps, SplitAssignmentManager splitMgr) {
+            QueryDispatcherContext deps) {
         return new DefaultWorkerSelector(
-                deps.workerManager(), deps.taskScheduler(), splitMgr.cacheAffinityAssigner(),
+                deps.workerManager(), deps.taskScheduler(), deps.cacheAffinityAssigner(),
                 deps.spillBudget() != null
                         ? deps.spillBudget() : new SpillBudget(0),
                 deps.embeddingModelRegistry());
     }
 
     private static DAGDispatchEngine createDagEngine(
-            QueryDispatcherContext deps, SplitAssignmentManager splitMgr) {
+            QueryDispatcherContext deps) {
         return new DAGDispatchEngine(new DAGDispatchContext(
                 deps.dispatcher(), deps.taskTracker(),
                 deps.lineageEmitter(), deps.catalogRegistry(),
@@ -378,7 +367,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
                 deps.adaptiveQueryConfig(),
                 deps.speculativeStageHandler(),
                 deps.workerManager().requiresLocalShuffle() ? PipelineConfig.LOCAL : PipelineConfig.ENABLED,
-                deps.shuffleLifecycleManager(), splitMgr,
+                deps.shuffleLifecycleManager(),
                 deps.resilienceRegistry(), deps.stateJournal()),
                 buildStageHandlers(deps),
                 deps.indexAwareSplitFetcher(), deps.artifactBindingResolver(), deps.generatedValueReadResolver());

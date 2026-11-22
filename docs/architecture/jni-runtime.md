@@ -93,7 +93,8 @@ generate these fields from the same source:
 | 7 | `start_offset` | uint64 | Bounded range start |
 | 8 | `length` | uint64 | Bounded range length |
 | 9 | `partition_values` | repeated PartitionValue | Typed partition pruning metadata |
-| 10 | `connector_detail` | google.protobuf.Any | Type-URL-validated connector detail |
+| 11 | `catalog` | CatalogExecutionBinding | Exact catalog deployment for Native manifest partitions |
+| 12 | `file_detail` | FileSplitDetail | Typed format-specific scan metadata |
 
 ### 1.6 Task kinds and terminal states
 

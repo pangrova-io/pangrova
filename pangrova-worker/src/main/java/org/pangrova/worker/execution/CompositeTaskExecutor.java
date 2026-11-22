@@ -1,6 +1,5 @@
 package org.pangrova.worker.execution;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.protocol.v2.TaskRequest;
 
@@ -41,10 +40,9 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
     }
 
     @Override
-    public long createTask(byte[] taskRequestBytes) {
-        TaskRequest request = parseOrNull(taskRequestBytes);
-        if (request == null || !supportsWorkerTask(request.getTaskKind())) {
-            return nativeExecutor.createTask(taskRequestBytes);
+    public long createTask(TaskRequest request) {
+        if (!supportsWorkerTask(request.getTaskKind())) {
+            return nativeExecutor.createTask(request);
         }
         long backendHandle = workerBackend.create(request);
         if (backendHandle <= 0) {
@@ -101,11 +99,27 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
     }
 
     @Override
+    public byte[] pushExchangeChunk(long executorHandle, byte[] metadata, byte[] data) {
+        if (workerHandles.containsKey(executorHandle)) {
+            throw new UnsupportedOperationException("Worker-executed tasks have no Native exchange ingress");
+        }
+        return nativeExecutor.pushExchangeChunk(executorHandle, metadata, data);
+    }
+
+    @Override
     public boolean isFinished(long executorHandle) {
         Long backendHandle = workerHandles.get(executorHandle);
         return backendHandle == null
                 ? nativeExecutor.isFinished(executorHandle)
                 : workerBackend.isFinished(backendHandle);
+    }
+
+    @Override
+    public boolean awaitFinished(long executorHandle, int waitMillis) throws InterruptedException {
+        Long backendHandle = workerHandles.get(executorHandle);
+        return backendHandle == null
+                ? nativeExecutor.awaitFinished(executorHandle, waitMillis)
+                : workerBackend.awaitFinished(backendHandle, waitMillis);
     }
 
     @Override
@@ -142,14 +156,4 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
         workerBackend.close();
     }
 
-    private static TaskRequest parseOrNull(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) {
-            return null;
-        }
-        try {
-            return TaskRequest.parseFrom(bytes);
-        } catch (InvalidProtocolBufferException malformed) {
-            return null;
-        }
-    }
 }

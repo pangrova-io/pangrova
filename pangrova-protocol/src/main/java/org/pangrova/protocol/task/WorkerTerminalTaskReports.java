@@ -63,16 +63,10 @@ public final class WorkerTerminalTaskReports {
             throw new IllegalArgumentException(
                     "Worker-executed failure requires an unsuccessful CDC ingest task");
         }
-        byte[] base = unsuccessfulWithError(request, state, failure, null);
-        try {
-            return TaskReport.parseFrom(base).toBuilder()
-                    .setExecutionDrainState(
-                            org.pangrova.protocol.v2.ExecutionDrainState
-                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
-                    .build().toByteArray();
-        } catch (com.google.protobuf.InvalidProtocolBufferException impossible) {
-            throw new IllegalStateException("Worker failure report encoding failed", impossible);
-        }
+        return unsuccessfulReport(request, state, failure, null)
+                .setExecutionDrainState(org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
+                .build().toByteArray();
     }
 
     public static byte[] unsuccessful(
@@ -102,6 +96,11 @@ public final class WorkerTerminalTaskReports {
     /** Accepts already classified Worker failures without parsing REST strings. */
     public static byte[] unsuccessfulWithError(
             TaskRequest request, TaskState state, ExecutionError failure, byte[] nativeReport) {
+        return unsuccessfulReport(request, state, failure, nativeReport).build().toByteArray();
+    }
+
+    private static TaskReport.Builder unsuccessfulReport(
+            TaskRequest request, TaskState state, ExecutionError failure, byte[] nativeReport) {
         if (request == null || !request.hasAttempt()
                 || state != TaskState.TASK_STATE_FAILED && state != TaskState.TASK_STATE_CANCELLED) {
             throw new IllegalArgumentException("Worker failure needs an exact attempt and unsuccessful state");
@@ -113,7 +112,8 @@ public final class WorkerTerminalTaskReports {
             throw new IllegalArgumentException("Worker failure needs a complete canonical classification");
         }
         CanonicalTaskRequests.validateCoverageIdentityBounds(request);
-        ExecutionError firstFailure = matchingNativeReport(request, nativeReport)
+        var observedNative = matchingNativeReport(request, nativeReport);
+        ExecutionError firstFailure = observedNative
                 .filter(observed -> observed.getState() == state && observed.hasError()
                         && !observed.getError().getCode().isBlank())
                 .map(TaskReport::getError).orElse(failure);
@@ -124,14 +124,14 @@ public final class WorkerTerminalTaskReports {
                         .TASK_REPORT_ORIGIN_WORKER_RECONCILED)
                 .setCoverage(zeroCompletedCoverage(request))
                 .setError(firstFailure);
-        nativeUsage(request, nativeReport).ifPresent(report::setUsage);
-        matchingNativeReport(request, nativeReport).filter(observed -> observed.getExecutionDrainState()
+        nativeUsage(request, observedNative).ifPresent(report::setUsage);
+        observedNative.filter(observed -> observed.getExecutionDrainState()
                 == org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
                 .ifPresent(observed -> {
                     if (observed.hasNativeTaskStats()) report.setNativeTaskStats(observed.getNativeTaskStats());
                     report.setExecutionDrainState(observed.getExecutionDrainState());
                 });
-        return report.build().toByteArray();
+        return report;
     }
 
     private static CoverageReport.Builder zeroCompletedCoverage(TaskRequest request) {
@@ -196,11 +196,11 @@ public final class WorkerTerminalTaskReports {
     }
 
     private static Optional<ResourceUsage> nativeUsage(
-            TaskRequest request, byte[] encoded) {
+            TaskRequest request, Optional<TaskReport> observed) {
         if (!request.hasResourceGrant()) {
             return Optional.empty();
         }
-        return matchingNativeReport(request, encoded)
+        return observed
                 .filter(TaskReport::hasUsage)
                 .map(TaskReport::getUsage)
                 .filter(usage -> CanonicalTaskRequests.usageWithinGrant(usage, request.getResourceGrant()));

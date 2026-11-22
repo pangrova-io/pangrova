@@ -38,12 +38,17 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String INSERT_ANCHOR =
             "INSERT INTO execution_anchor "
                     + "(execution_id, owner_id, owner_incarnation, fencing_token, "
-                    + "acquired_at, expires_at, version) VALUES (?, ?, ?, ?, ?, ?, 1) "
+                    + "acquired_at, expires_at, version) SELECT ?, ?, ?, ?, ?, ?, 1 "
+                    + "WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE w.execution_id=? AND w.protected_until>clock_timestamp()) "
                     + "ON CONFLICT DO NOTHING";
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
                     + "acquired_at=?, expires_at=?, version=version+1 "
-                    + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=?";
+                    + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=? "
+                    + "AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE w.execution_id=execution_anchor.execution_id "
+                    + "AND w.protected_until>clock_timestamp())";
     private static final String RENEW_OWNED =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
                     + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?) "
@@ -75,8 +80,17 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String SELECT_EXPIRED =
             "SELECT execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version FROM execution_anchor "
-                    + "WHERE expires_at<=? ORDER BY expires_at, execution_id "
-                    + "LIMIT ? FOR UPDATE SKIP LOCKED";
+                    + "WHERE expires_at<=? AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE w.execution_id=execution_anchor.execution_id "
+                    + "AND w.protected_until>clock_timestamp()) "
+                    + "ORDER BY expires_at, execution_id LIMIT ? FOR UPDATE SKIP LOCKED";
+    private static final String REAP_READ_WINDOWS = """
+            DELETE FROM execution_read_window WHERE read_id IN (
+                SELECT read_id FROM execution_read_window
+                WHERE protected_until<=clock_timestamp()
+                ORDER BY protected_until, read_id LIMIT ? FOR UPDATE SKIP LOCKED
+            )
+            """;
 
     private final DataSource dataSource;
 
@@ -269,8 +283,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            List<ExpiredRow> expired = selectExpired(
-                    connection, dbNow(connection), maxBatchSize);
+            reapReadWindows(connection, maxBatchSize);
+            List<ExpiredRow> expired = selectExpired(connection, dbNow(connection), maxBatchSize);
             List<ExecutionAnchor> claimed = new ArrayList<>(expired.size());
             for (ExpiredRow row : expired) {
                 long token = nextToken(connection);
@@ -362,6 +376,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             statement.setLong(4, token);
             setInstant(statement, 5, now);
             setInstant(statement, 6, deadline);
+            statement.setString(7, executionId);
             return statement.executeUpdate() == 1;
         }
     }
@@ -379,6 +394,13 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             statement.setLong(8, replacement.row().version);
             setInstant(statement, 9, replacement.now());
             return statement.executeUpdate() == 1;
+        }
+    }
+
+    private static void reapReadWindows(Connection connection, int limit) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(REAP_READ_WINDOWS)) {
+            statement.setInt(1, limit);
+            statement.executeUpdate();
         }
     }
 

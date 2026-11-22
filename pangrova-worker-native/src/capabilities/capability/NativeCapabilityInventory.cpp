@@ -46,35 +46,37 @@ void normalizeDescriptor(google::protobuf::FileDescriptorProto* descriptor) {
   }
 }
 
-google::protobuf::FileDescriptorSet canonicalDescriptorSet(const google::protobuf::FileDescriptor* root,
-                                   bool normalize_derived_fields = false) {
+google::protobuf::FileDescriptorSet canonicalDescriptorSet() {
   std::map<std::string, const google::protobuf::FileDescriptor*> files;
-  collectDescriptorFiles(root, files);
+  collectDescriptorFiles(proto::RuntimeCommand::descriptor()->file(), files);
   google::protobuf::FileDescriptorSet descriptor_set;
   for (const auto& [name, descriptor] : files) {
     (void)name;
     auto* output = descriptor_set.add_file();
     descriptor->CopyTo(output);
-    if (normalize_derived_fields) {
-      normalizeDescriptor(output);
-    }
+    normalizeDescriptor(output);
   }
   return descriptor_set;
 }
 
 }  // namespace
 
+const proto::ProtocolVersion& canonicalProtocolVersion() {
+  static const auto version = [] {
+    proto::ProtocolVersion identity;
+    identity.set_major(2);
+    identity.set_minor(0);
+    identity.set_descriptor_set_sha256(functionContractDigest(canonicalDescriptorSet()));
+    identity.set_rollout_epoch("ai-native-function-resource-r3");
+    return identity;
+  }();
+  return version;
+}
+
 proto::CapabilityInventory runtimeCapabilityInventory(const facebook::velox::exec::FunctionRegistrySnapshot& registry) {
-  const auto descriptor_set_v2 =
-      canonicalDescriptorSet(proto::RuntimeCommand::descriptor()->file(), true);
-  const auto descriptor_set_v2_sha256 = functionContractDigest(descriptor_set_v2);
   proto::CapabilityInventory inventory;
   auto* inventory_v2 = &inventory;
-  auto* protocol_v2 = inventory_v2->mutable_protocol();
-  protocol_v2->set_major(2);
-  protocol_v2->set_minor(0);
-  protocol_v2->set_descriptor_set_sha256(descriptor_set_v2_sha256);
-  protocol_v2->set_rollout_epoch("ai-native-function-resource-r3");
+  *inventory_v2->mutable_protocol() = canonicalProtocolVersion();
   *inventory_v2->add_capabilities() =
       pangrova::capability::exactTopKRetrievalDescriptor();
   *inventory_v2->add_capabilities() =

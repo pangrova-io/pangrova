@@ -177,6 +177,7 @@ public final class TaskStatusReceiver {
         }
         try (var publication = taskTracker.enterReportPublication(expectedRequest, report, resourceOnly)) {
             report = publication.report();
+            // Keep the exact receipt before notifying the DAG, whose callbacks can retire identity.
             recordExecutionDrain(expectedRequest, validation);
             boolean accepted = publication.publicationCompleted();
             if (!accepted) {
@@ -228,14 +229,10 @@ public final class TaskStatusReceiver {
             StatusValidation validation, String owner, boolean durable) {
         if (durable && isFinishedState(report.state())
                 && !commitDurableReport(expected, report, validation.canonicalStatus().orElseThrow())) {
-            recordExecutionDrain(expected, validation);
             LOG.warn("event=artifact_report_rejected_durable taskId={} attempt={}", report.taskId(), report.attempt());
             return validation.canonicalStatus().filter(status -> status.getExecutionDrainState()
                     != org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED).isPresent();
         }
-        // Resource termination is exact-issued-attempt evidence. Retain it
-        // before notifying the DAG, whose terminal callbacks can retire identity.
-        if (expected != null) recordExecutionDrain(expected, validation);
         if (isRetiredDrainedAttempt(report)) {
             return true;
         }

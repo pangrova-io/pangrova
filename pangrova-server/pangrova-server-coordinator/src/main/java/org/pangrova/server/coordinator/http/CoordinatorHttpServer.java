@@ -20,7 +20,6 @@ import org.pangrova.server.coordinator.http.endpoint.CoordinatorHealthResource;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorTaskResource;
 import org.pangrova.server.coordinator.http.endpoint.QueryResource;
 import org.pangrova.server.coordinator.http.endpoint.RequestLimitFilter;
-import org.pangrova.server.coordinator.http.endpoint.SplitResource;
 import org.pangrova.server.coordinator.http.endpoint.StreamingResource;
 import org.pangrova.server.coordinator.http.endpoint.TracingFilter;
 import org.pangrova.server.coordinator.http.endpoint.WebUiResource;
@@ -169,7 +168,6 @@ public final class CoordinatorHttpServer {
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));
         registerIfPresent(config, deps.cdcHandler(), StreamingResource::new);
-        registerIfPresent(config, deps.splitAssignmentManager(), SplitResource::new);
         registerCatalogRestResources(config, deps);
         if (deps.copySourceReadResource() != null) {
             if (deps.authenticationManager() == null || deps.internalAuthSecret() == null

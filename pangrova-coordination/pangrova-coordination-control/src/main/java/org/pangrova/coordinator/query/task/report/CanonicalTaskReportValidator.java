@@ -31,7 +31,7 @@ import java.util.Set;
 /** Validates the canonical v2 task report carried by the REST control channel. */
 public final class CanonicalTaskReportValidator {
 
-    private static final int MAX_STATUS_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_STATUS_BYTES = TaskStatusReport.MAX_CANONICAL_BYTES;
     private static final int MAX_COVERAGE_ENTRIES =
             CanonicalTaskRequests.MAX_COVERAGE_IDENTITIES;
     private static final double COVERAGE_EPSILON = 1.0e-12;
@@ -40,18 +40,26 @@ public final class CanonicalTaskReportValidator {
     public Optional<TaskReport> validate(
             TaskStatusReport report, SubmitTaskRequest expectedRequest) {
         validateOuterIdentity(report, expectedRequest);
-        byte[] encoded = report.canonicalTaskReport();
-        if (encoded == null || encoded.length == 0) {
+        var encoded = report.canonicalEvidence();
+        if (encoded == null || encoded.isEmpty()) {
             if (isTerminalState(report.state())) {
                 throw invalid("terminal task is missing its canonical TaskReport");
             }
             return Optional.empty();
         }
-        if (encoded.length > MAX_STATUS_BYTES) {
+        if (encoded.size() > MAX_STATUS_BYTES) {
             throw invalid("TaskReport exceeds the control-plane size limit");
         }
 
-        TaskReport status = parse(encoded);
+        TaskReport status;
+        try {
+            status = report.canonicalStatus();
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Malformed canonical Native TaskReport", e);
+        }
+        if (!status.hasAttempt()) {
+            throw invalid("Native status is missing its fenced attempt identity");
+        }
         if (!status.getUnknownFields().asMap().isEmpty()) {
             throw invalid("TaskReport contains fields outside the negotiated descriptor");
         }
@@ -60,6 +68,15 @@ public final class CanonicalTaskReportValidator {
         validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
+        var nativeStats = status.getNativeTaskStats();
+        if (nativeStats.hasBuildKeyRange()) {
+            var range = nativeStats.getBuildKeyRange();
+            if (!expectedRequest.taskRequest().hasBuildKeyOrdinal() || !range.getUnknownFields().asMap().isEmpty()
+                    || range.getMinimum() > range.getMaximum()
+                    || (range.getEmpty() && (range.getMinimum() != 0 || range.getMaximum() != 0))) {
+                throw invalid("Native build key range does not match its issued request");
+            }
+        }
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
@@ -94,6 +111,9 @@ public final class CanonicalTaskReportValidator {
         }
         var canonical = expected.taskRequest();
         var attempt = canonical.getAttempt();
+        if (report.reportedAttempt() != null && !report.reportedAttempt().equals(attempt)) {
+            throw invalid("Reported attempt differs from the exact dispatched request");
+        }
         if (!report.taskId().equals(attempt.getTaskId())
                 || !report.queryId().equals(attempt.getQueryOrJobId())
                 || report.stageId() != attempt.getStageId()

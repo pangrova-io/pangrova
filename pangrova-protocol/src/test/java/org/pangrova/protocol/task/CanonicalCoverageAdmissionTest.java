@@ -46,8 +46,14 @@ class CanonicalCoverageAdmissionTest {
         var request = request();
         for (int index = 0; index < 4_096; index++) {
             request.addSplits(split(index, "catalog.schema.events-" + index));
+            request.addSplits(split(4_097 + index, "catalog.schema.events-0"));
         }
         CanonicalTaskRequests.validateForAdmission(request.build());
+        var newSnapshot = request.clone().addSplits(split(4_096, "catalog.schema.events-0").toBuilder()
+                .setSourceSnapshot("another-snapshot")).build();
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(newSnapshot))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too many source snapshot coverage identities");
         request.addSplits(split(4_096, "catalog.schema.events-4096"));
 
         assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(

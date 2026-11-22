@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -99,7 +100,7 @@ class IcebergFileReadBindingsTest {
             try {
                 var splits = source.getNextBatch(10);
                 assertThat(splits).singleElement().isInstanceOf(IcebergFileTableSplit.class);
-                DataSplit split = DataSplit.parseFrom(splits.get(0).toSplitInfoProto());
+                DataSplit split = DataSplit.parseFrom(CanonicalConnectorSplit.from(splits.get(0)).toByteArray());
                 assertThat(split.getSourceSnapshot())
                         .isEqualTo(selected.manifestSelection().manifestListLocation());
                 assertThat(split.getDataObjectId()).isEqualTo(selected.manifests().get(0).uri());
@@ -172,7 +173,7 @@ class IcebergFileReadBindingsTest {
             try {
                 var splits = source.getNextBatch(10);
                 assertThat(splits).hasSize(1);
-                DataSplit split = DataSplit.parseFrom(splits.get(0).toSplitInfoProto());
+                DataSplit split = DataSplit.parseFrom(CanonicalConnectorSplit.from(splits.get(0)).toByteArray());
                 assertThat(split.getSourceId()).endsWith("$entries");
                 assertThat(DataSplitProtoCodec.fileDetail(split).getSystemTable().getKind())
                         .isEqualTo(SystemTableSplitDetail.Kind.ICEBERG_ENTRIES);
@@ -209,7 +210,7 @@ class IcebergFileReadBindingsTest {
             assertThat(((RowType) partition.parameterizedType()).fields().stream().map(f -> f.name()))
                     .containsExactly("new_id", "id_bucket");
             var split = DataSplit.parseFrom(new IcebergFileTableSplit(
-                    selected, selected.manifests().get(0)).toSplitInfoProto());
+                    selected, selected.manifests().get(0)).toDataSplit().toByteArray());
             var system = DataSplitProtoCodec.fileDetail(split).getSystemTable();
             assertThat(system.getIcebergChildSpecId()).isEqualTo(spec.specId());
             assertThat(system.getIcebergPartitionSpecsList()).hasSize(2);

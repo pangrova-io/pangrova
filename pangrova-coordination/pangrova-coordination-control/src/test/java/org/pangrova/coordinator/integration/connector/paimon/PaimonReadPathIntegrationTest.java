@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.integration.connector.paimon;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.PaimonMetadata;
@@ -228,7 +229,7 @@ class PaimonReadPathIntegrationTest {
 
         assertThat(splits).isNotEmpty();
         for (ConnectorSplit split : splits) {
-            DataSplit wire = DataSplit.parseFrom(split.toSplitInfoProto());
+            DataSplit wire = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
             PaimonSplit paimon = (PaimonSplit) split;
             assertThat(paimon.snapshotId()).isPositive();
             assertThat(wire.getSourceSnapshot()).isEqualTo(Long.toString(paimon.snapshotId()));

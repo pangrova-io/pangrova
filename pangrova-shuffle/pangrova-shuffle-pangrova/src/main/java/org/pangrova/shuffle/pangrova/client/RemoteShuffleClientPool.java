@@ -209,7 +209,7 @@ public final class RemoteShuffleClientPool implements Closeable, org.pangrova.sh
 
     /** Creates the reader only after validating the wire receipt and the exact consumer owner. */
     @Override
-    public RemoteShuffleExchangeSource open(org.pangrova.protocol.v2.ExternalShuffleInput input,
+    public PartitionReaders prepare(org.pangrova.protocol.v2.ExternalShuffleInput input,
             org.pangrova.shuffle.api.identity.ExchangeTaskAttempt consumer) {
         var admittedOwner = input.getExecutionOwner();
         var consumerOwner = consumer.executionOwner();
@@ -219,21 +219,34 @@ public final class RemoteShuffleClientPool implements Closeable, org.pangrova.sh
                 || admittedOwner.getFencingToken() != consumerOwner.fencingToken()) {
             throw new IllegalArgumentException("Invalid external shuffle read binding or execution owner");
         }
-        var checksum = input.getExpectedProducerSetChecksum();
-        var published = input.getPublication();
-        var context = new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
-                consumer, input.getOutputPartitionId(), input.getDeadlineEpochMs());
-        var read = new PangrovaPartitionRead(input.getShuffleId(), context, input.getPlanEpoch(),
-                input.getExpectedProducerPartitions(), checksum.getDigest().toByteArray(),
-                new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(published.getLastSequence(),
-                        published.getTotalBytes(), published.getTotalRows(),
-                        java.util.HexFormat.of().formatHex(published.getManifestSha256().toByteArray())));
+        var producerSetDigest = input.getExpectedProducerSetChecksum().getDigest().toByteArray();
         var grant = input.getReadCapability();
         var access = new org.pangrova.shuffle.api.ShuffleAccess(grant.getToken().toByteArray(),
                 grant.getExpiresAtEpochMs());
-        var endpoint = input.getEndpointsList().stream().filter(candidate ->
-                candidate.getPartitionStart() <= input.getOutputPartitionId()
-                        && input.getOutputPartitionId() < candidate.getPartitionEnd()).findFirst().orElseThrow();
+        return index -> {
+            var published = input.getPublications(index);
+            int partition = input.getSourcePartitionStart() + index;
+            var context = new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
+                    consumer, partition, input.getDeadlineEpochMs());
+            var read = new PangrovaPartitionRead(input.getShuffleId(), context, input.getPlanEpoch(),
+                    input.getExpectedProducerPartitions(), producerSetDigest,
+                    new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(published.getLastSequence(),
+                            published.getTotalBytes(), published.getTotalRows(),
+                            java.util.HexFormat.of().formatHex(published.getManifestSha256().toByteArray())));
+            return openPartition(input, partition, read, access);
+        };
+    }
+
+    private RemoteShuffleExchangeSource openPartition(org.pangrova.protocol.v2.ExternalShuffleInput input,
+            int partition, PangrovaPartitionRead read, org.pangrova.shuffle.api.ShuffleAccess access) {
+        int low = 0;
+        int high = input.getEndpointsCount() - 1;
+        while (low < high) {
+            int mid = low + (high - low) / 2;
+            if (partition < input.getEndpoints(mid).getPartitionEnd()) high = mid;
+            else low = mid + 1;
+        }
+        var endpoint = input.getEndpoints(low);
         return new RemoteShuffleExchangeSource(read, access,
                 borrow(new ShuffleServiceAddress(endpoint.getHost(), endpoint.getPort(), endpoint.getTlsIdentity())));
     }

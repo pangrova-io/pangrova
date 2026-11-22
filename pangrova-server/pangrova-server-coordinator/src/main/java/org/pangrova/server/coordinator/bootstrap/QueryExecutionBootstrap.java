@@ -23,7 +23,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceT
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogStatementTasks;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowCatalogsTask;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -128,7 +128,7 @@ final class QueryExecutionBootstrap {
             WorkerManager wm, CoordinatorTaskTracker tt, SqlCompiler compilerTemplate,
             TaskScheduler taskScheduler, IndexAwareSplitFetcher indexedReads,
             CircuitBreakerPolicy circuitBreaker, CoordinatorResultService resultSvc,
-            SplitAssignmentManager splitAssignmentManager,
+            CacheAffinityAssigner cacheAffinityAssigner,
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal,
             org.pangrova.generation.publication.read.PublishedGenerationBindingResolver publishedReads,
@@ -179,7 +179,7 @@ final class QueryExecutionBootstrap {
                 accessControl == null ? null : new org.pangrova.planner.security.RowFilterApplier(accessControl));
         var scheduling = new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                 rtd, taskScheduler, wm, tt,
-                splitAssignmentManager, speculativeStageHandler,
+                cacheAffinityAssigner, speculativeStageHandler,
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
         QueryDispatcherContext deps = new QueryDispatcherContext(
@@ -263,12 +263,6 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
-        String internalSecret = config.internalAuthSecret();
-        if (internalSecret != null && !internalSecret.isBlank()) {
-            controlledMaintenance.setReclusterDispatcher(
-                    new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
-                            () -> requireWorkerManager().getActiveWorkers(), internalSecret));
-        }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -328,7 +322,7 @@ final class QueryExecutionBootstrap {
         }
 
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                compilerSnapshot, resultSvc,
+                resultSvc,
                 List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }

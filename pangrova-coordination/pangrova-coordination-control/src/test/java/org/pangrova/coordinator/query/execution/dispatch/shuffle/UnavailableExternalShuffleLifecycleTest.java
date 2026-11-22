@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.shuffle.api.ShufflePublication;
 
@@ -15,7 +14,7 @@ class UnavailableExternalShuffleLifecycleTest {
         var context = new DAGDispatchContext((request, worker) -> {
             throw new AssertionError("No task should be dispatched by this construction test");
         }, null, null, null, 0, null, null, null, null, null,
-                new SplitAssignmentManager(), null, null);
+                null, null);
         var lifecycle = context.shuffleLifecycleManager();
         assertThat(lifecycle).isSameAs(UnavailableExternalShuffleLifecycle.INSTANCE);
         assertThatThrownBy(() -> lifecycle.registerShuffle(

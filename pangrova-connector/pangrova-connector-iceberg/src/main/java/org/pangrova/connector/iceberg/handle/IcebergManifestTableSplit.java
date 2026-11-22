@@ -8,10 +8,11 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 /** One SHA-pinned Iceberg manifest-list object scanned by the Native Worker. */
-public record IcebergManifestTableSplit(IcebergManifestTableHandle selection) implements ConnectorSplit {
+public record IcebergManifestTableSplit(IcebergManifestTableHandle selection) implements CanonicalConnectorSplit {
     public IcebergManifestTableSplit {
         Objects.requireNonNull(selection, "selection");
         if (selection.empty()) {
@@ -30,7 +31,7 @@ public record IcebergManifestTableSplit(IcebergManifestTableHandle selection) im
     }
 
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         var system = SystemTableSplitDetail.newBuilder()
                 .setKind(SystemTableSplitDetail.Kind.ICEBERG_MANIFESTS)
                 .setSnapshotId(selection.snapshotId().orElseThrow())
@@ -46,6 +47,6 @@ public record IcebergManifestTableSplit(IcebergManifestTableHandle selection) im
         String path = selection.manifestListLocation();
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "iceberg", selection.tableName(), path, path,
-                path, 0, selection.manifestListLength(), Map.of(), detail)).toByteArray();
+                path, 0, selection.manifestListLength(), Map.of(), detail));
     }
 }

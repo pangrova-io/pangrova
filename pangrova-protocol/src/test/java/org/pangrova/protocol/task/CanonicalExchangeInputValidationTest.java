@@ -58,13 +58,19 @@ class CanonicalExchangeInputValidationTest {
                 .setCommitAddress(ShuffleServiceAddress.newBuilder().setHost("shuffle").setPort(9090))
                 .setReadCapability(ShuffleAccessCapability.newBuilder().setToken(ByteString.copyFromUtf8("ticket"))
                         .setExpiresAtEpochMs(DEADLINE + 1))
-                .setPublication(ShufflePartitionPublication.newBuilder().setLastSequence(-1)
+                .setSourcePartitionStart(0).addPublications(ShufflePartitionPublication.newBuilder().setLastSequence(-1)
                         .setTotalBytes(0).setTotalRows(0).setManifestSha256(digest.getDigest()))
                 .addEndpoints(first).addEndpoints(second).build();
         assertThat(CanonicalTaskRequests.validExternalInput(read)).isTrue();
         assertThat(CanonicalTaskRequests.validExternalInput(read.toBuilder().clearEndpoints()
                 .addEndpoints(second).addEndpoints(first).build())).isFalse();
         assertThat(CanonicalTaskRequests.validExternalInput(read.toBuilder().clearExpectedProducerSetChecksum()
+                .build())).isFalse();
+        var grouped = read.toBuilder().addPublications(read.getPublications(0)).build();
+        assertThat(CanonicalTaskRequests.validExternalInput(grouped)).isTrue();
+        assertThat(CanonicalTaskRequests.validExternalInput(grouped.toBuilder().setSourcePartitionStart(1)
+                .build())).isFalse();
+        assertThat(CanonicalTaskRequests.validExternalInput(grouped.toBuilder().clearSourcePartitionStart()
                 .build())).isFalse();
         assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(task
                 .addExchangeInputs(input(1).setExternal(read.toBuilder().setDeadlineEpochMs(DEADLINE + 1))).build()))

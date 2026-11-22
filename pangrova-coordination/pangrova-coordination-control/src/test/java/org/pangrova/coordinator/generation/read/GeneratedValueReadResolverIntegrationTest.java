@@ -47,7 +47,6 @@ import org.pangrova.security.api.identity.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +63,23 @@ class GeneratedValueReadResolverIntegrationTest {
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void stageUsesAlreadyAdmittedDeclarationAndRejectsSplitsFromAnotherSnapshot() throws Exception {
+        try (var fixture = fixture()) {
+            long version = fixture.table().currentSnapshot().snapshotId();
+            var selected = source(fixture, null);
+            var declaration = selected.get(0).readBinding().orElseThrow().declaration().requireExactDeclaration();
+            byte[] compiled = plan(declaration);
+            fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
+
+            assertThat(fixture.resolver().bindReadOverlays(compiled, ACTOR, splits(version), selected)
+                    .operatorBindings()).isEmpty();
+            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(compiled, ACTOR,
+                    splits(version == Long.MAX_VALUE ? version - 1 : version + 1), selected))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("admitted snapshot");
+        }
+    }
 
     @Test
     void retrievalIdentityMayExtendOnlyTheExactDeclaredScanSchema() throws Exception {
@@ -83,13 +99,13 @@ class GeneratedValueReadResolverIntegrationTest {
                     io.substrait.proto.Type.I64.newBuilder().setNullability(required)));
             var exact = schema.setStruct(struct).build();
             assertThat(fixture.resolver().bindReadOverlays(plan(exact), ACTOR,
-                    splits(version), Map.of()).operatorBindings()).isEmpty();
+                    splits(version), source(fixture, null)).operatorBindings()).isEmpty();
             var wrong = exact.toBuilder().setStruct(exact.getStruct().toBuilder().setTypes(
                     exact.getStruct().getTypesCount() - 1,
                     io.substrait.proto.Type.newBuilder().setI64(io.substrait.proto.Type.I64.newBuilder()
                             .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))).build();
             assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(wrong), ACTOR,
-                    splits(version), Map.of())).hasMessageContaining("declared SDK schema");
+                    splits(version), source(fixture, null))).hasMessageContaining("declared SDK schema");
         }
     }
 
@@ -103,16 +119,16 @@ class GeneratedValueReadResolverIntegrationTest {
             fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
             var splits = splits(version);
             byte[] protectedRead = plan(historical);
-            assertThat(fixture.resolver().bindReadOverlays(protectedRead, ACTOR, splits, Map.of(SOURCE, version))
+            assertThat(fixture.resolver().bindReadOverlays(protectedRead, ACTOR, splits, source(fixture, version))
                     .operatorBindings()).isEmpty(); // No publication exists yet; this ASYNC generation is pending.
             var incomplete = new ConnectorTableMetadata(historical.table(), List.of("id"),
                     List.of(historical.typedColumns().get(0)), historical.properties());
             assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(incomplete), ACTOR,
-                    splits, Map.of(SOURCE, version)))
+                    splits, source(fixture, version)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("declared SDK schema");
-            assertThat(fixture.resolver().bindReadOverlays(plan(currentMetadata(fixture)), ACTOR, splits, Map.of())
+            assertThat(fixture.resolver().bindReadOverlays(plan(currentMetadata(fixture)), ACTOR, splits, source(fixture, null))
                     .operatorBindings()).isEmpty(); // FULL uses current absence, not the old data snapshot declaration.
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(incomplete), ACTOR, splits, Map.of()))
+            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(incomplete), ACTOR, splits, source(fixture, null)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("declared SDK schema");
         }
     }
@@ -132,10 +148,10 @@ class GeneratedValueReadResolverIntegrationTest {
             fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
             fixture.table().updateProperties().set("irrelevant", "new-revision").commit();
             assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(historicalRead, ACTOR,
-                    splits(version), Map.of(SOURCE, version)))
+                    splits(version), source(fixture, version)))
                     .isInstanceOf(ConnectorException.class).hasMessageContaining("declaration evidence is unavailable");
             assertThat(fixture.resolver().bindReadOverlays(plan(currentMetadata(fixture)), ACTOR,
-                    splits(version), Map.of())
+                    splits(version), source(fixture, null))
                     .operatorBindings()).isEmpty();
         }
     }
@@ -158,9 +174,22 @@ class GeneratedValueReadResolverIntegrationTest {
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         registry.register(new CatalogDescriptor("lake", CatalogType.CONNECTOR, "iceberg", CatalogState.ACTIVE,
                 Map.of(), "", Set.of("tenant")));
-        var resolver = new GeneratedValueReadResolver(registry, ModelAuthorityFixtures.artifacts().builds(dataSource),
+        var resolver = new GeneratedValueReadResolver(ModelAuthorityFixtures.artifacts().builds(dataSource),
                 ModelAuthorityFixtures.artifacts().generatedPublications(dataSource));
         return new Fixture(catalog, table, registry, resolver);
+    }
+
+    private static List<org.pangrova.planner.analysis.SplitSourceDescriptor> source(
+            Fixture fixture, Long historicalVersion) {
+        var metadata = fixture.registry().getCatalog("lake").getMetadata(session());
+        var handle = metadata.getTableHandle(session(), new SchemaTableName("db", "documents"));
+        if (historicalVersion != null) {
+            handle = handle.withTimeTravelSnapshot(historicalVersion);
+        }
+        var binding = metadata.bindRead(session(), handle);
+        return List.of(new org.pangrova.planner.analysis.SplitSourceDescriptor(
+                "lake", "db", "documents", org.pangrova.connector.api.metadata.Constraint.EMPTY,
+                binding.declaration().metadata().columns(), java.util.Optional.of(binding)));
     }
 
     private static ConnectorTableMetadata metadata(Fixture fixture, long snapshot) {
@@ -191,11 +220,11 @@ class GeneratedValueReadResolverIntegrationTest {
                 .setInput(Rel.newBuilder().setRead(read)))).build().toByteArray();
     }
 
-    private static List<String> splits(long snapshot) {
+    private static List<DataSplit> splits(long snapshot) {
         var split = DataSplit.newBuilder().setSplitId("actual-sdk-file").setConnectorId("iceberg")
                 .setSourceId(SOURCE).setSourceSnapshot(Long.toString(snapshot)).setDataObjectId("row.parquet")
                 .setOpaqueLocation("row.parquet").build();
-        return List.of(Base64.getEncoder().encodeToString(split.toByteArray()));
+        return List.of(split);
     }
 
     private static void append(Table table) throws Exception {

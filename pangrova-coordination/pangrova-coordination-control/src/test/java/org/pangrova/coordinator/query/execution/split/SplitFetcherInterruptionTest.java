@@ -7,7 +7,12 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -131,6 +136,42 @@ class SplitFetcherInterruptionTest {
         assertThat(source.closeCount).isEqualTo(1);
     }
 
+    @Test
+    void aFinalBatchPastTheStageDeadlineIsClosedAndNeverAdmitted() {
+        var source = new ControlledSource(1, 0);
+        var splits = new ArrayList<ConnectorSplit>();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(250);
+        source.beforeBatch = () -> {
+            long remaining;
+            while ((remaining = deadline - System.nanoTime()) > 0) LockSupport.parkNanos(remaining);
+        };
+
+        var failure = catchThrowable(() -> SplitFetcher.drainSource(source, splits, deadline, UnaryOperator.identity()));
+
+        assertThat(failure).isInstanceOfSatisfying(PangrovaException.class, expired ->
+                assertThat(expired.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_TIMEOUT));
+        assertThat(source.pagesRead).isEqualTo(1);
+        assertThat(source.closeCount).isEqualTo(1);
+        assertThat(splits).isEmpty();
+    }
+
+    @Test
+    void distinctSourcesShareTheStageCapAndAnExactFitCanFinish() {
+        var first = new ControlledSource(1, 0);
+        var second = new ControlledSource(1, 0);
+        var splits = new ArrayList<ConnectorSplit>(Collections.nCopies(99_999, new PageSplit(0)));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+
+        SplitFetcher.drainSource(first, splits, deadline, UnaryOperator.identity());
+        var failure = catchThrowable(() -> SplitFetcher.drainSource(second, splits, deadline, UnaryOperator.identity()));
+
+        assertThat(splits).hasSize(100_000);
+        assertThat(first.closeCount).isEqualTo(1);
+        assertThat(second.closeCount).isEqualTo(1);
+        assertThat(failure).isInstanceOfSatisfying(PangrovaException.class, exhausted ->
+                assertThat(exhausted.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED));
+    }
+
     private static void assertInterruption(Throwable failure) {
         assertThat(failure).isInstanceOf(PangrovaException.class).hasCauseInstanceOf(InterruptedException.class);
         assertThat(((PangrovaException) failure).getErrorCode())
@@ -150,6 +191,7 @@ class SplitFetcherInterruptionTest {
         private boolean clearInterruptOnClose;
         private RuntimeException batchFailure;
         private RuntimeException closeFailure;
+        private Runnable beforeBatch = () -> { };
 
         ControlledSource(int pages, int interruptAfterPage) {
             this.pages = pages;
@@ -158,6 +200,7 @@ class SplitFetcherInterruptionTest {
 
         @Override
         public List<ConnectorSplit> getNextBatch(int maxSize) {
+            beforeBatch.run();
             if (batchFailure != null) throw batchFailure;
             var batch = List.<ConnectorSplit>of(new PageSplit(++pagesRead));
             if (pagesRead == interruptAfterPage) Thread.currentThread().interrupt();

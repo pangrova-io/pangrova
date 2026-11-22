@@ -21,6 +21,7 @@ import org.pangrova.worker.enums.TaskState;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +42,14 @@ final class TaskSubmissionHandler {
     }
 
     String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
+        return submitTask(descriptor, request, false);
+    }
+
+    String submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
+        return submitTask(descriptor, request.submission(), true);
+    }
+
+    private String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request, boolean structurallyValidated) {
         checkNotNull(descriptor, "descriptor must not be null");
         checkNotNull(request, "request must not be null");
         // Leadership fencing must run before draining checks, tenant admission,
@@ -50,7 +59,9 @@ final class TaskSubmissionHandler {
         owner.verifyWorkerExecutionIdentity(canonical.getAttempt());
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
-        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
+        if (!structurallyValidated) {
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
+        }
         owner.verifyExecutionOwnerForAdmission(request);
         if (canonical.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST
                 && !owner.cdcIngestSupported()) {

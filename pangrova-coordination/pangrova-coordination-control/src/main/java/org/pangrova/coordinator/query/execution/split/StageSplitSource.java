@@ -1,11 +1,10 @@
 package org.pangrova.coordinator.query.execution.split;
 
-import org.pangrova.query.api.task.QuerySplit;
-
 import java.util.List;
 import java.util.Map;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.planner.analysis.PlanFragment;
+import org.pangrova.planner.analysis.SplitSourceDescriptor;
 
 /**
  * Enumerates authenticated live-plan splits, optionally applying safe index pruning.
@@ -17,6 +16,6 @@ import org.pangrova.planner.analysis.PlanFragment;
 @FunctionalInterface
 public interface StageSplitSource {
     List<QuerySplit> fetchAndFilterSplits(
-            PlanFragment fragment, Map<String, Long> snapshotOverrides,
+            PlanFragment fragment, List<SplitSourceDescriptor> sources, Map<String, Long> snapshotOverrides,
             String queryId, QuerySession session);
 }

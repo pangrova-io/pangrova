@@ -75,7 +75,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
         execute(dispatcher, "REVOKE SELECT ON TABLE lake.sales.orders FROM delegator CASCADE", "admin");
         assertThatThrownBy(() -> secondCoordinator.checkCanSelectFromTable(bob, "lake", "sales", "orders"))
                 .isInstanceOf(AuthorizationDeniedException.class);
-        assertThat(grants.listGrantsForRole("reader")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("reader"))).isEmpty();
     }
 
     @Test
@@ -90,7 +90,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
             assertThat(row.getLong("authorization_revision")).isPositive();
         });
         assertThat(factory.execute(statement, context).rows()).isEqualTo(result.rows());
-        assertThat(grants.listGrantsForRole("reader")).hasSize(2);
+        assertThat(grants.listGrantsForRoles(Set.of("reader"))).hasSize(2);
     }
 
     @Test
@@ -114,7 +114,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
         var roleStore = new JdbcRoleStore(source);
         roleStore.createRole(Role.of("reader.with.dot"));
         execute(dispatcher(factory), "GRANT SELECT ON SCHEMA sales TO ROLE \"reader.with.dot\"", "admin");
-        assertThat(grants.listGrantsForRole("reader.with.dot")).singleElement().satisfies(grant -> {
+        assertThat(grants.listGrantsForRoles(Set.of("reader.with.dot"))).singleElement().satisfies(grant -> {
             assertThat(grant.objectType()).isEqualTo("SCHEMA");
             assertThat(grant.catalog()).isEqualTo("lake");
             assertThat(grant.schema()).isEqualTo("sales");
@@ -136,9 +136,9 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
         var anonymous = new QuerySession(UUID.randomUUID().toString(), Map.of(), null, null, Optional.empty(),
                 new OtelExecutionTraceContextFactory().capture());
         assertThatThrownBy(() -> dispatcher(factory).tryDispatch(null,
-                "GRANT SELECT ON TABLE orders TO reader", anonymous.queryId(), anonymous))
+                new SqlCompiler().parseToAst("GRANT SELECT ON TABLE orders TO reader"), anonymous.queryId(), anonymous))
                 .isInstanceOf(AccessDeniedException.class);
-        assertThat(grants.listGrantsForRole("reader")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("reader"))).isEmpty();
     }
 
     @Test
@@ -150,7 +150,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> execute(dispatcher(factory), "GRANT READ_VOLUME ON TABLE orders TO reader", "admin"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(grants.listGrantsForRole("reader")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("reader"))).isEmpty();
     }
 
     @Test
@@ -171,7 +171,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
     }
 
     private StatementDispatcher dispatcher(MetadataExecutionFactory executionFactory) {
-        return new StatementDispatcher(new StatementDispatcherContext(new SqlCompiler(), null,
+        return new StatementDispatcher(new StatementDispatcherContext(null,
                 List.of(executionFactory), List.of(), accessControl));
     }
 
@@ -179,7 +179,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
         var session = session(actor);
         var parsed = new AntlrSqlParser().parse(sql);
         assertThat(dispatcher.isRoutable(parsed)).isTrue();
-        dispatcher.tryDispatch(null, sql, session.queryId(), session);
+        dispatcher.tryDispatch(null, new SqlCompiler().parseToAst(sql), session.queryId(), session);
     }
 
     private DynamicRbacAccessControl policyReader() {

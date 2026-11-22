@@ -6,7 +6,7 @@ option java_multiple_files = true;
 
 import "pangrova/protocol/v2/common.proto";
 
-// Connector-specific details carried by DataSplit.connector_detail. The
+// Connector-specific details carried by DataSplit.file_detail. The
 // generic task envelope owns identity, snapshot, location, range and partition
 // values; this file owns only file/connector semantics.
 enum FileFormat {

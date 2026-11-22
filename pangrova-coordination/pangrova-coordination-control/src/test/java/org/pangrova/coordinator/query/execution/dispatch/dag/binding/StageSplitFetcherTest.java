@@ -9,7 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.planner.analysis.PlanFragment;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 
@@ -31,9 +32,9 @@ class StageSplitFetcherTest {
         var session = session();
         var fragment = fragment();
         var overrides = Map.of("lake.public.items", 17L);
-        var expected = List.of(new QuerySplit("encoded-query-split", List.of("s3://bucket/object")));
+        var expected = List.of(new QuerySplit(split("encoded-query-split"), List.of("s3://bucket/object")));
         var calls = new AtomicInteger();
-        var fetcher = new StageSplitFetcher(null, (supplied, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (supplied, sources, snapshots, queryId, actor) -> {
             calls.incrementAndGet();
             assertThat(supplied).isSameAs(fragment);
             assertThat(snapshots).isEqualTo(overrides);
@@ -50,7 +51,7 @@ class StageSplitFetcherTest {
         var session = session();
         for (RuntimeException failure : List.of(new AccessDeniedException("revoked"),
                 new CancellationException("query cancelled"), new IllegalStateException("provider unavailable"))) {
-            var fetcher = new StageSplitFetcher(null, (fragment, snapshots, queryId, actor) -> {
+            var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
                 throw failure;
             });
             assertThatThrownBy(() -> fetcher.fetch(stage(fragment()), session, Map.of(), null))
@@ -73,7 +74,7 @@ class StageSplitFetcherTest {
     void wholeTableReplacementDoesNotInvokeAnIndexPruningSource() {
         var session = session();
         var calls = new AtomicInteger();
-        var fetcher = new StageSplitFetcher(null, (fragment, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
             calls.incrementAndGet();
             throw new AssertionError("A whole-table replacement must enumerate its unpruned read");
         });
@@ -90,7 +91,7 @@ class StageSplitFetcherTest {
     @Test
     void partitionSourceCannotMutatePinnedSnapshotSelectors() {
         var selectors = new java.util.HashMap<>(Map.of("lake.public.items", 17L));
-        var fetcher = new StageSplitFetcher(null, (fragment, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
             assertThatThrownBy(() -> snapshots.put("lake.public.items", 18L))
                     .isInstanceOf(UnsupportedOperationException.class);
             assertThat(queryId).isEqualTo(actor.queryId());
@@ -113,4 +114,8 @@ class StageSplitFetcherTest {
     private static StageNode stage(PlanFragment fragment) {
         return new StageNode(0, fragment, 1, "OUTPUT", List.of());
     }
+    private static DataSplit split(String id) {
+        return DataSplit.newBuilder().setSplitId(id).build();
+    }
+
 }

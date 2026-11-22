@@ -104,8 +104,8 @@ final class QueryDurableRecovery implements AutoCloseable {
         };
         cleanupAction = queryId -> {
             queryDispatcher.retryPendingShuffleCleanup(queryId);
-            if (!shuffleCleanupIntents.isPending(queryId)) {
-                queryDispatcher.cleanupQuery(queryId);
+            if (!queryDispatcher.tryCleanupQuery(queryId)) {
+                LOG.debug("event=shuffle_cleanup_awaiting_local_operations queryId={}", queryId);
             }
         };
     }
@@ -214,10 +214,6 @@ final class QueryDurableRecovery implements AutoCloseable {
                 continue;
             }
             queryDispatcher.retryPendingShuffleCleanup(queryId);
-            if (shuffleCleanupIntents.isPending(queryId)) {
-                throw new IllegalStateException(
-                        "recovered shuffle cleanup is still pending: " + queryId);
-            }
             cleaned.add(queryId);
         }
         return Set.copyOf(cleaned);

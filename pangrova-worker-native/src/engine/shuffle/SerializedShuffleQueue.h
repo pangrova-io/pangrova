@@ -1,6 +1,7 @@
 // Independently owned, byte- and record-bounded producer shuffle queue.
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -45,12 +46,16 @@ class SerializedShuffleQueue final {
     }
   }
 
+  size_t maximumPayloadBytes() const {
+    constexpr size_t overhead = sizeof(folly::IOBuf) + kCopyCapacitySlack;
+    return max_bytes_ <= overhead ? 0 : std::min(kCanonicalShuffleBatchBytes, max_bytes_ - overhead);
+  }
+
   bool push(ShuffleBatch batch, std::chrono::milliseconds timeout) {
     if (!batch.data) {
       throw std::invalid_argument("shuffle batch has no serialized bytes");
     }
     const auto bytes = batch.data->computeChainDataLength();
-    constexpr size_t kCopyCapacitySlack = 128;
     if (bytes == 0 || bytes > kCanonicalShuffleBatchBytes ||
         bytes > std::numeric_limits<size_t>::max() -
             sizeof(folly::IOBuf) - kCopyCapacitySlack) {
@@ -205,6 +210,7 @@ class SerializedShuffleQueue final {
   }
 
  private:
+  static constexpr size_t kCopyCapacitySlack = 128;
   struct Entry {
     ShuffleBatch batch;
     size_t charge;

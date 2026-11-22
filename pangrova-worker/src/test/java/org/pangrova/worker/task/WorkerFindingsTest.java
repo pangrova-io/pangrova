@@ -79,10 +79,6 @@ class WorkerFindingsTest {
         assertThat(snapshot.isHealthy()).isFalse();
     }
 
-    // ── 13.1.5 Task output buffering with backpressure ──
-    // OutputBufferBackpressure already exists and is tested in OutputBufferBackpressureTest.
-    // The bounded queue with configurable size is already implemented via ActiveOutputBuffer.
-
     // ── 13.1.6 Exchange client connection pooling ──
 
     @Test

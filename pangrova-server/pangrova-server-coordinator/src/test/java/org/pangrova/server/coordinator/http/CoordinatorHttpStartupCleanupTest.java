@@ -13,12 +13,41 @@ import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJour
 
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.channels.ServerSocketChannel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CoordinatorHttpStartupCleanupTest {
+    @Test
+    void startupExposesNoSplitPullRoutes() throws Exception {
+        var tasks = new CoordinatorTaskTracker();
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        var queries = StatusOnlyQueryManagerFixture.create(workers, tasks);
+        var receiver = new TaskStatusReceiver(TaskStatusReceiverContext.withoutSpeculation(
+                queries, tasks, workers, new InMemoryWriteCommitJournal()));
+        var owner = new CoordinatorHttpServer(0, CoordinatorHttpServerContext.minimal(receiver));
+        try {
+            owner.start();
+            var client = HttpClient.newHttpClient();
+            for (String action : java.util.List.of("request-split", "complete-split")) {
+                var request = HttpRequest.newBuilder(
+                                URI.create("http://127.0.0.1:" + owner.getPort() + "/v1/task/" + action))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                        .build();
+                assertThat(client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode())
+                        .as(action).isEqualTo(404);
+            }
+        } finally {
+            owner.stop();
+        }
+    }
+
     @Test
     void occupiedPortFailureStopsAcquiredServerAndThreads() throws Exception {
         var tasks = new CoordinatorTaskTracker();

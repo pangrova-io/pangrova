@@ -2,11 +2,14 @@ package org.pangrova.security.mask;
 
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.mask.ColumnMaskSource;
+import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.security.authorization.DeferredSubjectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.pangrova.security.api.mask.ColumnMask;
@@ -31,28 +34,27 @@ public class ColumnMaskingProcessor implements ColumnMaskSource {
         this.store = store;
     }
 
-    /**
-     * Resolves the first applicable column mask for a user.
-     *
-     * @param user requesting user
-     * @param catalog catalog name
-     * @param schema schema name
-     * @param table table name
-     * @param column column name
-     * @return rendered mask expression when a policy applies
-     */
-    public Optional<String> getMask(UserIdentity user, Set<String> effectiveRoles,
-                                    String catalog, String schema, String table, String column) {
-        return renderMasks(user, effectiveRoles, column, store.getColumnMasks(catalog, schema, table, column));
+    @Override
+    public TableColumnMasks getMasks(UserIdentity user, Set<String> effectiveRoles,
+            String catalog, String schema, String table) {
+        var byColumn = tableMasks(catalog, schema, table);
+        var roles = Set.copyOf(effectiveRoles);
+        return column -> {
+            var policies = byColumn.get(column);
+            return policies == null ? Optional.empty() : renderMasks(user, roles, column, policies);
+        };
     }
 
     /** Uses the same per-column priority and exemptions, including masks outside a query's projection. */
     public boolean hasApplicableMask(UserIdentity user, Set<String> effectiveRoles,
             String catalog, String schema, String table) {
-        var byColumn = store.getTableMasks(catalog, schema, table).stream()
-                .collect(java.util.stream.Collectors.groupingBy(ColumnMask::columnName));
-        return byColumn.entrySet().stream().anyMatch(entry ->
+        return tableMasks(catalog, schema, table).entrySet().stream().anyMatch(entry ->
                 renderMasks(user, effectiveRoles, entry.getKey(), entry.getValue()).isPresent());
+    }
+
+    private Map<String, List<ColumnMask>> tableMasks(String catalog, String schema, String table) {
+        return store.getTableMasks(catalog, schema, table).stream()
+                .collect(java.util.stream.Collectors.groupingBy(ColumnMask::columnName));
     }
 
     /** Renders masks read on the caller's current authorization transaction. */

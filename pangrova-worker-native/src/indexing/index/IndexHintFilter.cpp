@@ -155,6 +155,7 @@ bool IndexHintFilter::shouldKeepTypedSplit(
   if (evaluated) {
     *evaluated = false;
   }
+  if (file_scan_detail.empty()) return true;
   proto::FileSplitDetail detail;
   if (!detail.ParseFromString(file_scan_detail)) {
     return true;

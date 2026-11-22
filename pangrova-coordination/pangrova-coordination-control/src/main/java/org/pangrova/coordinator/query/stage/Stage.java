@@ -16,6 +16,7 @@ import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.shuffle.api.ShufflePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +54,7 @@ public final class Stage {
     private volatile ShuffleCommitReceipt shuffleReceipt;
     private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
     private volatile AdaptiveDecision adaptiveDecision;
+    private volatile org.pangrova.planner.api.adaptive.CoalesceResult coalescedInputs;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
     private final ConcurrentHashMap<String, AtomicInteger> taskRetryCounters =
@@ -62,6 +64,8 @@ public final class Stage {
     private boolean clientResultPublished;
     private boolean replayUnsafeWrite;
     private boolean consumerAdmitted;
+    private BuildKeyRange buildKeyRange;
+    private int buildKeyReports;
 
     /** Pins this generation when a consumer begins to bind its issued producer records. */
     public synchronized boolean admitDownstream() {
@@ -73,6 +77,27 @@ public final class Stage {
         if (!exchangeReadyForConsumers()) return false;
         consumerAdmitted = true;
         return true;
+    }
+
+    /** Freeze the physical cohort before allocating its shuffle output or issuing any task. */
+    public synchronized void freezeCoalescedInputs(org.pangrova.planner.api.adaptive.CoalesceResult inputs) {
+        if (inputs.isCoalesced() && inputs.originalCount() != plan.parallelism()) {
+            throw new IllegalArgumentException("Coalesced inputs must cover the original stage partitions");
+        }
+        if (coalescedInputs != null && !coalescedInputs.equals(inputs)) {
+            throw new IllegalStateException("A stage retry cannot change its admitted input ranges");
+        }
+        coalescedInputs = inputs;
+    }
+
+    public java.util.List<org.pangrova.planner.api.adaptive.PartitionGroup> coalescedInputRanges() {
+        var inputs = coalescedInputs;
+        return inputs == null ? java.util.List.of() : inputs.groups();
+    }
+
+    public int physicalTaskCount() {
+        var inputs = coalescedInputs;
+        return inputs == null || !inputs.isCoalesced() ? plan.parallelism() : inputs.coalescedCount();
     }
 
     /** A client can already hold this endpoint; transparent retries cannot redirect a Flight stream. */
@@ -113,7 +138,18 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFinished(String taskId, int generation) {
-        applyTaskReport(taskId, generation, true, null);
+        onTaskFinished(taskId, generation, null);
+    }
+
+    /** Merges the winning summary under the same generation fence as the terminal task. */
+    public void onTaskFinished(String taskId, int generation, BuildKeyRange range) {
+        applyTaskReport(taskId, generation, true, null, range);
+    }
+
+    /** Returns a range only when the full admitted build cohort proved its coverage. */
+    public synchronized BuildKeyRange completeBuildKeyRange() {
+        return terminalDecisionClaimed && failedTaskIds.isEmpty()
+                && buildKeyReports == taskIds.size() ? buildKeyRange : null;
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -130,10 +166,11 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFailed(String taskId, QueryFailure error, int generation) {
-        applyTaskReport(taskId, generation, false, error);
+        applyTaskReport(taskId, generation, false, error, null);
     }
 
-    private void applyTaskReport(String taskId, int generation, boolean success, QueryFailure error) {
+    private void applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
+            BuildKeyRange range) {
         checkNotNull(taskId, "taskId must not be null");
         boolean allSucceeded;
         synchronized (this) {
@@ -141,6 +178,10 @@ public final class Stage {
                     || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return;
             if (success) {
                 finishedTaskIds.add(taskId);
+                if (range != null) {
+                    buildKeyRange = buildKeyRange == null ? range : buildKeyRange.merge(range);
+                    buildKeyReports++;
+                }
             } else {
                 failedTaskIds.add(taskId);
                 lastError = error;
@@ -175,6 +216,8 @@ public final class Stage {
         retryCount.incrementAndGet();
         attemptGeneration.incrementAndGet();
         finishedTaskIds.clear();
+        buildKeyRange = null;
+        buildKeyReports = 0;
         failedTaskIds.clear();
         taskIds.clear();
         taskRetryCounters.clear();

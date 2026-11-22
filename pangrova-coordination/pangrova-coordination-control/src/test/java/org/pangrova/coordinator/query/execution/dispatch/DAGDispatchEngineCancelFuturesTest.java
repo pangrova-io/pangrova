@@ -11,7 +11,6 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.query.api.stage.StageCompletionCallback;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
@@ -124,7 +123,6 @@ class DAGDispatchEngineCancelFuturesTest {
                 null,  // speculativeStageHandler
                 PipelineConfig.DISABLED,
                 shuffleManager,
-                new SplitAssignmentManager(),
                 null,  // resilienceRegistry
                 null); // stateJournal
         return new DAGDispatchEngine(deps, List.of(), null, null, null);

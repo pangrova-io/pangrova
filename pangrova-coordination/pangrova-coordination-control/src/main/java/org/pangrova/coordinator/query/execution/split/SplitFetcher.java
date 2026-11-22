@@ -1,7 +1,5 @@
 package org.pangrova.coordinator.query.execution.split;
 
-import org.pangrova.query.api.task.QuerySplit;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,31 +38,14 @@ public final class SplitFetcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(SplitFetcher.class);
 
-    /** Maximum time to spend fetching splits per table scan. */
+    /** Maximum time to resolve and enumerate all sources of a stage. */
     private static final long SPLIT_FETCH_TIMEOUT_MS = 30_000;
 
     /** Maximum number of splits per stage to prevent unbounded memory growth. */
     private static final int MAX_SPLITS_PER_STAGE = 100_000;
+    private static final int SPLIT_BATCH_SIZE = 1000;
 
     private SplitFetcher() {}
-
-    /**
-     * Converts fetched splits into assignment records for pull-mode registration.
-     * Centralizes the QuerySplit → SplitAssignment mapping to avoid duplication.
-     */
-    public static List<SplitAssignment> toAssignments(List<QuerySplit> splits) {
-        if (splits.isEmpty()) {
-            return List.of();
-        }
-        long now = System.currentTimeMillis();
-        List<SplitAssignment> assignments = new ArrayList<>(splits.size());
-        for (int i = 0; i < splits.size(); i++) {
-            QuerySplit swp = splits.get(i);
-            assignments.add(new SplitAssignment(i, swp.serializedData(),
-                    List.of(), swp.filePaths(), now));
-        }
-        return assignments;
-    }
 
     /**
      * Fetches raw ConnectorSplit objects for a PlannedQuery.
@@ -95,18 +76,25 @@ public final class SplitFetcher {
         }
         Map<List<String>, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
+        long deadlineNanos = deadlineAfter(SPLIT_FETCH_TIMEOUT_MS);
         for (SplitSourceDescriptor desc : unique.values()) {
-            allSplits.addAll(fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context));
+            requireUninterruptedEnumeration();
+            checkSplitFetchLimits(allSplits.size(), deadlineNanos);
+            fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context, allSplits,
+                    deadlineNanos);
         }
+        requireUninterruptedEnumeration();
+        checkSplitFetchLimits(allSplits.size(), deadlineNanos);
         return allSplits;
     }
 
     /**
-     * Converts raw ConnectorSplits to QuerySplit (serialized form).
+     * Converts raw connector splits to the canonical stage representation.
      */
     public static List<QuerySplit> toSplitWithPaths(List<ConnectorSplit> splits) {
         return splits.stream()
-                .map(split -> new QuerySplit(serializeSplit(split), extractFilePaths(split)))
+                .map(split -> new QuerySplit(canonicalSplit(split), extractFilePaths(split),
+                        split.estimatedScanBytes()))
                 .toList();
     }
 
@@ -156,28 +144,26 @@ public final class SplitFetcher {
     }
 
     /**
-     * Serializes a ConnectorSplit to Base64-encoded proto bytes.
+     * Takes the connector's execution split and attaches any admitted index hints.
      */
-    private static String serializeSplit(ConnectorSplit split) {
-        byte[] protoBytes;
-        if (split instanceof IndexEvaluatedSplit evaluated
-                && evaluated.evalResult().hasEvalHints()) {
-            protoBytes = IndexEvalHintProtoCodec.serializeWithHints(evaluated);
-        } else {
-            protoBytes = split.toSplitInfoProto();
-        }
-        if (protoBytes.length == 0) {
+    private static org.pangrova.protocol.v2.DataSplit canonicalSplit(ConnectorSplit split) {
+        try {
+            if (split instanceof IndexEvaluatedSplit evaluated) {
+                return IndexEvalHintProtoCodec.withHints(
+                        org.pangrova.protocol.source.CanonicalConnectorSplit.from(evaluated.unwrap()),
+                        evaluated.evalResult());
+            }
+            return org.pangrova.protocol.source.CanonicalConnectorSplit.from(split);
+        } catch (IllegalArgumentException failure) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
-                    "ConnectorSplit.toSplitInfoProto() returned empty bytes; "
-                            + "connector must implement proto serialization");
+                    "Connector did not supply valid canonical DataSplit metadata: " + failure.getMessage(), failure);
         }
-        return java.util.Base64.getEncoder().encodeToString(protoBytes);
     }
 
-    private static List<ConnectorSplit> fetchConnectorSplits(
+    private static void fetchConnectorSplits(
             SplitSourceDescriptor desc, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            QuerySession context) {
+            QuerySession context, List<ConnectorSplit> splits, long deadlineNanos) {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, desc.catalogName(), desc.schemaName());
@@ -191,7 +177,6 @@ public final class SplitFetcher {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
                     "Selected planning snapshot differs from execution selector: " + desc.qualifiedName());
         }
-        metadata.validateReadBinding(session, binding);
         ConnectorTableHandle tableHandle = binding.handle();
 
         java.util.Set<String> tableColumnSet = new java.util.LinkedHashSet<>(desc.tableColumns());
@@ -202,15 +187,19 @@ public final class SplitFetcher {
             metadata.validateColumnAccess(session, tableHandle, projectedColumns);
         }
 
-        if (binding.state() == org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY) {
-            return List.of();
+        if (binding.state() == org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY
+                || desc.constraint() == Constraint.NONE) {
+            metadata.validateReadBinding(session, binding);
+            return;
         }
 
-        Constraint constraint = desc.constraint();
         var nativeBinding = NativeReadSplitBinding.prepare(catalog, session);
-        List<ConnectorSplit> splits = drainSplits(catalog, session, tableHandle, constraint);
-        LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size());
-        return splits.stream().map(nativeBinding::bind).toList();
+        ConnectorSplitSource source = catalog.getSplitManager().getBoundSplits(
+                ConnectorTransactionHandle.empty(), session, metadata, binding,
+                DynamicFilter.ALL, desc.constraint());
+        int previousCount = splits.size();
+        drainSource(source, splits, deadlineNanos, nativeBinding::bind);
+        LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size() - previousCount);
     }
 
     private static ConnectorTableHandle applySnapshotOverride(
@@ -265,36 +254,40 @@ public final class SplitFetcher {
         return handle;
     }
 
-    private static List<ConnectorSplit> drainSplits(
-            CatalogHandle catalog, ConnectorSession session,
-            ConnectorTableHandle tableHandle, Constraint constraint) {
-        return drainSplits(catalog, session, tableHandle, constraint, SPLIT_FETCH_TIMEOUT_MS);
-    }
-
-    private static List<ConnectorSplit> drainSplits(
-            CatalogHandle catalog, ConnectorSession session,
-            ConnectorTableHandle tableHandle, Constraint constraint,
-            long timeoutMs) {
-        ConnectorSplitSource source = catalog.getSplitManager().getSplits(
-                ConnectorTransactionHandle.empty(), session, tableHandle,
-                DynamicFilter.ALL, constraint);
-        return drainSource(source, timeoutMs);
-    }
-
     /** Owns enumeration and the exact source close, including interruption and close failures. */
     static List<ConnectorSplit> drainSource(ConnectorSplitSource source, long timeoutMs) {
         List<ConnectorSplit> splits = new ArrayList<>();
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        drainSource(source, splits, deadlineAfter(timeoutMs), java.util.function.UnaryOperator.identity());
+        return splits;
+    }
+
+    private static long deadlineAfter(long timeoutMillis) {
+        return System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    }
+
+    static void drainSource(ConnectorSplitSource source, List<ConnectorSplit> splits, long deadlineNanos,
+                            java.util.function.UnaryOperator<ConnectorSplit> bind) {
         Throwable primaryFailure = null;
         try {
-            requireUninterruptedEnumeration();
-            while (!source.isFinished()) {
+            while (true) {
                 requireUninterruptedEnumeration();
-                checkSplitFetchLimits(splits, deadline);
-                splits.addAll(source.getNextBatch(1000));
+                checkSplitFetchLimits(splits.size(), deadlineNanos);
+                boolean finished = source.isFinished();
                 requireUninterruptedEnumeration();
+                checkSplitFetchLimits(splits.size(), deadlineNanos);
+                if (finished) break;
+
+                // Allow an EOF probe at the exact cap without retaining another split.
+                int requested = Math.min(SPLIT_BATCH_SIZE, MAX_SPLITS_PER_STAGE - splits.size() + 1);
+                List<ConnectorSplit> batch = source.getNextBatch(requested);
+                requireUninterruptedEnumeration();
+                checkSplitFetchLimits((long) splits.size() + batch.size(), deadlineNanos);
+                if (batch.size() > requested) {
+                    throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
+                            "Connector produced " + batch.size() + " splits for a request of " + requested);
+                }
+                for (ConnectorSplit split : batch) splits.add(bind.apply(split));
             }
-            requireUninterruptedEnumeration();
         } catch (RuntimeException | Error failure) {
             primaryFailure = failure;
             throw failure;
@@ -302,7 +295,7 @@ public final class SplitFetcher {
             closeSource(source, primaryFailure);
         }
         requireUninterruptedEnumeration();
-        return splits;
+        checkSplitFetchLimits(splits.size(), deadlineNanos);
     }
 
     private static void requireUninterruptedEnumeration() {
@@ -334,15 +327,14 @@ public final class SplitFetcher {
      * Checks timeout and split-count limits during split enumeration.
      * Throws instead of silently returning partial results.
      */
-    public static void checkSplitFetchLimits(List<ConnectorSplit> splits, long deadline) {
-        if (System.currentTimeMillis() > deadline) {
+    public static void checkSplitFetchLimits(long splitCount, long deadlineNanos) {
+        if (System.nanoTime() - deadlineNanos >= 0) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_TIMEOUT,
-                    "Split enumeration timed out after " + SPLIT_FETCH_TIMEOUT_MS
-                            + "ms with " + splits.size() + " splits fetched");
+                    "Split enumeration timed out with " + splitCount + " splits fetched");
         }
-        if (splits.size() >= MAX_SPLITS_PER_STAGE) {
+        if (splitCount > MAX_SPLITS_PER_STAGE) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED,
-                    "Split enumeration exceeded limit: " + splits.size()
+                    "Split enumeration exceeded limit: " + splitCount
                             + " splits (max=" + MAX_SPLITS_PER_STAGE + ")");
         }
     }

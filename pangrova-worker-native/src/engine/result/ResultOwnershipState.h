@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <arrow/record_batch.h>
@@ -29,11 +30,16 @@ class ResultOwnershipState {
   void acquireBatch();
   void releaseBatch() noexcept;
   Evidence evidence() const;
+  // Single subscription. An already drained owner delivers immediately, outside the mutex.
+  void watchDrain(std::function<void()> listener);
 
  private:
+  std::function<void()> takeDrainedListenerLocked();
   mutable std::mutex mutex_;
   Evidence evidence_{false, false, false, 0, 0};
   std::weak_ptr<ResultPendingRead> pending_read_;
+  std::function<void()> drained_listener_;
+  bool drain_watched_ = false;
 };
 
 // The root lease covers zero-column batches; recursive buffer leases cover

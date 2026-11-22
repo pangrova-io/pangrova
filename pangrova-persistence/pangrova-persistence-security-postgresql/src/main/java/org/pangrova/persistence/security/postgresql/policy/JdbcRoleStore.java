@@ -41,6 +41,14 @@ import java.util.Set;
 public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcRoleStore.class);
+    private static final String EFFECTIVE_ROLES = """
+            SELECT registered.role_name FROM pangrova_roles registered
+            JOIN (
+                SELECT role_name FROM pangrova_user_roles WHERE user_id = ?
+                UNION
+                SELECT role_name FROM pangrova_group_roles WHERE group_name = ANY (?)
+            ) membership USING (role_name)
+            """;
 
     public JdbcRoleStore(DataSource dataSource) {
         super(dataSource);
@@ -78,6 +86,23 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading role " + roleName, e);
+        }
+    }
+
+    @Override
+    public Set<String> effectiveRoles(String principal, Set<String> groups) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(EFFECTIVE_ROLES)) {
+            var groupNames = conn.createArrayOf("text", groups.toArray(String[]::new));
+            try {
+                ps.setString(1, principal);
+                ps.setArray(2, groupNames);
+                return readRoleNames(ps);
+            } finally {
+                groupNames.free();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed loading effective roles for " + principal, e);
         }
     }
 
@@ -149,15 +174,19 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                Set<String> roles = new HashSet<>();
-                while (rs.next()) {
-                    roles.add(rs.getString(1));
-                }
-                return Set.copyOf(roles);
-            }
+            return readRoleNames(ps);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading roles for user " + userId, e);
+        }
+    }
+
+    private static Set<String> readRoleNames(PreparedStatement statement) throws SQLException {
+        try (ResultSet rows = statement.executeQuery()) {
+            Set<String> names = new HashSet<>();
+            while (rows.next()) {
+                names.add(rows.getString(1));
+            }
+            return Set.copyOf(names);
         }
     }
 
@@ -232,13 +261,7 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, groupName);
-            try (ResultSet rs = ps.executeQuery()) {
-                Set<String> roles = new HashSet<>();
-                while (rs.next()) {
-                    roles.add(rs.getString(1));
-                }
-                return Set.copyOf(roles);
-            }
+            return readRoleNames(ps);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading roles for group " + groupName, e);
         }

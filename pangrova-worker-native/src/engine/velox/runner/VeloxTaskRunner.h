@@ -25,6 +25,7 @@
 #include "engine/shuffle/ShufflePartitionAccumulator.h"
 #include "engine/velox/plan/ShuffleOutputSpec.h"
 #include "engine/result/ResultColumnType.h"
+#include "pangrova/protocol/v2/result.pb.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/core/PlanNode.h"
 #include "velox/type/Filter.h"
@@ -33,9 +34,10 @@ namespace facebook::velox::exec {
 class Task;
 class OutputBufferManager;
 class FunctionRegistrySnapshot;
-class HashPartitionFunction;
 struct TaskStats;
 }
+
+namespace pangrova::observability { class NativeMetricsCollector; }
 
 namespace pangrova::velox {
 
@@ -86,6 +88,7 @@ struct VeloxTaskRunnerConfig {
   bool is_shuffle_task = false;
   int32_t num_shuffle_partitions = 0;
   std::optional<ShuffleOutputSpec> shuffle_output_spec;
+  std::optional<uint32_t> build_key_ordinal;
   std::string shuffle_compression_codec = "lz4";
   // Indices of columns used for shuffle partition hash computation.
   // When empty, the first column is used as the default partition key.
@@ -214,6 +217,7 @@ class VeloxTaskRunner
   bool isFinished() const;
 
   pangrova::result::ResultOwnershipState::Evidence resultDrainEvidence() const;
+  void watchResultDrain(std::function<void()> listener) const;
   bool hasResultOutput() const { return static_cast<bool>(result_ownership_); }
 
   // Returns error message if task failed, empty otherwise.
@@ -231,9 +235,9 @@ class VeloxTaskRunner
       std::unique_ptr<facebook::velox::common::Filter> filter);
 
   // Collect Velox TaskStats after completion.
-  // Returns serialized proto (TaskStats message) for Java-side consumption.
-  // Iterates pipelineStats → operatorStats to extract per-operator metrics.
-  std::vector<uint8_t> collectTaskStats() const;
+  // Uses one Velox snapshot for per-operator counters and columnar telemetry.
+  std::optional<protocol::v2::NativeTaskStats> collectTaskStats(
+      observability::NativeMetricsCollector* metrics = nullptr) const;
 
   // Access the underlying Velox Task (for direct dynamic filter injection).
   facebook::velox::exec::Task* veloxTask() const;
@@ -262,6 +266,7 @@ class VeloxTaskRunner
   // Checks task state and sets finished_/error_message_ accordingly.
   // Called on Velox's internal executor thread — must be thread-safe.
   bool handleTaskCompletion();
+  void collectBuildKeyRange(const facebook::velox::RowVector& rows);
 
   const VeloxTaskRunnerConfig config_;
   std::shared_ptr<const facebook::velox::core::PlanNode> plan_;
@@ -283,15 +288,9 @@ class VeloxTaskRunner
   // Pre-computed shuffle partition key channel indices. Populated in start()
   // from config_.shuffle_partition_key_indices to avoid recomputing per batch.
   std::vector<facebook::velox::column_index_t> shuffle_key_channels_;
-  // Cached HashPartitionFunction for multi-partition shuffle. Initialized
-  // lazily on the first consumer callback. partition() mutates the internal
-  // VectorHasher state (DecodedVector and scratch buffers), so every call is
-  // serialized by shuffle_partitioner_mutex_ — the consumer is shared by all
-  // Driver threads of the Task.
   std::atomic<uint64_t> shuffle_next_row_{0};
-  std::mutex shuffle_partitioner_mutex_;
-  std::shared_ptr<facebook::velox::exec::HashPartitionFunction>
-      shuffle_partitioner_;
+  mutable std::mutex build_key_range_mutex_;
+  std::optional<std::pair<int64_t, int64_t>> build_key_range_;
   std::atomic<bool> finished_{false};
   std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
   std::atomic<bool> cancelled_{false};

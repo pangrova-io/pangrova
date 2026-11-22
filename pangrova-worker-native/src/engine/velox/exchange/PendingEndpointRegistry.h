@@ -66,7 +66,8 @@ class PendingEndpointRegistry {
       const std::string& plan_node_id,
       const std::string& exchange_id,
       uint64_t deadline_epoch_ms,
-      size_t max_batch_bytes);
+      size_t max_batch_bytes,
+      int64_t expected_batches);
 
   void pushExternalBatch(
       int64_t executor_handle,

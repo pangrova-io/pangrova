@@ -15,7 +15,7 @@
 
 namespace pangrova::velox {
 
-std::vector<uint8_t> serializeNativeTaskStats(
+protocol::v2::NativeTaskStats encodeNativeTaskStats(
     const facebook::velox::exec::TaskStats& task_stats,
     uint64_t index_splits_evaluated,
     uint64_t index_splits_skipped) {
@@ -96,8 +96,21 @@ std::vector<uint8_t> serializeNativeTaskStats(
   (void)task_stats;
 #endif
 
-  std::vector<uint8_t> buf(proto.ByteSizeLong());
-  proto.SerializeToArray(buf.data(), static_cast<int>(buf.size()));
+  return proto;
+}
+
+std::vector<uint8_t> serializeNativeTaskStats(
+    const facebook::velox::exec::TaskStats& task_stats,
+    uint64_t index_splits_evaluated,
+    uint64_t index_splits_skipped) {
+  return serializeNativeTaskStats(
+      encodeNativeTaskStats(task_stats, index_splits_evaluated, index_splits_skipped));
+}
+
+std::vector<uint8_t> serializeNativeTaskStats(
+    const protocol::v2::NativeTaskStats& stats) {
+  std::vector<uint8_t> buf(stats.ByteSizeLong());
+  stats.SerializeToArray(buf.data(), static_cast<int>(buf.size()));
   return buf;
 }
 

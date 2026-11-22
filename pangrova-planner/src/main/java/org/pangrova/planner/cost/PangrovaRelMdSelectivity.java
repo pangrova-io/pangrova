@@ -1,13 +1,12 @@
 package org.pangrova.planner.cost;
 
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.planner.metadata.PlanTable;
 
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
-import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.metadata.BuiltInMetadata;
 import org.apache.calcite.rel.metadata.MetadataHandler;
 import org.apache.calcite.rel.metadata.ReflectiveRelMetadataProvider;
@@ -21,9 +20,6 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.util.BuiltInMethod;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,8 +30,6 @@ import java.util.List;
  */
 public final class PangrovaRelMdSelectivity
         implements MetadataHandler<BuiltInMetadata.Selectivity> {
-
-    private static final Logger LOG = LoggerFactory.getLogger(PangrovaRelMdSelectivity.class);
 
     private final StatisticsBasedCostEstimator costEstimator;
 
@@ -57,17 +51,17 @@ public final class PangrovaRelMdSelectivity
     /** Selectivity for Filter nodes — extracts predicate and delegates to histogram. */
     public Double getSelectivity(Filter rel, RelMetadataQuery mq, RexNode predicate) {
         RexNode effectivePredicate = predicate != null ? predicate : rel.getCondition();
-        Double result = estimateFromPredicate(rel.getInput(), effectivePredicate);
+        Double result = estimateFromPredicate(rel.getInput(), effectivePredicate, mq);
         if (result != null) {
             return result;
         }
         return RelMdUtil.guessSelectivity(effectivePredicate);
     }
 
-    /** Selectivity for Join nodes — estimates join selectivity using histogram overlap. */
+    /** Selectivity for Join nodes with equality keys resolved to their source columns. */
     public Double getSelectivity(Join rel, RelMetadataQuery mq, RexNode predicate) {
         RexNode effectivePredicate = predicate != null ? predicate : rel.getCondition();
-        Double result = estimateJoinSelectivity(rel, effectivePredicate);
+        Double result = estimateJoinSelectivity(rel, effectivePredicate, mq);
         if (result != null) {
             return result;
         }
@@ -79,29 +73,29 @@ public final class PangrovaRelMdSelectivity
         return RelMdUtil.guessSelectivity(predicate);
     }
 
-    private Double estimateFromPredicate(RelNode input, RexNode predicate) {
+    private Double estimateFromPredicate(RelNode input, RexNode predicate, RelMetadataQuery mq) {
         if (predicate == null || costEstimator == null) {
             return null;
         }
         if (!(predicate instanceof RexCall call)) {
             return null;
         }
-        return estimateCallSelectivity(input, call);
+        return estimateCallSelectivity(input, call, mq);
     }
 
-    private Double estimateCallSelectivity(RelNode input, RexCall call) {
+    private Double estimateCallSelectivity(RelNode input, RexCall call, RelMetadataQuery mq) {
         SqlKind kind = call.getKind();
         return switch (kind) {
-            case EQUALS -> estimateEquality(input, call);
+            case EQUALS -> estimateEquality(input, call, mq);
             case GREATER_THAN, GREATER_THAN_OR_EQUAL,
-                 LESS_THAN, LESS_THAN_OR_EQUAL -> estimateRange(input, call);
-            case IN -> estimateInList(input, call);
+                 LESS_THAN, LESS_THAN_OR_EQUAL -> estimateRange(input, call, mq);
+            case IN -> estimateInList(input, call, mq);
             default -> null;
         };
     }
 
-    private Double estimateEquality(RelNode input, RexCall call) {
-        ColumnRef ref = extractColumnRef(input, call);
+    private Double estimateEquality(RelNode input, RexCall call, RelMetadataQuery mq) {
+        ColumnRef ref = extractColumnRef(input, call, mq);
         if (ref == null) {
             return null;
         }
@@ -112,8 +106,8 @@ public final class PangrovaRelMdSelectivity
         return costEstimator.estimateSelectivity(ref.tableName, ref.columnName);
     }
 
-    private Double estimateRange(RelNode input, RexCall call) {
-        ColumnRef ref = extractColumnRef(input, call);
+    private Double estimateRange(RelNode input, RexCall call, RelMetadataQuery mq) {
+        ColumnRef ref = extractColumnRef(input, call, mq);
         if (ref == null) {
             return null;
         }
@@ -135,8 +129,8 @@ public final class PangrovaRelMdSelectivity
         return kind == SqlKind.LESS_THAN || kind == SqlKind.LESS_THAN_OR_EQUAL;
     }
 
-    private Double estimateInList(RelNode input, RexCall call) {
-        ColumnRef ref = extractInListColumnRef(input, call);
+    private Double estimateInList(RelNode input, RexCall call, RelMetadataQuery mq) {
+        ColumnRef ref = extractInListColumnRef(input, call, mq);
         if (ref == null) {
             return null;
         }
@@ -147,7 +141,7 @@ public final class PangrovaRelMdSelectivity
         return costEstimator.histogramInListSelectivity(ref.tableName, ref.columnName, values);
     }
 
-    private static ColumnRef extractInListColumnRef(RelNode input, RexCall call) {
+    private static ColumnRef extractInListColumnRef(RelNode input, RexCall call, RelMetadataQuery mq) {
         if (call.getOperands().isEmpty()) {
             return null;
         }
@@ -155,12 +149,7 @@ public final class PangrovaRelMdSelectivity
         if (!(firstOp instanceof RexInputRef inputRef)) {
             return null;
         }
-        QualifiedTableName tableName = resolveTableName(input);
-        String columnName = resolveColumnName(input, inputRef.getIndex());
-        if (tableName == null || columnName == null) {
-            return null;
-        }
-        return new ColumnRef(tableName, columnName);
+        return resolveColumn(input, inputRef.getIndex(), mq);
     }
 
     private static List<Comparable<?>> extractInListValues(RexCall call) {
@@ -177,54 +166,59 @@ public final class PangrovaRelMdSelectivity
         return values;
     }
 
-    private Double estimateJoinSelectivity(Join join, RexNode condition) {
-        if (costEstimator == null || condition == null) {
+    private Double estimateJoinSelectivity(Join join, RexNode condition, RelMetadataQuery mq) {
+        if (costEstimator == null || condition == null || join.getJoinType() != JoinRelType.INNER
+                || !join.getSystemFieldList().isEmpty()) {
             return null;
         }
         List<RexNode> conjunctions = RelOptUtil.conjunctions(condition);
-        double selectivity = 1.0;
-        boolean anyEstimated = false;
+        Double selectivity = null;
         for (RexNode conj : conjunctions) {
             if (conj instanceof RexCall call && call.getKind() == SqlKind.EQUALS) {
-                Double est = estimateJoinEquality(join, call);
+                Double est = estimateJoinEquality(join, call, mq);
                 if (est != null) {
-                    selectivity *= est;
-                    anyEstimated = true;
+                    // Without joint statistics, the most selective key gives a conservative estimate.
+                    selectivity = selectivity == null ? est : Math.min(selectivity, est);
                 }
             }
         }
-        return anyEstimated ? selectivity : null;
+        return selectivity;
     }
 
-    private Double estimateJoinEquality(Join join, RexCall equiCall) {
+    private Double estimateJoinEquality(Join join, RexCall equiCall, RelMetadataQuery mq) {
         if (equiCall.getOperands().size() != 2) {
             return null;
         }
         RexNode left = equiCall.getOperands().get(0);
         RexNode right = equiCall.getOperands().get(1);
-        if (!(left instanceof RexInputRef leftRef) || !(right instanceof RexInputRef rightRef)) {
+        if (!(left instanceof RexInputRef first) || !(right instanceof RexInputRef second)) {
             return null;
         }
-        QualifiedTableName leftTable = resolveTableName(join.getLeft());
-        QualifiedTableName rightTable = resolveTableName(join.getRight());
-        String leftCol = resolveColumnName(join.getLeft(), leftRef.getIndex());
-        int rightFieldCount = join.getLeft().getRowType().getFieldCount();
-        String rightCol = resolveColumnName(join.getRight(), rightRef.getIndex() - rightFieldCount);
-        if (leftTable == null || rightTable == null || leftCol == null || rightCol == null) {
+        int leftFields = join.getLeft().getRowType().getFieldCount();
+        int leftIndex = Math.min(first.getIndex(), second.getIndex());
+        int rightIndex = Math.max(first.getIndex(), second.getIndex());
+        if (leftIndex >= leftFields || rightIndex < leftFields) {
             return null;
         }
-        double leftSel = costEstimator.estimateSelectivity(leftTable, leftCol);
-        double rightSel = costEstimator.estimateSelectivity(rightTable, rightCol);
-        return Math.max(leftSel, rightSel);
+        ColumnRef leftCol = resolveColumn(join.getLeft(), leftIndex, mq);
+        ColumnRef rightCol = resolveColumn(join.getRight(), rightIndex - leftFields, mq);
+        if (leftCol == null || rightCol == null) {
+            return null;
+        }
+        var leftNdv = costEstimator.distinctValues(leftCol.tableName, leftCol.columnName);
+        var rightNdv = costEstimator.distinctValues(rightCol.tableName, rightCol.columnName);
+        if (leftNdv.isEmpty() || rightNdv.isEmpty()) {
+            return null;
+        }
+        return 1.0 / Math.max(leftNdv.getAsLong(), rightNdv.getAsLong());
     }
 
-    private ColumnRef extractColumnRef(RelNode input, RexCall call) {
+    private static ColumnRef extractColumnRef(RelNode input, RexCall call, RelMetadataQuery mq) {
         for (RexNode operand : call.getOperands()) {
             if (operand instanceof RexInputRef ref) {
-                QualifiedTableName tableName = resolveTableName(input);
-                String columnName = resolveColumnName(input, ref.getIndex());
-                if (tableName != null && columnName != null) {
-                    return new ColumnRef(tableName, columnName);
+                ColumnRef column = resolveColumn(input, ref.getIndex(), mq);
+                if (column != null) {
+                    return column;
                 }
             }
         }
@@ -240,23 +234,21 @@ public final class PangrovaRelMdSelectivity
         return null;
     }
 
-    private static QualifiedTableName resolveTableName(RelNode node) {
-        if (node instanceof TableScan scan) {
-            List<String> names = PlanTable.require(scan).getQualifiedName();
-            return names.size() == 3 ? new QualifiedTableName(names.get(0), names.get(1), names.get(2)) : null;
+    private static ColumnRef resolveColumn(RelNode input, int index, RelMetadataQuery mq) {
+        if (index < 0 || index >= input.getRowType().getFieldCount()) {
+            return null;
         }
-        if (!node.getInputs().isEmpty()) {
-            return resolveTableName(node.getInput(0));
+        var origin = mq.getColumnOrigin(input, index);
+        if (origin == null || origin.isDerived()) {
+            return null;
         }
-        return null;
-    }
-
-    private static String resolveColumnName(RelNode node, int index) {
-        List<String> fieldNames = node.getRowType().getFieldNames();
-        if (index >= 0 && index < fieldNames.size()) {
-            return fieldNames.get(index);
+        var table = origin.getOriginTable();
+        List<String> names = table.getQualifiedName();
+        if (names.size() != 3) {
+            return null;
         }
-        return null;
+        return new ColumnRef(new QualifiedTableName(names.get(0), names.get(1), names.get(2)),
+                table.getRowType().getFieldNames().get(origin.getOriginColumnOrdinal()));
     }
 
     private record ColumnRef(QualifiedTableName tableName, String columnName) {}

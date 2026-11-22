@@ -13,7 +13,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
@@ -93,8 +93,8 @@ public record QueryDispatcherContext(
         return scheduling.taskTracker();
     }
 
-    public SplitAssignmentManager splitAssignmentManager() {
-        return scheduling.splitAssignmentManager();
+    public CacheAffinityAssigner cacheAffinityAssigner() {
+        return scheduling.cacheAffinityAssigner();
     }
 
     public SpeculativeStageHandler speculativeStageHandler() {

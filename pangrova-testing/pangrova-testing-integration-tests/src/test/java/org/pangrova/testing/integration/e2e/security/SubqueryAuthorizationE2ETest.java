@@ -2,6 +2,7 @@ package org.pangrova.testing.integration.e2e.security;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
@@ -87,7 +88,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
                 if (rewired) clearFeatureSecurity();
                 rewired = false;
                 if (roles != null) {
-                    if (grants != null) grants.listGrantsForRole(role).forEach(grant -> grants.revokeGrant(grant.id()));
+                    if (grants != null) grants.listGrantsForRoles(Set.of(role)).forEach(grant -> grants.revokeGrant(grant.id()));
                     roles.dropRole(role);
                 }
                 for (String table : List.of(visible, hidden)) {

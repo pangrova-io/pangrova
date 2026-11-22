@@ -3,7 +3,7 @@ package org.pangrova.protocol.rest.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.CodedOutputStream;
 
 import java.util.List;
 import java.util.HexFormat;
@@ -11,8 +11,10 @@ import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
+import org.pangrova.protocol.http.TaskSubmission;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -22,14 +24,44 @@ import com.google.protobuf.ByteString;
 /** Verifies that the REST layer transports one exact canonical task contract. */
 class SubmitTaskRequestSymmetryTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    @Test
+    void outboundRequestRetainsTheAlreadyBuiltCanonicalObject() {
+        var canonical = fullRequest().taskRequest();
+        var request = SubmitTaskRequest.from(canonical);
+
+        assertThat(request.taskRequest()).isSameAs(canonical);
+        assertThat(request.withBoundTask(canonical)).isSameAs(request);
+        assertThat(request.canonicalBytes()).isEqualTo(canonical.toByteArray());
+    }
 
     @Test
-    void jsonRoundTripPreservesExactCanonicalBytes() throws Exception {
+    void replacingTheCanonicalTaskDoesNotCarryItsAdmissionValidation() {
+        var canonical = CanonicalTaskRequestTestFixture.builder("task", "query",
+                TaskKind.TASK_KIND_READ, new byte[]{1}).build();
+        var request = SubmitTaskRequest.from(canonical);
+        var validated = new ValidatedTaskSubmission(request);
+        assertThat(validated.submission()).isSameAs(request);
+
+        var changed = request.withBoundTask(canonical.toBuilder().clearSubstraitPlanChecksum().build());
+        assertThatThrownBy(() -> new ValidatedTaskSubmission(changed)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(validated.submission().taskRequest()).isSameAs(canonical);
+    }
+
+    @Test
+    void malformedProtobufIsRejectedAtHttpDecoding() {
+        assertThatThrownBy(() -> SubmitTaskRequest.decode(new byte[]{(byte) 0x80}))
+                .isInstanceOf(com.google.protobuf.InvalidProtocolBufferException.class);
+        assertThatThrownBy(() -> SubmitTaskRequest.decode(new byte[0]))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("payload");
+    }
+
+    @Test
+    void binaryRoundTripCarriesOneTypedCanonicalTask() throws Exception {
         SubmitTaskRequest request = fullRequest();
 
-        SubmitTaskRequest decoded = MAPPER.readValue(
-                MAPPER.writeValueAsBytes(request), SubmitTaskRequest.class);
+        byte[] body = request.encode();
+        assertThat(TaskSubmission.parseFrom(body).getTask()).isEqualTo(request.taskRequest());
+        SubmitTaskRequest decoded = SubmitTaskRequest.decode(body);
 
         assertThat(decoded.canonicalBytes()).isEqualTo(request.canonicalBytes());
         assertThat(decoded.taskRequest()).isEqualTo(request.taskRequest());
@@ -43,7 +75,7 @@ class SubmitTaskRequestSymmetryTest {
         var canonical = copyRequest(scope);
         var submitted = SubmitTaskRequest.from(canonical, privateTicket);
 
-        var decoded = MAPPER.readValue(MAPPER.writeValueAsBytes(submitted), SubmitTaskRequest.class);
+        var decoded = SubmitTaskRequest.decode(submitted.encode());
 
         assertThat(decoded).isEqualTo(submitted);
         assertThat(decoded.copySourceRead()).isEqualTo(privateTicket);
@@ -55,6 +87,29 @@ class SubmitTaskRequestSymmetryTest {
         assertThatThrownBy(() -> submitted.withBoundTask(canonical.toBuilder()
                 .setDeadlineEpochMs(canonical.getDeadlineEpochMs() + 1).build()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void privateCopyRedeliveryRetainsTheActualReceivedBytes() throws Exception {
+        var scope = copyScope();
+        var canonical = copyRequest(scope);
+        var submitted = SubmitTaskRequest.from(canonical,
+                new CopySourceReadHttp.RedeemRequest("n".repeat(43), scope));
+        // An earlier value for a singular field is legal on the wire. The last
+        // value determines semantics, while the lease still owns the original bytes.
+        var bytes = ByteString.newOutput();
+        var output = CodedOutputStream.newInstance(bytes);
+        output.writeInt64(TaskRequest.DEADLINE_EPOCH_MS_FIELD_NUMBER, 1);
+        canonical.writeTo(output);
+        output.flush();
+        var envelope = TaskSubmission.parseFrom(submitted.encode()).toBuilder();
+        envelope.getCopyBuilder().setCanonicalTask(bytes.toByteString());
+        var body = envelope.build().toByteArray();
+        var decoded = SubmitTaskRequest.decode(body);
+        assertThat(decoded.taskRequest()).isEqualTo(canonical);
+        assertThat(decoded.canonicalBytes()).isEqualTo(bytes.toByteString().toByteArray());
+        assertThat(decoded.encode()).isEqualTo(body);
+        assertThat(decoded).isNotEqualTo(submitted);
     }
 
     @Test

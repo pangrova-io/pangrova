@@ -11,16 +11,16 @@ final class TaskExecutorCreation {
         boolean nativeInvoked = false;
         try {
             preparation.run();
-            byte[] request = info.request().canonicalBytes();
+            var request = info.request();
             long handle;
-            if (info.request().copySourceRead() != null) {
+            if (request.copySourceRead() != null) {
                 var nativeExecutor = org.pangrova.worker.execution.NativeTaskExecutor.ownerOf(executor)
                         .orElseThrow(() -> new IllegalStateException("COPY requires the Native execution owner"));
                 nativeInvoked = true;
-                handle = nativeExecutor.createCopyTask(info.request());
+                handle = nativeExecutor.createCopyTask(request);
             } else {
                 nativeInvoked = true;
-                handle = executor.createTask(request);
+                handle = executor.createTask(request.taskRequest());
             }
             if (handle <= 0) {
                 throw new IllegalStateException(

@@ -14,13 +14,14 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.execution.identity.StageTaskIdentity;
 import org.pangrova.execution.api.deadline.StageTaskDeadline;
-import org.pangrova.execution.split.CanonicalSplitParser;
 import org.pangrova.execution.split.SchemaDescriptorDeduplicator;
 import org.pangrova.execution.api.stage.TaskStage;
 import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
@@ -34,7 +35,7 @@ import org.pangrova.shuffle.api.ShuffleHandle;
 
 /**
  * Builds SubmitTaskRequest instances for task dispatch.
- * Supports push mode (splits embedded in request) and pull mode (empty splits).
+ * Scan splits travel in the signed task request.
  */
 public final class TaskRequestFactory {
 
@@ -43,6 +44,17 @@ public final class TaskRequestFactory {
             "pangrova.policy_context_hash";
 
     private TaskRequestFactory() {}
+
+    /** Exact immutable Substrait bytes and digest shared across a bound stage's tasks. */
+    public static final class FrozenStagePlan {
+        private final ByteString bytes;
+        private final Checksum checksum;
+
+        public FrozenStagePlan(byte[] planBytes) {
+            bytes = ByteString.copyFrom(Objects.requireNonNull(planBytes, "planBytes must not be null"));
+            checksum = ProtocolChecksums.sha256(bytes);
+        }
+    }
 
     /** Builds the single fenced WRITE request used by distributed DML. */
     public static SubmitTaskRequest buildDmlWriteRequest(DmlWriteTask task) {
@@ -53,7 +65,7 @@ public final class TaskRequestFactory {
                 task.operatorBindings(), deadline, session.queryId() + ":0:0");
         TaskRequest request = canonicalRequest(new CanonicalTaskSpec(
                 taskId, new StageExecutionContext.Live(session), 0, 0, TaskKind.TASK_KIND_WRITE,
-                task.planBytes(), task.serializedSplits(), bindings,
+                task.plan(), task.splits(), bindings,
                 bindResourceGrant(taskId, task.resourceGrant(), bindings),
                 deadline, task.attempt(), task.exchangeInputs(),
                 List.of(), TaskExecutionOptionsFactory.build(
@@ -64,40 +76,42 @@ public final class TaskRequestFactory {
 
     public record DmlWriteTask(
             QuerySession session,
-            byte[] planBytes,
+            FrozenStagePlan plan,
             StageResourceGrant resourceGrant,
             List<ExchangeInputBinding> exchangeInputs,
             List<OperatorBinding> operatorBindings,
-            List<String> serializedSplits,
+            List<DataSplit> splits,
             WriteConfig writeConfig,
             long taskTimeoutSeconds,
             TaskAttemptDescriptor attempt) {
 
         public DmlWriteTask {
             session = Objects.requireNonNull(session, "session must not be null");
-            planBytes = Objects.requireNonNull(
-                    planBytes, "planBytes must not be null").clone();
+            plan = Objects.requireNonNull(plan, "plan must not be null");
             resourceGrant = Objects.requireNonNull(
                     resourceGrant, "resourceGrant must not be null");
             exchangeInputs = List.copyOf(exchangeInputs);
             operatorBindings = List.copyOf(operatorBindings);
-            serializedSplits = List.copyOf(serializedSplits);
+            splits = List.copyOf(splits);
             writeConfig = Objects.requireNonNull(
                     writeConfig, "writeConfig must not be null");
             attempt = Objects.requireNonNull(attempt, "attempt must not be null");
-        }
-
-        @Override
-        public byte[] planBytes() {
-            return planBytes.clone();
         }
     }
 
     /** Builds a canonical fenced task from one immutable dispatch specification. */
     public static SubmitTaskRequest buildLeafTaskRequest(LeafTask task) {
+        return buildLeafTaskRequest(task, java.util.OptionalInt.empty());
+    }
+
+    /** Collects the requested build-key range from the exact output of a live leaf producer. */
+    public static SubmitTaskRequest buildLeafTaskRequest(LeafTask task, java.util.OptionalInt buildKeyOrdinal) {
         StageExecutionContext execution = task.execution();
         if (execution instanceof StageExecutionContext.Durable) {
             throw new IllegalArgumentException("A durable task requires an exact currently claimed partition");
+        }
+        if (buildKeyOrdinal.isPresent() && !(execution instanceof StageExecutionContext.Live)) {
+            throw new IllegalArgumentException("Runtime-filter build key requires live execution");
         }
         TaskStage stage = task.stage();
         String taskId = execution instanceof StageExecutionContext.Deferred deferred
@@ -112,7 +126,7 @@ public final class TaskRequestFactory {
                 execution.executionId() + ":" + stage.stageId() + ":" + task.partition());
         TaskRequest request = canonicalRequest(new CanonicalTaskSpec(
                 taskId, execution, stage.stageId(), task.partition(),
-                leafTaskKind(task), task.planBytes(), task.serializedSplits(),
+                leafTaskKind(task), task.plan(), task.splits(),
                 bindings, bindResourceGrant(taskId, task.resourceGrant(), bindings),
                 deadline, task.attempt(), task.exchangeInputs(),
                 task.resultColumnTypes(),
@@ -120,20 +134,20 @@ public final class TaskRequestFactory {
                         execution.executionProperties(), null, task.shuffleConfig(),
                         execution instanceof StageExecutionContext.Live
                         && stage.purpose() == TaskPurpose.OUTPUT, task.shuffleHandle(),
-                        task.attempt().planEpoch())));
+                        task.attempt().planEpoch())), buildKeyOrdinal);
         return SubmitTaskRequest.from(request);
     }
 
     /** Immutable input for one leaf-stage task request. */
     public record LeafTask(
             StageExecutionContext execution,
-            byte[] planBytes,
+            FrozenStagePlan plan,
             TaskStage stage,
             int partition,
             StageResourceGrant resourceGrant,
             List<ExchangeInputBinding> exchangeInputs,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
-            List<String> serializedSplits,
+            List<DataSplit> splits,
             StageTaskDeadline deadline,
             TaskAttemptDescriptor attempt,
             List<OperatorBinding> operatorBindings,
@@ -143,34 +157,16 @@ public final class TaskRequestFactory {
         /** Validates and snapshots mutable request inputs. */
         public LeafTask {
             execution = Objects.requireNonNull(execution, "execution must not be null");
-            planBytes = Objects.requireNonNull(planBytes, "planBytes must not be null").clone();
+            plan = Objects.requireNonNull(plan, "plan must not be null");
             stage = Objects.requireNonNull(stage, "stage must not be null");
             resourceGrant = Objects.requireNonNull(resourceGrant, "resourceGrant must not be null");
             exchangeInputs = List.copyOf(exchangeInputs);
             deadline = Objects.requireNonNull(deadline, "deadline must not be null");
-            serializedSplits = serializedSplits == null ? List.of() : List.copyOf(serializedSplits);
+            splits = List.copyOf(splits);
             attempt = Objects.requireNonNull(attempt, "attempt must not be null");
             operatorBindings = List.copyOf(operatorBindings);
             resultColumnTypes = List.copyOf(resultColumnTypes);
         }
-
-        @Override
-        public byte[] planBytes() {
-            return planBytes.clone();
-        }
-    }
-
-    /**
-     * Validates that multi-source splits carry generic source identity at dispatch time.
-     * Fails fast before sending to a Worker if any split lacks {@code source_id}.
-     *
-     * @param serializedSplits Base64-encoded canonical v2 DataSplit bytes
-     * @param queryId          query identifier for error context
-     * @param stageId          stage identifier for error context
-     */
-    public static void validateSplitSources(List<String> serializedSplits,
-                                            String queryId, int stageId) {
-        CanonicalSplitParser.parseAll(serializedSplits, queryId, stageId);
     }
 
     private static SecurityContext securityContext(
@@ -233,8 +229,12 @@ public final class TaskRequestFactory {
     }
 
     private static TaskRequest canonicalRequest(CanonicalTaskSpec spec) {
-        byte[] planBytes = spec.planBytes();
-        SchemaDescriptorDeduplicator.Result splitPlan = splitPlan(spec);
+        return canonicalRequest(spec, java.util.OptionalInt.empty());
+    }
+
+    private static TaskRequest canonicalRequest(CanonicalTaskSpec spec, java.util.OptionalInt buildKeyOrdinal) {
+        FrozenStagePlan plan = spec.plan();
+        var splitPlan = SchemaDescriptorDeduplicator.deduplicate(spec.splits());
         TaskRequest.Builder request = TaskRequest.newBuilder()
                 .setProtocol(CanonicalProtocolIdentity.current())
                 .setAttempt(TaskAttemptId.newBuilder()
@@ -249,8 +249,8 @@ public final class TaskRequestFactory {
                 .setTraceContext(traceContext(spec.execution()))
                 .setSecurity(securityContext(
                         spec.execution(), spec.operatorBindings()))
-                .setSubstraitPlan(ByteString.copyFrom(planBytes))
-                .setSubstraitPlanChecksum(ProtocolChecksums.sha256(planBytes))
+                .setSubstraitPlan(plan.bytes)
+                .setSubstraitPlanChecksum(plan.checksum)
                 .addAllSplits(splitPlan.splits())
                 .addAllOperatorBindings(spec.operatorBindings())
                 .addAllResultColumnTypes(spec.resultColumnTypes())
@@ -262,14 +262,9 @@ public final class TaskRequestFactory {
             request.setExecutionOptions(spec.executionOptions());
         }
         request.addAllSchemaDescriptors(splitPlan.descriptors());
+        buildKeyOrdinal.ifPresent(request::setBuildKeyOrdinal);
         bindDeferredIdentity(request, spec.execution());
         return request.build();
-    }
-
-    private static SchemaDescriptorDeduplicator.Result splitPlan(CanonicalTaskSpec spec) {
-        var parsed = CanonicalSplitParser.parseAll(
-                spec.serializedSplits(), spec.execution().executionId(), spec.stageId());
-        return SchemaDescriptorDeduplicator.deduplicate(parsed);
     }
 
     private static org.pangrova.protocol.v2.TraceContext traceContext(StageExecutionContext execution) {
@@ -317,8 +312,8 @@ public final class TaskRequestFactory {
             int stageId,
             int partitionId,
             TaskKind taskKind,
-            byte[] planBytes,
-            List<String> serializedSplits,
+            FrozenStagePlan plan,
+            List<DataSplit> splits,
             List<OperatorBinding> operatorBindings,
             StageResourceGrant resourceGrant,
             long deadlineEpochMs,
@@ -326,15 +321,6 @@ public final class TaskRequestFactory {
             List<ExchangeInputBinding> exchangeInputs,
             List<ResultColumnLogicalType> resultColumnTypes,
             TaskExecutionOptions executionOptions) {
-
-        private CanonicalTaskSpec {
-            planBytes = planBytes.clone();
-        }
-
-        @Override
-        public byte[] planBytes() {
-            return planBytes.clone();
-        }
     }
 
     private static TaskKind leafTaskKind(LeafTask task) {

@@ -236,6 +236,10 @@ int TaskExecutor::getNextBatch(
 }
 
 ExecutorState TaskExecutor::state() const { return lifecycle_.state(); }
+
+ExecutorState TaskExecutor::awaitTerminal(std::chrono::milliseconds timeout) const {
+  return lifecycle_.awaitTerminal(timeout);
+}
 std::string TaskExecutor::taskId() const { return config_.task_id; }
 
 std::string TaskExecutor::queryId() const { return config_.query_id; }
@@ -407,31 +411,19 @@ uint64_t TaskExecutor::requestedObjectReadBytes() const {
   return execution_driver_ ? execution_driver_->requestedObjectReadBytes() : 0;
 }
 
-std::vector<uint8_t> TaskExecutor::collectTaskStats() const {
-  if (execution_driver_) {
-    auto serialized = execution_driver_->collectTaskStats();
-    if (serialized.empty()) return {};
-    protocol::v2::NativeTaskStats stats;
-    if (!serialized.empty() &&
-        !stats.ParseFromArray(
-            serialized.data(), static_cast<int>(serialized.size()))) {
-      throw std::runtime_error("Native task stats protobuf is invalid");
-    }
-    const auto cache_usage =
-        cache::SemanticResultCache::instance().taskUsage(config_.task_id);
-    stats.set_cache_hit_bytes(cache_usage.hit_bytes);
-    stats.set_cache_miss_bytes(cache_usage.miss_bytes);
-    stats.set_cache_hit_count(cache_usage.hits);
-    stats.set_cache_miss_count(cache_usage.misses);
-    stats.set_cache_eviction_count(cache_usage.evictions);
-    stats.set_cache_admission_rejection_count(
-        cache_usage.admission_rejections);
-    serialized.resize(stats.ByteSizeLong());
-    stats.SerializeToArray(
-        serialized.data(), static_cast<int>(serialized.size()));
-    return serialized;
-  }
-  return {};
+std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() const {
+  auto stats = execution_driver_ ? execution_driver_->collectTaskStats() : std::nullopt;
+  if (!stats) return std::nullopt;
+  if (state() != ExecutorState::FINISHED) stats->clear_build_key_range();
+  const auto cache_usage =
+      cache::SemanticResultCache::instance().taskUsage(config_.task_id);
+  stats->set_cache_hit_bytes(cache_usage.hit_bytes);
+  stats->set_cache_miss_bytes(cache_usage.miss_bytes);
+  stats->set_cache_hit_count(cache_usage.hits);
+  stats->set_cache_miss_count(cache_usage.misses);
+  stats->set_cache_eviction_count(cache_usage.evictions);
+  stats->set_cache_admission_rejection_count(cache_usage.admission_rejections);
+  return stats;
 }
 
 bool TaskExecutor::hasFinalTaskStats() const {
@@ -443,6 +435,13 @@ velox::VeloxTaskRunner* TaskExecutor::veloxTaskRunner() const {
     return nullptr;
   }
   return execution_driver_->veloxTaskRunner();
+}
+
+void TaskExecutor::watchResultDrain(std::function<void()> listener) const {
+  if (!isResultTask() || state() != ExecutorState::FINISHED || isExecutionReleased()) {
+    throw std::logic_error("Result drain listener requires a finished, live result executor");
+  }
+  execution_driver_->watchResultDrain(std::move(listener));
 }
 
 }  // namespace pangrova::executor

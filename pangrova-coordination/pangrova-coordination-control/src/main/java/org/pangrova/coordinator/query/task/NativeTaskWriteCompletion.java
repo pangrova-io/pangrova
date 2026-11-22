@@ -107,10 +107,11 @@ final class NativeTaskWriteCompletion {
             return false;
         }
 
-        // Idempotent recovery: skip if the journal says this write is already committed
-        if (writeCommitJournal.isCommitted(queryId)) {
-            WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
-                    new IllegalStateException("COMMITTED write lost its durable intent"));
+        // The same durable entry proves COMMITTED and carries its acknowledgement identity.
+        WriteCommitEntry committed = writeCommitJournal.getEntry(queryId)
+                .filter(entry -> entry.state() == WriteCommitState.COMMITTED)
+                .orElse(null);
+        if (committed != null) {
             if (committed.copyFile() != null) {
                 DefaultWriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
                         writeCommitJournal, name -> {
@@ -123,7 +124,7 @@ final class NativeTaskWriteCompletion {
                 }
             }
             LOG.info("event=distributed_write_already_committed queryId={}", queryId);
-            retireCommittedWrite(queryId);
+            retireCommittedWrite(committed);
             return true;
         }
 
@@ -154,7 +155,7 @@ final class NativeTaskWriteCompletion {
         }
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         writeCommitJournal.markCommitted(queryId);
-        retireCommittedWrite(queryId);
+        retireCommittedWrite(intent);
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
                 queryId, writeState.catalogName(), fragments.size());
         return true;
@@ -220,18 +221,12 @@ final class NativeTaskWriteCompletion {
         }
     }
 
-    private void retireCommittedWrite(String queryId) {
-        acknowledgeOrdinaryWrite(queryId);
-        writeCommitTracker.removeWriteState(queryId);
-        writeCommitJournal.purge(queryId);
-    }
-
-    private void acknowledgeOrdinaryWrite(String queryId) {
-        var entry = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
-                new IllegalStateException("COMMITTED write lost its declaration receipt"));
+    private void retireCommittedWrite(WriteCommitEntry entry) {
         if (!entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
             writeCommitJournal.acknowledgeNoDeferredWork(entry.commitFingerprint());
         }
+        writeCommitTracker.removeWriteState(entry.queryId());
+        writeCommitJournal.purge(entry.queryId());
     }
 
     private static WriteCommitEntry createWriteCommitIntent(

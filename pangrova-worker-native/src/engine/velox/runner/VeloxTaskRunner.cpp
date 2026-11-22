@@ -1,8 +1,10 @@
 // VeloxTaskRunner: Drives Velox exec::Task and feeds output to OutputQueue.
 #include "engine/velox/runner/VeloxTaskRunner.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <unordered_set>
@@ -12,6 +14,7 @@
 #include "indexing/index/IndexHintFilter.h"
 #include "engine/observability/PangrovaLog.h"
 #include "engine/observability/NativeProfiler.h"
+#include "engine/observability/NativeMetricsCollector.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
 
@@ -40,6 +43,7 @@
 #include "velox/common/future/VeloxPromise.h"
 #include "velox/exec/HashPartitionFunction.h"
 #include "velox/exec/Exchange.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox {
 
@@ -193,6 +197,11 @@ VeloxTaskRunner::~VeloxTaskRunner() {
 }
 
 void VeloxTaskRunner::start() {
+  if (const auto ordinal = config_.build_key_ordinal; ordinal &&
+      (!config_.is_shuffle_task || *ordinal >= plan_->outputType()->size() ||
+       plan_->outputType()->childAt(*ordinal)->kind() != facebook::velox::TypeKind::BIGINT)) {
+    throw std::invalid_argument("Runtime-filter build key requires a BIGINT shuffle output column");
+  }
   // Precondition: this object must be managed by a shared_ptr before start()
   // is called, because the consumer callback captures weak_from_this().
   // PlanExecutionDriver::executeVeloxPlan() creates the runner via
@@ -463,16 +472,24 @@ void VeloxTaskRunner::start() {
       // backpressure — the Driver thread waits until space is available,
       // which is acceptable because Velox's executor has multiple threads.
       auto weak_self = weak_from_this();
-      consumer = [weak_self](
+      // Velox copies this prototype into each Driver's CallbackSink. Keep the
+      // mutable hash decoder and its scratch with that Driver's consumer.
+      consumer = [weak_self,
+                  partitioner = std::shared_ptr<facebook::velox::exec::HashPartitionFunction>{},
+                  partitions = std::vector<uint32_t>{},
+                  partition_rows = std::vector<std::vector<facebook::velox::vector_size_t>>{}](
           facebook::velox::RowVectorPtr vector,
           bool /*drained*/,
-          facebook::velox::ContinueFuture* /*future*/) -> facebook::velox::exec::BlockingReason {
+          facebook::velox::ContinueFuture* /*future*/) mutable -> facebook::velox::exec::BlockingReason {
         auto self = weak_self.lock();
         if (!self || !vector || vector->size() == 0) {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
         }
         if (self->cancelled_.load()) {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
+        }
+        if (self->config_.build_key_ordinal) {
+          self->collectBuildKeyRange(*vector);
         }
 
         // F-NATIVE-SHUF-09: Use configurable timeout from VeloxTaskRunnerConfig.
@@ -523,29 +540,17 @@ void VeloxTaskRunner::start() {
           // row sets. The accumulator coalesces small partitions and flushes
           // automatically when a partition exceeds kMinPartitionFlushRows.
           auto numRows = vector->size();
-          std::vector<uint32_t> partitions(numRows);
-          std::optional<uint32_t> singlePartition;
-          {
-            // HashPartitionFunction::partition() mutates its VectorHasher
-            // DecodedVector and scratch buffers, so it is not thread-safe.
-            // The consumer is shared by all Drivers of a Task, so the cached
-            // partitioner must be serialized.
-            std::lock_guard<std::mutex> lock(self->shuffle_partitioner_mutex_);
-            if (!self->shuffle_partitioner_) {
-              auto inputType = std::dynamic_pointer_cast<
-                  const facebook::velox::RowType>(vector->type());
-              auto keyChannels = self->shuffle_key_channels_;
-              if (keyChannels.empty() && vector->childrenSize() > 0) {
-                keyChannels.push_back(0);
-              }
-              self->shuffle_partitioner_ =
-                  std::make_shared<facebook::velox::exec::HashPartitionFunction>(
-                      false, self->config_.num_shuffle_partitions,
-                      inputType, keyChannels);
+          partitions.resize(numRows);
+          if (!partitioner) {
+            auto inputType = std::dynamic_pointer_cast<const facebook::velox::RowType>(vector->type());
+            auto keyChannels = self->shuffle_key_channels_;
+            if (keyChannels.empty() && vector->childrenSize() > 0) {
+              keyChannels.push_back(0);
             }
-            singlePartition =
-                self->shuffle_partitioner_->partition(*vector, partitions);
+            partitioner = std::make_shared<facebook::velox::exec::HashPartitionFunction>(
+                false, self->config_.num_shuffle_partitions, inputType, keyChannels);
           }
+          const auto singlePartition = partitioner->partition(*vector, partitions);
 
           if (singlePartition.has_value()) {
             // All rows in one partition — accumulate as a single chunk.
@@ -564,40 +569,31 @@ void VeloxTaskRunner::start() {
                   ", task_id=" + self->config_.task_id + ")";
             }
           } else {
-            // Distribute rows to partitions via accumulator.
-            // L2-4: thread_local container reuse — avoids re-allocating the
-            // outer vector + inner vectors on every batch. Each Velox Driver
-            // thread processes batches sequentially, so thread_local is safe
-            // and eliminates heap allocation in the hot path (10K+ batches/sec).
-            thread_local std::vector<std::vector<facebook::velox::vector_size_t>>
-                partitionRows;
             auto numPartitions = self->config_.num_shuffle_partitions;
-            if (static_cast<int32_t>(partitionRows.size()) != numPartitions) {
-              partitionRows.resize(numPartitions);
+            if (static_cast<int32_t>(partition_rows.size()) != numPartitions) {
+              partition_rows.resize(numPartitions);
             }
             // Clear sub-vectors (retains capacity from previous batch).
-            for (auto& pv : partitionRows) {
+            for (auto& pv : partition_rows) {
               pv.clear();
             }
             // Reserve on first use or when batch size grows.
             auto estimatedRowsPerPartition = static_cast<size_t>(
                 numRows / numPartitions) + 1;
-            for (auto& pv : partitionRows) {
+            for (auto& pv : partition_rows) {
               if (pv.capacity() < estimatedRowsPerPartition) {
                 pv.reserve(estimatedRowsPerPartition);
               }
             }
             for (facebook::velox::vector_size_t r = 0; r < numRows; ++r) {
-              partitionRows[partitions[r]].push_back(r);
+              partition_rows[partitions[r]].push_back(r);
             }
             for (int32_t pid = 0;
                  pid < self->config_.num_shuffle_partitions; ++pid) {
-              if (partitionRows[pid].empty()) continue;
-              // Pass by copy (not move) to preserve thread_local capacity.
-              // The copy cost is O(rows_in_partition) integers — trivial
-              // compared to the serialization work that follows.
+              if (partition_rows[pid].empty()) continue;
+              // The accumulator retains its own row selections across callbacks.
               if (!self->shuffle_accumulator_->accumulate(
-                      pid, vector, partitionRows[pid])) {
+                      pid, vector, partition_rows[pid])) {
                 self->cancelled_.store(true);
                 std::lock_guard<std::mutex> lock(self->error_mutex_);
                 self->error_message_ =
@@ -981,6 +977,7 @@ bool VeloxTaskRunner::waitForCompletion() {
     // (not FINISHED), allowing the coordinator to fetch results via
     // FlightResultServer, which unblocks the Velox task completion.
     velox_task_->taskCompletionFuture().wait();
+    if (result_ownership_) result_ownership_->stopProducer();
 
     if (cancelled_.load()) {
       if (output_queue_) {
@@ -1083,6 +1080,7 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
 }
 
 bool VeloxTaskRunner::handleTaskCompletion() {
+  if (result_ownership_) result_ownership_->stopProducer();
   if (cancelled_.load()) {
     if (output_queue_) {
       output_queue_->close();
@@ -1131,10 +1129,12 @@ bool VeloxTaskRunner::isFinished() const {
 
 pangrova::result::ResultOwnershipState::Evidence VeloxTaskRunner::resultDrainEvidence() const {
   if (!result_ownership_) return {false, false, false, 0, 0};
-  if (velox_task_ && velox_task_->state() != facebook::velox::exec::TaskState::kRunning) {
-    result_ownership_->stopProducer();
-  }
   return result_ownership_->evidence();
+}
+
+void VeloxTaskRunner::watchResultDrain(std::function<void()> listener) const {
+  if (!result_ownership_) throw std::logic_error("Task has no result ownership");
+  result_ownership_->watchDrain(std::move(listener));
 }
 
 std::string VeloxTaskRunner::errorMessage() const {
@@ -1173,16 +1173,51 @@ facebook::velox::exec::Task* VeloxTaskRunner::veloxTask() const {
   return velox_task_.get();
 }
 
-std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
-  if (!velox_task_) {
-    return {};
+void VeloxTaskRunner::collectBuildKeyRange(const facebook::velox::RowVector& rows) {
+  facebook::velox::DecodedVector key(*rows.childAt(*config_.build_key_ordinal));
+  int64_t minimum = std::numeric_limits<int64_t>::max();
+  int64_t maximum = std::numeric_limits<int64_t>::min();
+  for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
+    if (key.isNullAt(index)) continue;
+    auto value = key.valueAt<int64_t>(index);
+    minimum = std::min(minimum, value);
+    maximum = std::max(maximum, value);
   }
-  // Delegate to shared serialization utility to avoid duplicate logic
-  // with the wire-format per-operator counters.
-  return serializeNativeTaskStats(
-      velox_task_->taskStats(),
+  if (minimum > maximum) return;
+  std::lock_guard lock(build_key_range_mutex_);
+  if (build_key_range_) {
+    minimum = std::min(minimum, build_key_range_->first);
+    maximum = std::max(maximum, build_key_range_->second);
+  }
+  build_key_range_.emplace(minimum, maximum);
+}
+
+std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
+    observability::NativeMetricsCollector* metrics) const {
+  if (!velox_task_) {
+    return std::nullopt;
+  }
+  const auto snapshot = velox_task_->taskStats();
+  if (metrics) {
+    metrics->observeColumnarReadTaskStats(snapshot);
+  }
+  auto stats = encodeNativeTaskStats(
+      snapshot,
       index_splits_evaluated_.load(std::memory_order_acquire),
       index_splits_skipped_.load(std::memory_order_acquire));
+  if (config_.build_key_ordinal && velox_task_->state() == facebook::velox::exec::TaskState::kFinished) {
+    std::lock_guard lock(build_key_range_mutex_);
+    auto* range = stats.mutable_build_key_range();
+    range->set_empty(!build_key_range_);
+    if (build_key_range_) {
+      range->set_minimum(build_key_range_->first);
+      range->set_maximum(build_key_range_->second);
+    }
+  }
+  if (stats.operator_stats().empty() && stats.ByteSizeLong() == 0) {
+    return std::nullopt;
+  }
+  return stats;
 }
 
 void VeloxTaskRunner::finalizeShuffleOutput() {

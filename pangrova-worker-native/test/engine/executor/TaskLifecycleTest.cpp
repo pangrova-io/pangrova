@@ -1,10 +1,30 @@
 #include "engine/executor/driver/TaskLifecycle.h"
 
 #include <gtest/gtest.h>
+#include <future>
 #include <thread>
 #include <vector>
 
 namespace pangrova::executor {
+
+TEST(TaskLifecycleTest, WaitWakesOnlyOnTerminalStateAndLateReaderSeesIt) {
+  using namespace std::chrono_literals;
+  TaskLifecycle lifecycle;
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::RUNNING));
+  std::promise<void> reached_wait;
+  auto entered = reached_wait.get_future();
+  auto observed = std::async(std::launch::async, [&] {
+    reached_wait.set_value();
+    return lifecycle.awaitTerminal(5s);
+  });
+  ASSERT_EQ(entered.wait_for(1s), std::future_status::ready);
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::FLUSHING));
+  EXPECT_EQ(observed.wait_for(10ms), std::future_status::timeout);
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::FINISHED));
+  ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
+  EXPECT_EQ(observed.get(), ExecutorState::FINISHED);
+  EXPECT_EQ(lifecycle.awaitTerminal(0ms), ExecutorState::FINISHED);
+}
 
 TEST(TaskLifecycleTest, CancelledCleanupErrorDoesNotRewriteTerminalState) {
   TaskLifecycle lifecycle;

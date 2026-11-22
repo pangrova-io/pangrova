@@ -55,7 +55,7 @@ final class ActualShuffleService implements AutoCloseable {
         }
 
         org.pangrova.shuffle.api.ShuffleServerEndpoint selectedEndpoint() {
-            int partition = input.getOutputPartitionId();
+            int partition = input.getSourcePartitionStart();
             var endpoint = input.getEndpointsList().stream().filter(candidate ->
                     candidate.getPartitionStart() <= partition && partition < candidate.getPartitionEnd())
                     .findFirst().orElseThrow();
@@ -66,11 +66,11 @@ final class ActualShuffleService implements AutoCloseable {
 
     static org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead partitionRead(ReadBinding read) {
         var input = read.input();
-        var part = input.getPublication();
+        var part = input.getPublications(0);
         return new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
                 input.getShuffleId(), new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
                         org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(read.consumerAttempt()),
-                        input.getOutputPartitionId(), input.getDeadlineEpochMs()),
+                        input.getSourcePartitionStart(), input.getDeadlineEpochMs()),
                 input.getPlanEpoch(), input.getExpectedProducerPartitions(),
                 input.getExpectedProducerSetChecksum().getDigest().toByteArray(), new ShuffleCommitReceipt.Partition(
                         part.getLastSequence(), part.getTotalBytes(), part.getTotalRows(),
@@ -312,6 +312,10 @@ final class ActualShuffleService implements AutoCloseable {
     }
 
     ReadBinding delegateRead(AdmittedProducer producer, TaskRequest consumer) {
+        return delegateRead(producer, consumer, 0, 1);
+    }
+
+    ReadBinding delegateRead(AdmittedProducer producer, TaskRequest consumer, int start, int end) {
         var attempt = consumer.getAttempt();
         var owner = attempt.getExecutionOwner();
         var capability = control().renewAccess(RenewAccessRequest.newBuilder()
@@ -319,18 +323,20 @@ final class ActualShuffleService implements AutoCloseable {
                 .setShuffleId(producer.registration().getShuffleId()).setExecutionOwner(owner)
                 .setTaskAttempt(attempt).build()).getAccessCapability();
         var binding = producer.request().getExecutionOptions().getShuffle().getExecutionBinding();
-        var part = receipts.get(binding.getShuffleId()).partitions().get(0);
         var input = org.pangrova.protocol.v2.ExternalShuffleInput.newBuilder().setShuffleId(binding.getShuffleId())
                 .addAllEndpoints(binding.getEndpointsList()).setCommitAddress(binding.getCommitAddress())
-                .setOutputPartitionId(0).setPartitionCount(partitions).setPlanEpoch(attempt.getPlanEpoch())
+                .setSourcePartitionStart(start).setPartitionCount(partitions).setPlanEpoch(
+                        producer.request().getAttempt().getPlanEpoch())
                 .setExecutionOwner(owner).setDeadlineEpochMs(consumer.getDeadlineEpochMs())
                 .setReadCapability(capability).setExpectedProducerPartitions(1)
-                .setExpectedProducerSetChecksum(producer.producerSetChecksum())
-                .setPublication(org.pangrova.protocol.v2.ShufflePartitionPublication.newBuilder()
-                        .setLastSequence(part.lastSequence()).setTotalBytes(part.bytes()).setTotalRows(part.rows())
-                        .setManifestSha256(com.google.protobuf.ByteString.copyFrom(
-                                java.util.HexFormat.of().parseHex(part.manifestSha256()))))
-                .build();
-        return new ReadBinding(input, attempt);
+                .setExpectedProducerSetChecksum(producer.producerSetChecksum());
+        for (int id = start; id < end; id++) {
+            var part = receipts.get(binding.getShuffleId()).partitions().get(id);
+            input.addPublications(org.pangrova.protocol.v2.ShufflePartitionPublication.newBuilder()
+                    .setLastSequence(part.lastSequence()).setTotalBytes(part.bytes()).setTotalRows(part.rows())
+                    .setManifestSha256(com.google.protobuf.ByteString.copyFrom(
+                            java.util.HexFormat.of().parseHex(part.manifestSha256()))));
+        }
+        return new ReadBinding(input.build(), attempt);
     }
 }

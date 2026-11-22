@@ -1,5 +1,7 @@
 package org.pangrova.generation.publication.read;
 
+import org.pangrova.generation.codec.source.GenerationSourceSplitValidator;
+
 import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -8,6 +10,7 @@ import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PublishedInput;
@@ -17,6 +20,7 @@ import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.DefinitionSnapshot;
 
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -48,11 +52,10 @@ public final class PublishedGenerationBindingResolver {
      * Feature planners attach the returned generic binding to their own exact
      * capability; this layer has no vector/search/generated-value branching.
      */
-    public Optional<ArtifactBinding> resolveTemplate(
-            GenerationResolutionIntent intent, List<String> serializedSplits) {
+    public Optional<ResolvedTemplate> resolveTemplate(
+            GenerationResolutionIntent intent, List<DataSplit> splits) {
         Objects.requireNonNull(intent, "intent must not be null");
-        List<DataSplit> splits = org.pangrova.generation.codec.source.GenerationSourceSplitCodec.decode(
-                serializedSplits);
+        splits.forEach(GenerationSourceSplitValidator::validateSplit);
         if (splits.isEmpty() || splits.stream().anyMatch(split ->
                 !split.getSourceId().equals(intent.sourceId())
                         || !split.getSourceSnapshot().equals(intent.sourceSnapshot()))) {
@@ -83,10 +86,17 @@ public final class PublishedGenerationBindingResolver {
                 || !matchesPublishedSourceRanges(manifest, splitIdentities.orElseThrow())) {
             return Optional.empty();
         }
-        ArtifactWriteBinding writeTemplate = loadWriteTemplate(manifest);
+        var dispatch = store.findDispatchSpec(manifest.tenantId(), manifest.jobId()).orElseThrow(() ->
+                new IllegalStateException("published artifact has no immutable dispatch specification"));
+        ArtifactWriteBinding writeTemplate = loadWriteTemplate(dispatch);
         PublishedGenerationBindingValidator.validateWriteTemplate(manifest, writeTemplate);
-        return Optional.of(bindingTemplate(manifest, writeTemplate));
+        return Optional.of(new ResolvedTemplate(bindingTemplate(manifest, writeTemplate),
+                manifest.rowCount(), manifest.totalBytes(), dispatch.authorizationScope().definitionSnapshot()));
     }
+
+    /** Verified binding, resource totals and definition from the admitted publication and dispatch specification. */
+    public record ResolvedTemplate(ArtifactBinding binding, long rowCount, long totalBytes,
+                                   Optional<DefinitionSnapshot> definitionSnapshot) {}
 
     private static boolean matchesCoverage(GenerationSourceCoverage coverage, long published, long requested) {
         return coverage == GenerationSourceCoverage.COMPLETE_GENERATION ? published == requested
@@ -154,16 +164,14 @@ public final class PublishedGenerationBindingResolver {
      * split identities and signs the resulting immutable binding.
      */
     public List<OperatorBinding> materializeForTask(
-            String tenantId, List<OperatorBinding> bindings,
-            List<String> serializedSplits) {
+            String tenantId, List<OperatorBinding> bindings, List<DataSplit> splits) {
         if (tenantId == null || tenantId.isBlank()) {
             throw new IllegalArgumentException("tenantId must not be blank");
         }
         if (bindings == null || bindings.isEmpty()) {
             return List.of();
         }
-        List<DataSplit> splits = org.pangrova.generation.codec.source.GenerationSourceSplitCodec.decode(
-                serializedSplits);
+        splits.forEach(GenerationSourceSplitValidator::validateSplit);
         List<OperatorBinding> result = new java.util.ArrayList<>(bindings.size());
         for (OperatorBinding binding : bindings) {
             if (binding.getArtifactsCount() == 0) {
@@ -202,9 +210,9 @@ public final class PublishedGenerationBindingResolver {
 
     /** Pure task-local materialization from immutable evidence read on the claim transaction's connection. */
     public static List<OperatorBinding> materializePrepared(
-            List<OperatorBinding> bindings, List<String> serializedSplits,
+            List<OperatorBinding> bindings, List<DataSplit> splits,
             Map<PublicationRead, PublishedInput> publications) {
-        var splits = org.pangrova.generation.codec.source.GenerationSourceSplitCodec.decode(serializedSplits);
+        splits.forEach(GenerationSourceSplitValidator::validateSplit);
         Set<PublicationRead> required = bindings.stream().flatMap(binding -> binding.getArtifactsList().stream())
                 .map(PublishedGenerationBindingResolver::publicationRead).collect(java.util.stream.Collectors.toSet());
         if (!required.equals(publications.keySet())) {
@@ -266,13 +274,8 @@ public final class PublishedGenerationBindingResolver {
         return PublishedGenerationBindingChecksum.sign(builder.build());
     }
 
-    private ArtifactWriteBinding loadWriteTemplate(
-            GenerationManifest manifest) {
-        byte[] bytes = store.findDispatchSpec(
-                manifest.tenantId(), manifest.jobId()).orElseThrow(() ->
-                new IllegalStateException(
-                        "published artifact has no immutable dispatch specification"))
-                .stageGraph().stages().stream()
+    private static ArtifactWriteBinding loadWriteTemplate(GenerationDispatchSpec dispatch) {
+        byte[] bytes = dispatch.stageGraph().stages().stream()
                 .filter(stage -> stage.pageKind()
                         == org.pangrova.generation.api.enums.GenerationPageKind.SOURCE_MAP)
                 .findFirst().orElseThrow(() ->

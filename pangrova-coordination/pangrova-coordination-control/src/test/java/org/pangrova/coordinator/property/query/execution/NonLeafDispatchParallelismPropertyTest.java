@@ -17,8 +17,8 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.common.client.result.ResultEndpoint;
-import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
-import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
+import org.pangrova.protocol.http.TaskShuffleEndpoint;
+import org.pangrova.protocol.v2.ShufflePartitionTicket;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.apache.calcite.plan.RelOptCluster;
@@ -104,14 +104,13 @@ class NonLeafDispatchParallelismPropertyTest {
     private static StageDispatchRecord rec(int sid, int sourcePartition, String tid, String host) {
         long expiresAt = System.currentTimeMillis() + 600_000L;
         var tickets = IntStream.range(0, 32)
-                .mapToObj(partition -> new ShufflePartitionTicketDescriptor(
-                        partition, java.util.Base64.getEncoder().encodeToString(
-                                ("ticket-" + tid + "-" + partition).getBytes(
-                                        java.nio.charset.StandardCharsets.UTF_8)), expiresAt))
+                .mapToObj(partition -> ShufflePartitionTicket.newBuilder().setPartitionId(partition)
+                        .setSignedTicket(com.google.protobuf.ByteString.copyFromUtf8("ticket-" + tid + "-" + partition))
+                        .setExpiresAtEpochMs(expiresAt).build())
                 .toList();
         ResultEndpoint ep = new ResultEndpoint(host, 8080, "tk", "http");
-        DispatchResult dr = new DispatchResult(host, tid, ep).withShuffleEndpoint(
-                new ShuffleEndpointDescriptor(host, 9090, "", tickets));
+        DispatchResult dr = new DispatchResult(host, tid, ep, null,
+                TaskShuffleEndpoint.newBuilder().setHost(host).setPort(9090).addAllPartitionTickets(tickets).build());
         SubmitTaskRequest request =
                 org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
                         tid, "query", sid, sourcePartition,

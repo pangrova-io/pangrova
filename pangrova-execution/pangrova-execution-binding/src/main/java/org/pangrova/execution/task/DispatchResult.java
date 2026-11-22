@@ -14,7 +14,7 @@
 package org.pangrova.execution.task;
 
 import org.pangrova.common.client.result.ResultEndpoint;
-import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
+import org.pangrova.protocol.http.TaskShuffleEndpoint;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -29,7 +29,7 @@ public record DispatchResult(
         String taskId,
         ResultEndpoint resultEndpoint,
         String workerId,
-        ShuffleEndpointDescriptor shuffleEndpoint) {
+        TaskShuffleEndpoint shuffleEndpoint) {
 
     public DispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint) {
         this(workerHost, taskId, resultEndpoint, null, null);
@@ -45,12 +45,6 @@ public record DispatchResult(
         checkNotNull(workerHost, "workerHost must not be null");
         checkNotNull(taskId, "taskId must not be null");
         // Intermediate and write tasks have no client-readable result stream.
-    }
-
-    /** Returns a copy carrying the producer-issued shuffle endpoint. */
-    public DispatchResult withShuffleEndpoint(ShuffleEndpointDescriptor endpoint) {
-        return new DispatchResult(
-                workerHost, taskId, resultEndpoint, workerId, endpoint);
     }
 
 }

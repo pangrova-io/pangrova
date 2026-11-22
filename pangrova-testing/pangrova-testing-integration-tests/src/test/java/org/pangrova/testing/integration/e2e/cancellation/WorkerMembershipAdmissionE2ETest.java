@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.cancellation;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.testing.testkit.E2ETest;
 
@@ -20,7 +20,7 @@ class WorkerMembershipAdmissionE2ETest extends TaskCancellationTestBase {
             actualWorkerTaskManager().fenceAdmission();
             var rejected = replay(scenario.submission.body(), scenario.submission.headers());
             assertThat(rejected.statusCode()).isEqualTo(503);
-            assertThat(MAPPER.readValue(rejected.body(), SubmitTaskResponse.class).accepted()).isFalse();
+            assertThat(TaskSubmitAck.parseFrom(rejected.body()).hasRejected()).isTrue();
             assertThat(cancelQuery(scenario.queryId()).statusCode()).isEqualTo(202);
             var receipt = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
             assertThat(receipt.getExecutionDrainState())

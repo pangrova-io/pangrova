@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,7 +94,7 @@ class SqlPrivilegeAuthorityE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("REVOKE SELECT ON TABLE " + qualified + " FROM ROLE " + readRole + " RESTRICT");
             roles.revokeRoleFromUser(principal, adminRole);
             assertThat(sqlRunner.executeExpectingError(query).message()).contains("lacks SELECT");
-            assertThat(grants.listGrantsForRole(readRole)).isEmpty();
+            assertThat(grants.listGrantsForRoles(Set.of(readRole))).isEmpty();
             var unconfirmed = sqlRunner.execute("SHOW PRIVILEGE MUTATION '" + UUID.randomUUID() + "'").get(0);
             assertThat(unconfirmed.getString("status")).isEqualTo("UNCONFIRMED");
             assertThat(unconfirmed.getRaw("changed_grants")).isNull();

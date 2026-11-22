@@ -2,6 +2,8 @@ package org.pangrova.connector.iceberg;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -10,8 +12,12 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -67,6 +73,33 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             } finally {
                 connector.shutdown();
             }
+        }
+    }
+
+    @Test
+    void verifiesTheBoundSnapshotAndEnumeratesWithOneCatalogPointerRead() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var table = selected.loadTable(TABLE);
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(table.location() + "/data/bound.parquet").withFileSizeInBytes(128)
+                    .withRecordCount(1).build()).commit();
+            var metadata = new IcebergMetadata(selected, "bound");
+            var name = new SchemaTableName("data", "events");
+            var binding = metadata.bindRead(READER, metadata.getTableHandle(READER, name));
+            var manager = new IcebergSplitManager("bound", selected, new IcebergExpressionToSubstrait());
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+            try {
+                assertThat(source.getNextBatch(10)).hasSize(1);
+                assertThat(source.isFinished()).isTrue();
+            } finally {
+                source.close();
+            }
+            assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
         }
     }
 

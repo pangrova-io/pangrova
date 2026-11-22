@@ -1,5 +1,6 @@
 package org.pangrova.protocol.property.rest;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -15,7 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,7 +60,7 @@ class ProtocolImmutabilityPropertyTest {
     private static final Set<Class<?>> ALLOWED_IMMUTABLE_TYPES = Set.of(
             String.class, Long.class, Integer.class, Boolean.class,
             Double.class, Float.class, Short.class, Byte.class,
-            Character.class, UUID.class
+            Character.class, ByteString.class
     );
 
     private static final List<Class<?>> ALL_DTO_CLASSES = discoverDtoClasses();
@@ -127,7 +127,7 @@ class ProtocolImmutabilityPropertyTest {
      * Property 8: All record components use immutable types.
      *
      * <p>For any REST DTO record, every component type must be either
-     * a primitive, enum, a known immutable type (String, UUID, boxed primitives),
+     * a primitive, enum, a known immutable type (String, boxed primitives),
      * a {@link List}, {@link Map}, or {@link Set} (defensively copied in compact
      * constructors), or another protocol record.</p>
      *

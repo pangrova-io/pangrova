@@ -11,7 +11,7 @@ interface ShuffleObjectStorage extends AutoCloseable {
 
     void verifyStored(String key, long sizeBytes, byte[] sha256);
 
-    byte[] get(String key);
+    byte[] get(String key, long sizeBytes);
 
     void delete(List<String> keys);
 

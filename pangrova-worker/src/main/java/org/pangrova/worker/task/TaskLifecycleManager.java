@@ -45,7 +45,6 @@ final class TaskLifecycleManager {
     private final ResultTransport resultTransport;
     private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
     private final TaskResourceReleaser resourceReleaser;
-    private final TaskResourceDrainProbe resourceDrainProbe;
     private volatile org.pangrova.worker.write.NativeWriteExecutor writeExecutor;
 
     /** Runtime quota enforcer, set after construction via {@link #setQuotaEnforcer}. */
@@ -65,7 +64,6 @@ final class TaskLifecycleManager {
         this.exchangeTransport = deps.exchangeTransport();
         this.resourceReleaser = new TaskResourceReleaser(
                 shuffleProducers, deps, this::releaseMemoryIfNeeded);
-        this.resourceDrainProbe = new TaskResourceDrainProbe(deps.taskExecutor());
     }
 
     void setQuotaEnforcer(TenantExecutionQuotaEnforcer enforcer) {
@@ -149,7 +147,7 @@ final class TaskLifecycleManager {
             String taskId, TaskInfo info, LifecycleCallback callback) {
         try {
             requireNotCancelled(info);
-            long handle = deps.taskExecutor().createTask(info.request().canonicalBytes());
+            long handle = deps.taskExecutor().createTask(info.request().taskRequest());
             if (handle <= 0) {
                 throw new IllegalStateException(
                         "Worker-executed task creation returned no positive owner");
@@ -487,12 +485,19 @@ final class TaskLifecycleManager {
         statusCollector.reportReleasedTerminal(info);
     }
 
-    void releaseRetiredTaskExecutor(TaskInfo info, LifecycleCallback callback) {
-        TaskRetirement.release(info, callback, statusCollector, () -> releaseAllResources(info, info.taskId()));
+    java.util.concurrent.CompletionStage<Void> releaseResultTaskExecutor(
+            TaskInfo info, java.util.function.Consumer<TaskInfo> captureReceipt) {
+        releaseAllResources(info, info.taskId());
+        captureReceipt.accept(info);
+        return statusCollector.reportReleasedTerminalAsync(info);
     }
 
-    boolean resultResourcesDrained(TaskInfo info) {
-        return resourceDrainProbe.resultDrained(info);
+    void retryInitialResultStatus(TaskInfo info) {
+        statusCollector.retryInitialResultStatus(info);
+    }
+
+    void releaseRetiredTaskExecutor(TaskInfo info, LifecycleCallback callback) {
+        TaskRetirement.release(info, callback, statusCollector, () -> releaseAllResources(info, info.taskId()));
     }
 
     private void traceTaskExecute(String taskId, TaskInfo info) {
@@ -525,6 +530,9 @@ final class TaskLifecycleManager {
 
         /** Remove coordinator taskId mapping on terminal state. */
         void clearCoordinatorIndex(TaskInfo info);
+
+        /** Starts result-release observation after publishing the successful execution. */
+        void watchFinishedResult(TaskInfo info);
 
         /** Notify completion callback with queryId. */
         void notifyCompletion(String queryId);
