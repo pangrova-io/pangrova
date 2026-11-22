@@ -8,6 +8,7 @@ import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.CdcIngestBinding;
 import org.pangrova.protocol.v2.CdcSourceRange;
+import org.pangrova.protocol.v2.CdcWriteOperation;
 import org.pangrova.protocol.v2.ConnectorWriteBinding;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -57,6 +58,17 @@ class CdcIngestAdmissionTest {
                 .hasMessageContaining("tenant differs");
     }
 
+    @Test
+    void rejectsMissingOrUnknownAuthorizedOperations() {
+        var request = valid();
+        var binding = request.getCdcIngest().toBuilder().clearAllowedOperations();
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request.setCdcIngest(binding).build()))
+                .hasMessageContaining("explicit, unique authorized operations");
+        binding.addAllowedOperationsValue(99);
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request.setCdcIngest(binding).build()))
+                .hasMessageContaining("explicit, unique authorized operations");
+    }
+
     private static TaskRequest.Builder valid() {
         var builder = CanonicalTaskRequestTestFixture.builder(
                 "cdc-task", "cdc-query", TaskKind.TASK_KIND_CDC_INGEST, new byte[0])
@@ -75,6 +87,7 @@ class CdcIngestAdmissionTest {
                 .setCommitIntentId("intent-1")
                 .setCommitIdentitySha256(ProtocolChecksums.sha256(new byte[] {7}))
                 .setTargetTableUuid("table-uuid")
-                .setBaseSnapshotId(3));
+                .setBaseSnapshotId(3)
+                        .addAllowedOperations(CdcWriteOperation.CDC_WRITE_OPERATION_INSERT));
     }
 }

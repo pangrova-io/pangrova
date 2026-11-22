@@ -1,0 +1,27 @@
+name: Prepare Native Java fixture
+description: Restore fixture Maven dependencies and compile the Lance broker before the Native build
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Maven dependencies for the Native fixture
+      id: maven
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.m2/repository
+        key: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml', '.mvn/**', 'pangrova-worker-native/bin/run-native-tests.py') }}
+        restore-keys: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Build pinned Iceberg SDK dependency
+      uses: ./.github/actions/setup-iceberg-sdk
+
+    - name: Build the Lance Java fixture
+      shell: bash
+      run: python3 pangrova-worker-native/bin/run-native-tests.py --prepare-java "$RUNNER_TEMP/native-java-fixture"
+
+    - name: Save Maven dependencies for the Native fixture
+      if: steps.maven.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.m2/repository
+        key: ${{ steps.maven.outputs.cache-primary-key }}

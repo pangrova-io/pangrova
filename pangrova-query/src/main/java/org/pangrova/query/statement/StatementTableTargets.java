@@ -22,6 +22,7 @@ import org.pangrova.parser.api.ast.statement.DropIndexStatement;
 import org.pangrova.parser.api.ast.statement.DropTableStatement;
 import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;
 import org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement;
+import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
@@ -30,7 +31,7 @@ import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 /**
- * Extracts the mutated table name from a statement AST node.
+ * Extracts the target table name from a statement AST node.
  * Uses a registry-based approach instead of instanceof chains.
  */
 public final class StatementTableTargets {
@@ -79,6 +80,7 @@ public final class StatementTableTargets {
         put(map, AlterIndexStatement.class, AlterIndexStatement::tableName);
         put(map, SetClusteringOrderStatement.class, SetClusteringOrderStatement::tableName);
         put(map, ReclusterTableStatement.class, ReclusterTableStatement::tableName);
+        put(map, ShowClusteringStatusStatement.class, ShowClusteringStatusStatement::tableName);
         put(map, CreateDynamicTableStatement.class, CreateDynamicTableStatement::name);
         put(map, CreateContinuousQueryStatement.class, CreateContinuousQueryStatement::name);
         put(map, DropDynamicTableStatement.class, DropDynamicTableStatement::name);

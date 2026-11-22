@@ -82,6 +82,17 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void persistsNamespacedGenerationTaskIdentitiesExactly() throws Exception {
+        var context = org.pangrova.query.api.journal.JournalEventContext.create(1000L, "coordinator");
+        var event = new TaskStateEvent(context, "artifact:" + "a".repeat(64),
+                "artifact-task:" + "b".repeat(64), "worker", "FINISHED", 0, 2L);
+
+        journal.appendTaskEventSync(event);
+
+        assertEquals(event, storedTaskEvent(context.eventId()));
+    }
+
+    @Test
     void syncWriteAndReplayTaskEvents() {
         // Need a non-terminal query for tasks to be replayed
         journal.appendQueryEventSync(

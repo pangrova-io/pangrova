@@ -3,6 +3,8 @@ package org.pangrova.persistence.streaming.postgresql;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFailure;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.exception.StaleEpochException;
+import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
 import org.pangrova.streaming.api.exception.StreamingStoreException;
@@ -35,6 +37,14 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcStreamOffsetStore.class);
 
+    private static final String UPSERT_OFFSETS = """
+            INSERT INTO ingestion_stream_offsets (stream_name, topic, partition_id, committed_offset, updated_at)
+            VALUES (?,?,?,?,?) ON CONFLICT (stream_name, topic, partition_id) DO UPDATE SET
+            committed_offset=EXCLUDED.committed_offset, updated_at=EXCLUDED.updated_at
+            """;
+    private static final String ACKNOWLEDGE_OFFSETS = UPSERT_OFFSETS
+            + "WHERE ingestion_stream_offsets.committed_offset < EXCLUDED.committed_offset";
+
     private final DataSource dataSource;
 
     public JdbcStreamOffsetStore(DataSource dataSource) {
@@ -48,20 +58,29 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
         if (offsets.isEmpty()) {
             return;
         }
-        executeBatchSave(streamName, offsets);
+        executeBatchSave(streamName, offsets, null);
         LOG.info("action=stream_offsets_save streamName={} partitions={}",
                 streamName, offsets.size());
     }
 
-    private void executeBatchSave(String streamName, Map<TopicPartitionOffset, Long> offsets) {
-        String sql = "INSERT INTO ingestion_stream_offsets "
-                + "(stream_name, topic, partition_id, committed_offset, updated_at) "
-                + "VALUES (?,?,?,?,?) ON CONFLICT (stream_name, topic, partition_id) DO UPDATE SET "
-                + "committed_offset=EXCLUDED.committed_offset, updated_at=EXCLUDED.updated_at";
+    /** Acknowledges a journaled batch only for the current, running checkpoint revision. */
+    public void acknowledge(StreamState expected, Map<TopicPartitionOffset, Long> offsets) {
+        Objects.requireNonNull(expected, "expected must not be null");
+        Objects.requireNonNull(offsets, "offsets must not be null");
+        if (!offsets.isEmpty()) {
+            executeBatchSave(expected.streamName(), offsets, expected);
+        }
+    }
 
+    private void executeBatchSave(String streamName, Map<TopicPartitionOffset, Long> offsets, StreamState expected) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            try (PreparedStatement ps = expected == null
+                    ? conn.prepareStatement(UPSERT_OFFSETS)
+                    : conn.prepareStatement(ACKNOWLEDGE_OFFSETS)) {
+                if (expected != null) {
+                    lockCurrentRevision(conn, expected);
+                }
                 bindOffsetBatch(ps, streamName, offsets);
                 ps.executeBatch();
                 conn.commit();
@@ -72,6 +91,23 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
         } catch (SQLException e) {
             throw new StreamingStoreException(
                     "Failed to save offsets for stream=" + streamName, e);
+        }
+    }
+
+    private static void lockCurrentRevision(Connection conn, StreamState expected) throws SQLException {
+        // Keep lifecycle transitions and DROP/re-CREATE serialized with offset persistence.
+        try (PreparedStatement lock = conn.prepareStatement(
+                "SELECT 1 FROM ingestion_stream_state WHERE stream_name = ? AND tenant_id = ?"
+                        + " AND checkpoint_id = ? AND epoch = ? AND lifecycle_state = 'RUNNING' FOR UPDATE")) {
+            lock.setString(1, expected.streamName());
+            lock.setString(2, expected.tenantId());
+            lock.setString(3, expected.checkpointId());
+            lock.setLong(4, expected.epoch());
+            try (ResultSet current = lock.executeQuery()) {
+                if (!current.next()) {
+                    throw new StaleEpochException(expected.streamName(), expected.epoch());
+                }
+            }
         }
     }
 

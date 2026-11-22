@@ -1,5 +1,6 @@
 package org.pangrova.persistence.table.memory.maintenance;
 
+import org.pangrova.table.api.enums.MaintenanceOperation;
 import org.pangrova.table.api.maintenance.TableControlMaintenanceStore;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
@@ -40,6 +41,12 @@ public final class InMemoryTableControlMaintenanceStore implements TableControlM
     public void saveRun(TableMaintenanceRun run) {
         runs.removeIf(existing -> existing.runId().equals(run.runId()));
         runs.add(run);
+    }
+
+    @Override
+    public Optional<TableMaintenanceRun> findLatestRun(UUID tableId, MaintenanceOperation operation) {
+        return runs.stream().filter(run -> run.tableId().equals(tableId) && run.operation() == operation)
+                .max(Comparator.comparing(TableMaintenanceRun::startedAt).thenComparing(TableMaintenanceRun::runId));
     }
 
     @Override

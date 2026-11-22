@@ -52,9 +52,14 @@ public record TableMaintenanceRun(
     public static TableMaintenanceRun running(TableControlRecord record,
             MaintenanceOperation operation, String mode, String versionBefore,
             String actor, Instant startedAt) {
+        return running(record, operation, mode, versionBefore, actor, startedAt, Map.of());
+    }
+
+    public static TableMaintenanceRun running(TableControlRecord record,
+            MaintenanceOperation operation, String mode, String versionBefore,
+            String actor, Instant startedAt, Map<String, String> details) {
         return new TableMaintenanceRun(UUID.randomUUID(), record.tableId(), operation, mode,
-                MaintenanceRunState.RUNNING, versionBefore, "", Map.of(), actor,
-                startedAt, null);
+                MaintenanceRunState.RUNNING, versionBefore, "", details, actor, startedAt, null);
     }
 
     public TableMaintenanceRun finished(MaintenanceRunState finalState, String newVersion,

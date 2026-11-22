@@ -113,6 +113,11 @@ public record IcebergOutputTableHandle(
     }
 
     @Override
+    public boolean requiresSingleCdcRange() {
+        return MODE_MERGE.equals(writeMode);
+    }
+
+    @Override
     public java.util.Optional<org.pangrova.connector.api.metadata.table.TableIdentity> tableIdentity() {
         return java.util.Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
                 "ICEBERG", tableUuid, tableLocation,

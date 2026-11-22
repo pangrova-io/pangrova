@@ -5,6 +5,7 @@ import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorCdcPageSink;
 import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.apache.iceberg.Schema;
@@ -49,6 +50,18 @@ public class IcebergPageSinkProvider implements ConnectorPageSinkProvider {
         return new IcebergOverwritePageSink(
                 new IcebergWriteContext(table, writeSchema, handle.schemaName(), handle.tableName()),
                 handle.baseSnapshotId());
+    }
+
+    @Override
+    public ConnectorCdcPageSink createCdcPageSink(
+            ConnectorTransactionHandle transaction,
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputTableHandle) {
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputTableHandle;
+        if (!handle.requiresSingleCdcRange()) {
+            throw new UnsupportedOperationException("Iceberg append CDC uses the append sink");
+        }
+        return new IcebergCdcPageSink(resolveTable(handle), handle);
     }
 
     @Override

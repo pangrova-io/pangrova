@@ -63,7 +63,8 @@ public interface ConnectorPageSinkProvider {
      * <p>For Paimon: writes rows with {@code RowKind.DELETE} so the LSM engine
      * marks matching primary key rows as deleted during compaction.</p>
      *
-     * <p>For Iceberg: writes position/equality delete files via the v2 format.</p>
+     * <p>The Iceberg relational provider writes copy-on-write survivors through
+     * this entry point. CDC uses {@link #createCdcPageSink} for ordered mutations.</p>
      *
      * <p>Default delegates to {@link #createPageSink} for connectors that handle
      * delete semantics transparently (e.g., via Substrait plan execution).</p>

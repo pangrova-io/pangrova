@@ -13,6 +13,7 @@ import org.pangrova.worker.exception.NativeRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -51,6 +52,13 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     private volatile boolean closed = false;
     private volatile org.pangrova.worker.catalog.WorkerCatalogRuntime catalogRuntime;
     private volatile org.pangrova.worker.copy.CopyStageLeases copyInputs;
+
+    /** Resolves the Native owner for COPY-specific operations outside normal task routing. */
+    public static Optional<NativeTaskExecutor> ownerOf(TaskExecutor executor) {
+        TaskExecutor owner = executor instanceof CompositeTaskExecutor composite
+                ? composite.nativeDelegate() : executor;
+        return owner instanceof NativeTaskExecutor nativeOwner ? Optional.of(nativeOwner) : Optional.empty();
+    }
 
     /** Supplies the governed source materializer before task admission starts. */
     public void setCopyInputs(org.pangrova.worker.copy.CopyStageLeases runtime) {

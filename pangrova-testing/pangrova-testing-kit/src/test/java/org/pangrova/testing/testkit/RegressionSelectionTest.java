@@ -136,6 +136,7 @@ class RegressionSelectionTest {
         var workflow = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
         assertThat(normalizeCommands(workflow)).contains(
                 "python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }} "
+                        + "--prepared-java \"$RUNNER_TEMP/native-java-fixture\" "
                         + "-- --preset ${{ matrix.sanitizer.preset }} --timeout 300")
                 .doesNotContain("detect_leaks=1:halt_on_error=1:suppressions=sanitizer-suppressions/asan.supp");
     }
