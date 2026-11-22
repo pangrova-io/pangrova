@@ -434,6 +434,7 @@ class LiveTwoWorkerCdcAcceptanceTest extends ContainerTestBase {
                 String queryId = request.getAttempt().getQueryOrJobId();
                 String taskId = request.getAttempt().getTaskId();
                 tracker.registerTask(queryId, taskId);
+                tracker.registerTaskRequest(taskId, SubmitTaskRequest.from(request));
                 tracker.markScheduled(queryId, taskId);
                 int index = nextWorker.getAndIncrement();
                 String workerId = index % 2 == 0 ? "worker-a" : "worker-b";
@@ -465,6 +466,7 @@ class LiveTwoWorkerCdcAcceptanceTest extends ContainerTestBase {
                         ? new WriteResultDescriptor(List.of(), 0, 0, new byte[0],
                                 backend.getCommitFragments(handle))
                         : null;
+                canonical = TaskReport.parseFrom(backend.release(handle).orElseThrow());
                 var report = new TaskStatusReport(
                         request.getAttempt().getTaskId(),
                         request.getAttempt().getQueryOrJobId(),

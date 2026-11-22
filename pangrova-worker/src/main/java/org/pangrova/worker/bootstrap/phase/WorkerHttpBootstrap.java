@@ -87,7 +87,8 @@ public final class WorkerHttpBootstrap {
                             new org.pangrova.worker.result.ResultReadTickets(
                                     refs.shuffleHmacCurrentKey()),
                             stageLeases,
-                            fileSpace);
+                            fileSpace,
+                            reclusterResource(refs));
             } catch (RuntimeException | Error failure) {
                 closeAfterFailure(failure, fileSpace, stageLeases, control);
                 throw failure;
@@ -103,6 +104,12 @@ public final class WorkerHttpBootstrap {
         } catch (Exception e) {
             throw new BootstrapFailedException("HTTP", e);
         }
+    }
+
+    private static org.pangrova.worker.http.endpoint.ReclusterStageResource reclusterResource(
+            WorkerComponentRefs refs) {
+        return refs.catalogResourceResolver() instanceof org.pangrova.worker.catalog.WorkerCatalogRuntime catalogs
+                ? new org.pangrova.worker.http.endpoint.ReclusterStageResource(catalogs) : null;
     }
 
     /**

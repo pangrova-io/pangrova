@@ -46,10 +46,11 @@ See the [SQL reference](../sql-reference/index.md) for statement-specific bounda
 The diagram describes the main relational execution path. When a Coordinator hosts
 both streaming and query roles, the streaming scheduler disables its local pipeline and
 dispatches bounded CDC ingest tasks to Workers; the Coordinator retains journal
-publication and source-offset acknowledgement. A streaming-only Coordinator still uses
-a Coordinator-local connector page-sink writer. Live acceptance coverage drives real Kafka
-through two Worker CDC backends into one Paimon merge with an injected backend failure and a
-retried exactly-once publication; process-level Worker crash qualification is still required.
+publication and source-offset acknowledgement. A streaming-only Coordinator stages
+the same ranges locally with the same publication and acknowledgement sequence. Live acceptance coverage drives CDC
+through real Kafka and Paimon, including Worker loss after staging and
+Coordinator restart after a snapshot is published. Other failure windows and
+connectors remain subject to release acceptance.
 
 Coordinator leases use JDBC by default; ZooKeeper is an optional backend.
 Durable metadata/journal storage and external catalogs remain availability
@@ -205,10 +206,10 @@ parser construction creates an empty registry; service discovery remains explici
 and no production custom-statement provider is currently registered. Registration
 does not invalidate existing parse-cache entries.
 
-Some recognized statements have no executable
-default path. `COPY INTO` URI loading and clustering must not be promoted to working
-features based on grammar alone; dynamic-table handlers are registered only when
-durable metadata publication is configured.
+The Coordinator routes clustering SQL to the governed Iceberg maintenance
+path. The [maintenance reference](../sql-reference/maintenance.md#clustering)
+defines the admitted tables and input limits. `COPY INTO` URI loading remains
+planned, and dynamic-table handlers require configured durable metadata publication.
 
 ### 5.4 Planner
 

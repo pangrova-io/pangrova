@@ -1,4 +1,4 @@
-package org.pangrova.streaming.worker;
+package org.pangrova.streaming.cdc;
 
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.connector.api.enums.CdcRowKind;
@@ -9,8 +9,8 @@ import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
-import org.pangrova.streaming.cdc.CdcRangeBatchWriter;
 import org.pangrova.streaming.api.cdc.CdcRow;
+import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.types.value.TypedRow;
 
 import java.util.ArrayList;
@@ -20,9 +20,9 @@ import java.util.List;
 /**
  * Stages CDC batches through the exact connector output handle bound to the task.
  *
- * <p>Delete and insert phases are separate connector sinks but both use the same
- * task-bound handle. The returned fragments are not published; the Coordinator
- * commits them through the journaled write path.</p>
+ * <p>Connectors with CDC row-kind support stage all operations in one sink.
+ * Connectors with append sinks can stage INSERT events. The Coordinator publishes
+ * the resulting fragments through the journaled write path.</p>
  */
 public final class BoundCdcPageSinkWriter implements CdcRangeBatchWriter {
 
@@ -41,8 +41,22 @@ public final class BoundCdcPageSinkWriter implements CdcRangeBatchWriter {
 
     @Override
     public List<byte[]> writeBatch(List<CdcEnvelope> envelopes) {
-        try (ConnectorCdcPageSink sink = sinkProvider.createCdcPageSink(
-                ConnectorTransactionHandle.empty(), session, outputHandle)) {
+        if (envelopes.isEmpty() && !requiresSingleRange()) {
+            return List.of();
+        }
+        ConnectorCdcPageSink sink;
+        try {
+            sink = sinkProvider.createCdcPageSink(
+                    ConnectorTransactionHandle.empty(), session, outputHandle);
+        } catch (UnsupportedOperationException noRowKindSink) {
+            if (requiresSingleRange()
+                    || envelopes.stream().anyMatch(envelope -> envelope.operation() != CdcOperation.INSERT)) {
+                throw new UnsupportedOperationException(
+                        "Connector does not support atomic CDC UPDATE/DELETE staging", noRowKindSink);
+            }
+            return List.of(stageInserts(envelopes));
+        }
+        try (sink) {
             try {
                 for (CdcEnvelope envelope : envelopes) {
                     switch (envelope.operation()) {
@@ -62,53 +76,36 @@ public final class BoundCdcPageSinkWriter implements CdcRangeBatchWriter {
                 }
                 return List.of(sink.finishWithMetadata());
             } catch (RuntimeException | Error failure) {
-                sink.abort();
+                try {
+                    sink.abort();
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
                 throw failure;
             }
-        } catch (UnsupportedOperationException noRowKindSink) {
-            return writeSplitBatch(envelopes);
         }
     }
 
-    private List<byte[]> writeSplitBatch(List<CdcEnvelope> envelopes) {
-        List<CdcRow> deletes = new ArrayList<>();
-        List<CdcRow> inserts = new ArrayList<>();
-        for (CdcEnvelope envelope : envelopes) {
-            switch (envelope.operation()) {
-                case INSERT -> inserts.add(requireRow(envelope.after(), "after"));
-                case DELETE -> deletes.add(requireRow(envelope.before(), "before"));
-                case UPDATE -> {
-                    deletes.add(requireRow(envelope.before(), "before"));
-                    inserts.add(requireRow(envelope.after(), "after"));
+    @Override
+    public boolean requiresSingleRange() {
+        return outputHandle.requiresSingleCdcRange();
+    }
+
+    private byte[] stageInserts(List<CdcEnvelope> envelopes) {
+        List<CdcRow> rows = envelopes.stream().map(envelope -> requireRow(envelope.after(), "after")).toList();
+        try (ConnectorPageSink sink = sinkProvider.createPageSink(
+                ConnectorTransactionHandle.empty(), session, outputHandle)) {
+            try {
+                sink.appendPage(toPage(rows));
+                return sink.finishWithMetadata();
+            } catch (RuntimeException | Error failure) {
+                try {
+                    sink.abort();
+                } catch (RuntimeException cleanup) {
+                    failure.addSuppressed(cleanup);
                 }
-                default -> throw new IllegalStateException(
-                        "Unhandled CDC operation: " + envelope.operation());
+                throw failure;
             }
-        }
-        List<byte[]> fragments = new ArrayList<>(2);
-        if (!deletes.isEmpty()) {
-            fragments.add(stage(true, deletes));
-        }
-        if (!inserts.isEmpty()) {
-            fragments.add(stage(false, inserts));
-        }
-        return List.copyOf(fragments);
-    }
-
-    private byte[] stage(boolean delete, List<CdcRow> rows) {
-        ConnectorPageSink sink = delete
-                ? sinkProvider.createDeletePageSink(
-                        ConnectorTransactionHandle.empty(), session, outputHandle)
-                : sinkProvider.createPageSink(
-                        ConnectorTransactionHandle.empty(), session, outputHandle);
-        try {
-            sink.appendPage(toPage(rows));
-            return sink.finishWithMetadata();
-        } catch (RuntimeException | Error failure) {
-            sink.abort();
-            throw failure;
-        } finally {
-            sink.close();
         }
     }
 

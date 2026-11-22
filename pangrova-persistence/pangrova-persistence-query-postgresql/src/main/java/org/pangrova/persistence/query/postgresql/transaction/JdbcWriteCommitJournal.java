@@ -488,6 +488,25 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
+    public Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
+        String sql = SELECT_BY_QUERY_ID.replace("WHERE query_id = ?",
+                "WHERE tenant_id = ? AND cdc_stream_id = ? AND cdc_source_epoch = ? "
+                        + "AND state IN ('PENDING', 'COMMITTED') "
+                        + "ORDER BY (state = 'PENDING') DESC, timestamp_ms DESC, query_id DESC LIMIT 1");
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, tenantId);
+            statement.setString(2, streamId);
+            statement.setString(3, sourceEpoch);
+            try (var result = statement.executeQuery()) {
+                return result.next() ? Optional.of(readEntry(result)) : Optional.empty();
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot resolve the durable CDC checkpoint", failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    @Override
     public Optional<WriteCommitEntry> findByFingerprint(String fingerprint) {
         Objects.requireNonNull(fingerprint, "fingerprint");
         String sql = SELECT_BY_QUERY_ID.replace("WHERE query_id = ?", "WHERE commit_fingerprint = ?");

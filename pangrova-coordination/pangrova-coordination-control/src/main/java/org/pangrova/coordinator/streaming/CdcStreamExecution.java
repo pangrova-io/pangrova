@@ -78,6 +78,7 @@ public final class CdcStreamExecution {
         for (TaskRequest task : plan.tasks()) {
             dispatcher.dispatch(task);
             TaskStatusReport report = await(task.getAttempt().getTaskId());
+            completions.remove(task.getAttempt().getTaskId());
             if (!"FINISHED".equals(report.state())) {
                 throw new IllegalStateException(
                         "CDC task did not finish: task=" + task.getAttempt().getTaskId()
@@ -86,10 +87,11 @@ public final class CdcStreamExecution {
             if (report.writeResult() != null) {
                 fragments.addAll(report.writeResult().commitFragments());
             }
-            completions.remove(task.getAttempt().getTaskId());
         }
+        String executionId = plan.tasks().get(0).getAttempt().getQueryOrJobId();
+        completions.retireBatch(executionId);
         WriteCommitEntry intent = CdcWriteIntentFactory.create(
-                plan.tasks().get(0).getAttempt().getQueryOrJobId(), stream, session,
+                executionId, stream, session,
                 writePlan, source, fragments, baseSnapshotId, timestampMs,
                 ownerId, ownerIncarnation, executionFencingToken);
         new CdcWriteCommitCoordinator(journal, publisher,

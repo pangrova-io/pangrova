@@ -1,6 +1,13 @@
 package org.pangrova.worker.http.endpoint;
 
+import com.google.protobuf.ByteString;
 import jakarta.ws.rs.core.Response;
+import org.pangrova.protocol.v2.CdcIngestBinding;
+import org.pangrova.protocol.v2.CdcSourceRange;
+import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.WriteOutputBinding;
+import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
@@ -98,6 +105,35 @@ class TaskResourceSubmitErrorTest {
             assertThat(error.accepted()).isFalse();
             assertThat(error.rejectReason()).contains("signing authority");
             assertThat(taskManager.resolveWorkerTaskId("task-1")).isNull();
+        }
+    }
+
+    @Test
+    void submitTask_validCdcRequestRequiresInstalledBackend() {
+        var request = CanonicalTaskRequestTestFixture.builder(
+                "cdc-task", "cdc-job", 0, 1, TaskKind.TASK_KIND_CDC_INGEST, new byte[0]);
+        request.setAttempt(request.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(taskManager.workerExecutionIdentity().toProto()));
+        request.setCdcIngest(CdcIngestBinding.newBuilder()
+                .addAllowedOperations(org.pangrova.protocol.v2.CdcWriteOperation.CDC_WRITE_OPERATION_INSERT)
+                .setStreamId("orders")
+                .setTenantId(request.getSecurity().getTenantId())
+                .setSourceOwnershipEpoch("epoch-1")
+                .setSourceProvider("kafka")
+                .setFormatId("debezium-json")
+                .setTargetTableUuid("00000000-0000-0000-0000-000000000001")
+                .setCommitIntentId("commit-1")
+                .setCommitIdentitySha256(Checksum.newBuilder()
+                        .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
+                        .setDigest(ByteString.copyFrom(new byte[32])))
+                .setWrite(WriteOutputBinding.getDefaultInstance())
+                .addRanges(CdcSourceRange.newBuilder().setTopic("orders").setEndOffset(1)));
+        try (Response response = resource.submitTask(SubmitTaskRequest.from(request.build()))) {
+            assertThat(response.getStatus()).isEqualTo(503);
+            var error = (SubmitTaskResponse) response.getEntity();
+            assertThat(error.accepted()).isFalse();
+            assertThat(error.rejectReason()).contains("no configured CDC ingestion backend");
+            assertThat(taskManager.resolveWorkerTaskId("cdc-task")).isNull();
         }
     }
 

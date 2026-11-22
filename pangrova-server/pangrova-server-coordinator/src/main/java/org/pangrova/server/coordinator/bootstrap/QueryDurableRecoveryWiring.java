@@ -183,25 +183,34 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
     private Set<String> recoverEntered(List<ExecutionAnchor> claimed, HighAvailabilityCoordinationService service,
             WriteCommitRecoveryService writeCommitRecoveryService) {
         liveCoordination.set(service);
+        Set<String> deferred = Set.of();
         if (writeCommitRecoveryService != null) {
             Map<String, Long> tokens = claimed.stream()
                     .collect(Collectors.toUnmodifiableMap(
                             ExecutionAnchor::executionId,
                             ExecutionAnchor::fencingToken));
-            writeCommitRecoveryService.recover(tokens,
-                    service::validateDurableExecutionToken);
+            deferred = writeCommitRecoveryService.recover(tokens, service::validateDurableExecutionToken)
+                    .deferredExecutionIds();
         }
-        return recoverShuffleCleanupIntents(claimed);
+        // Keep deferred writes out of ordinary query and shuffle recovery until they can publish.
+        Set<String> handled = new HashSet<>(deferred);
+        for (ExecutionAnchor anchor : claimed) {
+            if (deferred.contains(anchor.executionId())) {
+                service.yieldExecution(anchor);
+            }
+        }
+        handled.addAll(recoverShuffleCleanupIntents(claimed, deferred));
+        return Set.copyOf(handled);
     }
 
-    private Set<String> recoverShuffleCleanupIntents(List<ExecutionAnchor> claimed) {
+    private Set<String> recoverShuffleCleanupIntents(List<ExecutionAnchor> claimed, Set<String> deferred) {
         if (shuffleCleanupIntents == null) {
             return Set.of();
         }
         Set<String> cleaned = new HashSet<>();
         for (ExecutionAnchor anchor : claimed) {
             String queryId = anchor.executionId();
-            if (!shuffleCleanupIntents.isPending(queryId)) {
+            if (deferred.contains(queryId) || !shuffleCleanupIntents.isPending(queryId)) {
                 continue;
             }
             queryDispatcher.retryPendingShuffleCleanup(queryId);
