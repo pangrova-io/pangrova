@@ -49,6 +49,7 @@ import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import javax.sql.DataSource;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
@@ -138,6 +139,51 @@ class PostgresGenerationStageExchangeStoreTest {
         assertThat(lease.attemptId()).isZero();
         assertThat(lease.pageId()).isEqualTo("producer-0");
         assertThat(lease.executionAnchor()).isEqualTo(anchor);
+    }
+
+    @Test
+    void loadsEveryRegistrationAcrossSeveralCursorFetches() {
+        var key = new GenerationJobKey(KEY.tenantId(), "many-exchanges");
+        var stages = new ArrayList<GenerationStageGraph.StagePlan>();
+        var edges = new ArrayList<GenerationStageGraph.Exchange>();
+        var pages = new ArrayList<GenerationPage>();
+        var producers = new ArrayList<String>();
+        var compute = spec.stageGraph().requireStage(1);
+        stages.add(spec.stageGraph().requireStage(0));
+        for (int stage = 1; stage <= 9; stage++) {
+            stages.add(GenerationStageGraph.StagePlan.of(stage, 1, compute.pageKind(), compute.planBytes(),
+                    compute.template(), compute.sourceKeys(), compute.outputNames(), false));
+            edges.add(new GenerationStageGraph.Exchange("exchange-" + stage + "-0", stage, 0,
+                    GenerationExchangeDistribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true));
+            String page = "producer-" + stage;
+            producers.add(page);
+            pages.add(new GenerationPage(key.jobId(), page, stage, 0, stage - 1,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, producers.size(),
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), producers, 3));
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
+                GenerationGraphPurpose.RELATIONAL_EXPORT, stages, edges, List.of());
+        var work = GenerationDispatchSpecFactory.create(key.jobId(), graph, key.tenantId(), spec.principal(),
+                spec.authorizationScope(), new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
+        builds.createJob(job(key, pages.size()), work, pages);
+        var owner = GenerationExecutionOwner.from(owners.takeOwnership(key.tenantId(), key.jobId(), "process-a", 8));
+        String graphSha = GenerationStageGraphCodec.sha256(graph);
+        var expected = new ArrayList<GenerationExchangeRegistration>();
+        for (var edge : graph.exchanges()) {
+            var allocation = new GenerationExchangeRegistration(edge.exchangeId(), key.executionId(),
+                    "allocation-" + edge.upstreamStageId(), edge.upstreamStageId(), 7, graphSha,
+                    graph.requireStage(edge.upstreamStageId()).planSha256(), "41", 1, "c".repeat(64), 1,
+                    ShuffleProviderDescriptor.of("test", 1, new byte[]{1, 2, 3}), owner);
+            exchanges.register(key, owner, allocation);
+            expected.add(allocation);
+        }
+
+        var loaded = exchanges.load(key, owner);
+        assertThat(loaded).extracting(GenerationStageExchangeStore.ExchangeEvidence::registration)
+                .containsExactlyElementsOf(expected);
+        assertThat(loaded).allSatisfy(item -> assertThat(item.finalization()).isEmpty());
+        assertThat(exchanges.load(KEY, owner())).isEmpty();
     }
 
     @Test
@@ -449,10 +495,14 @@ class PostgresGenerationStageExchangeStoreTest {
     }
 
     private static GenerationJob job() {
-        return new GenerationJob(KEY.tenantId(), KEY.jobId(), "feature-view/output", GenerationOutputTypeIds.TABULAR_EXPORT,
-                "g1", "lake.raw.items", "41", GenerationExecutionKind.EXPORT,
+        return job(KEY, 2);
+    }
+
+    private static GenerationJob job(GenerationJobKey key, int expectedPages) {
+        return new GenerationJob(key.tenantId(), key.jobId(), "feature-view/output", GenerationOutputTypeIds.TABULAR_EXPORT,
+                key.equals(KEY) ? "g1" : "g2", "lake.raw.items", "41", GenerationExecutionKind.EXPORT,
                 GenerationDependencySet.sourceSnapshot("lake.raw.items", "41"), GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
-                "s3://warehouse/stage-job", "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64),
-                "native", "", KEY.jobId(), 2, 0, GenerationJobState.QUEUED, 0, NOW, NOW, NOW);
+                "s3://warehouse/" + key.jobId(), "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64),
+                "native", "", key.jobId(), expectedPages, 0, GenerationJobState.QUEUED, 0, NOW, NOW, NOW);
     }
 }

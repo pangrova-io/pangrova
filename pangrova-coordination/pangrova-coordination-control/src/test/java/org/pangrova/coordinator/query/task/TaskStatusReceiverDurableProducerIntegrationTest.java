@@ -175,7 +175,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
         assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
-                .isEqualTo(new ExchangeReads(1, 1, 1, 1));
+                .isEqualTo(new ExchangeReads(0, 0, 0, 0, 1));
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
@@ -226,13 +226,14 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 statementReads("SELECT exchange_id,producer_stage_id,consumer_stage_id,%FROM artifact_stage_exchanges WHERE tenant_id=%"),
                 statementReads("SELECT registration_bytes,registration_sha256 FROM artifact_exchange_registrations WHERE tenant_id=%"),
                 statementReads("SELECT finalization_bytes,finalization_sha256 FROM artifact_exchange_finalizations WHERE tenant_id=%"),
-                statementReads("SELECT source_snapshot FROM artifact_build_jobs WHERE tenant_id=%"));
+                statementReads("SELECT source_snapshot FROM artifact_build_jobs WHERE tenant_id=%"),
+                statementReads("WITH locked_edges AS MATERIALIZED%"));
     }
 
-    private record ExchangeReads(long graph, long registration, long finalization, long snapshot) {
+    private record ExchangeReads(long graph, long registration, long finalization, long snapshot, long combined) {
         ExchangeReads since(ExchangeReads before) {
             return new ExchangeReads(graph - before.graph, registration - before.registration,
-                    finalization - before.finalization, snapshot - before.snapshot);
+                    finalization - before.finalization, snapshot - before.snapshot, combined - before.combined);
         }
     }
 

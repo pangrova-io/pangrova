@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 109 用单条 PostgreSQL 查询读取持久执行的交换图索引、登记、终态证据和源快照。合并前后的真实单交换终态测试确认这四类 SQL 从 4 条降到 1 条。九条交换边的夹具验证了跨多个游标窗口的完整性和同租户不同任务的隔离。每次游标取 4 行，查询仍持有各证据行的共享锁。生产者赢家的权威检查继续单独执行。86 项 Java 和 Checkstyle 回归通过。 [PostgreSQL 行锁](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE) · [pgJDBC 游标](https://jdbc.postgresql.org/documentation/query/#getting-results-based-on-a-cursor)
+
 实施批次 108 在持久执行恢复与生产者终态事务中复用同一次持锁交换屏障和登记证据。整张图的摘要按事务复用。真实 PostgreSQL 的单交换终态上报中，图索引 SELECT 从 3 次降为 1 次，登记和终态证据各从 2 次降为 1 次，源快照确认保持 1 次。这四类读取合计从 8 次降为 4 次。85 项定向 Java 和 Checkstyle 通过，覆盖持久 DAG 恢复、过期 owner、缺失与损坏交换证据、取消和事务回滚。
 
 实施批次 107 根据 Coordinator 已签发并与上报精确匹配的任务种类路由持久 Shuffle 生产者。真实 PostgreSQL 的运行上报路由 SELECT 从 1 次降为 0 次，终态从 4 次降为 3 次。终态仍在当前租户和 owner fence 下持久提交原始报告字节，失去所有权的进程无法推进赢家。56 项定向 Java、Checkstyle 及真实 SQL、Join、物化刷新回归通过。
