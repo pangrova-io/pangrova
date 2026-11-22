@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
-import org.pangrova.coordinator.metadata.NativeDatasetWorkerUnavailableException;
+import org.pangrova.coordinator.exception.NativeDatasetWorkerUnavailableException;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
