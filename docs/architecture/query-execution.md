@@ -1796,117 +1796,26 @@ dynamic-filter:
 
 
 
-## 16. Adaptive Query Execution (AQE)
+## 16. Shuffle feedback and adaptive execution
 
-This section describes the Adaptive Query Execution framework that re-optimizes query plans at runtime using actual shuffle statistics. Workers report `ShuffleStageStatsReport`; after a shuffle stage completes, the Coordinator's `AdaptiveQueryEvaluator` builds `ShuffleStageStats`, while planner-side `StageReplanCoordinator` coordinates coalescing and replan decisions for downstream work.
+The Coordinator derives bytes and rows per output partition from the external
+Shuffle commit receipt. The receipt belongs to one allocation and plan epoch
+and proves the exact producer set. The adaptive evaluator uses these statistics
+to report candidate coalescing, skew, and strategy changes. A stage without
+published Shuffle statistics skips evaluation. Candidate coalescing preserves
+the original partition order as contiguous ranges and requires an observed
+entry for each source partition, including explicitly empty partitions.
 
-For the statistics foundation that AQE depends on, see [query-optimization.md §Statistics Collection](./query-optimization.md).
+Dispatch uses the original stage and exchange coordinates. Each consumer
+binds its corresponding published partition or the direct producer tickets.
+A task count alone cannot describe which producer ranges a consumer reads.
+An adaptive dispatch contract must freeze a complete range mapping against the
+committed allocation and keep consumer attempt identity separate from source
+partition identity. Multi-input stages must agree on matching partitions, and
+retry must keep the chosen mapping and allocation epoch.
 
-### 16.1 Architecture
-
-![Coordinator](../../website/static/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
-
-### 16.2 Capability 1 — Dynamic Coalescing of Shuffle Partitions
-
-When actual shuffle output is much smaller than estimated, many partitions become tiny. AQE merges adjacent small partitions into larger ones to reduce scheduling overhead.
-
-```pseudocode
-function coalesceShufflePartitions(stageResult: ShuffleStageResult):
-    partitionSizes = stageResult.getPartitionSizes()   // actual bytes per partition
-    targetSize     = config.aqe.targetPartitionSize     // default 64 MB
-    minPartitions  = config.aqe.minPartitions           // default 1
-
-    coalescedGroups = []
-    currentGroup = []
-    currentSize  = 0
-
-    for partition in partitionSizes:
-        if currentSize + partition.size > targetSize AND currentGroup.nonEmpty:
-            coalescedGroups.append(currentGroup)
-            currentGroup = [partition]
-            currentSize  = partition.size
-        else:
-            currentGroup.append(partition)
-            currentSize += partition.size
-
-    if currentGroup.nonEmpty:
-        coalescedGroups.append(currentGroup)
-
-    while coalescedGroups.size < minPartitions:
-        splitLargest(coalescedGroups)
-
-    return coalescedGroups   // downstream stage reads coalesced partitions
-```
-
-### 16.3 Capability 2 — Dynamic Join Strategy Switching
-
-After the build side of a join completes, AQE checks actual data size. If the build side is small enough, it converts a SortMergeJoin or ShuffleHashJoin into a BroadcastHashJoin, cancelling the probe-side shuffle.
-
-```pseudocode
-function maybeConvertToBroadcastJoin(joinStage: JoinStage, buildStats: ShuffleStats):
-    buildSideSize      = buildStats.totalBytes
-    broadcastThreshold = config.aqe.broadcastThreshold   // default 10 MB
-
-    if buildSideSize <= broadcastThreshold:
-        newPlan = convertToBroadcastJoin(joinStage)
-        cancelShuffleStage(joinStage.probeSideShuffleStage)
-        broadcastData(buildStats.data, joinStage.probeSideTasks)
-        return newPlan
-
-    return joinStage   // keep original plan
-```
-
-Key integration points:
-- `StageScheduler.onShuffleStageComplete(stageId, ShuffleStats)` — callback that triggers re-evaluation
-- `cancelShuffleStage()` — cancels already-scheduled probe-side shuffle tasks
-- Broadcast uses the existing Arrow Flight data distribution path
-
-### 16.4 Capability 3 — Dynamic Skew Join Handling
-
-When a single partition receives disproportionate data (> 5× median AND > 256 MB), AQE splits it into sub-partitions and replicates the matching partition from the other join side.
-
-```pseudocode
-function handleSkewedJoin(joinStage: JoinStage, shuffleStats: ShuffleStats):
-    medianSize    = shuffleStats.medianPartitionSize
-    skewThreshold = config.aqe.skewThreshold   // default 5x median AND > 256 MB
-
-    for partition in shuffleStats.partitions:
-        if partition.size > skewThreshold * medianSize AND partition.size > 256MB:
-            numSplits = ceil(partition.size / medianSize)
-            subPartitions = splitPartition(partition, numSplits)
-
-            for sub in subPartitions:
-                createTask(sub, replicatedOtherSide = partition.matchingPartition)
-
-    return updatedJoinStage
-```
-
-### 16.5 Affected SPI Interfaces
-
-| Interface | Change | Description |
-|-----------|--------|-------------|
-| `StageScheduler` | New callback | `onShuffleStageComplete(stageId, ShuffleStats)` |
-| `TaskRequest` Protobuf | New field | `coalesced_partition_ranges` for coalesced reads |
-| Worker heartbeat | New field | `shuffle_partition_stats` reporting per-partition sizes |
-
-### 16.6 Trade-offs
-
-| Aspect | Without AQE | With AQE |
-|--------|-------------|----------|
-| Performance | Fixed plan; may be fragile with imperfect statistics | Can correct skew or misestimation between stages; gains require workload measurement |
-| Complexity | Simple — plan once, execute | Medium — Coordinator tracks shuffle stats and re-plans between stages |
-| Risk | High — wrong plan decisions unrecoverable | Low — AQE only improves; worst case is no change |
-| Latency overhead | None | ~50-100 ms per shuffle stage boundary |
-| Memory overhead | None | ~1 KB per partition × partition count (ShuffleStats in Coordinator) |
-
-### 16.7 Migration Path
-
-| Phase | Scope | Description |
-|-------|-------|-------------|
-| 1 | ShuffleStats Collection | Add `shuffle_partition_stats` to Worker heartbeat; Coordinator collects and logs — no plan changes |
-| 2 | Dynamic Coalescing | Merge small partitions in `StageScheduler`; safest capability — only merges, never changes join strategy |
-| 3 | Dynamic Join Switching | Broadcast join conversion; requires `cancelShuffleStage()` and broadcast distribution |
-| 4 | Skew Handling | Partition splitting + other-side replication; most complex, requires shuffle dedup logic |
+The implementation and verification requirements are tracked in the
+[query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).
 
 ---
 

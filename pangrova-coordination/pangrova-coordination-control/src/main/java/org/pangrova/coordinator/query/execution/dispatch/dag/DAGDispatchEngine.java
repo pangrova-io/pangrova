@@ -17,7 +17,6 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.task.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
@@ -49,21 +48,10 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     private final org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
     private final PipelineConfig pipelineConfig;
     private final LeafStageDispatcher leafStageDispatcher;
-    private final AdaptiveStagePlanResolver adaptivePlanResolver;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
     private final DAGLifecycleController lifecycle;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
-
-    /** Creates a dispatch engine without adaptive sub-plan reoptimization. */
-    public DAGDispatchEngine(
-            DAGDispatchContext dependencies,
-            List<StageLifecycleHandler> handlers,
-            org.pangrova.coordinator.query.execution.split.StageSplitSource splitFetcher,
-            PublishedGenerationBindingResolver artifactResolver,
-            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
-        this(dependencies, handlers, splitFetcher, artifactResolver, generatedValueReads, null);
-    }
 
     /** Creates a dispatch engine with the supplied execution dependencies. */
     public DAGDispatchEngine(
@@ -71,8 +59,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             List<StageLifecycleHandler> handlers,
             org.pangrova.coordinator.query.execution.split.StageSplitSource splitFetcher,
             PublishedGenerationBindingResolver artifactResolver,
-            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads,
-            org.pangrova.planner.analysis.SubPlanReoptimizer subPlanReoptimizer) {
+            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
         DispatchCanceller canceller = new DispatchCanceller(
                 dependencies.dispatcher(), dependencies.taskTracker());
         this.cancelRetrier = canceller.cancelRetrier();
@@ -85,8 +72,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         this.stagePlanBinder = new DAGStagePlanBinder(new RetrievalGenerationResolver(artifactResolver),
                 generatedValueReads);
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
-        this.adaptivePlanResolver =
-                new AdaptiveStagePlanResolver(subPlanReoptimizer);
         this.lifecycle = new DAGLifecycleController(
                 dependencies.dispatcher(), canceller,
                 dependencies.shuffleLifecycleManager(), dependencies.lineageEmitter(),
@@ -371,7 +356,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                     state.dag(), state.dispatched(), null, false,
                     state.durable().control().planEpoch(stage.stageId()), state.durable()));
         }
-        StageNode plan = adaptivePlanResolver.apply(stage.plan(), state.dag(), state.compiler());
+        StageNode plan = stage.plan();
         if (stage.retryCount() > 0) {
             state.dispatched().removeIf(record ->
                     record.stageId() == stage.stageId());

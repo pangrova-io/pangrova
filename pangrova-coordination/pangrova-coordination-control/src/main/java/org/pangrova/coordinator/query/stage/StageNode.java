@@ -60,25 +60,4 @@ public record StageNode(
         this(stageId, stagePlan, parallelism, taskType, exchangeSources, -1L, -1L);
     }
 
-    /**
-     * Returns a copy with adjusted parallelism for adaptive dynamic parallelism.
-     */
-    public StageNode withParallelism(int newParallelism) {
-        if (stagePlan.mode() == StagePlanMode.DURABLE_REPLAY && newParallelism != parallelism) {
-            throw new IllegalStateException("Durable stage parallelism is part of its persisted graph identity");
-        }
-        return new StageNode(stageId, stagePlan, newParallelism, taskType,
-                exchangeSources, estimatedShuffleBytes, estimatedShuffleRows);
-    }
-
-    /**
-     * Returns a copy with a reoptimized plan fragment for sub-plan re-optimization.
-     */
-    public StageNode withStagePlan(StagePlanAccess newStagePlan) {
-        if (stagePlan.mode() == StagePlanMode.DURABLE_REPLAY) {
-            throw new IllegalStateException("Durable stage plan cannot be adaptively replaced");
-        }
-        return new StageNode(stageId, newStagePlan, parallelism, taskType,
-                exchangeSources, estimatedShuffleBytes, estimatedShuffleRows);
-    }
 }
