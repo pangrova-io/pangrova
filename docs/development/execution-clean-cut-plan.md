@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 126 让同一 Stage 中共享表、生成列、选定快照与 split 集合的读取复用一次发布查询，包含未发布的查找结果。每个扫描仍单独校验 schema 与定义并分配精确 Node ID。PostgreSQL 16 的 `pg_stat_statements` 按实际表查询计数，8 个重复扫描每次执行从 8 次 SELECT 降到 1 次，三次执行均一致。真实发布测试验证两个 Node ID 共享同一不可变产物和资源证据。25 项回归覆盖 PostgreSQL 发布、快照校验、任务物化和异步生成值 SQL 写入与读取，Checkstyle 通过。
+
 实施批次 125 将下游读准备的提交、执行线程开始、结束和拒绝记录在实际拥有该队列项的 Coordinator 上。每次 executor 提交对应一条 `downstreamPreparations`，使用与 Stage 转换相同的单调时钟。完整区分排队、运行、完成、取消后出队跳过、失败及拒绝，移除把合并唤醒归给第一次回调的日志。受控单线程夹具验证等待与拒绝，100 次合并通知仍只创建一条记录。真实双 Worker SQL 在 Flight 读完和物理释放后核对 Profile。34 项定向 Java、真实 SQL、PostgreSQL 预算测试、Checkstyle 与模块边界检查通过。
 
 实施批次 124 让生成值读取枚举借用 Protobuf 的原始关系节点。没有生成值覆盖的分支只遍历，只有实际替换的叶子及其祖先重建，保留同一个物理表重复读取、集合输入顺序和原来的过滤条件。使用生成的 Substrait 类型构建 1 和 24 个扫描节点的计划，分别测量五组各 256 次，线程分配由 3,208 B 降到 2,584 B、由 67,632 B 降到 53,896 B，扫描位置、表标识和 schema 相同。30 项回归包含真实 PostgreSQL、异步生成值 SQL 写入与读取、双 Worker Shuffle，Checkstyle 通过。

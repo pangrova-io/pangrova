@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.generation.read;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
+import org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver.ResolvedRead;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** Binds protected query reads to generated values of their exact SDK declaration and source snapshot. */
@@ -39,6 +41,7 @@ public final class GeneratedValueReadResolver {
         var bySource = stageSplits.stream().collect(Collectors.groupingBy(DataSplit::getSourceId));
         var bindings = selectedBindings(sources);
         var overlays = new ArrayList<GeneratedValuesOverlayPlanBinder.ReadOverlay>();
+        Map<PublicationRead, Optional<ResolvedRead>> publications = new HashMap<>();
         var reads = GeneratedValuesOverlayPlanBinder.reads(plan);
         for (int ordinal = 0; ordinal < reads.size(); ordinal++) {
             var read = reads.get(ordinal);
@@ -50,7 +53,7 @@ public final class GeneratedValueReadResolver {
             if (binding == null) {
                 throw new IllegalStateException("Compiled read has no admitted connector binding for " + table);
             }
-            bindRead(actor, read, ordinal, table, sourceSplits, binding, overlays);
+            bindRead(actor, read, ordinal, table, sourceSplits, binding, publications, overlays);
         }
         return GeneratedValuesOverlayPlanBinder.bind(plan, overlays);
     }
@@ -72,6 +75,7 @@ public final class GeneratedValueReadResolver {
 
     private void bindRead(QuerySession actor, io.substrait.proto.ReadRel read, int ordinal,
                           QualifiedTableName table, List<DataSplit> splits, ConnectorReadBinding binding,
+                          Map<PublicationRead, Optional<ResolvedRead>> publications,
                           List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
         String snapshot = singleSnapshot(splits);
         if (binding.snapshotId().isPresent()
@@ -87,8 +91,9 @@ public final class GeneratedValueReadResolver {
         for (var definition : definitions.getDefinitionsList()) {
             if (!read.hasFilter() && !isOutput(read, definition.getTargetColumn())) continue;
             String node = actor.queryId() + ":generated-read:" + ordinal + ":" + definition.getTargetColumn();
-            var template = artifacts.resolveTemplate(actor.tenantId(), node, table.toString(),
-                    definition.getTargetColumn(), snapshot, splits);
+            var publication = new PublicationRead(table, definition.getTargetColumn(), snapshot);
+            var template = publications.computeIfAbsent(publication, key -> artifacts.resolveTemplate(
+                    actor.tenantId(), key.table().toString(), key.column(), key.snapshot(), splits));
             template.ifPresent(resolved -> {
                 var definitionSnapshot = resolved.definitionSnapshot().orElseThrow(() ->
                         new IllegalStateException("Generated query publication has no declared generated definition"));
@@ -98,10 +103,12 @@ public final class GeneratedValueReadResolver {
                 }
                 overlays.add(new GeneratedValuesOverlayPlanBinder.ReadOverlay(
                         ordinal, read.getNamedTable().getNamesList(),
-                        definition.getTargetColumn(), resolved.binding()));
+                        definition.getTargetColumn(), resolved.bind(node)));
             });
         }
     }
+
+    private record PublicationRead(QualifiedTableName table, String column, String snapshot) {}
 
     private static void requireSchema(io.substrait.proto.ReadRel read,
                                       org.pangrova.connector.api.metadata.table.ConnectorTableMetadata table) {

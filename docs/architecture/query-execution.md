@@ -116,7 +116,9 @@ A stage with no retrieval or AI binding hints reuses its immutable bound plan.
 Generated-value reads are resolved before this handoff, and the output stage
 validates declared result column logical types. Generated-value scan enumeration
 visits the original Substrait relations in input order. A generated-value overlay
-rebuilds its affected scan and ancestors.
+rebuilds its affected scan and ancestors. Reads of the same generated column and
+snapshot in one stage share one publication observation, including absence.
+Each scan retains its own binding node ID.
 
 The converter materializes Calcite's validated numeric result type in the function
 arguments. When an arithmetic expression has a floating result and a DECIMAL

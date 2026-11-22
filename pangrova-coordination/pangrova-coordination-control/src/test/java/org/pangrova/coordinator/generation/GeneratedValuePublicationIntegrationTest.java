@@ -97,7 +97,7 @@ class GeneratedValuePublicationIntegrationTest {
     private void assertClaimConnectionEvidence(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
             JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
         var read = new GeneratedValueGenerationBindingResolver(publicationStore, store).resolveTemplate(
-                TENANT, "scan-claim", SOURCE_ID, "embedding", SNAPSHOT, List.of(split)).orElseThrow().binding();
+                TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split)).orElseThrow().bind("scan-claim");
         var original = dispatch();
         var sink = OperatorBindingSet.parseFrom(original.stageGraph().requireStage(0).bindingSetBytes())
                 .getBindings(0);
@@ -216,11 +216,12 @@ class GeneratedValuePublicationIntegrationTest {
         GeneratedValueGenerationBindingResolver resolver =
                 new GeneratedValueGenerationBindingResolver(publicationStore, buildStore);
         var resolved = resolver.resolveTemplate(
-                TENANT, "scan-a", SOURCE_ID, "embedding",
+                TENANT, SOURCE_ID, "embedding",
                 SNAPSHOT, List.of(split))
                 .orElseThrow();
         assertThat(resolved.definitionSnapshot()).isEqualTo(dispatch().authorizationScope().definitionSnapshot());
-        OperatorBinding template = resolved.binding();
+        OperatorBinding template = resolved.bind("scan-a");
+        assertThat(resolved.bind("scan-b")).isEqualTo(template.toBuilder().setPlanNodeId("scan-b").build());
         assertThat(template.getCapability().getCapabilityId())
                 .isEqualTo(BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_ID);
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
@@ -233,7 +234,7 @@ class GeneratedValuePublicationIntegrationTest {
         assertThat(template.getExecutionPolicy().getFallbackPolicy()).isEqualTo(
                 org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID);
 
-        OperatorBinding taskBinding = resolver.materializeForTask(
+        OperatorBinding taskBinding = new PublishedGenerationBindingResolver(buildStore).materializeForTask(
                 TENANT, List.of(template),
                 List.of(split)).get(0);
         assertThat(taskBinding.getArtifacts(0).getSplitObjectsList())
@@ -254,7 +255,7 @@ class GeneratedValuePublicationIntegrationTest {
                         "s3://warehouse/replaced-object.parquet", 0, 0))
                 .build();
         assertThatThrownBy(() -> resolver.resolveTemplate(
-                TENANT, "changed-scan", SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
+                TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exactly cover");
     }
 

@@ -6,7 +6,14 @@ import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.ArtifactBinding;
+import org.pangrova.protocol.v2.CoveragePolicy;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.ExecutionPolicy;
+import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.OperatorBinding;
+import org.pangrova.protocol.v2.OperatorResourceRequirement;
+import org.pangrova.protocol.v2.RetryClass;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.DefinitionSnapshot;
 
 import java.util.List;
@@ -31,18 +38,16 @@ public final class GeneratedValueGenerationBindingResolver {
     }
 
     /**
-     * Returns an object-free plan binding only for the exact source snapshot.
-     * Task-local object expansion is delegated to PublishedArtifactBindingResolver.
+     * Returns verified, object-free publication evidence for the exact source snapshot.
+     * The caller binds that evidence to each eligible read node.
      */
     public Optional<ResolvedRead> resolveTemplate(
             String tenantId,
-            String planNodeId,
             String sourceId,
             String targetColumn,
             String sourceSnapshot,
-            List<org.pangrova.protocol.v2.DataSplit> splits) {
+            List<DataSplit> splits) {
         requireText(tenantId, "tenantId");
-        requireText(planNodeId, "planNodeId");
         GeneratedValueGenerationReference reference = metadataStore.findGeneration(
                 tenantId, sourceId, targetColumn, sourceSnapshot).orElse(null);
         if (reference == null) {
@@ -64,33 +69,28 @@ public final class GeneratedValueGenerationBindingResolver {
                         splits)
                 .orElseThrow(() -> new IllegalStateException(
                         "Published generated values do not exactly cover the query source objects"));
-        return Optional.of(new ResolvedRead(template(planNodeId, resolved), resolved.definitionSnapshot()));
-    }
-
-    /** Keeps the verified definition with the operator binding until the selected scan is checked. */
-    public record ResolvedRead(OperatorBinding binding, Optional<DefinitionSnapshot> definitionSnapshot) {}
-
-    private OperatorBinding template(
-            String node, PublishedGenerationBindingResolver.ResolvedTemplate resolved) {
         if (resolved.rowCount() <= 0 || resolved.totalBytes() <= 0) {
             throw new IllegalStateException("Generated publication has invalid source-row resource totals");
         }
-        return OperatorBinding.newBuilder().setPlanNodeId(node)
-                .setCapability(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef())
-                .addArtifacts(resolved.binding())
-                .setExecutionPolicy(org.pangrova.protocol.v2.ExecutionPolicy.newBuilder()
-                        .setCoveragePolicy(org.pangrova.protocol.v2.CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE)
-                        .setFallbackPolicy(org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID)
-                        .setRetryClass(org.pangrova.protocol.v2.RetryClass.RETRY_CLASS_IDEMPOTENT))
-                .setResources(org.pangrova.protocol.v2.OperatorResourceRequirement.newBuilder()
-                        .setFillKeys(resolved.rowCount()).setObjectStoreReadBytes(resolved.totalBytes()))
-                .build();
+        return Optional.of(new ResolvedRead(resolved.binding(), OperatorResourceRequirement.newBuilder()
+                .setFillKeys(resolved.rowCount()).setObjectStoreReadBytes(resolved.totalBytes()).build(),
+                resolved.definitionSnapshot()));
     }
 
-    /** Uses the canonical task-local object expansion shared by all artifact capabilities. */
-    public List<OperatorBinding> materializeForTask(
-            String tenantId, List<OperatorBinding> bindings,
-            List<org.pangrova.protocol.v2.DataSplit> splits) {
-        return artifactResolver.materializeForTask(tenantId, bindings, splits);
+    /** Immutable publication evidence reusable by scans of the same declaration and source snapshot. */
+    public record ResolvedRead(ArtifactBinding artifact, OperatorResourceRequirement resources,
+            Optional<DefinitionSnapshot> definitionSnapshot) {
+        /** Attaches the shared publication to the exact scan's node ID. */
+        public OperatorBinding bind(String planNodeId) {
+            return OperatorBinding.newBuilder().setPlanNodeId(requireText(planNodeId, "planNodeId"))
+                    .setCapability(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef())
+                    .addArtifacts(artifact)
+                    .setExecutionPolicy(ExecutionPolicy.newBuilder()
+                            .setCoveragePolicy(CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE)
+                            .setFallbackPolicy(FallbackPolicy.FALLBACK_POLICY_FORBID)
+                            .setRetryClass(RetryClass.RETRY_CLASS_IDEMPOTENT))
+                    .setResources(resources)
+                    .build();
+        }
     }
 }

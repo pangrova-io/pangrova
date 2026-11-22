@@ -9,6 +9,7 @@ import io.substrait.proto.PlanRel;
 import io.substrait.proto.ReadRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
+import io.substrait.proto.SetRel;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -45,6 +46,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.security.api.identity.UserIdentity;
 
+import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -156,6 +158,46 @@ class GeneratedValueReadResolverIntegrationTest {
         }
     }
 
+    @Test
+    void repeatedPhysicalReadsShareOnePublicationLookupPerStage() throws Exception {
+        try (var fixture = fixture()) {
+            var dataSource = fixture.dataSource();
+            try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            }
+            long version = fixture.table().currentSnapshot().snapshotId();
+            var selected = source(fixture, version);
+            var compiled = Plan.parseFrom(plan(metadata(fixture, version)));
+            var root = compiled.getRelations(0).getRoot();
+            var reads = SetRel.newBuilder().setOp(SetRel.SetOp.SET_OP_UNION_ALL);
+            for (int ordinal = 0; ordinal < 8; ordinal++) {
+                reads.addInputs(root.getInput());
+            }
+            byte[] stage = compiled.toBuilder().setRelations(0, PlanRel.newBuilder()
+                    .setRoot(root.toBuilder().setInput(Rel.newBuilder().setSet(reads))))
+                    .build().toByteArray();
+            for (int execution = 0; execution < 3; execution++) {
+                long before = publicationReads(dataSource);
+                var bound = fixture.resolver().bindReadOverlays(stage, ACTOR, splits(version), selected);
+                assertThat(bound.operatorBindings()).isEmpty();
+                assertThat(bound.planBytes()).containsExactly(stage);
+                assertThat(publicationReads(dataSource) - before).as("publication SELECTs per stage").isOne();
+            }
+        }
+    }
+
+    private static long publicationReads(DataSource dataSource) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE 'SELECT tenant_id,artifact_id,generation,source_id,source_snapshot,target_column%'
+                  AND query LIKE '%FROM generated_value_generation_manifests%'
+                """); var rows = statement.executeQuery()) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
+        }
+    }
+
     private Fixture fixture() throws Exception {
         var configuration = new Configuration();
         configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
@@ -176,7 +218,7 @@ class GeneratedValueReadResolverIntegrationTest {
                 Map.of(), "", Set.of("tenant")));
         var resolver = new GeneratedValueReadResolver(ModelAuthorityFixtures.artifacts().builds(dataSource),
                 ModelAuthorityFixtures.artifacts().generatedPublications(dataSource));
-        return new Fixture(catalog, table, registry, resolver);
+        return new Fixture(catalog, table, registry, resolver, dataSource);
     }
 
     private static List<org.pangrova.planner.analysis.SplitSourceDescriptor> source(
@@ -250,7 +292,7 @@ class GeneratedValueReadResolverIntegrationTest {
     }
 
     private record Fixture(HadoopCatalog catalog, Table table, CatalogRegistry registry,
-                           GeneratedValueReadResolver resolver) implements AutoCloseable {
+                           GeneratedValueReadResolver resolver, DataSource dataSource) implements AutoCloseable {
         @Override public void close() throws Exception {
             registry.shutdown();
             catalog.close();
