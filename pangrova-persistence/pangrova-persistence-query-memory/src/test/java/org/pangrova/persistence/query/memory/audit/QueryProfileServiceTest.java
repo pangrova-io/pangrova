@@ -30,7 +30,7 @@ class QueryProfileServiceTest {
         var attempts = new ArrayList<>(List.of(attempt));
         var profile = new QueryProfileService.QueryProfile("q", "SELECT 1", true,
                 attempts, new QueryProfileService.TimingBreakdown(1, 1, 1, 1),
-                new QueryProfileService.MemoryUsage(1, 0, 1, 1, 0, 0), true);
+                new QueryProfileService.MemoryUsage(1, 0, 1, 1, 0, 0), true, null);
         operators.clear();
         attempts.clear();
 

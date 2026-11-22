@@ -40,6 +40,13 @@ backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts
 retry and its predecessor appear separately. If the Coordinator retains no attempt
 counters, `attempts` is empty and `telemetryAvailable` is false.
 
+`executionGraph` describes the physical Stage and Exchange topology registered by the
+owning Coordinator. It includes planned parallelism, Exchange distribution and read
+mode, and observed stage transitions with retry generation. Transition `elapsedNanos`
+uses one Coordinator monotonic clock and starts at graph registration. The graph is
+retained with the in-process telemetry and can be absent from historical profiles.
+Planned widths and observed attempt counts are separate measurements.
+
 ### Submit a Query
 
 Request:

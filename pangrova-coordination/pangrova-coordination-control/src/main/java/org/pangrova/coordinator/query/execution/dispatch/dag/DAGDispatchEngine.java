@@ -35,6 +35,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitF
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
+import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
@@ -55,6 +56,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private final CoalescedShuffleInputs coalescedShuffleInputs;
     private final DownstreamStageScheduler downstreamStageScheduler;
     private final DAGLifecycleController lifecycle;
+    private volatile QueryOperatorStatsRegistry operatorStats;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
 
     /** Creates a dispatch engine with the supplied execution dependencies. */
@@ -96,6 +98,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                                         : java.util.function.UnaryOperator.identity()));
         this.durableControl = new org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl(
                 lifecycle, externalShuffle);
+    }
+
+    /** Attaches the bounded diagnostics used by the query profile. */
+    public void setOperatorStatsRegistry(QueryOperatorStatsRegistry registry) {
+        operatorStats = registry;
     }
 
     /** The same exact-attempt cancellation queue is used by stage, query and speculative cleanup. */
@@ -189,9 +196,15 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void registerListeners(DAGExecutionState state) {
+        var registry = operatorStats;
+        var observations = registry != null && state.execution() instanceof StageExecutionContext.Live
+                ? registry.beginExecution(state.queryId(), state.dag()) : null;
         for (Stage stage : state.dag().stageEntities()) {
             stage.stateMachine().addStateChangeListener((id, previous, next) -> {
                 if (!lifecycle.owns(state.queryId(), state.dag()) || state.cancelled().get()) return;
+                if (observations != null) {
+                    observations.record(stage.stageId(), stage.currentGeneration(), previous, next);
+                }
                 updateRunningCount(previous, next, state.runningStageCount());
                 try {
                     onStateChange(stage, next, state);

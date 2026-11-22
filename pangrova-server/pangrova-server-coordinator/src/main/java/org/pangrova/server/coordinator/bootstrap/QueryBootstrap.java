@@ -522,6 +522,7 @@ final class QueryBootstrap {
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         DAGDispatchEngine engine = queryDispatcher.dagEngine();
+        engine.setOperatorStatsRegistry(queryAuditServices.operatorStatsRegistry());
         writeCommitJournal = WriteCommitComponentFactory.createJournal(metadataDataSource);
         writeCommitRecoveryService = WriteCommitComponentFactory.createRecoveryService(
                 writeCommitJournal, catalog,

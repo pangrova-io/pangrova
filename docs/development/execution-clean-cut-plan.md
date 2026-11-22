@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 110 在已认证 JSON Profile 公开实际派发的执行 DAG。阶段计划宽度、Exchange 分布和读取模式来自 Coordinator 注册的同一张图。阶段观测按单进程单调时钟记录，并包含重试代次。使用原本的有界遥测存储，无新增查询路径 SQL。真实 HTTP、PostgreSQL 和 Native Flight 验证了单 Stage 的转换与读查询的 SQL 预算。双 Worker SQL 验证了多 Stage、Exchange 端点、结果和实际释放。25 项 Java 与 Checkstyle 通过。获胜 attempt 和 Exchange 阻塞的关键路径证据仍列在性能对齐计划。
+
 实施批次 109 用单条 PostgreSQL 查询读取持久执行的交换图索引、登记、终态证据和源快照。合并前后的真实单交换终态测试确认这四类 SQL 从 4 条降到 1 条。九条交换边的夹具验证了跨多个游标窗口的完整性和同租户不同任务的隔离。每次游标取 4 行，查询仍持有各证据行的共享锁。生产者赢家的权威检查继续单独执行。86 项 Java 和 Checkstyle 回归通过。 [PostgreSQL 行锁](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE) · [pgJDBC 游标](https://jdbc.postgresql.org/documentation/query/#getting-results-based-on-a-cursor)
 
 实施批次 108 在持久执行恢复与生产者终态事务中复用同一次持锁交换屏障和登记证据。整张图的摘要按事务复用。真实 PostgreSQL 的单交换终态上报中，图索引 SELECT 从 3 次降为 1 次，登记和终态证据各从 2 次降为 1 次，源快照确认保持 1 次。这四类读取合计从 8 次降为 4 次。85 项定向 Java 和 Checkstyle 通过，覆盖持久 DAG 恢复、过期 owner、缺失与损坏交换证据、取消和事务回滚。

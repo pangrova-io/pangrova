@@ -81,6 +81,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     port: 0
                   shuffle:
                     service:
+                      spill-bytes: 268435456
                       spill-directory: "%s"
                   cdc:
                     enabled: false
@@ -428,6 +429,21 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
                     var profile = queryProfileService().getProfile(queryId);
                     assertThat(profile).isPresent();
+                    var graph = profile.orElseThrow().executionGraph();
+                    assertThat(graph).isNotNull();
+                    assertThat(graph.exchanges()).isNotEmpty().allSatisfy(edge -> {
+                        assertThat(graph.stages()).extracting(stage -> stage.stageId())
+                                .contains(edge.producerStageId(), edge.consumerStageId());
+                        assertThat(edge.plannedPartitions()).isPositive();
+                    });
+                    assertThat(graph.transitions().stream().filter(event -> "FINISHED".equals(event.state())))
+                            .extracting(event -> event.stageId())
+                            .containsExactlyInAnyOrderElementsOf(graph.stages().stream()
+                                    .map(stage -> stage.stageId()).toList());
+                    assertThat(graph.transitions()).allSatisfy(event -> {
+                        assertThat(event.elapsedNanos()).isNotNegative();
+                        assertThat(event.generation()).isNotNegative();
+                    });
                     var attempts = profile.orElseThrow().attempts();
                     assertThat(attempts.stream().mapToInt(attempt -> attempt.stageId()).distinct().count())
                             .isGreaterThanOrEqualTo(2);

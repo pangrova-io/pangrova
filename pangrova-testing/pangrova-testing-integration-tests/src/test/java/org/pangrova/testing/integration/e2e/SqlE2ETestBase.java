@@ -2296,6 +2296,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var queryDispatcher = new QueryDispatcher(
                 deps, statementDispatcher, null, sharedWriteAuthoritySupplier);
         queryDispatcher.setWriteCommitTracker(writeCommitTracker);
+        queryDispatcher.dagEngine().setOperatorStatsRegistry(OPERATOR_STATS);
         sharedQueryDispatcher = queryDispatcher;
         wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);

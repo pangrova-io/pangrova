@@ -35,7 +35,8 @@ public final class QueryProfileService {
         var memory = new MemoryUsage(record.peakMemoryBytes(), record.spilledBytes(), record.inputBytes(),
                 record.outputBytes(), record.shuffleReadBytes(), record.shuffleWriteBytes());
         return new QueryProfile(record.queryId(), record.sql(), record.success(),
-                attempts, timing, memory, !attempts.isEmpty());
+                attempts, timing, memory, !attempts.isEmpty(),
+                operatorStats == null ? null : operatorStats.executionGraph(record.queryId()));
     }
 
     /** Structured query profile containing exact attempts and audit totals. */
@@ -46,7 +47,8 @@ public final class QueryProfileService {
             List<OperatorStatsSource.Attempt> attempts,
             TimingBreakdown timing,
             MemoryUsage memory,
-            boolean telemetryAvailable) {
+            boolean telemetryAvailable,
+            OperatorStatsSource.ExecutionGraph executionGraph) {
         public QueryProfile {
             attempts = List.copyOf(attempts);
         }

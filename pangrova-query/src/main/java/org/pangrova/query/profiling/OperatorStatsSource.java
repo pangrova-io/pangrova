@@ -8,6 +8,27 @@ public interface OperatorStatsSource {
     /** Exact attempt telemetry for the query, or an empty list when absent. */
     List<Attempt> attemptStats(String queryId);
 
+    /** Retained dispatch topology and Coordinator observations, if available on this process. */
+    default ExecutionGraph executionGraph(String queryId) {
+        return null;
+    }
+
+    record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions) {
+        public ExecutionGraph {
+            stages = List.copyOf(stages);
+            exchanges = List.copyOf(exchanges);
+            transitions = List.copyOf(transitions);
+        }
+    }
+
+    record Stage(int stageId, String taskType, int plannedParallelism) {}
+
+    record Exchange(String exchangeId, int producerStageId, int consumerStageId, String shuffleType,
+            String readMode, int plannedPartitions) {}
+
+    /** The offset is relative to the Coordinator's registration of this graph. */
+    record StageTransition(int stageId, int generation, String previous, String state, long elapsedNanos) {}
+
     /** Coordinates and counters from the latest retained report for one exact attempt. */
     record Attempt(
             int stageId,

@@ -119,6 +119,12 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                 assertThat(attempt.path("planEpoch").asLong()).isPositive();
                 assertThat(attempt.path("operators").size()).isPositive();
             }
+            var graph = body.path("executionGraph");
+            assertThat(graph.path("stages").size()).isOne();
+            assertThat(graph.path("exchanges").size()).isZero();
+            assertThat(java.util.stream.StreamSupport.stream(graph.path("transitions").spliterator(), false)
+                    .map(transition -> transition.path("state").asText()))
+                    .containsSubsequence("SCHEDULING", "RUNNING", "FLUSHING", "FINISHED");
             assertThat(body.has("operatorTree")).isFalse();
             assertThat(body.path("timing").has("ioWaitMs")).isFalse();
         });
