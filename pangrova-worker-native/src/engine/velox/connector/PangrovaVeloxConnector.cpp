@@ -791,9 +791,10 @@ void PangrovaVeloxDataSource::openVeloxReader(
 
   std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
   try {
-    createReaderPair(
-        split,
-        velox_reader_, velox_row_reader_, &scanSpec, nullptr, &parquet_uuid_read_plan_, true);
+    // Positional deletes use the original file row numbers. The outer
+    // FilterNode still evaluates the predicate after the delete filter.
+    createReaderPair(split, velox_reader_, velox_row_reader_, &scanSpec, nullptr,
+                     &parquet_uuid_read_plan_, delete_filters_.empty());
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "velox_reader_open_failed"
                      << " file_path=" << filePath
@@ -1336,7 +1337,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       // skipping. This is in addition to the row-level evaluation below.
       // The reader uses column statistics to skip entire row groups where
       // the filter cannot match, reducing IO by 50-90%.
-      if (current_scan_spec_ && velox_row_reader_ &&
+      if (delete_filters_.empty() && current_scan_spec_ && velox_row_reader_ &&
           !dynamic_filters_pushed_to_scan_) {
         for (const auto& [colIdx, filter] : dynamic_filters_) {
           if (colIdx < output_type_->size()) {

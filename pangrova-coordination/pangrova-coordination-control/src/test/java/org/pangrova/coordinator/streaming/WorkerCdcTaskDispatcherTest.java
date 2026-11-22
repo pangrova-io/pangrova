@@ -10,7 +10,6 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskKind;
 
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,10 +20,19 @@ class WorkerCdcTaskDispatcherTest {
     void registersAndDispatchesTheExactCdcTask() {
         var tracker = new CoordinatorTaskTracker();
         var dispatched = new AtomicReference<SubmitTaskRequest>();
-        TaskDispatcher transport = (request, worker) -> {
-            dispatched.set(request);
-            return new org.pangrova.execution.task.DispatchResult(
-                    worker.host(), request.taskRequest().getAttempt().getTaskId(), null);
+        TaskDispatcher transport = new TaskDispatcher() {
+            @Override
+            public SubmitTaskRequest bindControlIdentity(SubmitTaskRequest request) {
+                return request.withBoundTask(request.taskRequest().toBuilder()
+                        .setAttempt(request.taskRequest().getAttempt().toBuilder().setControlEpoch(19)).build());
+            }
+
+            @Override
+            public org.pangrova.execution.task.DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
+                dispatched.set(request);
+                return new org.pangrova.execution.task.DispatchResult(
+                        worker.host(), request.taskRequest().getAttempt().getTaskId(), null);
+            }
         };
         WorkerSelector selector = new WorkerSelector() {
             @Override
@@ -41,14 +49,24 @@ class WorkerCdcTaskDispatcherTest {
             }
         };
         var adapter = new WorkerCdcTaskDispatcher(transport, selector, tracker);
-        var request = CanonicalTaskRequestTestFixture.builder(
+        var builder = CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", 0, 0, TaskKind.TASK_KIND_CDC_INGEST,
-                new byte[]{1}).build();
+                new byte[0])
+                .clearSubstraitPlanChecksum()
+                .setSecurity(org.pangrova.protocol.v2.SecurityContext.newBuilder()
+                        .setTenantId("tenant-a").setPrincipal("test-user"))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId("task-1:grant").setCpuSlots(1).setNativeMemoryBytes(1_048_576))
+                .setCdcIngest(CdcTaskRequestsTest.binding());
+        builder.setAttempt(builder.getAttempt().toBuilder().clearWorkerExecutionIdentity());
 
-        adapter.dispatch(request);
+        adapter.dispatch(builder.build());
 
         assertThat(dispatched.get().taskRequest().getAttempt().getTaskId()).isEqualTo("task-1");
-        assertThat(tracker.getTaskRequest("task-1")).isNotNull();
+        assertThat(dispatched.get().taskRequest().getAttempt().getControlEpoch()).isEqualTo(19);
+        assertThat(dispatched.get().taskRequest().getAttempt().getWorkerExecutionIdentity())
+                .isEqualTo(worker().workerExecutionIdentity().toProto());
+        assertThat(tracker.getTaskRequest("task-1")).isSameAs(dispatched.get());
         assertThat(tracker.getTaskState("query-1", "task-1").name()).isEqualTo("SCHEDULED");
     }
 
@@ -58,7 +76,7 @@ class WorkerCdcTaskDispatcherTest {
                 org.pangrova.common.enums.MemoryPressure.NONE,
                 0.1, 0, 4L * 1024 * 1024 * 1024,
                 java.time.Instant.now(), 0.9, null, 2, null, java.util.List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory(),
-                TestWorkerInfoBuilder.executionIdentity("w-1"));
+                TestWorkerInfoBuilder.canonicalInventory(), 0,
+                TestWorkerInfoBuilder.executionIdentity("w-1"), null, true);
     }
 }

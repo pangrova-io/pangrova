@@ -180,6 +180,33 @@ class DefaultWorkerSelectorMemoryFitTest {
         assertThat(selector.selectForBindings(null, List.of(), List.of())).isSameAs(candidate);
     }
 
+    @Test
+    void selectsCdcWorkerFromMixedTopologyRecoveredFromMembership() {
+        var registry = new InMemoryWorkerRegistry();
+        var first = new WorkerManager(20_000, 60_000, registry);
+        first.registerWorker(worker("general", 2 * MIN_TASK_MEMORY_BYTES));
+        first.registerWorker(worker("cdc-small", MIN_TASK_MEMORY_BYTES - 1, null, true));
+        first.registerWorker(worker("cdc-ready", MIN_TASK_MEMORY_BYTES, null, true));
+        var recovered = new WorkerManager(20_000, 60_000, registry);
+        recovered.loadFromRegistry();
+
+        var selector = new DefaultWorkerSelector(recovered,
+                new TaskScheduler(new LoadBalancedStrategy(), tenant -> java.util.Optional.empty()),
+                null, new SpillBudget(0L));
+        assertThat(selector.selectForCdc("tenant").workerId()).isEqualTo("cdc-ready");
+    }
+
+    @Test
+    void rejectsCdcWhenOnlyGeneralWorkersAreEligible() {
+        var manager = buildWorkerManager();
+        manager.registerWorker(worker("general", 2 * MIN_TASK_MEMORY_BYTES));
+        manager.registerWorker(worker("cdc-small", MIN_TASK_MEMORY_BYTES - 1, null, true));
+
+        assertThatThrownBy(() -> newSelector(manager).selectForCdc("tenant"))
+                .isInstanceOf(NoAvailableWorkerException.class)
+                .hasMessageContaining("CDC backend");
+    }
+
     private static DefaultWorkerSelector newSelector(WorkerManager wm) {
         return new DefaultWorkerSelector(
                 wm,
@@ -200,12 +227,18 @@ class DefaultWorkerSelectorMemoryFitTest {
             String id,
             long availableMemoryBytes,
             CacheCatalogSummary cacheSummary) {
+        return worker(id, availableMemoryBytes, cacheSummary, false);
+    }
+
+    private static WorkerInfo worker(String id, long availableMemoryBytes,
+                                     CacheCatalogSummary cacheSummary, boolean cdcIngestSupported) {
         return new WorkerInfo(
                 id, "host-" + id, 8080, 9090, 9091,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 availableMemoryBytes, Instant.now(), 1.0,
                 "default", 2, null, List.of(), cacheSummary,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(), 0,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id), null,
+                cdcIngestSupported);
     }
 }

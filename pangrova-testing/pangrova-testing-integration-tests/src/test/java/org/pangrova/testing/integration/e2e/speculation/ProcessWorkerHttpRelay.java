@@ -36,6 +36,7 @@ final class ProcessWorkerHttpRelay implements AutoCloseable {
     private final CopyOnWriteArrayList<Transfer> transfers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Throwable> failures = new CopyOnWriteArrayList<>();
     private final AtomicReference<Predicate<Transfer>> disconnected = new AtomicReference<>(ignored -> false);
+    private final AtomicReference<Predicate<Transfer>> disconnectedAfter = new AtomicReference<>(ignored -> false);
     private final AtomicReference<Consumer<Transfer>> beforeDelivery = new AtomicReference<>(ignored -> { });
     private final HttpServer server;
     private final Supplier<URI> target;
@@ -52,6 +53,7 @@ final class ProcessWorkerHttpRelay implements AutoCloseable {
     List<Transfer> transfers() { return List.copyOf(transfers); }
     List<Throwable> forwardingFailures() { return List.copyOf(failures); }
     void disconnectBeforeDelivery(Predicate<Transfer> select) { disconnected.set(Objects.requireNonNull(select)); }
+    void disconnectAfterDelivery(Predicate<Transfer> select) { disconnectedAfter.set(Objects.requireNonNull(select)); }
     void beforeDelivery(Consumer<Transfer> action) { beforeDelivery.set(Objects.requireNonNull(action)); }
 
     private void forward(HttpExchange exchange) throws IOException {
@@ -63,6 +65,7 @@ final class ProcessWorkerHttpRelay implements AutoCloseable {
             beforeDelivery.get().accept(transfer);
             HttpResponse<byte[]> response = send(exchange, transfer);
             transfer.response().set(response);
+            if (disconnectedAfter.get().test(transfer)) return;
             response.headers().map().forEach((name, values) -> {
                 if (!HOP_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
                     exchange.getResponseHeaders().put(name, values);

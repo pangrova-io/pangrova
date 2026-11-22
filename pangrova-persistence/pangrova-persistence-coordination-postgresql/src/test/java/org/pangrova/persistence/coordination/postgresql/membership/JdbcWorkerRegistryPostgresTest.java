@@ -28,7 +28,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
                     + "MigBMhZtZXRhZGF0YS1yZWdpc3RyeS10ZXN0";
 
     @Test
-    void preservesCanonicalInventoryAndResultDataPlaneEndpointAcrossRecovery() throws Exception {
+    void preservesWorkerCapabilitiesAndResultDataPlaneEndpointAcrossRecovery() throws Exception {
         var dataSource = MigratedPostgres.create();
         JdbcWorkerRegistry registry = new JdbcWorkerRegistry(dataSource);
         String inventory = CANONICAL_INVENTORY;
@@ -39,12 +39,17 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
                 "NONE", 0.1, 1, 1024L, now, now,
                 9191, null, inventory, 9443,
                 "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1",
-                new org.pangrova.coordination.api.membership.WorkerShuffleDeployment("REMOTE", "pangrova"));
+                new org.pangrova.coordination.api.membership.WorkerShuffleDeployment("REMOTE", "pangrova"), true);
 
         registry.register(worker);
         WorkerSnapshot recovered = registry.getWorker("worker-1").orElseThrow();
 
         assertThat(recovered.shuffleDeployment()).isEqualTo(worker.shuffleDeployment());
+        assertThat(recovered.cdcIngestSupported()).isTrue();
+        var heartbeat = new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot(
+                "NONE", 0.2, 2, 1024L, null);
+        assertThat(registry.heartbeat(worker.registrationIdentity(), heartbeat).orElseThrow().cdcIngestSupported())
+                .isTrue();
         assertThat(recovered.resultServerPort()).isEqualTo(9191);
         assertThat(recovered.copyTaskTlsPort()).isEqualTo(9443);
         assertThat(recovered.capabilityInventory()).isEqualTo(inventory);

@@ -1,6 +1,7 @@
 package org.pangrova.table.api.maintenance;
 
 import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.table.api.enums.MaintenanceOperation;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +22,8 @@ public interface TableControlMaintenanceStore {
     void savePolicy(TableMaintenancePolicy policy);
 
     void saveRun(TableMaintenanceRun run);
+
+    Optional<TableMaintenanceRun> findLatestRun(UUID tableId, MaintenanceOperation operation);
 
     List<TableMaintenanceRun> listRuns(UUID tableId, int limit);
 }

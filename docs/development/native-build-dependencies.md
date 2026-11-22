@@ -53,8 +53,10 @@ arguments under `set -u`, while populated arrays preserve paths containing space
 CI uses Ubuntu 24.04 and GCC 13 for both Linux architectures and the sanitizer
 jobs, keeping the compiler compatible with both the pinned Velox sources and the
 distribution's C++ libraries. It links a small static gflags consumer before
-building dependencies to catch ABI mismatches early. On macOS, CI selects an
-installed Homebrew LLVM of version 15 or newer, preferring the existing `llvm`
+building dependencies to catch ABI mismatches early. After a failed Native
+build, CI prints Ninja's JNI library link command to show the selected inputs.
+On macOS, CI selects an installed Homebrew LLVM of version 15 or newer,
+preferring the existing `llvm`
 (or newest installed `llvm@*`) formula instead of installing a possibly
 unavailable Intel bottle; only a machine without a suitable LLVM installs
 `llvm@17`. The selected prefix is exported as `PANGROVA_LLVM_PREFIX`. Without an

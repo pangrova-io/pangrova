@@ -214,6 +214,7 @@ jobs:
             cmake --preset dev-release
 
       - name: CMake build
+        id: native-cmake-build
         uses: ./.github/actions/run-native-step
         with:
           log: native-build
@@ -221,6 +222,17 @@ jobs:
           working-directory: pangrova-worker-native
           command: |
             cmake --build build --target all
+
+      - name: Report native link inputs
+        if: failure() && steps.native-cmake-build.outcome == 'failure'
+        shell: bash
+        working-directory: pangrova-worker-native
+        env:
+          NATIVE_LIBRARY: libpangrova_native.${{ matrix.platform.lib-ext }}
+        run: |
+          if [[ -f build/build.ninja ]]; then
+            ninja -C build -t commands "$NATIVE_LIBRARY" | tail -n 1
+          fi
 
       - name: Report compiler cache usage
         run: ccache --show-stats || true

@@ -31,6 +31,7 @@ import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandResponse;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.protocol.v2.SecurityContext;
+import org.pangrova.protocol.v2.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
@@ -53,8 +54,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -198,12 +201,17 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                 || !catalogBinding().equals(request.getOutputBinding().getLance().getCatalog())) {
             throw new SecurityException("Preparation deployment or tenant differs from durable intent");
         }
+        Set<WorkerExecutionIdentity> stagedBy = request.getFragmentsList().stream()
+                .map(DistributedWriteFragment::getTaskAttempt)
+                .filter(org.pangrova.protocol.v2.TaskAttemptId::hasWorkerExecutionIdentity)
+                .map(org.pangrova.protocol.v2.TaskAttemptId::getWorkerExecutionIdentity)
+                .collect(Collectors.toUnmodifiableSet());
         PreparedSourcePublication first = null;
         String after = "";
         for (int pageIndex = 0; pageIndex < SourceObjectPage.MAX_PAGES; pageIndex++) {
             var pageRequest = request.toBuilder().setObjectPageIndex(pageIndex).setAfterObjectPath(after)
                     .setObjectPageSize(SourceObjectPage.MAX_PAGE_OBJECTS).build();
-            URI worker = endpoint();
+            URI worker = endpoint(stagedBy);
             var invocation = sourceCatalog.issuePreparation(reservation, pageIndex, after, worker.toString(),
                     ProtocolChecksums.sha256(pageRequest.toByteArray()).getDigest().toByteArray());
             pageRequest = pageRequest.toBuilder().setInvocationId(invocation.invocationId()).build();
@@ -508,10 +516,16 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     }
 
     private URI endpoint() {
+        return endpoint(Set.of());
+    }
+
+    private URI endpoint(Set<WorkerExecutionIdentity> stagedBy) {
+        // Successful fragment receipts provide fresher liveness evidence than the heartbeat registry.
         WorkerInfo worker = dependencies.workers().get().stream()
-                .min(Comparator.comparingInt(WorkerInfo::runningTaskCount)
-                .thenComparing(WorkerInfo::workerId)).orElseThrow(
-                        () -> new IllegalStateException("No active Native Worker for metadata control"));
+                .min(Comparator.<WorkerInfo, Boolean>comparing(candidate -> candidate.workerExecutionIdentity() == null
+                        || !stagedBy.contains(candidate.workerExecutionIdentity().toProto()))
+                        .thenComparingInt(WorkerInfo::runningTaskCount).thenComparing(WorkerInfo::workerId))
+                .orElseThrow(NativeDatasetWorkerUnavailableException::new);
         try {
             return new URI("http", null, worker.host(), worker.httpPort(), "/v1/native-dataset/control", null, null);
         } catch (java.net.URISyntaxException invalid) {

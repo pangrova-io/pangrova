@@ -13,7 +13,6 @@ import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamStateStore;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
-import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
@@ -58,19 +57,21 @@ final class StreamingBootstrap implements AutoCloseable {
     private final StreamDdlExecutor ddlExecutor;
     private final StreamScheduler scheduler;
     private final StreamStateStore stateStore;
-    private final StreamOffsetStore offsetStore;
+    private final JdbcCdcCommitStateStore legacyCommitStore;
+    private final JdbcStreamOffsetStore offsetStore;
     private final CdcSourceRegistry sources;
     private final String coordinatorId;
     private final ScheduledExecutorService reconciliationExecutor;
-    private CdcWorkerRuntime workerRuntime;
+    private JournaledCdcRuntime journaledRuntime;
     private boolean leaderActive;
 
     StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler,
-                       StreamStateStore stateStore, StreamOffsetStore offsetStore,
-                       CdcSourceRegistry sources, String coordinatorId) {
+                       StreamStateStore stateStore, JdbcStreamOffsetStore offsetStore,
+                       CdcSourceRegistry sources, String coordinatorId, JdbcCdcCommitStateStore legacyCommitStore) {
         this.ddlExecutor = ddlExecutor;
         this.scheduler = scheduler;
         this.stateStore = stateStore;
+        this.legacyCommitStore = legacyCommitStore;
         this.offsetStore = offsetStore;
         this.sources = sources;
         this.coordinatorId = coordinatorId;
@@ -100,14 +101,15 @@ final class StreamingBootstrap implements AutoCloseable {
                                             MetricsProvider metricsProvider) {
         StreamConfig config = StreamConfig.withDefaults();
         StreamStateStore stateStore = new JdbcStreamStateStore(dataSource);
-        StreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);
+        JdbcStreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);
+        JdbcCdcCommitStateStore legacyCommits = new JdbcCdcCommitStateStore(dataSource);
         CdcRecordConverterRegistry converterRegistry = CdcRecordConverterRegistry.discover(
                 StreamingBootstrap.class.getClassLoader());
 
         var sources = CdcSourceRegistry.discover(StreamingBootstrap.class.getClassLoader());
         StreamSchedulerContext schedulerDeps = new StreamSchedulerContext(
                 metricsProvider, stateStore, offsetStore,
-                new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)), converterRegistry,
+                new TwoPhaseCommitCoordinator(legacyCommits), converterRegistry,
                 watermarkTracker, maintenanceScheduler, config,
                 sources::open,
                 state -> createWriteSink(state, catalogRegistry));
@@ -118,17 +120,18 @@ final class StreamingBootstrap implements AutoCloseable {
         StreamDdlExecutor ddlExecutor = new StreamDdlExecutor(ddlDeps);
 
         LOG.info("event=streaming_bootstrap_built");
-        return new StreamingBootstrap(ddlExecutor, scheduler, stateStore, offsetStore, sources, coordinatorId);
+        return new StreamingBootstrap(
+                ddlExecutor, scheduler, stateStore, offsetStore, sources, coordinatorId, legacyCommits);
     }
 
     /**
      * Activates reconciliation without blocking maintenance-lease renewal on source initialization.
      * The periodic pass also discovers DDL accepted by another coordinator.
      */
-    void onLeaderElected() {
+    synchronized void onLeaderElected() {
         leaderActive = true;
         scheduler.resume();
-        if (workerRuntime != null) workerRuntime.setActive(true);
+        if (journaledRuntime != null) journaledRuntime.setActive(true);
         reconciliationExecutor.execute(this::reconcileSafely);
         LOG.info("event=streaming_leader_elected");
     }
@@ -137,9 +140,9 @@ final class StreamingBootstrap implements AutoCloseable {
      * Stops all active pipelines.
      * Called when this coordinator loses HA leadership.
      */
-    void onLeadershipLost() {
+    synchronized void onLeadershipLost() {
         leaderActive = false;
-        if (workerRuntime != null) workerRuntime.setActive(false);
+        if (journaledRuntime != null) journaledRuntime.setActive(false);
         scheduler.stopAll();
         LOG.info("event=streaming_leadership_lost");
     }
@@ -164,16 +167,17 @@ final class StreamingBootstrap implements AutoCloseable {
     }
 
     StreamStateStore stateStore() { return stateStore; }
-    StreamOffsetStore offsetStore() { return offsetStore; }
+    JdbcStreamOffsetStore offsetStore() { return offsetStore; }
+    JdbcCdcCommitStateStore legacyCommitStore() { return legacyCommitStore; }
     CdcSourceRegistry sourceRegistry() { return sources; }
     String coordinatorId() { return coordinatorId; }
 
-    /** Prevents the local pipeline scheduler from starting; Worker dispatch owns execution. */
-    void enableWorkerDispatch() { scheduler.enableWorkerDispatch(); }
+    /** Prevents the legacy pipeline scheduler from competing with journaled execution. */
+    void enableJournaledExecution() { scheduler.enableWorkerDispatch(); }
 
-    /** Attaches the supervised Worker runtime and activates it when this process is leader. */
-    void attachWorkerRuntime(CdcWorkerRuntime runtime) {
-        workerRuntime = runtime;
+    /** Attaches supervised journaled execution and activates it when this process is leader. */
+    synchronized void attachJournaledRuntime(JournaledCdcRuntime runtime) {
+        journaledRuntime = runtime;
         runtime.start();
         runtime.setActive(leaderActive);
     }
@@ -183,8 +187,11 @@ final class StreamingBootstrap implements AutoCloseable {
         if (state.tenantId().isBlank()) {
             throw new IllegalArgumentException("CDC stream tenant identity must not be blank");
         }
+        if (state.creatorIdentity() == null || state.creatorIdentity().isBlank()) {
+            throw new IllegalArgumentException("CDC stream creator identity must not be blank");
+        }
         QualifiedTableName ref = QualifiedTableName.resolve(List.of(state.targetTable().split("\\.")));
-        return new StreamConnectorSession(ref.catalog(), ref.schema(), state.tenantId());
+        return new StreamConnectorSession(ref.catalog(), ref.schema(), state.tenantId(), state.creatorIdentity());
     }
 
     StreamDdlExecutor getDdlExecutor() {
@@ -196,11 +203,7 @@ final class StreamingBootstrap implements AutoCloseable {
     static CdcWriteSink createWriteSink(StreamState state, CatalogRegistry catalogRegistry) {
         String targetTable = state.targetTable();
         QualifiedTableName ref = QualifiedTableName.resolve(List.of(targetTable.split("\\.")));
-        if (state.tenantId().isBlank()) {
-            throw new IllegalArgumentException("CDC stream tenant identity must not be blank");
-        }
-        ConnectorSession session = new StreamConnectorSession(
-                ref.catalog(), ref.schema(), state.tenantId());
+        ConnectorSession session = sessionFor(state);
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = catalogHandle.getMetadata(session);
         ConnectorTableLookup.requireTableHandle(metadata, session, ref);
@@ -217,9 +220,9 @@ final class StreamingBootstrap implements AutoCloseable {
         return new ConnectorPageSinkCdcWriter(writerDeps);
     }
 
-    /** Carries the persisted stream tenant into connector write and commit authorization. */
+    /** Carries the persisted stream subject into connector write and commit authorization. */
     private record StreamConnectorSession(
-            String catalog, String schema, String tenantId) implements ConnectorSession {
+            String catalog, String schema, String tenantId, String principal) implements ConnectorSession {
         @Override
         public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
@@ -227,7 +230,7 @@ final class StreamingBootstrap implements AutoCloseable {
 
         @Override
         public String getUser() {
-            return "system";
+            return principal;
         }
 
         @Override

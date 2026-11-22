@@ -31,10 +31,19 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
         this.workerBackend = java.util.Objects.requireNonNull(workerBackend, "workerBackend");
     }
 
+    TaskExecutor nativeDelegate() {
+        return nativeExecutor;
+    }
+
+    /** Returns whether the installed Worker JVM backend owns this task kind. */
+    public boolean supportsWorkerTask(org.pangrova.protocol.v2.TaskKind kind) {
+        return workerBackend.supports(kind);
+    }
+
     @Override
     public long createTask(byte[] taskRequestBytes) {
         TaskRequest request = parseOrNull(taskRequestBytes);
-        if (request == null || !workerBackend.supports(request.getTaskKind())) {
+        if (request == null || !supportsWorkerTask(request.getTaskKind())) {
             return nativeExecutor.createTask(taskRequestBytes);
         }
         long backendHandle = workerBackend.create(request);
