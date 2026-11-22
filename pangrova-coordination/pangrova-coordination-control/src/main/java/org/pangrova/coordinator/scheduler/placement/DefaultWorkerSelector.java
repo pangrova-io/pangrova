@@ -58,6 +58,12 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     }
 
     @Override
+    public WorkerSelector bindStagePlacement(String tenantId) {
+        return new DefaultWorkerSelector(workerManager, taskScheduler.bindTenant(tenantId),
+                cacheAffinityAssigner, spillBudget, embeddingModelRegistry);
+    }
+
+    @Override
     public int activeWorkerCount() {
         return schedulableWorkers().size();
     }
@@ -145,7 +151,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         if (preferred != null) {
             return preferred;
         }
-        return select(tenantId);
+        return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, active)
+                .orElseThrow(NoAvailableWorkerException::new);
     }
 
     private static WorkerInfo findPreferred(

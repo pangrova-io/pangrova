@@ -161,10 +161,24 @@ public final class DurableStageRuntime {
         return dependencies.stages().inspectPartition(job, execution.authority().executionAnchor(), stage, partition);
     }
 
-    /** Captures Worker/registry state before taking a PG connection; the claim callback below is purely local. */
-    public Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
-            DurablePartitionRequest.ExchangeAccess exchange, Instant now) {
-        List<WorkerInfo> snapshot = List.copyOf(dependencies.workers().getActiveWorkers());
+    /** Placement and exact claim for one partition of a bound stage. */
+    @FunctionalInterface
+    public interface StageTasks {
+        /** Prepares the exact partition without re-reading tenant placement. */
+        Optional<PreparedTask> prepare(int partition, PartitionProgress progress,
+                DurablePartitionRequest.ExchangeAccess exchange, Instant now);
+    }
+
+    /** Freezes one tenant placement before taking a partition claim connection. */
+    public StageTasks bindStageTasks(int stage) {
+        var placement = dependencies.scheduler().bindTenant(job.tenantId());
+        return (partition, progress, exchange, now) -> prepare(stage, partition, progress, exchange, now, placement);
+    }
+
+    private Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
+            DurablePartitionRequest.ExchangeAccess exchange, Instant now, TaskScheduler placement) {
+        // The claim callback uses the local Worker snapshot and the already resolved tenant pool.
+        List<WorkerInfo> snapshot = dependencies.workers().getActiveWorkers();
         long term = dependencies.controlTerm().getAsLong();
         var claim = new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
                 stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
@@ -172,9 +186,9 @@ public final class DurableStageRuntime {
             var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
             var bindings = request.taskRequest().getOperatorBindingsList();
             long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
-            var eligible = dependencies.scheduler().eligibleWorkersForTenant(memory, snapshot, job.tenantId());
-            var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, eligible)
-                    : dependencies.scheduler().selectWorkerWithBindings(memory, eligible, bindings,
+            var eligible = placement.eligibleWorkersForTenant(memory, snapshot, job.tenantId());
+            var selected = bindings.isEmpty() ? placement.selectWorker(memory, eligible)
+                    : placement.selectWorkerWithBindings(memory, eligible, bindings,
                             WorkerInfo::capabilityInventory);
             var worker = selected.orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));

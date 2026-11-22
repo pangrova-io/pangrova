@@ -95,6 +95,7 @@ final class LeafStageDispatcher {
     }
 
     private record PreparedDispatch(
+            WorkerSelector placement,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
             List<List<String>> partitionedSplits,
             List<List<String>> partitionFilePaths,
@@ -140,7 +141,8 @@ final class LeafStageDispatcher {
                 : StageSplitPartitions.partitionSplits(allSplits, taskCount);
         List<List<String>> partitionFilePaths = StageSplitPartitions.buildPartitionFilePaths(
                 input.splitsWithPaths(), partitionedSplits);
-        return new PreparedDispatch(shuffleConfig, partitionedSplits,
+        return new PreparedDispatch(input.workerSelector().bindStagePlacement(session.tenantId()),
+                shuffleConfig, partitionedSplits,
                 partitionFilePaths, leafStage, taskCount);
     }
 
@@ -213,6 +215,7 @@ final class LeafStageDispatcher {
 
     private List<DAGDispatchEngine.PartitionDispatch> dispatchDurable(LeafDispatch input) {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
+        DurableStageRuntime.StageTasks stageTasks = null;
         for (int partition = 0; partition < input.plan().parallelism(); partition++) {
             var progress = input.durable().inspect(input.plan().stageId(), partition);
             if (progress.winner().isPresent()) {
@@ -221,12 +224,13 @@ final class LeafStageDispatcher {
                         java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
                 continue;
             }
+            if (stageTasks == null) stageTasks = input.durable().bindStageTasks(input.plan().stageId());
             var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
                     ExchangeSourceBuilder.buildExchangeInputs(input.plan(), input.dag(), input.dispatched(), partition),
                     buildShuffleConfig(input.plan(), input.dag(), true),
                     shuffleHandle(input.dag(), input.plan().stageId()), descriptorEncoder);
-            var prepared = input.durable().prepare(input.plan().stageId(), partition, progress, access,
-                    java.time.Instant.now()).orElseThrow(() -> new IllegalStateException(
+            var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
+                    .orElseThrow(() -> new IllegalStateException(
                             "Exact durable partition is not claimable by the current execution owner"));
             var issued = partitions.dispatch(prepared.request(), prepared.worker());
             input.durable().dispatched(prepared, issued.acknowledgement());
@@ -240,15 +244,15 @@ final class LeafStageDispatcher {
             LeafDispatch input, PreparedDispatch prepared, int partition) {
         List<String> paths = prepared.partitionFilePaths().get(partition);
         if (!input.boundPlan().operatorBindings().isEmpty()) {
-            return input.workerSelector().selectForBindings(
+            return prepared.placement().selectForBindings(
                     input.session().tenantId(), paths,
                     input.boundPlan().operatorBindings());
         }
         if (prepared.leafStage() && !paths.isEmpty()) {
-            return input.workerSelector().selectWithCacheAffinity(
+            return prepared.placement().selectWithCacheAffinity(
                     input.session().tenantId(), paths);
         }
-        return input.workerSelector().select(input.session().tenantId());
+        return prepared.placement().select(input.session().tenantId());
     }
 
     private SubmitTaskRequest buildTaskRequest(
@@ -258,7 +262,7 @@ final class LeafStageDispatcher {
                 input.planEpoch(), 0);
         var sources = ExchangeSourceBuilder.buildExchangeInputs(
                 input.plan(), input.dag(), input.dispatched(), partition, localShuffle ? selectedWorker : null);
-        var limit = input.workerSelector().computeResourceLimit(
+        var limit = prepared.placement().computeResourceLimit(
                 input.plan().parallelism(), 1, selectedWorker);
         List<String> taskSplits = prepared.partitionedSplits().get(partition);
         var taskBindings = materializeArtifactBindings(

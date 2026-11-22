@@ -22,11 +22,13 @@ class LocalShufflePlacementTest {
             }
         };
         var query = new LocalShufflePlacement(selector);
-        var first = query.selectWithCacheAffinity("tenant", List.of("source"));
-        assertThat(query.select("tenant")).isSameAs(first);
+        var firstStage = query.bindStagePlacement("tenant");
+        var first = firstStage.selectWithCacheAffinity("tenant", List.of("source"));
+        assertThat(firstStage.select("tenant")).isSameAs(first);
         assertThat(query.activeWorkerCount()).isOne();
         active.set(worker("a", "incarnation-b", "LOCAL"));
-        assertThatThrownBy(() -> query.select("tenant")).hasMessageContaining("Worker changed");
+        var nextStage = query.bindStagePlacement("tenant");
+        assertThatThrownBy(() -> nextStage.select("tenant")).hasMessageContaining("Worker changed");
         active.set(worker("b", "incarnation-a", "LOCAL"));
         assertThatThrownBy(() -> query.select("tenant")).hasMessageContaining("Worker changed");
         assertThatThrownBy(() -> query.selectExcluding("tenant", "a")).hasMessageContaining("cannot relocate");

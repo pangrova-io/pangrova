@@ -15,6 +15,9 @@ public interface WorkerSelector {
     /** Selects a Worker for the given tenant. */
     WorkerInfo select(String tenantId);
 
+    /** Binds a stage's placement scope before any task in its cohort is submitted. */
+    default WorkerSelector bindStagePlacement(String tenantId) { return this; }
+
     /**
      * Returns the number of active workers available for task dispatch.
      * Used to cap intermediate stage parallelism to cluster capacity.

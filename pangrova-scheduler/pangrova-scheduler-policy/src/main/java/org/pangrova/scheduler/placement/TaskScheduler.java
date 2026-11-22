@@ -35,6 +35,17 @@ public class TaskScheduler {
         this.tenantPlacement = checkNotNull(tenantPlacement, "tenantPlacement must not be null");
     }
 
+    /** Freezes one authoritative tenant placement for a single dispatch cohort. */
+    public TaskScheduler bindTenant(String tenantId) {
+        var pool = checkNotNull(tenantPlacement.resourcePool(tenantId), "resolved pool must not be null");
+        return new TaskScheduler(strategy, requested -> {
+            if (!java.util.Objects.equals(tenantId, requested)) {
+                throw new IllegalArgumentException("Dispatch cohort cannot change placement tenant");
+            }
+            return pool;
+        });
+    }
+
     /** Tenant identity is resolved by its authority, never interpreted as a pool ID. */
     public <W extends PlacementWorker> List<W> eligibleWorkersForTenant(
             long estimatedMemoryBytes, List<W> candidates, String tenantId) {

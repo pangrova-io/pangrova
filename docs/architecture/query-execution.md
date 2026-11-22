@@ -956,6 +956,8 @@ provide backpressure without a Java `addBatch` bridge.
 
 **Stage scheduling order**
 
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. Later stages and retries resolve the current tenant policy again. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
 For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. Fenced publication and durable recovery retain their authoritative completion order.
