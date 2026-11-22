@@ -171,7 +171,6 @@ class ProtocolImmutabilityPropertyTest {
             return true;
         }
         // byte[] is allowed when defensively copied in compact constructor and accessor
-        // (e.g., DynamicFilterPayload clones on construction and on access)
         if (type == byte[].class) {
             return true;
         }

@@ -3535,7 +3535,6 @@ artifacts:
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
-      - org.pangrova.protocol.rest.filter
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert
@@ -3592,7 +3591,6 @@ artifacts:
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
-      - org.pangrova.protocol.rest.filter
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert
@@ -5297,7 +5295,6 @@ artifacts:
       - org.pangrova.worker.exchange.source
       - org.pangrova.worker.exchange.transport
       - org.pangrova.worker.execution
-      - org.pangrova.worker.execution.filter
       - org.pangrova.worker.file
       - org.pangrova.worker.function
       - org.pangrova.worker.heartbeat
