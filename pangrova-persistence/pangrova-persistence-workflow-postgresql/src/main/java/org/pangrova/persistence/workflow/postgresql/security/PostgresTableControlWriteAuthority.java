@@ -39,9 +39,9 @@ public final class PostgresTableControlWriteAuthority implements TableControlWri
     }
 
     @Override
-    public void requireCurrent(Connection connection, String principal,
+    public Set<String> requireCurrent(Connection connection, String principal,
             DeferredAuthorizationScope scope) throws SQLException {
-        authorization.requireCurrent(connection, principal, scope, this::observe);
+        return authorization.requireCurrent(connection, principal, scope, this::observe);
     }
 
     private PolicySnapshot observe(Connection connection, String principal, Set<String> roles,

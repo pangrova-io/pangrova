@@ -4,7 +4,6 @@ import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentG
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
@@ -60,15 +59,13 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private final DataSource dataSource;
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
-    private final CurrentDirectRoleReader currentRoles;
 
     /** Uses the same PostgreSQL authority and owner transaction as durable stage claims. */
     public PostgresGenerationStageExchangeStore(
             DataSource dataSource, GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            GenerationExecutionTransactionFence executionFence) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-        this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
@@ -78,7 +75,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             GenerationExchangeRegistration registration) {
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
             var existing = findRegistration(connection, job, registration.exchangeId(), true);
             if (existing.isPresent()) {
@@ -103,7 +100,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             GenerationExchangeFinalization finalization) {
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             var registration = findRegistration(connection, job, finalization.exchangeId(), true).orElseThrow(() ->
                     new IllegalStateException("Cannot finalize an unregistered durable exchange"));
             validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
@@ -129,7 +126,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     public List<ExchangeEvidence> load(GenerationJobKey job, GenerationExecutionOwner owner) {
         return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             return loadValidatedEvidence(connection, context);
         });
     }

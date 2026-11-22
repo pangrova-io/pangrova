@@ -98,7 +98,7 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
     private PostgresGenerationJobStore cancellationStore() {
         var authority = new GenerationTransactionAuthority() {
             @Override
-            public GenerationDispatchSpec requireCurrent(Connection connection, String tenant, String job) {
+            public AuthorizedDispatch authorize(Connection connection, String tenant, String job) {
                 throw unexpectedDependency("persisted authority");
             }
 
@@ -135,9 +135,7 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
                 throw unexpectedDependency("publication owner");
             }
         };
-        return new PostgresGenerationJobStore(dataSource, authority, fence, (connection, principal) -> {
-            throw unexpectedDependency("current direct roles");
-        }, candidates);
+        return new PostgresGenerationJobStore(dataSource, authority, fence, candidates);
     }
 
     private static AssertionError unexpectedDependency(String dependency) {

@@ -13,6 +13,7 @@ import org.pangrova.security.api.exception.AuthorizationDeniedException;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Set;
 
 /** Bridges current security and canonical tenant authority on one metadata transaction. */
 @org.pangrova.common.api.annotation.Internal
@@ -37,8 +38,7 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
 
     /** Loads the scoped dispatch specification and checks its current authority on this transaction. */
     @Override
-    public GenerationDispatchSpec requireCurrent(Connection connection, String tenantId, String jobId)
-            throws SQLException {
+    public AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException {
         publicationLock.lockPublication(connection);
         GenerationDispatchSpec spec;
         try {
@@ -49,8 +49,7 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
             throw new AuthorizationDeniedException(
                     "Deferred work has invalid scope metadata; securely resubmit the job");
         }
-        requireScope(connection, spec);
-        return spec;
+        return new AuthorizedDispatch(spec, requireScope(connection, spec));
     }
 
     /** Checks the current tenant, security, and model authority under the publication lock. */
@@ -60,14 +59,14 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
         requireScope(connection, spec);
     }
 
-    private void requireScope(Connection connection, GenerationDispatchSpec spec) throws SQLException {
+    private Set<String> requireScope(Connection connection, GenerationDispatchSpec spec) throws SQLException {
         tenantAuthority.requireCurrent(connection, spec.principal(), spec.tenantId(), spec.authorizationScope());
-        tableAuthority.requireCurrent(
-                connection, spec.principal(), spec.authorizationScope());
+        Set<String> roles = tableAuthority.requireCurrent(connection, spec.principal(), spec.authorizationScope());
         modelAuthority.requireCurrent(connection, spec.principal(), spec.stageGraph().modelSnapshots());
         if (spec.authorizationScope().definitionSnapshot().isPresent()) {
             modelAuthority.requireCurrent(connection, spec.principal(),
                     spec.authorizationScope().definitionSnapshot().orElseThrow().models());
         }
+        return roles;
     }
 }

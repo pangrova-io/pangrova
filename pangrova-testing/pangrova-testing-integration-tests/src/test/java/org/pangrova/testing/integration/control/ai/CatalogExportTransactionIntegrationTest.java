@@ -134,7 +134,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         var calls = new AtomicInteger();
         var authority = new GenerationTransactionAuthority() {
             @Override
-            public GenerationDispatchSpec requireCurrent(Connection connection, String tenant, String job) {
+            public AuthorizedDispatch authorize(Connection connection, String tenant, String job) {
                 throw new AssertionError("Creation validates the supplied specification before persistence");
             }
 
@@ -151,7 +151,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
             }
         };
         var guardedBuilds = new PostgresGenerationJobStore(dataSource, authority, PostgresGenerationStores.executionFence(),
-                PostgresGenerationStores.currentRoles(), PostgresGenerationStores.publicationCandidates());
+                PostgresGenerationStores.publicationCandidates());
         var guarded = AiInfrastructureStores.jdbc(dataSource, guardedBuilds).catalogExports();
         var job = job("authority-transaction");
         var request = request(job, CatalogExportKind.FEATURE_VIEW, PRINCIPAL);

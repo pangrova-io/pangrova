@@ -799,6 +799,7 @@ Durable recovery and producer completion use the exchange registration and final
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
 Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
 Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+Task preparation uses the direct roles already verified by table authorization on this connection. Tenant membership, table policy, model authority, and the exact execution owner are checked within the transaction.
 
 #### 3.3.8 Coordinator Scheduler Design
 

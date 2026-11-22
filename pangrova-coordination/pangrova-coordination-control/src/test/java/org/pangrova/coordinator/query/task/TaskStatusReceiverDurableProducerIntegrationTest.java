@@ -235,6 +235,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         long beforeAuthority = executionRouteReads();
         String publicationLock = "SELECT pg_advisory_xact_lock_shared(%";
         long beforePublication = statementReads(publicationLock);
+        String roleLookup = "SELECT assignment.role_name FROM pangrova_user_roles assignment%";
+        long beforeRoles = statementReads(roleLookup);
         var progress = new java.util.ArrayList<GenerationStageExecutionStore.PartitionProgress>();
         int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
         for (int first = 0; first < partitions; first += window) {
@@ -251,6 +253,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(executionRouteReads() - beforeAuthority).as("execution route reads").isEqualTo(3);
         assertThat(statementReads(publicationLock) - beforePublication)
                 .as("publication lock requests across three windows").isEqualTo(6);
+        assertThat(statementReads(roleLookup) - beforeRoles)
+                .as("direct policy role reads across three windows").isEqualTo(3);
         assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, 0, window + 1))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("inspection window");
         assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, partitions - 1, 2))

@@ -3,7 +3,6 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore.ExchangeEvidence;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.api.job.GenerationJob;
@@ -31,16 +30,14 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         implements GenerationStageExecutionStore {
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
-    private final CurrentDirectRoleReader currentRoles;
 
     /** Resolves current authority, execution fencing and roles on each stage transaction. */
     public PostgresGenerationStageExecutionStore(
             DataSource dataSource, GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            GenerationExecutionTransactionFence executionFence) {
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-        this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
     }
 
     /** Checks the current authority and actual owner once per bounded window of exact partitions. */
@@ -55,7 +52,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         }
         return inTransaction("inspect current durable stage partitions", connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(stageId);
@@ -77,7 +74,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         }
         return inTransaction("prepare authorized durable stage graph", connection -> {
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
             var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, authority);
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
@@ -92,7 +89,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         return inTransaction("complete authorized durable Native producer", connection -> {
             var key = completion.job();
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     completion.executionOwner());
             var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(completion.stageId());
@@ -139,7 +136,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         return inTransaction("prepare authorized durable stage partition", connection -> {
             var key = request.job();
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(request.anchor()));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
             var stage = authority.dispatchSpec().stageGraph().requireStage(request.stageId());
@@ -178,7 +175,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         Objects.requireNonNull(prepare, "prepare");
         return inTransaction("prepare current issued durable partition", connection -> {
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, lease.tenantId(), lease.jobId(),
+                    transactionAuthority, executionFence, connection, lease.tenantId(), lease.jobId(),
                     GenerationExecutionOwner.from(lease.executionAnchor()));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
             var job = findJob(connection, lease.tenantId(), lease.jobId(), true).orElseThrow();
