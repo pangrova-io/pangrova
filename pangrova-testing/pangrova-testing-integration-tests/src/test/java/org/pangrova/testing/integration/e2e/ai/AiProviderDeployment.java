@@ -11,6 +11,7 @@ import java.util.Map;
 record AiProviderDeployment(GenericContainer<?> container, Map<String, String> expectedModels) {
     static final String IMAGE_PROPERTY = "pangrova.e2e.ai.image-id";
     static final String LABEL_PREFIX = "org.pangrova.ai-fixture.";
+    static final int INFERENCE_THREADS = 2;
     static final int CONTEXT_LENGTH = 512;
     static final int MAX_INPUT_TOKENS = 256;
 
@@ -48,6 +49,9 @@ record AiProviderDeployment(GenericContainer<?> container, Map<String, String> e
         if (labels == null || !"0.6.2".equals(labels.get(LABEL_PREFIX + "ollama-version"))
                 || !validImage(labels.get(LABEL_PREFIX + "base-image"))) {
             throw new IllegalStateException("Prepared AI image has no exact base deployment receipt");
+        }
+        if (!Integer.toString(INFERENCE_THREADS).equals(labels.get(LABEL_PREFIX + "inference-threads"))) {
+            throw new IllegalStateException("Prepared AI image lacks the fixed inference thread receipt");
         }
         return Map.of(SharedAiProvider.PROVIDER_MODEL, digest(labels, "completion-digest"),
                 SharedAiProvider.EMBEDDING_PROVIDER_MODEL, digest(labels, "embedding-digest"));
