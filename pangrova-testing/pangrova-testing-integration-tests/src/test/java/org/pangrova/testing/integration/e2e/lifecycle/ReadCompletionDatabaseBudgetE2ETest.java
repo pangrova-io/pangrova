@@ -73,6 +73,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
+        assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);
     }
 
     @Test
@@ -117,6 +118,27 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             assertThat(response.statusCode()).isEqualTo(404);
         }
         assertThat(calls(sql) - before).as("foreign live query profile SELECTs").isZero();
+    }
+
+    private static void assertQueryLifecycleIsScopedToTheSubmittingPrincipal(String queryId) throws Exception {
+        String journal = "SELECT%FROM query_state_journal%";
+        long before = calls(journal);
+        var http = HttpClient.newHttpClient();
+        String query = "http://localhost:" + coordinatorHttpPort() + "/v1/query/" + queryId;
+        String bearer = "Bearer " + E2E_SECOND_USER_BEARER_TOKEN;
+        for (String path : java.util.List.of("/state", "/state?afterVersion=0&waitMs=0")) {
+            var state = java.net.http.HttpRequest.newBuilder(URI.create(query + path))
+                    .header("Authorization", bearer).GET().build();
+            assertThat(http.send(state, HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(404);
+        }
+        var cancel = java.net.http.HttpRequest.newBuilder(URI.create(query + "/cancel"))
+                .header("Authorization", bearer).POST(java.net.http.HttpRequest.BodyPublishers.noBody()).build();
+        assertThat(http.send(cancel, HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(404);
+        assertThat(calls(journal) - before).as("foreign live query journal SELECTs").isZero();
+        var state = http.send(authenticatedHttpRequest(URI.create(query + "/state")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(state.statusCode()).isEqualTo(200);
+        assertThat(JsonMapperFactory.shared().readTree(state.body()).path("state").asText()).isEqualTo("FINISHED");
     }
 
     private static void assertExactAttemptProfile(String queryId) {

@@ -14,6 +14,7 @@ import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.query.session.JournalSessionPayload;
 
 /** Bounded instance-owned journal. NONE retains process-local facts, never durable or HA state. */
 @ThreadSafe
@@ -85,6 +86,22 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         }
         return Optional.ofNullable(latest);
     }
+    @Override public synchronized Optional<String> latestQueryStateForPrincipal(String queryId, String principal) {
+        requireOpen();
+        Objects.requireNonNull(queryId, "queryId");
+        Objects.requireNonNull(principal, "principal");
+        QueryStateEvent admission = null;
+        QueryStateEvent latest = null;
+        for (QueryStateEvent event : queries.values()) {
+            if (!queryId.equals(event.queryId())) continue;
+            latest = event;
+            if (admission == null && "QUEUED".equals(event.state())) admission = event;
+        }
+        if (admission == null || latest == null) return Optional.empty();
+        var admitted = JournalSessionPayload.admittedPrincipal(queryId, admission.sessionJson());
+        return admitted.filter(principal::equals).isPresent() ? Optional.of(latest.state()) : Optional.empty();
+    }
+
     @Override public synchronized void purgeQuery(String queryId) {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");

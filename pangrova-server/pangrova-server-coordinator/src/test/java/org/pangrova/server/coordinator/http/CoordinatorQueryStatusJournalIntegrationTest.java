@@ -29,10 +29,16 @@ class CoordinatorQueryStatusJournalIntegrationTest extends ContainerTestBase {
              var peer = new CoordinatorQueryStatusWaitHttpTest.Peer(peerJournal)) {
             String query = UUID.randomUUID().toString();
             String observer = UUID.randomUUID().toString();
+            recordAdmission(journal, query, "anonymous");
             journal.appendQueryEventSync(new QueryStateEvent(
                     JournalEventContext.create(System.currentTimeMillis(), "owner"), query, null, null, "RUNNING"));
             var state = owner.running(query);
+            String foreignQuery = UUID.randomUUID().toString();
+            recordAdmission(journal, foreignQuery, "other-principal");
             int baseline = source.borrows.get();
+            assertThat(peer.get("/v1/query/" + foreignQuery + "/state").statusCode()).isEqualTo(404);
+            baseline += 1;
+            assertThat(source.borrows).hasValue(baseline);
             for (int i = 0; i < 16; i++) {
                 assertThat(status(peer.get("/v1/query/" + query + "/state")).state()).isEqualTo("RUNNING");
             }
@@ -46,6 +52,14 @@ class CoordinatorQueryStatusJournalIntegrationTest extends ContainerTestBase {
             }
             assertThat(source.borrows).hasValue(baseline + 16);
         }
+    }
+
+    private static void recordAdmission(JdbcQueryStateJournal journal, String queryId, String principal)
+            throws Exception {
+        var payload = new org.pangrova.query.session.JournalSessionPayload(queryId, "", principal);
+        String encoded = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(payload);
+        journal.appendQueryEventSync(new QueryStateEvent(
+                JournalEventContext.create(System.currentTimeMillis(), "owner"), queryId, null, encoded, "QUEUED"));
     }
 
     private static CountingDataSource journalDataSource() throws SQLException {

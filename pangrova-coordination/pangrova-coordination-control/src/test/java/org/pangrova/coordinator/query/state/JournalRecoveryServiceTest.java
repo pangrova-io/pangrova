@@ -35,11 +35,18 @@ class JournalRecoveryServiceTest {
     @Test
     void recoverQueriesRebuildsStateMachines() throws Exception {
         try (var fixture = new RecoveryFixture(false)) {
+            var admission = new org.pangrova.query.session.JournalSessionPayload("q-1", "tenant-a", "alice");
+            String payload = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(admission);
+            fixture.journal.appendQueryEventSync(new QueryStateEvent(
+                    org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "owner"),
+                    "q-1", null, payload, "QUEUED"));
             fixture.query("q-1", "RUNNING");
             fixture.query("q-2", "SCHEDULING");
             assertThat(fixture.recovery.recover()).isEqualTo(2);
             assertThat(fixture.manager.getQueryState("q-1")).contains(QueryState.RUNNING);
             assertThat(fixture.manager.getQueryState("q-2")).contains(QueryState.SCHEDULING);
+            assertThat(fixture.manager.getStateMachine("q-1").isOwnedBy("alice")).isTrue();
+            assertThat(fixture.manager.getStateMachine("q-2").isOwnedBy("anonymous")).isFalse();
         }
     }
 

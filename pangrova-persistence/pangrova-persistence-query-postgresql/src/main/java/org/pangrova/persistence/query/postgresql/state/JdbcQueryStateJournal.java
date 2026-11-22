@@ -16,6 +16,7 @@ import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.query.session.JournalSessionPayload;
 
 /** PostgreSQL journal with one query-fair, per-query ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe
@@ -105,6 +106,35 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             });
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to read latest query event", failure);
+        }
+    }
+
+    @Override public Optional<String> latestQueryStateForPrincipal(String queryId, String principal) {
+        Objects.requireNonNull(queryId, "queryId");
+        Objects.requireNonNull(principal, "principal");
+        try {
+            return pending.enterSql().perform(dataSource, connection -> {
+                try (var statement = connection.prepareStatement("""
+                        SELECT latest.state, (
+                            SELECT admission.session_json FROM query_state_journal admission
+                            WHERE admission.query_id = latest.query_id AND admission.state = 'QUEUED'
+                            ORDER BY admission.id LIMIT 1
+                        ) AS admission_payload
+                        FROM query_state_journal latest WHERE latest.query_id = ?
+                        ORDER BY latest.id DESC LIMIT 1
+                        """)) {
+                    statement.setString(1, queryId);
+                    try (var rows = statement.executeQuery()) {
+                        if (!rows.next()) return Optional.empty();
+                        var admitted = JournalSessionPayload.admittedPrincipal(queryId,
+                                rows.getString("admission_payload"));
+                        return admitted.filter(principal::equals).isPresent()
+                                ? Optional.of(rows.getString("state")) : Optional.empty();
+                    }
+                }
+            });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to read principal-scoped query state", failure);
         }
     }
 

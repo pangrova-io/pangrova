@@ -144,9 +144,14 @@ public final class QueryResource {
                         || observer.length() != OBSERVER_UUID_LENGTH))) {
             throw new IllegalArgumentException("Invalid query status wait parameters");
         }
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
         QueryStateMachine owner = queryManager.getStateMachine(queryId);
         if (owner == null) {
-            resumeWithoutOwner(queryId, afterVersion, response);
+            resumeWithoutOwner(queryId, principal, afterVersion, response);
+            return;
+        }
+        if (!owner.isOwnedBy(principal)) {
+            response.resume(queryNotFound(queryId));
             return;
         }
         var current = owner.status();
@@ -154,12 +159,11 @@ public final class QueryResource {
             response.resume(statusResponse(queryId, current));
             return;
         }
-        var identity = extractUserIdentity(requestContext);
-        statusWaits.suspend(queryId, identity == null ? null : identity.principal(), observer,
+        statusWaits.suspend(queryId, principal, observer,
                 owner, target, afterVersion, waitMillis, response, status -> statusResponse(queryId, status));
     }
 
-    private void resumeWithoutOwner(String queryId, long afterVersion, AsyncResponse response) {
+    private void resumeWithoutOwner(String queryId, String principal, long afterVersion, AsyncResponse response) {
         if (afterVersion >= 0) {
             response.resume(Response.status(Response.Status.NOT_FOUND)
                     .entity(new ErrorDetail("QUERY_OWNER_UNAVAILABLE", null,
@@ -167,14 +171,17 @@ public final class QueryResource {
                     .build());
             return;
         }
-        Optional<QueryState> state = queryManager.getQueryStateWithJournalFallback(queryId);
+        Optional<QueryState> state = queryManager.getHistoricalQueryState(queryId, principal);
         if (state.isPresent()) {
             response.resume(Response.ok(QueryStatusResponse.of(queryId, state.get().name(), null, null)).build());
         } else {
-            response.resume(Response.status(Response.Status.NOT_FOUND)
-                    .entity(new ErrorDetail("NOT_FOUND", null, "Query not found: " + queryId))
-                    .build());
+            response.resume(queryNotFound(queryId));
         }
+    }
+
+    private static Response queryNotFound(String queryId) {
+        return Response.status(Response.Status.NOT_FOUND)
+                .entity(new ErrorDetail("NOT_FOUND", null, "Query not found: " + queryId)).build();
     }
 
     private static Response statusResponse(String queryId, QueryStateMachine.Status status) {
@@ -186,14 +193,15 @@ public final class QueryResource {
     /** Requests cancellation of a running query. */
     @POST
     @Path("/{queryId}/cancel")
-    public Response cancelQuery(@PathParam("queryId") String queryId) {
-        Optional<QueryState> state = queryManager.getQueryState(queryId);
-        if (state.isEmpty()) {
+    public Response cancelQuery(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
+        var owner = queryManager.getStateMachine(queryId);
+        if (owner == null || !owner.isOwnedBy(AuthenticationFilter.queryPrincipal(requestContext))) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new CancelResponse(queryId, false, "NOT_FOUND"))
                     .build();
         }
-        if (isTerminalState(state.get())) {
+        if (isTerminalState(owner.status().state())) {
             return Response.ok(new CancelResponse(queryId, false, "ALREADY_TERMINAL"))
                     .build();
         }
@@ -221,7 +229,7 @@ public final class QueryResource {
         }
         var owner = queryManager.getStateMachine(queryId);
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
-        if (owner != null && !java.util.Objects.equals(owner.getAuditPrincipal(), principal)) {
+        if (owner != null && !owner.isOwnedBy(principal)) {
             return profileNotFound(queryId);
         }
         byte[] flameGraphData;
@@ -254,7 +262,7 @@ public final class QueryResource {
         }
         var owner = queryManager.getStateMachine(queryId);
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
-        if (owner != null && !java.util.Objects.equals(owner.getAuditPrincipal(), principal)) {
+        if (owner != null && !owner.isOwnedBy(principal)) {
             return profileNotFound(queryId);
         }
         return queryProfileService.getProfile(queryId, principal)

@@ -7,12 +7,14 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.QueryStateJournalReader;
+import org.pangrova.query.session.JournalSessionPayload;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -160,13 +162,19 @@ public final class JournalRecoveryService {
         // replayActiveQueries() returns all events (multiple per query),
         // so we deduplicate by taking the last event for each queryId.
         Map<String, QueryStateEvent> latestByQuery = new LinkedHashMap<>();
+        Map<String, Optional<String>> principals = new java.util.HashMap<>();
         for (QueryStateEvent event : events) {
             latestByQuery.put(event.queryId(), event);
+            if ("QUEUED".equals(event.state())) {
+                principals.computeIfAbsent(event.queryId(), queryId ->
+                        JournalSessionPayload.admittedPrincipal(queryId, event.sessionJson()));
+            }
         }
         java.util.Set<String> recovered = new java.util.LinkedHashSet<>();
         for (QueryStateEvent event : latestByQuery.values()) {
             try {
-                QueryStateMachine sm = new QueryStateMachine();
+                String principal = principals.getOrDefault(event.queryId(), Optional.empty()).orElse(null);
+                QueryStateMachine sm = new QueryStateMachine(false, principal);
                 QueryState target = QueryState.valueOf(event.state());
                 advanceToState(sm, target);
                 // Logical events do not retain the original issued requests or Native exit receipts.

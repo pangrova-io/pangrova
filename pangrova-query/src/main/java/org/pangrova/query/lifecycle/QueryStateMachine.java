@@ -425,6 +425,11 @@ public class QueryStateMachine {
         return auditPrincipal;
     }
 
+    /** Compares the exact submitting principal with an authenticated caller. */
+    public boolean isOwnedBy(String principal) {
+        return principal != null && !principal.isBlank() && principal.equals(auditPrincipal);
+    }
+
     /** Sets the tenant identifier for per-tenant quota filtering. */
     public void setTenantId(String tenantId) {
         this.tenantId = tenantId;

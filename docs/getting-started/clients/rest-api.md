@@ -225,8 +225,9 @@ Timeout returns the current snapshot. The Coordinator
 allows one pending wait per observer, principal and query, with additional
 principal, tenant and process limits. A request on a different Coordinator
 receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
-for diagnostic reads. Historical journal responses provide the recorded
-state with version and drain evidence omitted.
+for diagnostic reads. State, wait, and cancellation requests are scoped to the
+submitting principal. Historical diagnostics verify the original journal admission
+and return the recorded state with version and drain evidence omitted.
 
 Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
 try-with-resources. Read the schema with `columns()`, advance with `next()`,

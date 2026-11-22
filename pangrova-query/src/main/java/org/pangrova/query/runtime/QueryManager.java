@@ -335,6 +335,12 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         return journalLifecycle.lookup(queryId);
     }
 
+    /** One scoped history lookup for the explicit journal diagnostic path. */
+    public Optional<QueryState> getHistoricalQueryState(String queryId, String principal) {
+        if (principal == null || principal.isBlank()) return Optional.empty();
+        return journalLifecycle.lookupForPrincipal(queryId, principal);
+    }
+
     public void setLocalCoordinatorId(String coordinatorId) {
         journalLifecycle.setOwner(coordinatorId);
     }

@@ -53,7 +53,7 @@ public final class WebUiResource {
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
         Map<String, QueryStateMachine> machines = queryManager.getStateMachines();
         List<QuerySummary> summaries = machines.entrySet().stream()
-                .filter(entry -> principal != null && principal.equals(entry.getValue().getAuditPrincipal()))
+                .filter(entry -> entry.getValue().isOwnedBy(principal))
                 .map(entry -> toQuerySummary(entry.getKey(), entry.getValue()))
                 .toList();
         return Response.ok(summaries).build();
@@ -71,7 +71,7 @@ public final class WebUiResource {
         }
         var owner = queryManager.getStateMachine(queryId);
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
-        if (owner != null && !java.util.Objects.equals(owner.getAuditPrincipal(), principal)) {
+        if (owner != null && !owner.isOwnedBy(principal)) {
             return profileNotFound(queryId);
         }
         return queryProfileService.getProfile(queryId, principal)
