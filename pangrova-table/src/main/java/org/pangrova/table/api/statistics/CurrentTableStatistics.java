@@ -1,12 +1,13 @@
 package org.pangrova.table.api.statistics;
 
 import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.table.api.ownership.TableControlRecord;
 
 import java.util.Optional;
 
-/** Reads analyzed statistics only while the captured stable table and version are current. */
+/** Reads analyzed statistics matching an already authorized stable table and version. */
 @Internal
 @FunctionalInterface
 public interface CurrentTableStatistics {
-    Optional<TableControlStatistics> fresh(String catalog, String schema, String table);
+    Optional<TableControlStatistics> fresh(TableControlRecord owner);
 }

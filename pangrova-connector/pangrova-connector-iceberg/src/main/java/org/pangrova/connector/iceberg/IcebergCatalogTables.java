@@ -15,6 +15,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,16 +40,20 @@ final class IcebergCatalogTables {
     }
 
     /**
-     * Resolves a live Iceberg Table from the catalog.
-     * Always loads fresh from catalog AND calls refresh() to pick up
-     * snapshots that may have been committed by another writer in the
-     * same JVM but for which the catalog client still has cached
-     * metadata.
+     * Resolves current catalog metadata. A direct JDBC catalog creates fresh
+     * table operations on load, which already read the current metadata pointer.
+     * Catalog wrappers and other implementations may return a cached table.
      */
     Table resolveTable(IcebergTableHandle handle) {
+        return resolveTable(catalog, handle);
+    }
+
+    static Table resolveTable(Catalog catalog, IcebergTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
         Table table = catalog.loadTable(id);
-        table.refresh();
+        if (catalog.getClass() != JdbcCatalog.class) {
+            table.refresh();
+        }
         return table;
     }
 

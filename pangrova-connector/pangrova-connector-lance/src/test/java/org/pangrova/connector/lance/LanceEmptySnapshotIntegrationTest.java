@@ -35,11 +35,14 @@ class LanceEmptySnapshotIntegrationTest extends ContainerTestBase {
         var session = LanceSplitManagerTest.session("tenant-a");
         var selected = metadata.bindRead(session, metadata.getTableHandle(session, initial.table()));
         assertThat(selected.state()).isEqualTo(ReadSnapshotState.EMPTY);
+        assertThat(selected.statisticsVersion()).isEqualTo(metadata.observeVersion(session, initial));
 
         var fragment = sdk.write(input, allocation);
         var accepted = sdk.accept(allocation, sdk.prepare(allocation, java.util.List.of(fragment)));
         assertThat(accepted.getVersion()).isEqualTo(1);
         assertThat(store.load(initial.catalog(), initial.tenantId(), initial.table()).version()).isEqualTo(1);
+        var published = metadata.getTableHandle(session, initial.table());
+        assertThat(selected.statisticsVersion()).isNotEqualTo(metadata.observeVersion(session, published));
         metadata.validateReadBinding(session, selected);
         assertThat(metadata.getTableStatistics(session, selected.handle()).rowCount()).isZero();
         assertThat(metadata.getTableMetadata(session, selected.handle()).columns()).containsExactly("id");

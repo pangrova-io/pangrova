@@ -2,7 +2,6 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.List;
 
-import org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog;
@@ -69,13 +68,11 @@ final class SqlCompilerFactory {
     private PangrovaPlanner buildMetadataAwarePlanner(
             org.pangrova.connector.api.session.ConnectorSession session) {
         var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
-                metadataBootstrap.catalogRegistry(), session);
+                metadataBootstrap.catalogRegistry(), session, metadataBootstrap.catalogRegistry().tableStatistics());
         var rootSchema = new MetadataSchemaBuilder(
                 metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
                 .buildRootSchema(session, readBindings);
-        var stats = new StatisticsCollector(
-                new CatalogStatisticsProvider(readBindings,
-                        metadataBootstrap.catalogRegistry().tableStatistics()));
+        var stats = new StatisticsCollector(readBindings::statistics);
         var mvCatalog = buildMaterializedViewRewriteCatalog(session);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));

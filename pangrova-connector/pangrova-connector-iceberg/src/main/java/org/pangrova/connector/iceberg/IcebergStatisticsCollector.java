@@ -19,6 +19,7 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Collects column-level statistics from Iceberg manifest files and Puffin statistics files.
@@ -37,6 +38,26 @@ final class IcebergStatisticsCollector {
      * Builds table statistics from an Iceberg snapshot summary and manifest files.
      */
     static TableStatistics buildStatistics(Snapshot snapshot, Table icebergTable, IcebergTableHandle handle) {
+        return snapshotStatistics(snapshot, handle, () -> collectColumnStatistics(snapshot, icebergTable));
+    }
+
+    /** Binds query statistics using the selected metadata already loaded by the catalog. */
+    static TableStatistics planningStatistics(
+            Snapshot snapshot, Table table, IcebergTableHandle handle, Schema selectedSchema) {
+        return snapshotStatistics(snapshot, handle, () -> {
+            var ndv = readNdvFromPuffin(table, snapshot, false);
+            Map<String, TableStatistics.ColumnStatistics> columns = new HashMap<>();
+            for (Types.NestedField field : selectedSchema.columns()) {
+                Long distinct = ndv.get(field.fieldId());
+                columns.put(field.name(), distinct == null ? TableStatistics.ColumnStatistics.UNKNOWN
+                        : new TableStatistics.ColumnStatistics(-1, distinct, null, null, -1.0));
+            }
+            return columns;
+        });
+    }
+
+    private static TableStatistics snapshotStatistics(Snapshot snapshot, IcebergTableHandle handle,
+            Supplier<Map<String, TableStatistics.ColumnStatistics>> columns) {
         // A range scan reads only files appended between its endpoints. The end
         // snapshot's live-file, row and byte totals describe a different source.
         if (IcebergTableHandle.READ_MODE_INCREMENTAL.equals(handle.readMode())) {
@@ -48,9 +69,7 @@ final class IcebergStatisticsCollector {
                 snapshot.summary().getOrDefault("total-files-size", "-1"));
         long sourceWorkUnits = Long.parseLong(
                 snapshot.summary().getOrDefault("total-data-files", "-1"));
-        Map<String, TableStatistics.ColumnStatistics> colStats =
-                collectColumnStatistics(snapshot, icebergTable);
-        return new TableStatistics(rowCount, dataSize, sourceWorkUnits, colStats);
+        return new TableStatistics(rowCount, dataSize, sourceWorkUnits, columns.get());
     }
 
     /**
@@ -68,7 +87,7 @@ final class IcebergStatisticsCollector {
         }
         try {
             AggregatedManifestStats agg = aggregateFromManifests(snapshot, icebergTable, schema);
-            Map<Integer, Long> puffinNdv = readNdvFromPuffin(icebergTable, snapshot.snapshotId());
+            Map<Integer, Long> puffinNdv = readNdvFromPuffin(icebergTable, snapshot, true);
             buildColumnStatistics(schema, agg, colStats, puffinNdv);
         } catch (Exception e) {
             LOG.debug("event=column_stats_collection_failed table={} error={}",
@@ -127,44 +146,38 @@ final class IcebergStatisticsCollector {
      *
      * @return field ID to NDV estimate; empty map if no Puffin stats available
      */
-    static Map<Integer, Long> readNdvFromPuffin(Table icebergTable, long snapshotId) {
+    private static Map<Integer, Long> readNdvFromPuffin(Table icebergTable, Snapshot snapshot, boolean readSketches) {
         List<StatisticsFile> statsFiles = icebergTable.statisticsFiles();
         if (statsFiles == null || statsFiles.isEmpty()) {
             return Map.of();
         }
         Map<Integer, Long> ndvByField = new HashMap<>();
         for (StatisticsFile sf : statsFiles) {
-            if (sf.snapshotId() != snapshotId) {
+            if (sf.snapshotId() != snapshot.snapshotId()) {
                 continue;
             }
-            readNdvFromSingleFile(icebergTable, sf, ndvByField);
+            readNdvFromSingleFile(icebergTable, snapshot, sf, ndvByField, readSketches);
         }
         if (!ndvByField.isEmpty()) {
-            LOG.info("event=puffin_ndv_read table={} snapshotId={} columnsWithNdv={}",
-                    icebergTable.name(), snapshotId, ndvByField.size());
+            LOG.debug("event=puffin_ndv_read table={} snapshotId={} columnsWithNdv={}",
+                    icebergTable.name(), snapshot.snapshotId(), ndvByField.size());
         }
         return ndvByField;
     }
 
     private static void readNdvFromSingleFile(
-            Table icebergTable, StatisticsFile sf, Map<Integer, Long> ndvByField) {
+            Table icebergTable, Snapshot snapshot, StatisticsFile sf, Map<Integer, Long> ndvByField,
+            boolean readSketches) {
         for (BlobMetadata blob : sf.blobMetadata()) {
-            if (!StandardBlobTypes.APACHE_DATASKETCHES_THETA_V1.equals(blob.type())) {
+            if (!StandardBlobTypes.APACHE_DATASKETCHES_THETA_V1.equals(blob.type())
+                    || blob.sourceSnapshotId() != snapshot.snapshotId()
+                    || blob.sourceSnapshotSequenceNumber() != snapshot.sequenceNumber()
+                    || blob.fields().size() != 1) {
                 continue;
             }
             long ndv = extractNdvFromBlobProperties(blob);
-            if (ndv > 0) {
-                for (int fieldId : blob.fields()) {
-                    ndvByField.put(fieldId, ndv);
-                }
-                continue;
-            }
-            ndv = extractNdvFromSketchBlob(icebergTable, sf, blob);
-            if (ndv > 0) {
-                for (int fieldId : blob.fields()) {
-                    ndvByField.put(fieldId, ndv);
-                }
-            }
+            if (ndv <= 0 && readSketches) ndv = extractNdvFromSketchBlob(icebergTable, sf, blob);
+            if (ndv > 0) ndvByField.put(blob.fields().get(0), ndv);
         }
     }
 

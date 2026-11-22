@@ -3255,7 +3255,6 @@ artifacts:
       - org.pangrova.persistence.table.memory.maintenance
       - org.pangrova.persistence.table.memory.policy
       - org.pangrova.persistence.table.memory.provider
-      - org.pangrova.persistence.table.memory.statistics
     providers:
       "org.pangrova.persistence.table.api.provider.TableStoreFactory":
         - org.pangrova.persistence.table.memory.provider.MemoryTableStoreFactory

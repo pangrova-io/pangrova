@@ -80,7 +80,9 @@ public class IcebergConnectorFactory implements ConnectorFactory {
             }
         }
         try {
-            return new IcebergConnector(catalogName, catalog, fileIO, accessibleKeys);
+            boolean exactTableNameLookup = catalog.getClass() == org.apache.iceberg.jdbc.JdbcCatalog.class
+                    && properties.getOrDefault("uri", "").startsWith("jdbc:postgresql:");
+            return new IcebergConnector(catalogName, catalog, fileIO, accessibleKeys, exactTableNameLookup);
         } catch (RuntimeException | Error failure) {
             if (fileIO != null) ResourceCloser.closeOnFailure(failure, fileIO);
             if (catalog instanceof AutoCloseable owned) ResourceCloser.closeOnFailure(failure, owned);

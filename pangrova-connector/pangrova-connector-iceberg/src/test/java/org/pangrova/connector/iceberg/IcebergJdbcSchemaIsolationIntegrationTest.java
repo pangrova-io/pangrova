@@ -9,6 +9,9 @@ import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -16,6 +19,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,9 +29,64 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     private static final Schema TABLE_SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.LongType.get()));
     private static final TableIdentifier TABLE = TableIdentifier.of("data", "events");
+    private static final ConnectorSession READER = new ConnectorSession() {
+        @Override public String getUser() { return "reader"; }
+        @Override public Optional<String> getCatalog() { return Optional.empty(); }
+        @Override public Optional<String> getSchema() { return Optional.of("data"); }
+        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return Optional.empty();
+        }
+    };
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void postgresConnectorUsesTheExactSpellingWithoutListingTheNamespace() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            selected.createNamespace(Namespace.of("data"));
+            selected.createTable(TableIdentifier.of("data", "CamelEvents"), TABLE_SCHEMA);
+            var connector = new IcebergConnectorFactory().create(schema.name(), jdbcProperties(schema, "V1"), null);
+            try {
+                var metadata = connector.getMetadata(READER);
+                assertThat(metadata.supportsExactTableNameLookup()).isTrue();
+                schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+                long listings = schema.namespaceListings();
+                long lookups = schema.catalogPointerLookups();
+
+                assertThat(metadata.getTableHandle(READER, new SchemaTableName("data", "CamelEvents")))
+                        .isInstanceOf(IcebergTableHandle.class);
+                assertThat(schema.catalogPointerLookups() - lookups).isEqualTo(1);
+                assertThat(metadata.getTableHandle(READER, new SchemaTableName("data", "camelevents"))).isNull();
+                assertThat(schema.namespaceListings()).isEqualTo(listings);
+
+                assertThat(metadata.listTables(READER, Optional.of("data")))
+                        .containsExactly(new SchemaTableName("data", "CamelEvents"));
+                assertThat(schema.namespaceListings()).isGreaterThan(listings);
+            } finally {
+                connector.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void freshJdbcTableResolutionChecksCurrentMetadataPointerOnce() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var tables = new IcebergCatalogTables(selected);
+            var first = (IcebergTableHandle) tables.getTableHandle(new SchemaTableName("data", "events"));
+            try (var writer = catalog(schema, "V1")) {
+                writer.loadTable(TABLE).updateSchema().addColumn("new_field", Types.LongType.get()).commit();
+            }
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            assertThat(tables.getTableReadMetadata(first).metadata().columns()).contains("new_field");
+
+            assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
 
     @Test
     void anotherInitializedSchemaDoesNotPreventCreatingCatalogTables() throws Exception {
@@ -103,16 +162,18 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     private JdbcCatalog catalog(DatabaseSchema schema, String version) {
-        var postgres = IcebergJdbcTestDatabase.instance();
-        Map<String, String> properties = Map.of(
-                "type", "jdbc", "uri", schema.uri(),
-                "warehouse", warehouse.resolve(schema.name()).toString(),
-                "jdbc.user", postgres.getUsername(), "jdbc.password", postgres.getPassword(),
-                "jdbc.schema-version", version);
         var configuration = new Configuration();
         configuration.set("fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
         configuration.setBoolean("fs.file.impl.disable.cache", true);
-        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog(schema.name(), properties, configuration);
+        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog(schema.name(), jdbcProperties(schema, version), configuration);
+    }
+
+    private Map<String, String> jdbcProperties(DatabaseSchema schema, String version) {
+        var postgres = IcebergJdbcTestDatabase.instance();
+        return Map.of("type", "jdbc", "uri", schema.uri(),
+                "warehouse", warehouse.resolve(schema.name()).toString(),
+                "jdbc.user", postgres.getUsername(), "jdbc.password", postgres.getPassword(),
+                "jdbc.schema-version", version);
     }
 
     private static void createTable(JdbcCatalog catalog) {
@@ -158,6 +219,31 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                     rows.next();
                     return rows.getLong(1) == 1;
                 }
+            }
+        }
+
+        long catalogPointerLookups() throws SQLException {
+            try (var statement = connection.createStatement();
+                    var rows = statement.executeQuery("""
+                            SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                            WHERE query LIKE 'SELECT * FROM iceberg_tables WHERE catalog_name = %'
+                              AND query LIKE '%AND table_name = %'
+                            """)) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+
+        long namespaceListings() throws SQLException {
+            try (var statement = connection.createStatement();
+                    var rows = statement.executeQuery("""
+                            SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                            WHERE query LIKE 'SELECT * FROM iceberg_tables WHERE catalog_name = %'
+                              AND query LIKE '%AND table_namespace = %'
+                              AND query NOT LIKE '%AND table_name = %'
+                            """)) {
+                rows.next();
+                return rows.getLong(1);
             }
         }
 

@@ -18,12 +18,15 @@ import java.util.OptionalLong;
  * @param snapshotId positive data snapshot identity, present only for SNAPSHOT
  * @param sourceIdentity connector-owned evidence verified before split enumeration
  * @param schemaIdentity exact field evidence and its explicit stability scope, empty when unproven
+ * @param statisticsVersion exact version of the complete table selected by this binding,
+ *        comparable to a version observed for ANALYZE
  */
 @Experimental
 public record ConnectorReadBinding(ConnectorTableHandle handle,
         ConnectorTableReadMetadata declaration, TableStatistics statistics,
         ReadSnapshotState state, OptionalLong snapshotId, String sourceIdentity,
-        Optional<ConnectorReadSchemaIdentity> schemaIdentity) {
+        Optional<ConnectorReadSchemaIdentity> schemaIdentity,
+        Optional<TableVersionToken> statisticsVersion) {
 
     public ConnectorReadBinding {
         Objects.requireNonNull(handle, "handle");
@@ -33,6 +36,13 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         Objects.requireNonNull(snapshotId, "snapshotId");
         Objects.requireNonNull(sourceIdentity, "sourceIdentity");
         Objects.requireNonNull(schemaIdentity, "schemaIdentity");
+        Objects.requireNonNull(statisticsVersion, "statisticsVersion");
+        if (statisticsVersion.isPresent()
+                && ((state != ReadSnapshotState.SNAPSHOT && state != ReadSnapshotState.EMPTY)
+                    || declaration.declarationEvidence() != TableDeclarationEvidence.EXACT
+                    || handle.incrementalRange().isPresent())) {
+            throw new IllegalArgumentException("Analyzed statistics require an exact complete table version");
+        }
         if ((state == ReadSnapshotState.SNAPSHOT) != snapshotId.isPresent()
                 || (snapshotId.isPresent() && snapshotId.getAsLong() <= 0)) {
             throw new IllegalArgumentException("Selected data snapshot must have a positive exact identity");

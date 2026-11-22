@@ -211,6 +211,6 @@ final class PaimonFilesReadBindings {
                 handle.snapshotId() == 0 ? ReadSnapshotState.EMPTY
                         : ReadSnapshotState.SNAPSHOT,
                 handle.snapshotId() == 0 ? OptionalLong.empty() : OptionalLong.of(handle.snapshotId()),
-                handle.sourceIdentity(), java.util.Optional.empty());
+                handle.sourceIdentity(), java.util.Optional.empty(), java.util.Optional.empty());
     }
 }

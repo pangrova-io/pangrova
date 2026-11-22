@@ -104,7 +104,7 @@ public final class PaimonSplitRegistry implements AutoCloseable {
             if (selected.pushedLimit() == selector.pushedLimit()) return binding;
             return new ConnectorReadBinding(selected.withLimit(selector.pushedLimit()), binding.declaration(),
                     binding.statistics(), binding.state(), binding.snapshotId(), binding.sourceIdentity(),
-                    binding.schemaIdentity());
+                    binding.schemaIdentity(), binding.statisticsVersion());
         }
     }
 

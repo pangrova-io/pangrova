@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.exception.MetadataResolutionException;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
@@ -26,7 +26,7 @@ import java.util.Set;
 
 /**
  * Lazily resolves tables from CatalogReadAccess when Calcite requests them.
- * Delegates to ConnectorMetadata.listTables() and getTableMetadata() for column resolution.
+ * Discovers connector table names and defers columns to the authenticated read binding.
  *
  * <p>Backend failures propagate as {@link MetadataResolutionException} to distinguish
  * "metadata service unavailable" from "table not found".</p>
@@ -95,18 +95,14 @@ public final class LazyMetadataSchema extends AbstractSchema {
                 if (name.contains("$")) {
                     return null;
                 }
-                String canonicalName = listedBaseName(name);
-                if (canonicalName == null) {
-                    canonicalName = findUncachedBaseName(name);
-                }
+                Table exact = resolveTableDirect(name, true);
+                if (exact != null) return new Named<>(name, exact);
+                String canonicalName = resolveBaseName(name);
                 Table table = canonicalName == null ? null : resolveTableDirect(canonicalName);
                 return table == null ? null : new Named<>(canonicalName, table);
             }
             String baseName = name.substring(0, name.lastIndexOf('$'));
-            String canonicalBase = listedBaseName(baseName);
-            if (canonicalBase == null) {
-                canonicalBase = findUncachedBaseName(baseName);
-            }
+            String canonicalBase = resolveBaseName(baseName);
             if (canonicalBase == null) {
                 return null;
             }
@@ -128,12 +124,21 @@ public final class LazyMetadataSchema extends AbstractSchema {
         }
     }
 
-    private String listedBaseName(String requestedName) {
+    private synchronized String resolveBaseName(String requestedName) {
+        var previous = cachedTableNames;
+        var names = tableNames(false, requestedName);
+        String match = canonicalName(names, requestedName);
+        if (match == null && previous != null && names == previous) {
+            // A cached miss can be caused by a DDL operation on another coordinator.
+            return canonicalName(tableNames(true, requestedName), requestedName);
+        }
+        return match;
+    }
+
+    private String canonicalName(Set<String> names, String requestedName) {
+        if (names.contains(requestedName)) return requestedName;
         String match = null;
-        for (String name : tableNames()) {
-            if (name.equals(requestedName)) {
-                return name;
-            }
+        for (String name : names) {
             if (name.equalsIgnoreCase(requestedName)) {
                 if (match != null && !match.equals(name)) {
                     throw new MetadataResolutionException(catalog, schema, requestedName,
@@ -147,19 +152,21 @@ public final class LazyMetadataSchema extends AbstractSchema {
 
     /** List names without loading the schema and column metadata of every table. */
     private synchronized Set<String> tableNames() {
+        return tableNames(false, null);
+    }
+
+    private Set<String> tableNames(boolean refresh, String requestedName) {
         if (catalogRegistry == null) {
             return Set.of();
         }
         long generation = DDL_GENERATION.get();
-        if (cachedTableNames != null && namesGeneration == generation
+        if (!refresh && cachedTableNames != null && namesGeneration == generation
                 && System.currentTimeMillis() - namesTimestamp <= CACHE_TTL_MS) {
             return cachedTableNames;
         }
         try {
-            CatalogHandle handle = catalogRegistry.getCatalog(catalog);
-            ConnectorMetadata metadata = handle.getMetadata(session);
             Set<String> names = new LinkedHashSet<>();
-            for (SchemaTableName table : metadata.listTables(session, Optional.of(schema))) {
+            for (SchemaTableName table : readBindings.listTableNames(catalog, schema)) {
                 if (table.schema().equals(schema)) {
                     names.add(table.table());
                 }
@@ -171,6 +178,9 @@ public final class LazyMetadataSchema extends AbstractSchema {
         } catch (MetadataResolutionException e) {
             throw e;
         } catch (Exception e) {
+            if (requestedName != null) {
+                throw new MetadataResolutionException(catalog, schema, requestedName, e);
+            }
             throw new MetadataResolutionException(catalog, schema, e);
         }
     }
@@ -178,39 +188,6 @@ public final class LazyMetadataSchema extends AbstractSchema {
     private static Optional<String> systemTableSuffix(String name) {
         return org.pangrova.connector.api.enums.MetadataTableKind.fromTableName(name)
                 .map(org.pangrova.connector.api.enums.MetadataTableKind::suffix);
-    }
-
-    /**
-     * Another coordinator may create a table while this schema's physical name
-     * cache is still fresh. Resolve only that cache miss against the connector,
-     * preserving the canonical base name required by case-sensitive catalogs.
-     */
-    private String findUncachedBaseName(String requestedName) {
-        if (catalogRegistry == null) {
-            return null;
-        }
-        try {
-            CatalogHandle handle = catalogRegistry.getCatalog(catalog);
-            ConnectorMetadata metadata = handle.getMetadata(session);
-            String match = null;
-            for (SchemaTableName table : metadata.listTables(session, Optional.of(schema))) {
-                if (!table.schema().equals(schema) || !table.table().equalsIgnoreCase(requestedName)) {
-                    continue;
-                }
-                if (table.table().equals(requestedName)) {
-                    return table.table();
-                }
-                if (match != null && !match.equals(table.table())) {
-                    throw new IllegalStateException("ambiguous case-insensitive table name: " + requestedName);
-                }
-                match = table.table();
-            }
-            return match;
-        } catch (MetadataResolutionException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new MetadataResolutionException(catalog, schema, requestedName, e);
-        }
     }
 
     /**
@@ -252,21 +229,20 @@ public final class LazyMetadataSchema extends AbstractSchema {
      * the cached table map. Returns null if the table does not exist.
      */
     private Table resolveTableDirect(String name) {
+        return resolveTableDirect(name, false);
+    }
+
+    private Table resolveTableDirect(String name, boolean requireExactSpelling) {
         if (catalogRegistry == null) {
             return null;
         }
         try {
-            CatalogHandle handle = catalogRegistry.getCatalog(catalog);
-            ConnectorMetadata metadata = handle.getMetadata(session);
-            SchemaTableName stn = new SchemaTableName(schema, name);
-            ConnectorTableHandle tableHandle = metadata.getTableHandle(session, stn);
-            if (tableHandle == null) {
-                return null;
+            var table = new QualifiedTableName(catalog, schema, name);
+            Table resolved = requireExactSpelling
+                    ? readBindings.discoverExactSpelling(table) : readBindings.discover(table);
+            if (resolved != null) {
+                LOG.debug("event=direct_table_resolved catalog={} schema={} table={}", catalog, schema, name);
             }
-            ConnectorTableMetadata tableMeta = metadata.getTableMetadata(session, tableHandle);
-            Table resolved = resolvedTable(tableMeta);
-            LOG.debug("event=direct_table_resolved catalog={} schema={} table={}",
-                    catalog, schema, name);
             return resolved;
         } catch (MetadataResolutionException e) {
             throw e;
@@ -381,19 +357,15 @@ public final class LazyMetadataSchema extends AbstractSchema {
             if (tableHandle == null) {
                 return null;
             }
-            ConnectorTableMetadata tableMeta = metadata.getTableMetadata(connectorSession, tableHandle);
-            return resolvedTable(tableMeta);
+            return MetadataResolvedTable.fromReadBinding(readBindings,
+                    new QualifiedTableName(catalog, schema, stn.table()),
+                    new PlanningReadBindings.TableDiscovery(metadata, tableHandle));
         } catch (Exception e) {
             LOG.warn("event=table_resolution_failed catalog={} schema={} table={} error={}",
                     catalog, schema, stn.table(), e.getMessage(), e);
             tableErrors.put(stn.table(), e);
             return null;
         }
-    }
-
-    private MetadataResolvedTable resolvedTable(ConnectorTableMetadata metadata) {
-        return new MetadataResolvedTable(metadata, () -> readBindings.resolve(catalog, schema,
-                metadata.table().table()).orElseThrow(() -> new IllegalStateException("Selected table disappeared")));
     }
 
 }

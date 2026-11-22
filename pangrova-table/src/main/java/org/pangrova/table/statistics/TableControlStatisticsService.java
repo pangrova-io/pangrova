@@ -140,21 +140,14 @@ public final class TableControlStatisticsService implements CurrentTableStatisti
      * caller reads live connector statistics instead.
      */
     @Override
-    public Optional<TableControlStatistics> fresh(String catalog, String schema, String table) {
-        if (!control.enabled()) {
-            return Optional.empty();
-        }
-        return control.find(catalog, schema, table).flatMap(this::fresh);
-    }
-
-    /** Freshness check for a caller that already holds the control record. */
     public Optional<TableControlStatistics> fresh(TableControlRecord record) {
         if (record == null || record.state() != TableControlState.ACTIVE) {
             return Optional.empty();
         }
         control.requireCurrentCatalog(record, "Statistics resolution");
         return store.find(record.tableId())
-                .filter(stats -> stats.matchesVersion(record.versionToken()));
+                .filter(stats -> stats.tableId().equals(record.tableId())
+                        && stats.matchesVersion(record.versionToken()));
     }
 
     /** Removes statistics for a table that was unlinked or dropped. */

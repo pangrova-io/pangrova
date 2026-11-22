@@ -145,10 +145,9 @@ class SqlCompilerSessionIntegrationTest {
             }
             statement.execute("ALTER TABLE managed_source_heads RENAME TO temporarily_unavailable_tables");
             try {
-                var collector = new org.pangrova.planner.statistics.StatisticsCollector(
-                        new org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider(
-                                new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
-                                        metadata.catalogRegistry(), session)));
+                var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
+                        metadata.catalogRegistry(), session);
+                var collector = new org.pangrova.planner.statistics.StatisticsCollector(bindings::statistics);
                 assertThatThrownBy(() -> collector.getStatistics(new QualifiedTableName("scoped_lance", "alpha_only", "items")))
                         .isInstanceOf(org.pangrova.metadata.api.exception.MetadataResolutionException.class)
                         .hasRootCauseInstanceOf(java.sql.SQLException.class);

@@ -80,7 +80,13 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     public IcebergMetadata(Catalog catalog, String catalogName, long pinTtlMs,
                            long commitTimeoutMs, Set<String> accessibleEncryptionKeys,
                            org.apache.iceberg.io.FileIO fileIO) {
-        super(catalog, catalogName, pinTtlMs, accessibleEncryptionKeys);
+        this(catalog, catalogName, pinTtlMs, commitTimeoutMs, accessibleEncryptionKeys, fileIO, false);
+    }
+
+    IcebergMetadata(Catalog catalog, String catalogName, long pinTtlMs,
+                    long commitTimeoutMs, Set<String> accessibleEncryptionKeys,
+                    org.apache.iceberg.io.FileIO fileIO, boolean exactTableNameLookup) {
+        super(catalog, catalogName, pinTtlMs, accessibleEncryptionKeys, exactTableNameLookup);
         this.catalog = catalog;
         this.catalogName = catalogName;
         this.maintenanceProcedures = new IcebergMaintenanceProcedures(catalog);

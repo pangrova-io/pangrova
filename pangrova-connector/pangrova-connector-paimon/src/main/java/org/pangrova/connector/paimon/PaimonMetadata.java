@@ -30,7 +30,6 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.connector.api.metadata.table.TableVersionToken;
-import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.Table;
@@ -119,14 +118,7 @@ public class PaimonMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
         FileStoreTable fileStore = loadFileStore(handle);
-        Snapshot latest = fileStore.snapshotManager().latestSnapshot();
-        return Optional.of(TableVersionToken.of(
-                "PAIMON",
-                fileStore.uuid(),
-                latest == null ? "EMPTY" : Long.toString(latest.id()),
-                Long.toString(fileStore.schema().id()),
-                org.pangrova.common.util.DigestUtils.sha256Hex(
-                        fileStore.location().toString())));
+        return Optional.of(PaimonReadBindings.version(fileStore, fileStore.snapshotManager().latestSnapshot()));
     }
 
     @Override
