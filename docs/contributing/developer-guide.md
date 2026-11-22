@@ -768,6 +768,14 @@ logging:
 
 
 
+### 7.3 CI Failure Summaries
+
+When CI fails on a push to `main`, open the **Main CI failure diagnostics**
+workflow for the corresponding run and attempt. Its summary lists the first
+failing step in each job, incomplete jobs, report publishing failures, and the
+aggregate validation result. Open the linked job to inspect its logs and
+confirm the cause. The summary covers the jobs reported for that attempt.
+
 ## 8. Observability Integration
 
 This section describes how developers should integrate observability into new components. For the full observability design, see [observability.md](../architecture/observability.md).
