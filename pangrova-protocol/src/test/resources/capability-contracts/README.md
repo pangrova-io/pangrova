@@ -10,7 +10,26 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
-On 2026-11-14 the macOS arm64 Worker handshake exported the current inventory
+The macOS arm64 build exported both fixtures after the CDC task and Worker
+registration descriptors changed. `NativeCapabilityHandshakeE2ETest` verified
+the packaged JNI inventory and captured the complete Worker publication. The
+function exporter captured the cache-disabled catalogue from the same build.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Native library | 322893173 | `462cf6d3118cbff602ded5a73b2548dde3b1ab027bfcdd8a696a8850f7c9d526` |
+| Worker inventory | 796871 | `86c8805331d4db57e5650e42ae50f345b4a962200830ebcf1f89ec6d9f85ec06` |
+| Function exporter executable | 332386357 | `1c10b903e46d1c8acbb003b014337ea81503a8f3a23d6a917659fcc2eecab7c6` |
+| Function exporter catalogue | 784252 | `0bb91bd03d72930ca531e645ab11c16835fdec9392baf29fc2de7e1377f174d8` |
+
+Both fixtures carry canonical descriptor SHA-256
+`fb9a9dbf187459abe8a3b530ab1997e156d0a5d2d13ec65fad242a5c40f99aaf`.
+The Worker published 19 capabilities, 108 functions and two deployed models.
+The exporter reported nine capabilities and 92 functions.
+
+## November 14 capture
+
+On 2026-11-14 the macOS arm64 Worker handshake exported the inventory
 from the packaged JNI runtime with the immutable cache, governed FILE callbacks
 and both configured models. The runtime exports 21 Worker native methods
 under `org.pangrova.worker.jni.NativeRuntime`. The split descriptor includes
