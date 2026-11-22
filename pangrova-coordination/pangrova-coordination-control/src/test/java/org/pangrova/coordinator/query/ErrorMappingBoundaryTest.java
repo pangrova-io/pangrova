@@ -10,7 +10,7 @@ import org.pangrova.common.exception.ValidationException;
 import org.pangrova.scheduler.api.exception.CircuitBreakerOpenException;
 import org.pangrova.protocol.exception.ResultTooLargeException;
 import org.pangrova.worker.exception.ExchangeConnectionException;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.worker.exception.NativeRuntimeException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,10 +36,10 @@ class ErrorMappingBoundaryTest {
     @Test
     @DisplayName("ExchangeConnectionException carries EXCHANGE_CONNECTION_FAILED")
     void exchangeConnectionException() {
-        var source = new ExchangeEndpoint(
-                "task-1", 0, 0, 0, 1L, 0, (1L << 32) + 1L,
-                "host-1", 9090, "", new byte[] {1},
-                System.currentTimeMillis() + 60_000L, 0L, 0L);
+        var source = ExchangePartitionSource.newBuilder().setSourceTaskId("task-1").setHost("host-1")
+                .setPort(9090).setPlanEpoch(1).setFencingToken((1L << 32) + 1L)
+                .setSignedTicket(com.google.protobuf.ByteString.copyFrom(new byte[] {1}))
+                .setTicketExpiresAtEpochMs(System.currentTimeMillis() + 60_000L).build();
         var cause = new java.io.IOException("connection refused");
         var ex = new ExchangeConnectionException(source, 3, cause);
         assertPangrovaException(ex, PangrovaErrorCode.EXCHANGE_CONNECTION_FAILED);

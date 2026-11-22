@@ -5,6 +5,8 @@ import org.pangrova.worker.task.report.TaskStatusReporter;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.worker.result.ResultTransport;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.pangrova.worker.resource.ResourceManager;
@@ -74,7 +76,7 @@ public final class TaskManagerContext {
     }
 
     /** Exchange transport SPI. */
-    public ExchangeTransport exchangeTransport() {
+    public ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport() {
         return transportDeps.exchangeTransport();
     }
 }

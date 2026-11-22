@@ -23,6 +23,7 @@ public final class CanonicalTaskRequests {
 
     public static final int MAX_COVERAGE_IDENTITIES = 4_096;
     private static final int SHA256_BYTES = 32;
+    private static final int MAX_PORT = 65_535;
 
     private CanonicalTaskRequests() {}
 
@@ -382,7 +383,8 @@ public final class CanonicalTaskRequests {
                                 "TaskRequest exchange source is incomplete or duplicated");
                     }
                 }
-            } else if (!validExternalInput(input.getExternal())) {
+            } else if (!validExternalInput(input.getExternal())
+                    || input.getExternal().getDeadlineEpochMs() != request.getDeadlineEpochMs()) {
                 throw new IllegalArgumentException(
                         "TaskRequest external shuffle input is incomplete");
             }
@@ -396,6 +398,7 @@ public final class CanonicalTaskRequests {
         return !input.getPlanNodeId().isBlank()
                 && !input.getExchangeId().isBlank()
                 && inputIds.add(inputId)
+                && input.getNoMoreSources()
                 && input.getExpectedSourcePartitions() != 0
                 && input.getTransportCase()
                         != org.pangrova.protocol.v2.ExchangeInputBinding
@@ -417,6 +420,9 @@ public final class CanonicalTaskRequests {
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         return validExternalIdentity(external)
                 && validPartitionPublication(external.getPublication())
+                && external.getExpectedProducerPartitions() > 0
+                && external.getExpectedProducerSetChecksum().getAlgorithm() == Checksum.Algorithm.ALGORITHM_SHA256
+                && external.getExpectedProducerSetChecksum().getDigest().size() == SHA256_BYTES
                 && validExternalReadCapability(external)
                 && validExternalAddress(external)
                 && exactPartitionCoverage(
@@ -436,37 +442,38 @@ public final class CanonicalTaskRequests {
 
     private static boolean validExternalIdentity(
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
+        var owner = external.getExecutionOwner();
         return !external.getShuffleId().isBlank()
                 && external.getOutputPartitionId() >= 0
                 && external.getOutputPartitionId() < external.getPartitionCount()
-                && external.getPlanEpoch() != 0
+                && external.getPlanEpoch() > 0
                 && external.hasExecutionOwner()
-                && external.getDeadlineEpochMs() != 0;
+                && !owner.getOwnerId().isBlank()
+                && !owner.getOwnerIncarnation().isBlank()
+                && owner.getFencingToken() > 0
+                && external.getDeadlineEpochMs() > 0;
     }
 
     private static boolean validExternalReadCapability(
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         return external.hasReadCapability()
-                && !external.getReadCapability().getToken().isEmpty();
+                && !external.getReadCapability().getToken().isEmpty()
+                && external.getReadCapability().getExpiresAtEpochMs() >= external.getDeadlineEpochMs();
     }
 
     private static boolean validExternalAddress(
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         return external.hasCommitAddress()
                 && !external.getCommitAddress().getHost().isBlank()
-                && external.getCommitAddress().getPort() > 0;
+                && validPort(external.getCommitAddress().getPort());
     }
 
     private static boolean exactPartitionCoverage(
             java.util.List<org.pangrova.protocol.v2.ShuffleServiceEndpoint> endpoints,
             int partitionCount) {
         int cursor = 0;
-        var ordered = endpoints.stream()
-                .sorted(java.util.Comparator.comparingInt(
-                        org.pangrova.protocol.v2.ShuffleServiceEndpoint::getPartitionStart))
-                .toList();
-        for (var endpoint : ordered) {
-            if (endpoint.getHost().isBlank() || endpoint.getPort() <= 0
+        for (var endpoint : endpoints) {
+            if (endpoint.getHost().isBlank() || !validPort(endpoint.getPort())
                     || endpoint.getPartitionStart() != cursor
                     || endpoint.getPartitionEnd() <= cursor
                     || endpoint.getPartitionEnd() > partitionCount) {
@@ -477,18 +484,28 @@ public final class CanonicalTaskRequests {
         return cursor == partitionCount;
     }
 
+    private static boolean validPort(int port) {
+        return port > 0 && port <= MAX_PORT;
+    }
+
     private static boolean isValidExchangeSource(
             org.pangrova.protocol.v2.ExchangePartitionSource source,
             String producer,
             HashSet<String> producers) {
         return !source.getSourceTaskId().isBlank()
                 && producers.add(producer)
-                && source.getPlanEpoch() != 0
-                && source.getFencingToken() != 0
+                && source.getSourceStageId() >= 0
+                && source.getSourcePartitionId() >= 0
+                && source.getOutputPartitionId() >= 0
+                && source.getAttemptId() >= 0
+                && source.getPlanEpoch() > 0
+                && source.getFencingToken() > 0
                 && !source.getHost().isBlank()
-                && source.getPort() != 0
+                && validPort(source.getPort())
                 && !source.getSignedTicket().isEmpty()
-                && source.getTicketExpiresAtEpochMs() != 0;
+                && source.getTicketExpiresAtEpochMs() > 0
+                && source.getExpectedRows() >= 0
+                && source.getExpectedBytes() >= 0;
     }
 
     private static void validateRuntimeFilters(TaskRequest request) {

@@ -6,8 +6,6 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.api.ShuffleAccess;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
@@ -43,15 +41,13 @@ class RemoteShuffleReadRenewalTest extends ContainerTestBase {
             var consumer = ActualExternalShuffleTask.consumer(producer);
             var actual = service.delegateRead(producer, consumer);
             var shortGrant = service.shortReadGrant(producer, consumer);
-            var binding = new ExternalShuffleTransport(actual.shuffleId(), actual.endpoints(), actual.commitAddress(),
-                    actual.outputPartitionId(), actual.partitionCount(), actual.planEpoch(), actual.executionOwner(),
-                    actual.consumerAttempt(), actual.deadlineEpochMs(), new ShuffleAccess(shortGrant.getToken().toByteArray(),
-                    shortGrant.getExpiresAtEpochMs()), actual.expectedProducerPartitions(), actual.expectedProducerSetChecksum(), actual.publication());
+            var binding = new ActualShuffleService.ReadBinding(
+                    actual.input().toBuilder().setReadCapability(shortGrant).build(), actual.consumerAttempt());
             verifyRollover(service, binding, first, second, shortGrant);
         }
     }
 
-    private static void verifyRollover(ActualShuffleService service, ExternalShuffleTransport binding,
+    private static void verifyRollover(ActualShuffleService service, ActualShuffleService.ReadBinding binding,
             byte[] first, byte[] second, org.pangrova.protocol.v2.ShuffleAccessCapability shortGrant) {
         try (var pool = service.clientPool();
              var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), pool.borrow(binding.selectedEndpoint()))) {

@@ -12,7 +12,8 @@ import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
-import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
@@ -71,7 +72,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
-        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
+        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding.input())));
         nativeRuntime.executor().startTask(handle);
         var values = ActualNativeResultReader.count(nativeRuntime, request);
         assertThat(values.rows()).isEqualTo(rows);
@@ -121,7 +122,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
-        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
+        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding.input())));
         nativeRuntime.executor().startTask(handle);
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(TaskReport.parseFrom(nativeRuntime.executor().getTaskStatus(handle)).getState())
@@ -147,16 +148,11 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
         var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
-        var published = binding.publication();
-        String otherDigest = (published.manifestSha256().startsWith("0") ? "1" : "0")
-                + published.manifestSha256().substring(1);
-        var expected = new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(
-                published.lastSequence(), published.bytes(), published.rows(), otherDigest);
-        var mismatched = new org.pangrova.shuffle.exchange.ExternalShuffleTransport(
-                binding.shuffleId(), binding.endpoints(), binding.commitAddress(), binding.outputPartitionId(),
-                binding.partitionCount(), binding.planEpoch(), binding.executionOwner(), binding.consumerAttempt(),
-                binding.deadlineEpochMs(), binding.readAccess(), binding.expectedProducerPartitions(),
-                binding.expectedProducerSetChecksum(), expected);
+        var published = binding.input().getPublication();
+        var differentDigest = published.getManifestSha256().toByteArray();
+        differentDigest[0] ^= 1;
+        var mismatched = binding.input().toBuilder().setPublication(published.toBuilder()
+                .setManifestSha256(com.google.protobuf.ByteString.copyFrom(differentDigest))).build();
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(mismatched)));
         nativeRuntime.executor().startTask(handle);
@@ -179,7 +175,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
-        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
+        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding.input())));
         assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
         nativeRuntime.executor().cancelTask(handle);
         transport.releaseInputs(handle);
@@ -219,7 +215,9 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         });
     }
 
-    private static ExchangeInput input(org.pangrova.shuffle.exchange.ExternalShuffleTransport binding) {
-        return new ExchangeInput(ActualExternalShuffleTask.PLAN_NODE, ActualExternalShuffleTask.EXCHANGE_ID, 1, binding);
+    private static ExchangeInputBinding input(ExternalShuffleInput binding) {
+        return ExchangeInputBinding.newBuilder().setPlanNodeId(ActualExternalShuffleTask.PLAN_NODE)
+                .setExchangeId(ActualExternalShuffleTask.EXCHANGE_ID).setExpectedSourcePartitions(1)
+                .setExternal(binding).build();
     }
 }

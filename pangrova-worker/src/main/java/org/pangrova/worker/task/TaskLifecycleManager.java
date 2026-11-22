@@ -6,6 +6,8 @@ import org.pangrova.observability.api.tracing.Span;
 import org.pangrova.observability.api.enums.SpanKind;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.worker.result.ResultTransport;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
@@ -41,7 +43,7 @@ final class TaskLifecycleManager {
     private final TaskCompletionMonitor completionMonitor;
     private final NativeShuffleProducerRegistration shuffleProducers;
     private final ResultTransport resultTransport;
-    private final ExchangeTransport exchangeTransport;
+    private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
     private final TaskResourceReleaser resourceReleaser;
     private final TaskResourceDrainProbe resourceDrainProbe;
     private volatile org.pangrova.worker.write.NativeWriteExecutor writeExecutor;
@@ -267,17 +269,12 @@ final class TaskLifecycleManager {
         if (info.request() == null) {
             return;
         }
-        var bindings = info.request().taskRequest().getExchangeInputsList();
+        var request = info.request().taskRequest();
+        var bindings = request.getExchangeInputsList();
         if (bindings.isEmpty()) {
             return;
         }
-        var inputs = org.pangrova.worker.exchange.source.ExchangeSourceConverter
-                .toExchangeInputs(
-                        bindings, info.request().taskRequest().getAttempt(),
-                        info.request().taskRequest().getDeadlineEpochMs());
-        var consumerAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(
-                info.request().taskRequest().getAttempt());
-        exchangeTransport.bindInputs(handle, consumerAttempt, inputs);
+        exchangeTransport.bindInputs(handle, request.getAttempt(), bindings);
         LOG.info("event=exchange_sources_wired taskId={} sourceCount={}",
                 info.taskId(), bindings.stream()
                         .mapToInt(binding -> binding.hasDirect()

@@ -28,6 +28,8 @@ import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 
 import java.io.Closeable;
 import java.util.Optional;
@@ -47,7 +49,7 @@ public final class TaskResource implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
 
     private final TaskManager taskManager;
-    private final ExchangeTransport exchangeTransport;
+    private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
     private final ExchangeSourceRegistry exchangeSourceRegistry;
     private final String workerHost;
     private final int transportPort;
@@ -61,7 +63,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             String workerHost,
             int transportPort) {
         this(
@@ -76,7 +78,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
@@ -94,7 +96,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
@@ -113,7 +115,7 @@ public final class TaskResource implements Closeable {
     /** Creates the result-producing resource with explicit process-local signing authority. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,

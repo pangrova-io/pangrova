@@ -211,15 +211,15 @@ public final class RemoteShuffleClientPool implements Closeable, org.pangrova.sh
     @Override
     public RemoteShuffleExchangeSource open(org.pangrova.protocol.v2.ExternalShuffleInput input,
             org.pangrova.shuffle.api.identity.ExchangeTaskAttempt consumer) {
+        var admittedOwner = input.getExecutionOwner();
+        var consumerOwner = consumer.executionOwner();
         if (!org.pangrova.protocol.task.CanonicalTaskRequests.validExternalInput(input)
-                || !input.getExecutionOwner().equals(org.pangrova.shuffle.nativewire.NativeExchangeAttempts
-                        .encode(consumer).getExecutionOwner())) {
+                || !admittedOwner.getOwnerId().equals(consumerOwner.ownerId())
+                || !admittedOwner.getOwnerIncarnation().equals(consumerOwner.ownerIncarnation())
+                || admittedOwner.getFencingToken() != consumerOwner.fencingToken()) {
             throw new IllegalArgumentException("Invalid external shuffle read binding or execution owner");
         }
         var checksum = input.getExpectedProducerSetChecksum();
-        if (checksum.getAlgorithm() != org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256) {
-            throw new IllegalArgumentException("Invalid external shuffle producer-set checksum");
-        }
         var published = input.getPublication();
         var context = new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
                 consumer, input.getOutputPartitionId(), input.getDeadlineEpochMs());

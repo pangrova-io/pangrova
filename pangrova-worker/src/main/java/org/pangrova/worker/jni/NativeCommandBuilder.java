@@ -170,6 +170,16 @@ public final class NativeCommandBuilder {
         return buildEnvelope(commandType, attempt, payload);
     }
 
+    /** Embeds the already admitted direct source and consumer identity in the Native command. */
+    public static byte[] connectDirectExchange(TaskAttemptId attempt,
+            org.pangrova.protocol.v2.ExchangeInputBinding input,
+            org.pangrova.protocol.v2.ExchangePartitionSource source) {
+        return buildCommand(RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, attempt,
+                org.pangrova.protocol.v2.ConnectExchangeSourceRequest.newBuilder()
+                        .setPlanNodeId(input.getPlanNodeId()).setExchangeId(input.getExchangeId())
+                        .setDirect(source).build());
+    }
+
     private static byte[] buildEnvelope(
             RuntimeCommandType commandType,
             TaskAttemptId attempt,

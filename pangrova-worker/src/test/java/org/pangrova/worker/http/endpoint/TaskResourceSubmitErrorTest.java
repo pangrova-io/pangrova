@@ -3,6 +3,8 @@ package org.pangrova.worker.http.endpoint;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
@@ -25,7 +27,7 @@ class TaskResourceSubmitErrorTest {
     @BeforeEach
     void setUp() {
         taskManager = TaskManager.forHttpWiringOnly();
-        ExchangeTransport exchangeTransport = TestExchangeTransport.INSTANCE;
+        ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
         ExchangeSourceRegistry sourceRegistry = new ExchangeSourceRegistry();
 
         resource = new TaskResource(

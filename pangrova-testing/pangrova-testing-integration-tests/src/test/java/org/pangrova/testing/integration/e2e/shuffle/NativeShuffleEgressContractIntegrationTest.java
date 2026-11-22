@@ -9,7 +9,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
-import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.shuffle.api.worker.ShuffleByteEgress;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
@@ -66,9 +66,10 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
             var consumer = runtime.bindWorker(ActualExternalShuffleTask.consumer(producer));
             var binding = service.delegateRead(producer, consumer);
             long consumerHandle = runtime.createPending(consumer);
-            consumerTransport.bindInputs(consumerHandle, binding.consumerAttempt(), List.of(
-                    new ExchangeInput(ActualExternalShuffleTask.PLAN_NODE,
-                            ActualExternalShuffleTask.EXCHANGE_ID, 1, binding)));
+            consumerTransport.bindInputs(consumerHandle, consumer.getAttempt(), List.of(
+                    ExchangeInputBinding.newBuilder().setPlanNodeId(ActualExternalShuffleTask.PLAN_NODE)
+                            .setExchangeId(ActualExternalShuffleTask.EXCHANGE_ID)
+                            .setExpectedSourcePartitions(1).setExternal(binding.input()).build()));
             runtime.executor().startTask(consumerHandle);
             var values = ActualNativeResultReader.count(runtime, consumer);
             assertThat(values.rows()).isEqualTo(1);

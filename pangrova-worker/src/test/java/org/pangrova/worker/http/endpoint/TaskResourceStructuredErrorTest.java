@@ -4,6 +4,8 @@ import jakarta.ws.rs.core.Response;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
@@ -59,7 +61,7 @@ class TaskResourceStructuredErrorTest {
 
     private static TaskResource buildResource() {
         TaskManager taskManager = TaskManager.forHttpWiringOnly();
-        ExchangeTransport exchangeTransport = TestExchangeTransport.INSTANCE;
+        ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
         return new TaskResource(
                 taskManager, exchangeTransport,
                 new ExchangeSourceRegistry(), "localhost", 8816, null);

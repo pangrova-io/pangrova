@@ -113,11 +113,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CopySourceReadHttpE2ETest extends ContainerTestBase {
     private static final String ACCESS_KEY = "copy-http-e2e";
     private static final String SECRET_KEY = "copy-http-e2e-secret";
-    private static final org.pangrova.shuffle.exchange.ExchangeTransport NO_EXCHANGE =
-            new org.pangrova.shuffle.exchange.ExchangeTransport() {
+    private static final org.pangrova.shuffle.exchange.ExchangeTransport<org.pangrova.protocol.v2.TaskAttemptId,
+            org.pangrova.protocol.v2.ExchangeInputBinding> NO_EXCHANGE =
+            new org.pangrova.shuffle.exchange.ExchangeTransport<>() {
                 @Override public void bindInputs(long executorHandle,
-                        org.pangrova.shuffle.api.identity.ExchangeTaskAttempt attempt,
-                        List<org.pangrova.shuffle.exchange.ExchangeInput> inputs) {
+                        org.pangrova.protocol.v2.TaskAttemptId attempt,
+                        List<org.pangrova.protocol.v2.ExchangeInputBinding> inputs) {
                     throw new AssertionError("COPY staging must not bind Native exchange");
                 }
                 @Override public void releaseInputs(long executorHandle) {}

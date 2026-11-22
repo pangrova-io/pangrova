@@ -13,62 +13,44 @@ import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.protocol.v2.ConnectExchangeSourceRequest;
+import org.pangrova.protocol.v2.RuntimeCommand;
+import org.pangrova.worker.jni.NativeCommandBuilder;
 
-/** Verifies canonical v2 exchange bindings become task-scoped inputs exactly once. */
-class ExchangeSourceConverterTest {
+/** Verifies the actual JNI command retains each admitted source without reconstructing it. */
+class NativeExchangeCommandTest {
 
     @Test
-    void preservesIdentityFenceTicketAndExpiry() {
-        var inputs = ExchangeSourceConverter.toExchangeInputs(
-                List.of(binding(1, source("task-1", 0, 1, 0))),
-                attempt(), deadline());
-
-        assertThat(inputs).hasSize(1);
-        assertThat(inputs.get(0).planNodeId()).isEqualTo("exchange-node");
-        assertThat(inputs.get(0).exchangeId()).isEqualTo("exchange-1");
-        assertThat(inputs.get(0).expectedSourcePartitions()).isEqualTo(1);
-        ExchangeEndpoint endpoint = ((DirectExchangeTransport)
-                inputs.get(0).transport()).sources().get(0);
-        assertThat(endpoint.sourceTaskId()).isEqualTo("task-1");
-        assertThat(endpoint.sourceStageId()).isEqualTo(1);
-        assertThat(endpoint.sourcePartitionId()).isZero();
-        assertThat(endpoint.outputPartitionId()).isZero();
-        assertThat(endpoint.planEpoch()).isEqualTo(1);
-        assertThat(endpoint.attemptId()).isZero();
-        assertThat(endpoint.fencingToken()).isEqualTo(fence(1, 0));
-        assertThat(endpoint.signedTicket()).containsExactly(1, 2, 3);
-        assertThat(endpoint.ticketExpiresAtEpochMs()).isEqualTo(4_102_444_800_000L);
+    void preservesIdentityFenceTicketAndExpiry() throws Exception {
+        var source = source("task-1", 0, 1, 0);
+        var input = binding(1, source);
+        var consumer = attempt();
+        var command = RuntimeCommand.parseFrom(NativeCommandBuilder.connectDirectExchange(consumer, input, source));
+        var payload = command.getPayload().unpack(ConnectExchangeSourceRequest.class);
+        assertThat(command.getAttempt()).isEqualTo(consumer);
+        assertThat(payload.getPlanNodeId()).isEqualTo(input.getPlanNodeId());
+        assertThat(payload.getExchangeId()).isEqualTo(input.getExchangeId());
+        assertThat(payload.getDirect()).isEqualTo(source);
     }
 
     @Test
-    void preservesCanonicalInputBoundaries() {
-        var first = binding(2,
-                source("task-1", 0, 1, 0), source("task-2", 1, 1, 0));
+    void preservesCanonicalInputBoundaries() throws Exception {
+        var first = binding(2, source("task-1", 0, 1, 0), source("task-2", 1, 1, 0));
         var second = ExchangeInputBinding.newBuilder()
                 .setPlanNodeId("other-node").setExchangeId("exchange-2")
                 .setExpectedSourcePartitions(1).setNoMoreSources(true)
                 .setReadMode(ExchangeReadMode.EXCHANGE_READ_MODE_BLOCKING)
                 .setDirect(DirectExchangeInput.newBuilder()
                         .addSources(source("task-3", 0, 1, 0))).build();
-
-        var inputs = ExchangeSourceConverter.toExchangeInputs(
-                List.of(first, second), attempt(), deadline());
-
-        assertThat(inputs).hasSize(2);
-        assertThat(((DirectExchangeTransport) inputs.get(0).transport()).sources())
-                .hasSize(2);
-        assertThat(((DirectExchangeTransport) inputs.get(1).transport()).sources())
-                .hasSize(1);
-    }
-
-    @Test
-    void returnsEmptyForNullOrEmptyBindings() {
-        assertThat(ExchangeSourceConverter.toExchangeInputs(
-                null, attempt(), deadline())).isEmpty();
-        assertThat(ExchangeSourceConverter.toExchangeInputs(
-                List.of(), attempt(), deadline())).isEmpty();
+        for (var input : List.of(first, second)) {
+            for (var source : input.getDirect().getSourcesList()) {
+                var wire = NativeCommandBuilder.connectDirectExchange(attempt(), input, source);
+                var payload = RuntimeCommand.parseFrom(wire).getPayload().unpack(ConnectExchangeSourceRequest.class);
+                assertThat(payload.getPlanNodeId()).isEqualTo(input.getPlanNodeId());
+                assertThat(payload.getExchangeId()).isEqualTo(input.getExchangeId());
+                assertThat(payload.getDirect()).isEqualTo(source);
+            }
+        }
     }
 
     private static ExchangeInputBinding binding(
@@ -98,10 +80,6 @@ class ExchangeSourceConverterTest {
 
     private static long fence(long epoch, int attempt) {
         return (epoch << 32) + attempt + 1L;
-    }
-
-    private static long deadline() {
-        return 4_102_444_800_000L;
     }
 
     private static TaskAttemptId attempt() {
