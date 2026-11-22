@@ -142,7 +142,7 @@
         <findsecbugs.version>1.13.0</findsecbugs.version>
 
         <!-- Resilience4j -->
-        <resilience4j.version>2.2.0</resilience4j.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
 
         <!-- Cron -->
         <cron-utils.version>9.2.1</cron-utils.version>
