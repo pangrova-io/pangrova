@@ -65,7 +65,12 @@ mvn -q -pl pangrova-testing/pangrova-testing-integration-tests -am -Pnative-runt
 
 Use a new receipt path for each artifact build. The preparation script records
 the exact local Ollama base image, architecture, both manifest hashes and the
-resulting immutable image ID; it verifies all referenced blob hashes and sizes.
+resulting immutable image ID. It verifies all referenced blob hashes and sizes,
+then configures both models with two inference threads in an offline container.
+The image receipt binds the resulting manifests, which retain the original
+model layers. This keeps real inference within the test budgets on shared
+runners with varying CPU topology. Rebuild any older fixture without the
+thread-count receipt.
 An existing real Ollama `models` directory can be supplied with `--models-dir`
 for an offline artifact build, with the same integrity checks. `--dns` selects a
 resolver only for the preparation container; it does not change host or test DNS.
