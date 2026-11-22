@@ -373,13 +373,14 @@ isolation, type contract and public-entry E2E before publication.
 
 ## 16. Serialization
 
-Worker-to-Worker shuffle uses `ShuffleBatchSerializer` and serialized Velox
-pages carried in a Flight binary cell. Each producing Velox driver owns its
-partition hash and selection scratch state. The accumulator coalesces small
-selections only when their estimated size fits the queue's page budget. The final result path uses
-`FlightResultServer` and its own Arrow result serialization. Arrow C Data
-interop is not the shuffle wire format. The canonical task/report proto
-remains the sole control contract.
+`ShuffleBatchSerializer` encodes bounded Arrow IPC pages. Direct exchanges
+carry these pages in Native Flight binary cells. Remote Shuffle publishes the
+same pages through gRPC. Each producing Velox driver owns its partition hash
+and selection scratch state. For fixed-width columns the accumulator estimates
+the size of the selected rows. Variable-width selections use a conservative
+source-size bound. The serializer checks the actual Arrow page bytes in both
+cases. The final result path uses `FlightResultServer` and its own Arrow result
+serialization. The canonical task/report proto carries the control messages.
 
 ## 17. Expression Execution
 

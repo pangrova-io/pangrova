@@ -1,6 +1,8 @@
 // ShufflePartitionAccumulator: Coalesces small per-partition row sets.
 #include "engine/shuffle/ShufflePartitionAccumulator.h"
 
+#include <algorithm>
+
 #include "velox/vector/BaseVector.h"
 
 namespace pangrova::shuffle {
@@ -28,6 +30,18 @@ bool fitsCoalescingBudget(const std::vector<RowVectorPtr>& sources, int64_t rows
     return false;
   }
   auto bytes_remaining = limit - kSerializedPageOverheadBytes;
+  const auto& fields = sources.front()->type()->asRow().children();
+  if (std::all_of(fields.begin(), fields.end(), [](const auto& field) {
+        return field->isFixedWidth();
+      })) {
+    // Bound the selected values and null flags in the copied vector. The
+    // serializer enforces the exact Arrow page limit after encoding.
+    size_t row_bytes = 0;
+    for (const auto& field : fields) {
+      row_bytes += field->cppSizeInBytes() + 1;
+    }
+    return row_bytes <= bytes_remaining / static_cast<size_t>(rows);
+  }
   for (const auto& source : sources) {
     const auto estimated = source->estimateFlatSize();
     if (estimated > bytes_remaining) return false;
