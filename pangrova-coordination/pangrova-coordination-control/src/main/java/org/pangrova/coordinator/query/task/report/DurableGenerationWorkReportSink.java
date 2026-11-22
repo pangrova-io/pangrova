@@ -66,16 +66,6 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
                         status.getAttempt().getExecutionOwner().getFencingToken())));
     }
 
-    @Override
-    public boolean ownsExecution(String tenantId, String executionId) {
-        return store.findExecutionJob(executionId).map(key -> {
-            if (!key.tenantId().equals(tenantId)) {
-                throw new IllegalArgumentException("Durable execution routing belongs to another tenant");
-            }
-            return true;
-        }).orElse(false);
-    }
-
     private boolean completeProducer(org.pangrova.generation.api.identity.GenerationJobKey job,
             TaskReport status, byte[] bytes) {
         var attempt = status.getAttempt();

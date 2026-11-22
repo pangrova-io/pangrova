@@ -342,10 +342,6 @@ class CoordinatorWorkerProtocolPropertyTest {
                                 return durable.get();
                             }
 
-                            @Override
-                            public boolean ownsExecution(String tenantId, String executionId) {
-                                return false;
-                            }
                         }));
         TaskStatusReport terminal = artifactReport(request, target);
 

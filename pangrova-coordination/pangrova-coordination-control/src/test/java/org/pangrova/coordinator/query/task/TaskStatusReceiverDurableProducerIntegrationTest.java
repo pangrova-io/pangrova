@@ -169,7 +169,10 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     void originalNativeWireCommitsBeforeTheOrdinaryDagTerminalAndNeverCreatesAUserQuery() throws Exception {
         byte[] original = originalWire(request);
         assertThat(original).isNotEqualTo(TaskReport.parseFrom(original).toByteArray());
+        installStatementCounters();
+        long before = executionRouteReads();
         assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
+        assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
@@ -185,6 +188,41 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 assertThat(rows.next()).isTrue();
                 assertThat(rows.getBytes(1)).isEqualTo(original);
                 assertThat(rows.getString(2)).isEqualTo(DigestUtils.sha256Hex(original));
+            }
+        }
+    }
+
+    @Test
+    void runningDurableProducerDoesNotNeedAnExecutionRouteRead() throws Exception {
+        installStatementCounters();
+        var attempt = request.taskRequest().getAttempt();
+        byte[] bytes = TaskReport.newBuilder().setAttempt(attempt).setState(TaskState.TASK_STATE_RUNNING)
+                .setCoverage(CoverageReport.newBuilder().setExpectedWorkUnits(1))
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE).build().toByteArray();
+        var report = new TaskStatusReport(TASK, KEY.executionId(), 1, 0, "COMPUTE", "worker-1", "RUNNING",
+                null, null, null, 1, System.currentTimeMillis(), null, null, TaskAttemptDescriptor.from(attempt), bytes);
+        long before = executionRouteReads();
+        assertThat(receiver.onTaskStatus(report)).isTrue();
+        assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isZero();
+        assertThat(tracker.getTaskState(KEY.executionId(), TASK))
+                .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.RUNNING);
+    }
+
+    private void installStatementCounters() throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+    }
+
+    private long executionRouteReads() throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE 'SELECT tenant_id,job_id FROM artifact_execution_routes WHERE execution_id=%'
+                """)) {
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
             }
         }
     }

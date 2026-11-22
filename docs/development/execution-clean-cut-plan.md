@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 107 根据 Coordinator 已签发并与上报精确匹配的任务种类路由持久 Shuffle 生产者。真实 PostgreSQL 的运行上报路由 SELECT 从 1 次降为 0 次，终态从 4 次降为 3 次。终态仍在当前租户和 owner fence 下持久提交原始报告字节，失去所有权的进程无法推进赢家。56 项定向 Java、Checkstyle 及真实 SQL、Join、物化刷新回归通过。
+
 实施批次 106 删除只在常量默认值、模板和文档出现的三项 Worker Shuffle 配置。实际队列按任务 grant 的字节限额运行，Native Flight 保留独立的保留、传输与 spill 预算。157 项配置和服务启动测试、Checkstyle、Helm lint 与渲染通过。重打包后的 NATIVE 双 Worker 查询与重启、REMOTE 双 Worker SQL 和物理释放均通过。
 
 实施批次 105 按固定宽度列的实际选中行估计 Native Shuffle 合并成本，按实际 Arrow 编码检查页上限。本地受控用例从八个大源向量选出 128 行。编码由 8 页、3,264 字节缩为 1 页、1,304 字节，解码后的行顺序完全相同。变量宽度仍采用保守源大小上界。新 C++ Release 的 4,348 项完整回归通过，macOS ARM64 JNI 和正式角色打包通过，同包双 Worker REMOTE SQL 与 Flight、MinIO、PostgreSQL 分配和租户槽位的实际释放均验证通过。

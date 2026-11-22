@@ -324,6 +324,7 @@ public final class TaskRequestFactory {
     }
 
     private static TaskKind leafTaskKind(LeafTask task) {
+        // The issued task kind routes completion. Live shuffle producers use TASK_KIND_READ.
         if (task.execution() instanceof StageExecutionContext.Deferred) {
             var deferred = (StageExecutionContext.Deferred) task.execution();
             return switch (deferred.lease().kind()) {

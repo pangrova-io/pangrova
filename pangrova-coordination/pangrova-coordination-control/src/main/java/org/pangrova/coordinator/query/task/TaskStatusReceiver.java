@@ -437,16 +437,14 @@ public final class TaskStatusReceiver {
         }
     }
 
-    private boolean isBackgroundTask(SubmitTaskRequest expectedRequest) {
+    private static boolean isBackgroundTask(SubmitTaskRequest expectedRequest) {
         if (expectedRequest == null) {
             return false;
         }
         TaskKind kind = expectedRequest.taskRequest().getTaskKind();
         return kind == TaskKind.TASK_KIND_BACKGROUND_BUILD
                 || kind == TaskKind.TASK_KIND_BACKGROUND_EXPORT
-                || kind == TaskKind.TASK_KIND_SHUFFLE_WRITE && artifactWorkReportSink.ownsExecution(
-                        expectedRequest.taskRequest().getSecurity().getTenantId(),
-                        expectedRequest.taskRequest().getAttempt().getQueryOrJobId());
+                || kind == TaskKind.TASK_KIND_SHUFFLE_WRITE;
     }
 
     /**

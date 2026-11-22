@@ -794,6 +794,8 @@ queue; a downstream reader must fail on aborted or incomplete input rather
 than treating it as clean EOF. Flight demultiplexing and the bounded queue
 provide backpressure without a Java `addBatch` bridge.
 
+The Coordinator routes durable Shuffle producer reports by the exact task kind it issued. Progress reports use that local binding. A finished report is published with the durable job association and execution-owner fence before its stage advances.
+
 #### 3.3.8 Coordinator Scheduler Design
 
 **Stage scheduling order**
