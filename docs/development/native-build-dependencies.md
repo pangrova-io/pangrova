@@ -73,6 +73,9 @@ The macOS bootstrap selects Homebrew `openssl@3` before building gRPC and the
 Velox dependencies. It records the same root in `env.sh` so CMake links the
 Native function exporter, tests, and JNI library against OpenSSL 3. gRPC uses
 the OpenSSL ENGINE API, which was removed in OpenSSL 4.
+The bootstrap passes the OpenSSL root directly to fbthrift because fbthrift's
+CMake wrapper otherwise queries Homebrew's default formula. It rebuilds
+cached fbthrift packages whose install stamp predates this check.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have

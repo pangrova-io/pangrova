@@ -442,6 +442,7 @@ build_velox() {
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
     local folly_alignment_digest
     folly_alignment_digest=$(shasum -a 256 "$PANGROVA_FOLLY_ALIGNMENT_PATCH" | awk '{print $1}')
+    local fbthrift_stamp="$INSTALL_PREFIX/.pangrova-fbthrift-ready"
 
     # Upstream stores archives inside source directories that it deletes on retry.
     apply_folly_source_patches() {
@@ -571,9 +572,11 @@ build_velox() {
         -e 's/OpaqueAliasNode{uri/OpaqueAliasNode{uriCopy/' \
         "$type_system_builder"
       rm -f "$type_system_builder.bak"
+      # fbthrift's FindOpenSSL wrapper runs brew unless the CMake variable is set.
       cmake_install_dir fbthrift \
+        "-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX" \
         -Denable_tests=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
-      touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
+      printf '%s\n' openssl@3 > "$fbthrift_stamp"
     }
 
     install_boost() {
@@ -637,9 +640,12 @@ build_velox() {
     if [[ ! -f "$INSTALL_PREFIX/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
       run_and_time install_aws_deps
     fi
-    if [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" ]]; then
+    if [[ -f "$fbthrift_stamp" ]]; then
       if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
         run_and_time install_folly
+      fi
+      if [[ "$(<"$fbthrift_stamp")" != openssl@3 ]]; then
+        run_and_time install_fbthrift
       fi
       run_and_time install_xsimd
       run_and_time install_stemmer

@@ -278,6 +278,45 @@ printf '%s\\n' "$@" >> "$TRACE"
         )
         self.assertEqual(activated, f"{openssl}\n")
 
+    def test_darwin_fbthrift_replaces_an_unqualified_cached_install(self):
+        source = BOOTSTRAP.read_text()
+        body = source.split("    install_fbthrift() {\n", 1)[1].split("\n    }", 1)[0]
+        reuse = "    if [[ -f \"$fbthrift_stamp\" ]]; then\n" + source.split(
+            '    if [[ -f "$fbthrift_stamp" ]]; then\n', 1
+        )[1].split("\n  elif", 1)[0]
+        prefix = self.root / "prefix"
+        (prefix / "include").mkdir(parents=True)
+        (prefix / "include/xxhash.h").touch()
+        dependency_dir = self.root / "sources"
+        builder = dependency_dir / "fbthrift/thrift/lib/cpp2/dynamic/TypeSystemBuilder.cpp"
+        builder.parent.mkdir(parents=True)
+        builder.write_text("    auto uninitDef = std::invoke([&]() -> TSDefinition {\n")
+        stamp = prefix / ".pangrova-fbthrift-ready"
+        stamp.touch()
+        openssl = self.root / "OpenSSL 3"
+        env = dict(self.env, INSTALL_PREFIX=str(prefix), DEPENDENCY_DIR=str(dependency_dir),
+                   OPENSSL_PREFIX=str(openssl), FB_OS_VERSION="test-version", fbthrift_stamp=str(stamp))
+
+        script = """
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+wget_and_untar() { :; }
+cmake_install_dir() { printf '%s\\n' "$@"; }
+darwin_folly_has_alignment_patch() { return 0; }
+run_and_time() {
+    if [[ "$1" == install_fbthrift ]]; then install_fbthrift; fi
+}
+folly_alignment_digest=unused
+install_fbthrift() {
+""" + body + "\n}\n" + reuse
+        result = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"-DOPENSSL_ROOT_DIR={openssl}\n", result.stdout)
+        self.assertEqual(stamp.read_text(), "openssl@3\n")
+
+        reused = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True)
+        self.assertEqual(reused.returncode, 0, reused.stdout + reused.stderr)
+        self.assertEqual(reused.stdout, "")
+
     def test_optional_argument_arrays_preserve_empty_and_quoted_values(self):
         for script in (BOOTSTRAP, BOOTSTRAP.with_name("setup-native-asan-env.sh")):
             expansions = [line.strip().rstrip("\\").strip()
