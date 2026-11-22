@@ -20,7 +20,6 @@ import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.planner.api.lineage.ColumnDerivation;
 import org.pangrova.planner.lineage.ColumnLineageExtractor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.stability.PlanHasher;
@@ -57,15 +56,12 @@ public final class PlannedQuery {
 
     private final RelNode plan;
     private final List<String> columnNames;
-    private final List<RuntimeFilterDescriptor> runtimeFilterDescriptors;
     private final Map<QualifiedTableName, QualifiedTableName> physicalToLogical;
 
     PlannedQuery(RelNode plan, List<String> columnNames,
-                 List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         this.plan = plan;
         this.columnNames = List.copyOf(columnNames);
-        this.runtimeFilterDescriptors = List.copyOf(runtimeFilterDescriptors);
         this.physicalToLogical = Map.copyOf(physicalToLogical);
     }
 
@@ -151,10 +147,6 @@ public final class PlannedQuery {
 
     public List<String> columnNames() {
         return List.copyOf(columnNames);
-    }
-
-    public List<RuntimeFilterDescriptor> runtimeFilterDescriptors() {
-        return List.copyOf(runtimeFilterDescriptors);
     }
 
     // ── Query classification predicates ──
@@ -453,14 +445,12 @@ public final class PlannedQuery {
 
     public PlannedQuery reoptimize(PangrovaPlanner planner) {
         RelNode reoptimized = planner.reoptimize(plan);
-        return new PlannedQuery(reoptimized, columnNames,
-                runtimeFilterDescriptors, physicalToLogical);
+        return new PlannedQuery(reoptimized, columnNames, physicalToLogical);
     }
 
     /** Package-private: returns a copy with the plan replaced (used by security appliers). */
     PlannedQuery withPlan(RelNode newPlan) {
-        return new PlannedQuery(newPlan, columnNames,
-                runtimeFilterDescriptors, physicalToLogical);
+        return new PlannedQuery(newPlan, columnNames, physicalToLogical);
     }
 
     /**
@@ -468,6 +458,6 @@ public final class PlannedQuery {
      * Production code MUST use {@link SqlCompiler#compileToPlannedQuery} instead.
      */
     public static PlannedQuery forTesting(RelNode plan) {
-        return new PlannedQuery(plan, List.of(), List.of(), Map.of());
+        return new PlannedQuery(plan, List.of(), Map.of());
     }
 }

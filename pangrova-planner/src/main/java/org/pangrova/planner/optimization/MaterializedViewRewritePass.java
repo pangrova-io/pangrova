@@ -50,27 +50,6 @@ public final class MaterializedViewRewritePass {
     }
 
     /**
-     * Analyzes the optimized plan for eligible joins when DPP analysis is enabled.
-     *
-     * Descriptors identify logical candidates only. This pass has no build-attempt values
-     * or physical scan binding and never publishes a predicate to the execution registry.
-     */
-    public List<RuntimeFilterDescriptor> analyzeForRuntimeFilters(RelNode optimized) {
-        if (!dynamicPartitionPruningConfig.enabled()) {
-            return List.of();
-        }
-        // F-AQE-02: Do NOT clear the shared registry here. With queryId-namespaced
-        // keys, each query's filters are isolated and stale entries from aborted
-        // planning do not interfere. Global clear() would destroy other queries'
-        // in-flight runtime filters.
-        List<RuntimeFilterDescriptor> descriptors = joinRuntimeFilterPlanner.analyze(optimized);
-        if (!descriptors.isEmpty()) {
-            LOG.info("event=dpp_descriptors_analyzed count={}", descriptors.size());
-        }
-        return descriptors;
-    }
-
-    /**
      * Analyze a plan for partition-pruning-eligible joins without registering filters.
      * Useful for testing and inspection.
      */

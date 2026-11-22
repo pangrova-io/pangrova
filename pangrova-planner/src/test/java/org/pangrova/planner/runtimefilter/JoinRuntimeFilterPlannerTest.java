@@ -55,25 +55,6 @@ class JoinRuntimeFilterPlannerTest {
     }
 
     @Test
-    void planningEnabledProducesCandidatesWithoutInventingRuntimeValues() {
-        var planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
-        var result = planner.plan("SELECT o.ID, c.NAME FROM ORDERS o "
-                + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
-        assertThat(result.runtimeFilterDescriptors()).isNotEmpty();
-        assertThat(planner.getRuntimeFilterRegistry().registeredStageIds()).isEmpty();
-    }
-
-    @Test
-    void joinQuery_dppDisabled_noFiltersRegistered() {
-        PangrovaPlanner planner = buildPlannerWithTables(DynamicPartitionPruningConfig.DISABLED);
-
-        var query = planner.plan("SELECT o.ID, c.NAME FROM ORDERS o "
-                + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
-        assertThat(query.runtimeFilterDescriptors()).isEmpty();
-        assertThat(planner.getRuntimeFilterRegistry().registeredStageIds()).isEmpty();
-    }
-
-    @Test
     void boundedLiteralBuildKeysFilterOnlyTheMatchingProbeScan() {
         var planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
         String sql = "SELECT o.ID FROM ORDERS o JOIN (VALUES (1), (3), (3)) v(k) ON o.ID=v.k";

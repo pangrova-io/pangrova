@@ -172,12 +172,10 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(),
+            return new PlanResult(relNode, preOptColumnNames,
                     rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
-        List<RuntimeFilterDescriptor> filterDescriptors =
-                materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten = allowMaterializationRewrite
                 ? materializedViewRewritePass.tryMaterializedViewRewrite(optimized) : optimized;
         recordConstantFold(materializedViewRewritten);
@@ -185,7 +183,7 @@ public final class PangrovaPlanner {
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+        return new PlanResult(materializedViewRewritten, preOptColumnNames,
                 rewrite.physicalToLogical());
     }
 
@@ -199,7 +197,7 @@ public final class PangrovaPlanner {
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(),
+        return new PlanResult(relation, relation.getRowType().getFieldNames(),
                 rewrite.physicalToLogical());
     }
 
@@ -210,7 +208,7 @@ public final class PangrovaPlanner {
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of());
+        return new PlanResult(relation, relation.getRowType().getFieldNames());
     }
 
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
@@ -231,12 +229,11 @@ public final class PangrovaPlanner {
             return query;
         }
         RelNode optimized = optimizationRunner.optimize(query.plan());
-        List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         if (allowMaterializationRewrite) {
             optimized = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
         }
         recordConstantFold(optimized);
-        return new PlannedQuery(optimized, query.columnNames(), descriptors,
+        return new PlannedQuery(optimized, query.columnNames(),
                 query.physicalToLogicalDynamicTables());
     }
 
@@ -315,17 +312,15 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(),
+            return new PlanResult(relNode, preOptColumnNames,
                     rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
-        List<RuntimeFilterDescriptor> filterDescriptors =
-                materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten =
                 materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
         recordConstantFold(materializedViewRewritten);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+        return new PlanResult(materializedViewRewritten, preOptColumnNames,
                 rewrite.physicalToLogical());
     }
 

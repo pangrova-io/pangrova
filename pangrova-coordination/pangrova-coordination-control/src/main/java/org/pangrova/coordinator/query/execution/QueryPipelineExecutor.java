@@ -392,10 +392,7 @@ final class QueryPipelineExecutor {
         PlannedQuery plan = (PlannedQuery) ctx.compiledPlan();
         return schedulingEngine.dispatchQuery(
                 ctx.stateMachine(), ctx.session(), plan,
-                new DispatchQueryContext(ctx.snapshotOverrides(), ctx.sql(),
-                        ctx.compiler(), ctx.preOptColumnNames(),
-                        Optional.empty(), Optional.empty(), Optional.empty(),
-                        ctx.runtimeFilterDescriptors()));
+                new DispatchQueryContext(ctx.snapshotOverrides(), ctx.sql(), ctx.compiler(), ctx.preOptColumnNames()));
     }
 
     private CompilationPhase.TimeTravelResult extractTimeTravelFromSql(

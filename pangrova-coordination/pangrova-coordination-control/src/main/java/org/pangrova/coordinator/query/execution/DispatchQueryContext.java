@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.rerank.RerankerPlanNode;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.indexing.planner.vector.VectorSearchNode;
 
 import java.util.List;
@@ -26,8 +25,7 @@ public record DispatchQueryContext(
         List<String> preOptColumnNames,
         Optional<VectorSearchNode> vectorSearchNode,
         Optional<RerankerPlanNode> rerankerPlan,
-        Optional<DmlWriteContext> dmlWriteContext,
-        List<RuntimeFilterDescriptor> runtimeFilterDescriptors) {
+        Optional<DmlWriteContext> dmlWriteContext) {
 
     public DispatchQueryContext {
         snapshotOverrides = snapshotOverrides != null ? Map.copyOf(snapshotOverrides) : Map.of();
@@ -35,15 +33,13 @@ public record DispatchQueryContext(
         vectorSearchNode = vectorSearchNode != null ? vectorSearchNode : Optional.empty();
         rerankerPlan = rerankerPlan != null ? rerankerPlan : Optional.empty();
         dmlWriteContext = dmlWriteContext != null ? dmlWriteContext : Optional.empty();
-        runtimeFilterDescriptors = runtimeFilterDescriptors != null
-                ? List.copyOf(runtimeFilterDescriptors) : List.of();
     }
 
     public DispatchQueryContext(Map<String, Long> snapshotOverrides,
                                 String originalSql,
                                 SqlCompiler compiler) {
         this(snapshotOverrides, originalSql, compiler, List.of(),
-                Optional.empty(), Optional.empty(), Optional.empty(), List.of());
+                Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public DispatchQueryContext(Map<String, Long> snapshotOverrides,
@@ -51,7 +47,7 @@ public record DispatchQueryContext(
                                 SqlCompiler compiler,
                                 List<String> preOptColumnNames) {
         this(snapshotOverrides, originalSql, compiler, preOptColumnNames,
-                Optional.empty(), Optional.empty(), Optional.empty(), List.of());
+                Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     /**
@@ -60,7 +56,7 @@ public record DispatchQueryContext(
     public DispatchQueryContext withVectorSearch(VectorSearchNode node) {
         return new DispatchQueryContext(snapshotOverrides, originalSql, compiler,
                 preOptColumnNames, Optional.of(node), rerankerPlan,
-                dmlWriteContext, runtimeFilterDescriptors);
+                dmlWriteContext);
     }
 
     /**
@@ -69,7 +65,7 @@ public record DispatchQueryContext(
     public DispatchQueryContext withRerankerPlan(RerankerPlanNode plan) {
         return new DispatchQueryContext(snapshotOverrides, originalSql, compiler,
                 preOptColumnNames, vectorSearchNode, Optional.of(plan),
-                dmlWriteContext, runtimeFilterDescriptors);
+                dmlWriteContext);
     }
 
     /**
@@ -78,6 +74,6 @@ public record DispatchQueryContext(
     public DispatchQueryContext withDmlWriteContext(DmlWriteContext ctx) {
         return new DispatchQueryContext(snapshotOverrides, originalSql, compiler,
                 preOptColumnNames, vectorSearchNode, rerankerPlan,
-                Optional.of(ctx), runtimeFilterDescriptors);
+                Optional.of(ctx));
     }
 }

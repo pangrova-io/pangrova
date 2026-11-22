@@ -122,8 +122,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
         lineageCapture.captureColumnNames(
                 context.session().queryId(), preOptNames, plannedQuery);
         return new PhaseResult.Continue(
-                updated.withCompiledPlan(plannedQuery, preOptNames,
-                        plannedQuery.runtimeFilterDescriptors()));
+                updated.withCompiledPlan(plannedQuery, preOptNames));
     }
 
     @Override

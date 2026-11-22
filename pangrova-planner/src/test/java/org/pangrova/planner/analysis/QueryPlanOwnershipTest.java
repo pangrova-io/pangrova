@@ -24,8 +24,6 @@ class QueryPlanOwnershipTest {
         assertThat(second.preOptimizationColumnNames()).containsExactly("second_value");
         assertThatThrownBy(() -> query.columnNames().add("mutated"))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> query.runtimeFilterDescriptors().clear())
-                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> query.physicalToLogicalDynamicTables().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
     }

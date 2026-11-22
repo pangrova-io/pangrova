@@ -32,7 +32,7 @@ class PlannedQueryTimestampSchemaTest {
                 var rowType = cluster.getTypeFactory().builder()
                         .add("event_time", cluster.getTypeFactory().createSqlType(sqlType, precision)).build();
                 var query = new PlannedQuery(LogicalValues.createEmpty(cluster, rowType),
-                        List.of("event_time"), List.of(), java.util.Map.of());
+                        List.of("event_time"), java.util.Map.of());
                 assertThatThrownBy(query::queryOutputColumnTypeNames)
                         .isInstanceOf(IllegalArgumentException.class)
                         .hasMessageContaining("cannot preserve timezone timestamp precision");
