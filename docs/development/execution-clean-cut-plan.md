@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 106 删除只在常量默认值、模板和文档出现的三项 Worker Shuffle 配置。实际队列按任务 grant 的字节限额运行，Native Flight 保留独立的保留、传输与 spill 预算。157 项配置和服务启动测试、Checkstyle、Helm lint 与渲染通过。重打包后的 NATIVE 双 Worker 查询与重启、REMOTE 双 Worker SQL 和物理释放均通过。
+
 实施批次 105 按固定宽度列的实际选中行估计 Native Shuffle 合并成本，按实际 Arrow 编码检查页上限。本地受控用例从八个大源向量选出 128 行。编码由 8 页、3,264 字节缩为 1 页、1,304 字节，解码后的行顺序完全相同。变量宽度仍采用保守源大小上界。新 C++ Release 的 4,348 项完整回归通过，macOS ARM64 JNI 和正式角色打包通过，同包双 Worker REMOTE SQL 与 Flight、MinIO、PostgreSQL 分配和租户槽位的实际释放均验证通过。
 
 实施批次 104 用真实 PostgreSQL 和 MinIO 对照四个已签发的签名生产者。每轮写入 512 KiB，由每路 1 批或 32 批组成。去除两轮预热后，每种分配和分批组合各 8 轮，每轮都创建 4 个预约窗口并执行 32 条相关 SQL。共享 allocation 的写入 P50 为 10.80 和 88.44 ms，独立 scope 为 9.49 和 81.42 ms。每种组合有 32 个写入者样本，共享 allocation 的单路 P95 为 11.54 和 101.31 ms。所有窗口随后按精确清单发布，字节与行计数相符，cleanup 释放相同数据量。这一窗口覆盖服务接收已编码批次并写入真实对象存储。下一步验证 Native 页合并对实际对象数、批次延迟和内存的影响。

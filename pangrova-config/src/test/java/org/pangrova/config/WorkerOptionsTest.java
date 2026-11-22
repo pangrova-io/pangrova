@@ -85,25 +85,6 @@ class WorkerOptionsTest {
         assertThat(WorkerOptions.RESULT_RETENTION_SECONDS.defaultValue()).isEqualTo(300);
     }
 
-    // ---- Shuffle ----
-
-    @Test
-    void shuffleBufferCapacityDefaultsTo100() {
-        assertThat(WorkerOptions.SHUFFLE_BUFFER_CAPACITY.defaultValue()).isEqualTo(100);
-    }
-
-    @Test
-    void shuffleMaxMemoryDefaultsTo512MB() {
-        assertThat(WorkerOptions.SHUFFLE_MAX_MEMORY_BYTES.defaultValue()).isEqualTo(512L * 1024 * 1024);
-        assertThat(WorkerOptions.SHUFFLE_MAX_MEMORY_BYTES.typeClass()).isEqualTo(Long.class);
-    }
-
-    @Test
-    void shuffleSpillThresholdDefaultsTo0Point8() {
-        assertThat(WorkerOptions.SHUFFLE_SPILL_THRESHOLD.defaultValue()).isEqualTo(0.8);
-        assertThat(WorkerOptions.SHUFFLE_SPILL_THRESHOLD.typeClass()).isEqualTo(Double.class);
-    }
-
     // ---- Memory / Resources ----
 
     @Test

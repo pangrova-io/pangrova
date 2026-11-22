@@ -177,9 +177,6 @@ config:
       internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
       heartbeat-interval: "10s"
       shuffle:
-        buffer-capacity: 100
-        max-memory-bytes: 536870912
-        spill-threshold: 0.8
         service:
           spill-directory: /opt/pangrova/data
       memory:

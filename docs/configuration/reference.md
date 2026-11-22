@@ -48,9 +48,6 @@ Role and shared options are declared in `org.pangrova.config.constants`. Domain-
 | `worker.transport.tls.identity` | `""` | Advertised certificate DNS identity |
 | `worker.copy.task-tls-port` | `0` | Dedicated mTLS COPY task-control port; `0` disables it, and a fixed port enables it for distributed deployment |
 | `worker.task.result-retention-seconds` | `300` | Terminal task retention; earlier result authority expiry or resource drain still applies |
-| `worker.shuffle.buffer-capacity` | `100` | Batches per shuffle partition buffer |
-| `worker.shuffle.max-memory-bytes` | 512 MB | Total shuffle memory budget |
-| `worker.shuffle.spill-threshold` | `0.8` | Shuffle spill trigger ratio |
 | `worker.memory.budget-bytes` | 512 MB | Native engine memory budget |
 | `worker.memory.system-reserved-bytes` | 64 MB | System overhead reserve |
 | `worker.memory.node-bytes` | 1 GB | Node memory pool capacity |

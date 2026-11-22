@@ -448,9 +448,6 @@ worker:
     io: 16                           # = half of query threads
 
   shuffle:
-    buffer-capacity: 500
-    max-memory-bytes: 4294967296     # 4 GB
-    spill-threshold: 0.75
 
   spill:
     directory: "/mnt/spill/pangrova"

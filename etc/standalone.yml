@@ -92,19 +92,6 @@ worker:
     # Task result retention time (seconds)
     result-retention-seconds: 300
 
-  # ---- Shuffle ----
-  shuffle:
-    # Shuffle buffer capacity (number of entries)
-    # Dev mode: smaller value is fine
-    buffer-capacity: 50
-
-    # Shuffle maximum memory (bytes)
-    # Dev mode: 256 MB
-    max-memory-bytes: 268435456   # 256 MB
-
-    # Shuffle spill threshold (0.0-1.0)
-    spill-threshold: 0.8
-
   # ---- Memory / Resources ----
   memory:
     # Query execution memory budget (bytes)

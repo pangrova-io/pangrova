@@ -87,9 +87,6 @@ server's advertised bound port at this hostname.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `worker.shuffle.advertised-host` | string | `worker.advertised-host` | Hostname advertised to peer workers for Native Flight shuffle; must not be a wildcard bind address |
-| `worker.shuffle.buffer-capacity` | int | `100` | Maximum number of batches per shuffle partition buffer |
-| `worker.shuffle.max-memory-bytes` | long | `536870912` (512 MB) | Total memory budget in bytes for all shuffle partitions combined |
-| `worker.shuffle.spill-threshold` | double | `0.8` | Memory usage ratio (0.0–1.0) that triggers shuffle spill to disk |
 
 ## worker.memory
 
