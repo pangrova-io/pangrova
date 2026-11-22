@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 108 在持久执行恢复与生产者终态事务中复用同一次持锁交换屏障和登记证据。整张图的摘要按事务复用。真实 PostgreSQL 的单交换终态上报中，图索引 SELECT 从 3 次降为 1 次，登记和终态证据各从 2 次降为 1 次，源快照确认保持 1 次。这四类读取合计从 8 次降为 4 次。85 项定向 Java 和 Checkstyle 通过，覆盖持久 DAG 恢复、过期 owner、缺失与损坏交换证据、取消和事务回滚。
+
 实施批次 107 根据 Coordinator 已签发并与上报精确匹配的任务种类路由持久 Shuffle 生产者。真实 PostgreSQL 的运行上报路由 SELECT 从 1 次降为 0 次，终态从 4 次降为 3 次。终态仍在当前租户和 owner fence 下持久提交原始报告字节，失去所有权的进程无法推进赢家。56 项定向 Java、Checkstyle 及真实 SQL、Join、物化刷新回归通过。
 
 实施批次 106 删除只在常量默认值、模板和文档出现的三项 Worker Shuffle 配置。实际队列按任务 grant 的字节限额运行，Native Flight 保留独立的保留、传输与 spill 预算。157 项配置和服务启动测试、Checkstyle、Helm lint 与渲染通过。重打包后的 NATIVE 双 Worker 查询与重启、REMOTE 双 Worker SQL 和物理释放均通过。

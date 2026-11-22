@@ -171,8 +171,11 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(original).isNotEqualTo(TaskReport.parseFrom(original).toByteArray());
         installStatementCounters();
         long before = executionRouteReads();
+        var exchangeBefore = exchangeReads();
         assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
+        assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
+                .isEqualTo(new ExchangeReads(1, 1, 1, 1));
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
@@ -215,11 +218,31 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private long executionRouteReads() throws java.sql.SQLException {
+        return statementReads("SELECT tenant_id,job_id FROM artifact_execution_routes WHERE execution_id=%");
+    }
+
+    private ExchangeReads exchangeReads() throws java.sql.SQLException {
+        return new ExchangeReads(
+                statementReads("SELECT exchange_id,producer_stage_id,consumer_stage_id,%FROM artifact_stage_exchanges WHERE tenant_id=%"),
+                statementReads("SELECT registration_bytes,registration_sha256 FROM artifact_exchange_registrations WHERE tenant_id=%"),
+                statementReads("SELECT finalization_bytes,finalization_sha256 FROM artifact_exchange_finalizations WHERE tenant_id=%"),
+                statementReads("SELECT source_snapshot FROM artifact_build_jobs WHERE tenant_id=%"));
+    }
+
+    private record ExchangeReads(long graph, long registration, long finalization, long snapshot) {
+        ExchangeReads since(ExchangeReads before) {
+            return new ExchangeReads(graph - before.graph, registration - before.registration,
+                    finalization - before.finalization, snapshot - before.snapshot);
+        }
+    }
+
+    private long statementReads(String pattern) throws java.sql.SQLException {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
                 SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                  AND query LIKE 'SELECT tenant_id,job_id FROM artifact_execution_routes WHERE execution_id=%'
+                  AND query LIKE ?
                 """)) {
+            statement.setString(1, pattern);
             try (var rows = statement.executeQuery()) {
                 rows.next();
                 return rows.getLong(1);

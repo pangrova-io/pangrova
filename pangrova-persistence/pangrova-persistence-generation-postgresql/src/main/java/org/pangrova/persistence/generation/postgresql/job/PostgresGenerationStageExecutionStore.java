@@ -84,10 +84,9 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var authority = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
-            PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
+            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, authority);
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
-            return new PreparedExecution(authority, job,
-                    PostgresGenerationStageExchangeStore.loadValidatedEvidence(connection, authority));
+            return new PreparedExecution(authority, job, evidence);
         });
     }
 
@@ -100,14 +99,14 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
                     completion.executionOwner());
-            PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
+            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(completion.stageId());
             if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE
                     || completion.partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException(
                         "Native producer report does not belong to a persisted compute stage");
             }
-            var allocations = PostgresGenerationStageExchangeStore.loadValidatedEvidence(connection, context).stream()
+            var allocations = evidence.stream()
                     .map(ExchangeEvidence::registration)
                     .filter(value -> value.producerStageId() == stage.stageId()).toList();
             if (allocations.size() != 1 || allocations.get(0).planEpoch() != completion.planEpoch()) {
