@@ -607,6 +607,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         stopCoordinatorTransportQuietly();
         stopQuietly(coordinatorHttpServer);
         if (queryManager != null) queryManager.stopPeriodicCleanup();
+        if (sharedQueryDispatcher != null) sharedQueryDispatcher.dagEngine().close();
         stopReaderPinRenewalWorker();
         if (terminalCleanupTimer != null) terminalCleanupTimer.shutdownNow();
         if (terminalCleanupWorker != null) terminalCleanupWorker.shutdownNow();
@@ -871,6 +872,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (queryManager != null) {
             queryManager.stopPeriodicCleanup();
         }
+        if (sharedQueryDispatcher != null) sharedQueryDispatcher.dagEngine().close();
         QueryDispatcher dispatcher = buildQueryDispatcher();
         queryManager = new QueryManager(queryManagerContext(dispatcher), java.util.Optional.of(
                 new org.pangrova.coordinator.materialization.QueryReaderPinLifecycle(readerPinLeases())));

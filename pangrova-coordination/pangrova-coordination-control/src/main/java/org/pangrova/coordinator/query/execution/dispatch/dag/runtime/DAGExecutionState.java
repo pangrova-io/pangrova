@@ -27,13 +27,14 @@ import java.util.function.Consumer;
 public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
         WorkerSelector workerSelector, DurableStageRuntime durable, List<StageDispatchRecord> dispatched,
         ConcurrentHashMap<Integer, DispatchResult> results, CompletableFuture<DispatchResult> completion,
-        AtomicBoolean cancelled, AtomicInteger runningStageCount,
+        AtomicBoolean cancelled, AtomicInteger runningStageCount, AtomicInteger downstreamWakeups,
         ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink) {
     /** Allocates only volatile bookkeeping, never a second planning or execution path. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink) {
         return new DAGExecutionState(execution, dag, compiler, selector, durable, new CopyOnWriteArrayList<>(),
                 new ConcurrentHashMap<>(), new CompletableFuture<>(), new AtomicBoolean(), new AtomicInteger(),
+                new AtomicInteger(),
                 new ConcurrentHashMap<>(), sink);
     }
     public String queryId() { return execution.executionId(); }

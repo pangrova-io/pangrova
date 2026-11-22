@@ -958,6 +958,8 @@ provide backpressure without a Java `addBatch` bridge.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
+For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. Fenced publication and durable recovery retain their authoritative completion order.
+
 ![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
 **Output Worker selection algorithm**

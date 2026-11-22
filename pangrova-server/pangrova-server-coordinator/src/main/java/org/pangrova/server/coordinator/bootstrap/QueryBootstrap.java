@@ -353,6 +353,7 @@ final class QueryBootstrap {
                     }
                 },
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
+                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); },
                 () -> { if (queryScheduling != null) queryScheduling.close(); });
     }
 

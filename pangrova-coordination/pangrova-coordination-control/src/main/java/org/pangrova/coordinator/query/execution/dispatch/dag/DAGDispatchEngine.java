@@ -42,7 +42,7 @@ import org.slf4j.LoggerFactory;
 
 /** Drives asynchronous event-based dispatch for multi-stage queries. */
 @ThreadSafe
-public final class DAGDispatchEngine implements StageCompletionCallback {
+public final class DAGDispatchEngine implements StageCompletionCallback, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(DAGDispatchEngine.class);
 
     private final org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
@@ -50,6 +50,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     private final LeafStageDispatcher leafStageDispatcher;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
+    private final DownstreamStageScheduler downstreamStageScheduler;
     private final DAGLifecycleController lifecycle;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
 
@@ -72,6 +73,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         this.stagePlanBinder = new DAGStagePlanBinder(new RetrievalGenerationResolver(artifactResolver),
                 generatedValueReads);
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
+        this.downstreamStageScheduler = new DownstreamStageScheduler(dependencies.taskTracker());
         this.lifecycle = new DAGLifecycleController(
                 dependencies.dispatcher(), canceller,
                 dependencies.shuffleLifecycleManager(), dependencies.lineageEmitter(),
@@ -276,15 +278,29 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                     pipelineConfig.maxConcurrentStages());
             return;
         }
-        scheduleReadyDownstream(stage.stageId(), state);
+        requestReadyDownstream(stage.stageId(), state);
     }
 
     private void onStageFinished(DAGExecutionState state) {
         if (DAGCompletionEvaluator.allStagesFinished(state.dag())) {
             completeQuery(state);
         } else if (!state.cancelled().get()) {
-            scheduleReadyDownstream(-1, state);
+            requestReadyDownstream(-1, state);
         }
+    }
+
+    private void requestReadyDownstream(int triggerStageId, DAGExecutionState state) {
+        var context = lifecycle.queryContext(state.queryId());
+        if (state.durable() == null && context != null && context.writeConfig() == null) {
+            downstreamStageScheduler.request(state, () -> scheduleReadyDownstream(triggerStageId, state));
+        } else {
+            scheduleReadyDownstream(triggerStageId, state);
+        }
+    }
+
+    @Override
+    public void close() {
+        downstreamStageScheduler.close();
     }
 
     private void scheduleReadyDownstream(int triggerStageId, DAGExecutionState state) {
