@@ -158,7 +158,7 @@ final class CopyNativeInputAssertions {
                 });
         assertThat(localInputs(stagingRoot)).hasSize(1);
         long handle = manager.getExecutorHandle(id).orElseThrow();
-        readExactValues(runtime, accepted.taskRequest());
+        readExactValues(runtime, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
                         == org.pangrova.worker.enums.TaskState.FINISHED);
@@ -208,7 +208,7 @@ final class CopyNativeInputAssertions {
         }
     }
 
-    private static void readExactValues(ActualNativeTaskFixture runtime, TaskRequest request) throws Exception {
+    private static void readExactValues(ActualNativeTaskFixture runtime, SubmitTaskRequest request) throws Exception {
         int rows = 0;
         try (var allocator = new RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
              var client = FlightClient.builder(allocator,
