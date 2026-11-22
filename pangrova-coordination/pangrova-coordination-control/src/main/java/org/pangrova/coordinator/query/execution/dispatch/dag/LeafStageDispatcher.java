@@ -306,27 +306,31 @@ final class LeafStageDispatcher {
             List<DAGDispatchEngine.PartitionDispatch> pds, Stage stage,
             List<StageDispatchRecord> dispatched,
             ConcurrentHashMap<Integer, DispatchResult> results) {
+        List<StageDispatchRecord> cohort = pds.size() <= 1 ? dispatched : new ArrayList<>(pds.size());
         DispatchResult first = null;
-        for (DAGDispatchEngine.PartitionDispatch pd : pds) {
-            if (pd.winner() != null) continue;
-            DispatchResult r = pd.future().join();
-            var attempt = pd.request().taskRequest().getAttempt();
-            if (stage.shuffleHandle() != null
-                    && !stage.shuffleHandle().endpoints().isEmpty()) {
-                if (!attempt.hasExecutionOwner()) {
-                    throw new IllegalStateException(
-                            "External shuffle producer is missing execution owner");
+        try {
+            for (DAGDispatchEngine.PartitionDispatch pd : pds) {
+                if (pd.winner() != null) continue;
+                DispatchResult r = pd.future().join();
+                var attempt = pd.request().taskRequest().getAttempt();
+                if (stage.shuffleHandle() != null
+                        && !stage.shuffleHandle().endpoints().isEmpty()) {
+                    if (!attempt.hasExecutionOwner()) {
+                        throw new IllegalStateException(
+                                "External shuffle producer is missing execution owner");
+                    }
+                    stage.bindShuffleExecutionIdentity(
+                            attempt.getPlanEpoch(), attempt.getExecutionOwner());
                 }
-                stage.bindShuffleExecutionIdentity(
-                        attempt.getPlanEpoch(), attempt.getExecutionOwner());
+                cohort.add(new StageDispatchRecord(
+                        stage.stageId(), r, pd.workerHttpPort(), pd.workerTransportPort(),
+                        pd.request()));
+                if (first == null) first = r;
             }
-            dispatched.add(new StageDispatchRecord(
-                    stage.stageId(), r, pd.workerHttpPort(), pd.workerTransportPort(),
-                    pd.request()));
-            if (first == null) {
-                first = r;
-                results.put(stage.stageId(), first);
-            }
+        } finally {
+            // Keep the admitted prefix available to failure cleanup, with one shared snapshot copy per cohort.
+            if (cohort != dispatched) dispatched.addAll(cohort);
+            if (first != null) results.put(stage.stageId(), first);
         }
     }
 
