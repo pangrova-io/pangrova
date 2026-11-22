@@ -315,7 +315,7 @@ class FeatureViewSqlIntegrationTest {
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
             var key = new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, jobId);
-            var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
+            var progress = stages.inspectPartitions(key, anchor, terminal.stageId(), 0, 1).get(0);
             assertThat(progress.pageOrdinal()).isPositive();
             assertThat(stages.preparePartition(new org.pangrova.persistence.generation.api.execution
                     .GenerationStageExecutionStore.PartitionClaim(

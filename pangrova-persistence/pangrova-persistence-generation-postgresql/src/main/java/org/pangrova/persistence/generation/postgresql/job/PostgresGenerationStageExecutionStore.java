@@ -43,32 +43,27 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
     }
 
-    /** Reads one partition's progress after current authority and actual owner validation on the same connection. */
+    /** Checks the current authority and actual owner once per bounded window of exact partitions. */
     @Override
-    public PartitionProgress inspectPartition(GenerationJobKey key, ExecutionAnchor anchor,
-            int stageId, int partitionId) {
+    public List<PartitionProgress> inspectPartitions(GenerationJobKey key, ExecutionAnchor anchor,
+            int stageId, int firstPartition, int count) {
         if (!key.executionId().equals(anchor.executionId())) {
             throw new IllegalArgumentException("Partition inspection belongs to another durable execution");
         }
-        return inTransaction("inspect current durable stage partition", connection -> {
+        if (firstPartition < 0 || count < 1 || count > PARTITION_INSPECTION_WINDOW) {
+            throw new IllegalArgumentException("Invalid partition inspection window");
+        }
+        return inTransaction("inspect current durable stage partitions", connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(stageId);
-            if (partitionId < 0 || partitionId >= stage.parallelism()) {
-                throw new IllegalArgumentException("Inspected partition differs from its immutable stage cohort");
+            if (count > stage.parallelism() - firstPartition) {
+                throw new IllegalArgumentException("Inspected partitions differ from their immutable stage cohort");
             }
-            var row = PostgresGenerationPageSelection.findPartition(connection, key.tenantId(), key.jobId(),
-                    stageId, partitionId).orElseThrow();
-            if (row.kind() != stage.pageKind()) {
-                throw new IllegalStateException("Persisted page kind differs from its immutable stage");
-            }
-            var winner = "SUCCEEDED".equals(row.state())
-                    ? Optional.of(new NativeWinner(row.pageId(), row.attemptId(), row.fencingToken(), row.ownerEpoch(),
-                            row.executionOwner(), row.reportBytes(), row.reportSha256()))
-                    : Optional.<NativeWinner>empty();
-            return new PartitionProgress(row.pageOrdinal(), row.kind(), row.state(), winner);
+            return PostgresGenerationPageSelection.inspectWindow(connection, key.tenantId(), key.jobId(),
+                    stageId, stage.pageKind(), firstPartition, count);
         });
     }
 

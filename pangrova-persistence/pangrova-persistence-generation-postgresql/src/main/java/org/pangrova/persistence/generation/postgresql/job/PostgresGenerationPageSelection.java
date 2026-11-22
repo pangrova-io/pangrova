@@ -1,6 +1,8 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
 
 import java.sql.Connection;
@@ -8,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
@@ -112,6 +116,40 @@ final class PostgresGenerationPageSelection {
                 return Optional.of(page);
             }
         }
+    }
+
+    static List<PartitionProgress> inspectWindow(Connection connection, String tenantId, String jobId,
+            int stageId, GenerationPageKind kind, int firstPartition, int count) throws SQLException {
+        var progress = new ArrayList<PartitionProgress>(count);
+        try (var statement = connection.prepareStatement("""
+                SELECT * FROM artifact_build_pages
+                WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id>=? AND partition_id<?
+                ORDER BY partition_id FOR UPDATE
+                """)) {
+            statement.setFetchSize(4);
+            statement.setString(1, tenantId);
+            statement.setString(2, jobId);
+            statement.setInt(3, stageId);
+            statement.setInt(4, firstPartition);
+            statement.setInt(5, firstPartition + count);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    var page = mapPage(rows);
+                    if (page.partitionId() != firstPartition + progress.size() || page.kind() != kind) {
+                        throw new IllegalStateException("Persisted pages differ from their exact stage partitions");
+                    }
+                    var winner = "SUCCEEDED".equals(page.state())
+                            ? Optional.of(new NativeWinner(page.pageId(), page.attemptId(), page.fencingToken(),
+                                    page.ownerEpoch(), page.executionOwner(), page.reportBytes(), page.reportSha256()))
+                            : Optional.<NativeWinner>empty();
+                    progress.add(new PartitionProgress(page.pageOrdinal(), page.kind(), page.state(), winner));
+                }
+            }
+        }
+        if (progress.size() != count) {
+            throw new IllegalStateException("Persisted stage partitions are missing from the window");
+        }
+        return List.copyOf(progress);
     }
 
     static PageRow mapPage(ResultSet result) throws SQLException {

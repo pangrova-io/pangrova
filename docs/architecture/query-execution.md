@@ -797,6 +797,7 @@ provide backpressure without a Java `addBatch` bridge.
 The Coordinator routes durable Shuffle producer reports by the exact task kind it issued. Progress reports use that local binding. A finished report is published with the durable job association and execution-owner fence before its stage advances.
 Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
+Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
 
 #### 3.3.8 Coordinator Scheduler Design
 

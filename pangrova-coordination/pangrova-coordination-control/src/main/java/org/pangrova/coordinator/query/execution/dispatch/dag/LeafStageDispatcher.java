@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.StagePartitionDispatcher;
 import org.pangrova.execution.authority.StageExecutionContext;
@@ -226,29 +227,37 @@ final class LeafStageDispatcher {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
         ExchangeSourceBuilder.StageInputs exchangeInputs = null;
         DurableStageRuntime.StageTasks stageTasks = null;
-        for (int partition = 0; partition < input.plan().parallelism(); partition++) {
-            var progress = input.durable().inspect(input.plan().stageId(), partition);
-            if (progress.winner().isPresent()) {
-                var winner = input.durable().winner(input.plan().stageId(), partition, progress);
-                result.add(new DAGDispatchEngine.PartitionDispatch(
-                        java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
-                continue;
+        int stage = input.plan().stageId();
+        int total = input.plan().parallelism();
+        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        for (int first = 0; first < total; first += Math.min(window, total - first)) {
+            var progressWindow = input.durable().inspect(stage, first, Math.min(window, total - first));
+            for (int offset = 0; offset < progressWindow.size(); offset++) {
+                int partition = first + offset;
+                var progress = progressWindow.get(offset);
+                if (progress.winner().isPresent()) {
+                    var winner = input.durable().winner(stage, partition, progress);
+                    result.add(new DAGDispatchEngine.PartitionDispatch(
+                            java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
+                    continue;
+                }
+                if (exchangeInputs == null) {
+                    exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
+                    stageTasks = input.durable().bindStageTasks(stage);
+                }
+                var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
+                        exchangeInputs.bind(partition, null),
+                        buildShuffleConfig(input.plan(), input.dag(), true),
+                        shuffleHandle(input.dag(), stage), descriptorEncoder);
+                var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Exact durable partition is not claimable by the current execution owner"));
+                var issued = partitions.dispatch(prepared.request(), prepared.worker());
+                input.durable().dispatched(prepared, issued.acknowledgement());
+                result.add(new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(),
+                        prepared.worker().httpPort(),
+                        prepared.worker().transportPort(), prepared.worker().workerId(), issued.request(), null));
             }
-            if (exchangeInputs == null) {
-                exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
-                stageTasks = input.durable().bindStageTasks(input.plan().stageId());
-            }
-            var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
-                    exchangeInputs.bind(partition, null),
-                    buildShuffleConfig(input.plan(), input.dag(), true),
-                    shuffleHandle(input.dag(), input.plan().stageId()), descriptorEncoder);
-            var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Exact durable partition is not claimable by the current execution owner"));
-            var issued = partitions.dispatch(prepared.request(), prepared.worker());
-            input.durable().dispatched(prepared, issued.acknowledgement());
-            result.add(new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(), prepared.worker().httpPort(),
-                    prepared.worker().transportPort(), prepared.worker().workerId(), issued.request(), null));
         }
         return List.copyOf(result);
     }

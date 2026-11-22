@@ -156,9 +156,10 @@ public final class DurableStageRuntime {
         return FrozenStageBindings.read(persisted.stage(), graph.modelSnapshots());
     }
 
-    /** Current progress is read by exact coordinates, without an unbounded source-page materialization. */
-    public PartitionProgress inspect(int stage, int partition) {
-        return dependencies.stages().inspectPartition(job, execution.authority().executionAnchor(), stage, partition);
+    /** Current progress is read in a bounded window of exact consecutive partitions. */
+    public List<PartitionProgress> inspect(int stage, int firstPartition, int count) {
+        return dependencies.stages().inspectPartitions(job, execution.authority().executionAnchor(), stage,
+                firstPartition, count);
     }
 
     /** Placement and exact claim for one partition of a bound stage. */

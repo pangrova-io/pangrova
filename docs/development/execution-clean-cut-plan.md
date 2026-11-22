@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 112 将持久 Stage 的分区检查改为最多 8 个连续分区一笔事务。真实 PostgreSQL 的 20 分区对照中，页索引 SELECT、已持锁的交换屏障 SELECT 和执行路由 SELECT 各由 20 次降到 3 次。这三类语句合计从 60 条降到 9 条。按索引顺序验证整个窗口的精确页坐标和 winner，缺失分区拒绝派发。真正申领仍验证当前 owner、权限和页状态。101 项 Java、Checkstyle 和缺页回归通过，覆盖实际 SQL 生成的持久图和原始 Native winner 重放。
+
 实施批次 111 将状态等待的四个事件统一归属到共享值类型。修复查询生命周期依赖客户端 DTO 包的架构检查。HTTP 参数、版本比较、排队和物理 release 合同沿用现有行为。37 项 Java、Checkstyle 和 114 项 TPC 工具自测通过，另用 Corretto 17 编译了实际 TPC Java 适配器。
 
 实施批次 110 在已认证 JSON Profile 公开实际派发的执行 DAG。阶段计划宽度、Exchange 分布和读取模式来自 Coordinator 注册的同一张图。阶段观测按单进程单调时钟记录，并包含重试代次。使用原本的有界遥测存储，无新增查询路径 SQL。真实 HTTP、PostgreSQL 和 Native Flight 验证了单 Stage 的转换与读查询的 SQL 预算。双 Worker SQL 验证了多 Stage、Exchange 端点、结果和实际释放。25 项 Java 与 Checkstyle 通过。获胜 attempt 和 Exchange 阻塞的关键路径证据仍列在性能对齐计划。
