@@ -31,27 +31,27 @@ import java.util.List;
 public final class PangrovaRelMdSelectivity
         implements MetadataHandler<BuiltInMetadata.Selectivity> {
 
-    private final StatisticsBasedCostEstimator costEstimator;
-
-    public PangrovaRelMdSelectivity(StatisticsBasedCostEstimator costEstimator) {
-        this.costEstimator = costEstimator;
-    }
+    private static final RelMetadataProvider PROVIDER = ReflectiveRelMetadataProvider.reflectiveSource(
+            new PangrovaRelMdSelectivity(), BuiltInMethod.SELECTIVITY.method);
 
     @Override
     public org.apache.calcite.rel.metadata.MetadataDef<BuiltInMetadata.Selectivity> getDef() {
         return BuiltInMetadata.Selectivity.DEF;
     }
 
-    /** Creates a Calcite metadata provider backed by this selectivity estimator. */
-    public RelMetadataProvider asProvider() {
-        return ReflectiveRelMetadataProvider.reflectiveSource(this,
-                BuiltInMethod.SELECTIVITY.method);
+    /** Uses the estimator owned by each relation's planning context. */
+    public static RelMetadataProvider provider() {
+        return PROVIDER;
+    }
+
+    private static StatisticsBasedCostEstimator estimator(RelNode rel) {
+        return rel.getCluster().getPlanner().getContext().unwrap(StatisticsBasedCostEstimator.class);
     }
 
     /** Selectivity for Filter nodes — extracts predicate and delegates to histogram. */
     public Double getSelectivity(Filter rel, RelMetadataQuery mq, RexNode predicate) {
         RexNode effectivePredicate = predicate != null ? predicate : rel.getCondition();
-        Double result = estimateFromPredicate(rel.getInput(), effectivePredicate, mq);
+        Double result = estimateFromPredicate(rel.getInput(), effectivePredicate, mq, estimator(rel));
         if (result != null) {
             return result;
         }
@@ -61,7 +61,7 @@ public final class PangrovaRelMdSelectivity
     /** Selectivity for Join nodes with equality keys resolved to their source columns. */
     public Double getSelectivity(Join rel, RelMetadataQuery mq, RexNode predicate) {
         RexNode effectivePredicate = predicate != null ? predicate : rel.getCondition();
-        Double result = estimateJoinSelectivity(rel, effectivePredicate, mq);
+        Double result = estimateJoinSelectivity(rel, effectivePredicate, mq, estimator(rel));
         if (result != null) {
             return result;
         }
@@ -73,28 +73,31 @@ public final class PangrovaRelMdSelectivity
         return RelMdUtil.guessSelectivity(predicate);
     }
 
-    private Double estimateFromPredicate(RelNode input, RexNode predicate, RelMetadataQuery mq) {
+    private static Double estimateFromPredicate(RelNode input, RexNode predicate, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         if (predicate == null || costEstimator == null) {
             return null;
         }
         if (!(predicate instanceof RexCall call)) {
             return null;
         }
-        return estimateCallSelectivity(input, call, mq);
+        return estimateCallSelectivity(input, call, mq, costEstimator);
     }
 
-    private Double estimateCallSelectivity(RelNode input, RexCall call, RelMetadataQuery mq) {
+    private static Double estimateCallSelectivity(RelNode input, RexCall call, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         SqlKind kind = call.getKind();
         return switch (kind) {
-            case EQUALS -> estimateEquality(input, call, mq);
+            case EQUALS -> estimateEquality(input, call, mq, costEstimator);
             case GREATER_THAN, GREATER_THAN_OR_EQUAL,
-                 LESS_THAN, LESS_THAN_OR_EQUAL -> estimateRange(input, call, mq);
-            case IN -> estimateInList(input, call, mq);
+                 LESS_THAN, LESS_THAN_OR_EQUAL -> estimateRange(input, call, mq, costEstimator);
+            case IN -> estimateInList(input, call, mq, costEstimator);
             default -> null;
         };
     }
 
-    private Double estimateEquality(RelNode input, RexCall call, RelMetadataQuery mq) {
+    private static Double estimateEquality(RelNode input, RexCall call, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         ColumnRef ref = extractColumnRef(input, call, mq);
         if (ref == null) {
             return null;
@@ -106,7 +109,8 @@ public final class PangrovaRelMdSelectivity
         return costEstimator.estimateSelectivity(ref.tableName, ref.columnName);
     }
 
-    private Double estimateRange(RelNode input, RexCall call, RelMetadataQuery mq) {
+    private static Double estimateRange(RelNode input, RexCall call, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         ColumnRef ref = extractColumnRef(input, call, mq);
         if (ref == null) {
             return null;
@@ -129,7 +133,8 @@ public final class PangrovaRelMdSelectivity
         return kind == SqlKind.LESS_THAN || kind == SqlKind.LESS_THAN_OR_EQUAL;
     }
 
-    private Double estimateInList(RelNode input, RexCall call, RelMetadataQuery mq) {
+    private static Double estimateInList(RelNode input, RexCall call, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         ColumnRef ref = extractInListColumnRef(input, call, mq);
         if (ref == null) {
             return null;
@@ -166,7 +171,8 @@ public final class PangrovaRelMdSelectivity
         return values;
     }
 
-    private Double estimateJoinSelectivity(Join join, RexNode condition, RelMetadataQuery mq) {
+    private static Double estimateJoinSelectivity(Join join, RexNode condition, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         if (costEstimator == null || condition == null || join.getJoinType() != JoinRelType.INNER
                 || !join.getSystemFieldList().isEmpty()) {
             return null;
@@ -175,7 +181,7 @@ public final class PangrovaRelMdSelectivity
         Double selectivity = null;
         for (RexNode conj : conjunctions) {
             if (conj instanceof RexCall call && call.getKind() == SqlKind.EQUALS) {
-                Double est = estimateJoinEquality(join, call, mq);
+                Double est = estimateJoinEquality(join, call, mq, costEstimator);
                 if (est != null) {
                     // Without joint statistics, the most selective key gives a conservative estimate.
                     selectivity = selectivity == null ? est : Math.min(selectivity, est);
@@ -185,7 +191,8 @@ public final class PangrovaRelMdSelectivity
         return selectivity;
     }
 
-    private Double estimateJoinEquality(Join join, RexCall equiCall, RelMetadataQuery mq) {
+    private static Double estimateJoinEquality(Join join, RexCall equiCall, RelMetadataQuery mq,
+            StatisticsBasedCostEstimator costEstimator) {
         if (equiCall.getOperands().size() != 2) {
             return null;
         }

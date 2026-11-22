@@ -1881,6 +1881,8 @@ lives in Coordinator until the session contract closure is extracted.
 
 ### Compiled relation ownership
 
+Calcite reuses generated metadata handlers across queries with the same planning features. Each relational node resolves its statistics estimator and cost model through its own planner context. Query authorizations, catalog handles, and column lineage stay in the query scope.
+
 Planner Core owns `analysis.AuthorizedRelation` and
 `substrait.CompiledScanSchemas`. Query's authenticated compilation pipeline
 produces the relation, and Generation/Feature/AI consumers depend on that
