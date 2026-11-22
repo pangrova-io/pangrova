@@ -22,6 +22,8 @@ import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.DefinitionSnapshot;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,8 +38,8 @@ import static org.pangrova.common.util.Preconditions.requireText;
  * Resolves immutable artifact metadata on the Coordinator control plane.
  *
  * <p>The query-level resolution deliberately excludes physical objects. Those
- * are loaded only for one task partition, after split partitioning, so a large
- * generation is never broadcast through every task request.</p>
+ * are loaded for the assigned sources of a dispatch window. Each task receives
+ * its own source objects and the publication's shared generation outputs.</p>
  */
 public final class PublishedGenerationBindingResolver {
 
@@ -159,53 +161,61 @@ public final class PublishedGenerationBindingResolver {
                 .build();
     }
 
-    /**
-     * Expands artifact templates with only the objects required by one task's
-     * split identities and signs the resulting immutable binding.
-     */
-    public List<OperatorBinding> materializeForTask(
-            String tenantId, List<OperatorBinding> bindings, List<DataSplit> splits) {
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalArgumentException("tenantId must not be blank");
-        }
-        if (bindings == null || bindings.isEmpty()) {
-            return List.of();
-        }
-        splits.forEach(GenerationSourceSplitValidator::validateSplit);
-        List<OperatorBinding> result = new java.util.ArrayList<>(bindings.size());
-        for (OperatorBinding binding : bindings) {
-            if (binding.getArtifactsCount() == 0) {
-                result.add(binding);
-                continue;
+    /** Reads each publication once for the assigned sources in an exact live dispatch window. */
+    public List<List<OperatorBinding>> materializeForTasks(
+            String tenantId, List<OperatorBinding> bindings, List<List<DataSplit>> taskSplits) {
+        requireText(tenantId, "tenantId");
+        if (taskSplits.isEmpty()) return List.of();
+
+        Map<PublicationRead, ArtifactBinding> templates = new LinkedHashMap<>();
+        for (var binding : bindings) {
+            for (var artifact : binding.getArtifactsList()) {
+                templates.putIfAbsent(publicationRead(artifact), artifact);
             }
-            OperatorBinding.Builder materialized = binding.toBuilder().clearArtifacts();
-            for (ArtifactBinding artifact : binding.getArtifactsList()) {
-                materialized.addArtifacts(materialize(tenantId, artifact, splits));
-            }
-            result.add(materialized.build());
+        }
+        if (templates.isEmpty()) return java.util.Collections.nCopies(taskSplits.size(), List.copyOf(bindings));
+
+        List<Map<PublicationRead, PublishedInput>> prepared = new ArrayList<>(taskSplits.size());
+        for (var splits : taskSplits) {
+            splits.forEach(GenerationSourceSplitValidator::validateSplit);
+            prepared.add(new HashMap<>());
+        }
+        templates.forEach((read, template) -> loadWindow(tenantId, read, template, taskSplits, prepared));
+        List<List<OperatorBinding>> result = new ArrayList<>(taskSplits.size());
+        for (int partition = 0; partition < taskSplits.size(); partition++) {
+            result.add(materializeValidated(bindings, taskSplits.get(partition), prepared.get(partition)));
         }
         return List.copyOf(result);
     }
 
-    private ArtifactBinding materialize(
-            String tenantId, ArtifactBinding template, List<DataSplit> splits) {
-        if (template.getSplitObjectsCount() != 0 || template.hasBindingChecksum()) {
-            throw new IllegalArgumentException(
-                    "artifact plan binding must be an unsigned object-free template");
-        }
-        if (splits.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "artifact retrieval cannot be materialized without task splits");
-        }
-        Set<String> sourceObjectIds = matchingSourceObjects(template, splits);
+    private void loadWindow(String tenantId, PublicationRead read, ArtifactBinding template,
+            List<List<DataSplit>> taskSplits, List<Map<PublicationRead, PublishedInput>> prepared) {
+        var taskSources = taskSplits.stream().map(splits -> matchingSourceObjects(template, splits)).toList();
+        Set<String> windowSources = new HashSet<>();
+        taskSources.forEach(windowSources::addAll);
         GenerationManifest manifest = store.findPublishedGeneration(
-                tenantId, template.getArtifactId(), template.getGeneration(),
-                template.getSourceSnapshot()).orElseThrow(() ->
-                        new IllegalStateException(
-                                "pinned artifact generation is no longer published"));
-        List<GenerationOutput> outputs = store.loadPublishedOutputs(
-                manifest.tenantId(), manifest.jobId(), sourceObjectIds);
-        return materializePrepared(template, splits, new PublishedInput(manifest, outputs, sourceObjectIds));
+                tenantId, read.artifactId(), read.generation(), read.sourceSnapshot())
+                .orElseThrow(() -> new IllegalStateException("pinned artifact generation is no longer published"));
+        List<GenerationOutput> generationOutputs = new ArrayList<>();
+        Map<String, List<GenerationOutput>> sourceOutputs = new HashMap<>();
+        for (var output : store.loadPublishedOutputs(manifest.tenantId(), manifest.jobId(), windowSources)) {
+            if (output.scope() == GenerationOutputScope.GENERATION) {
+                generationOutputs.add(output);
+            } else if (output.scope() == GenerationOutputScope.SOURCE_OBJECT
+                    && windowSources.contains(output.sourceObjectId())) {
+                sourceOutputs.computeIfAbsent(output.sourceObjectId(), ignored -> new ArrayList<>()).add(output);
+            } else {
+                throw new IllegalStateException("artifact object lookup returned an unexpected scope");
+            }
+        }
+        for (int partition = 0; partition < taskSources.size(); partition++) {
+            var sourceIds = taskSources.get(partition);
+            List<GenerationOutput> outputs = new ArrayList<>(generationOutputs);
+            for (String sourceId : sourceIds) {
+                outputs.addAll(sourceOutputs.getOrDefault(sourceId, List.of()));
+            }
+            prepared.get(partition).put(read, new PublishedInput(manifest, outputs, sourceIds));
+        }
     }
 
     /** Pure task-local materialization from immutable evidence read on the claim transaction's connection. */
@@ -213,6 +223,12 @@ public final class PublishedGenerationBindingResolver {
             List<OperatorBinding> bindings, List<DataSplit> splits,
             Map<PublicationRead, PublishedInput> publications) {
         splits.forEach(GenerationSourceSplitValidator::validateSplit);
+        return materializeValidated(bindings, splits, publications);
+    }
+
+    private static List<OperatorBinding> materializeValidated(
+            List<OperatorBinding> bindings, List<DataSplit> splits,
+            Map<PublicationRead, PublishedInput> publications) {
         Set<PublicationRead> required = bindings.stream().flatMap(binding -> binding.getArtifactsList().stream())
                 .map(PublishedGenerationBindingResolver::publicationRead).collect(java.util.stream.Collectors.toSet());
         if (!required.equals(publications.keySet())) {
@@ -220,6 +236,7 @@ public final class PublishedGenerationBindingResolver {
                     "Prepared publication evidence differs from immutable stage read templates");
         }
         return bindings.stream().map(binding -> {
+            if (binding.getArtifactsCount() == 0) return binding;
             var result = binding.toBuilder().clearArtifacts();
             for (var artifact : binding.getArtifactsList()) {
                 result.addArtifacts(materializePrepared(artifact, splits, publications.get(publicationRead(artifact))));

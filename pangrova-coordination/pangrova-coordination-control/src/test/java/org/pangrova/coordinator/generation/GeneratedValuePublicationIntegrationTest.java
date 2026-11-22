@@ -91,7 +91,58 @@ class GeneratedValuePublicationIntegrationTest {
         publishBuild(buildStore, publicationStore, split);
         assertPublication(buildStore, publicationStore);
         assertTaskBinding(buildStore, publicationStore, split);
+        assertWindowMaterialization(dataSource, buildStore, publicationStore, split);
         assertClaimConnectionEvidence(dataSource, buildStore, publicationStore, split);
+    }
+
+    private static void assertWindowMaterialization(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
+            JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
+        var second = split.toBuilder()
+                .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
+                        "iceberg", SOURCE_ID, SNAPSHOT, "object-b", "s3://warehouse/object-b.parquet", 0, 0))
+                .setDataObjectId("object-b").setOpaqueLocation("s3://warehouse/object-b.parquet").build();
+        var resolution = new GeneratedValueGenerationBindingResolver(publicationStore, store)
+                .resolveTemplate(TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split, second)).orElseThrow();
+        var bindings = List.of(resolution.bind("scan-a"), resolution.bind("scan-b"));
+        var resolver = new PublishedGenerationBindingResolver(store);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+        for (int trial = 0; trial < 3; trial++) {
+            long before = materializationReads(dataSource);
+            var partitions = List.of(List.of(split), List.of(second));
+            var window = resolver.materializeForTasks(TENANT, bindings, partitions);
+            assertThat(window).hasSize(2);
+            for (int partition = 0; partition < window.size(); partition++) {
+                var actual = partitions.get(partition).get(0);
+                var results = window.get(partition);
+                assertThat(results).extracting(OperatorBinding::getPlanNodeId).containsExactly("scan-a", "scan-b");
+                for (var binding : results) {
+                    var artifact = binding.getArtifacts(0);
+                    PublishedGenerationBindingChecksum.verify(artifact);
+                    assertThat(artifact.getSplitObjectsList()).hasSize(2)
+                            .extracting(object -> object.getSourceObjectId()).containsOnly(actual.getDataObjectId());
+                }
+            }
+            long delta = materializationReads(dataSource) - before;
+            assertThat(delta).as("publication SELECTs per bounded window").isEqualTo(6);
+        }
+    }
+
+    private static long materializationReads(javax.sql.DataSource dataSource) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE 'SELECT%'
+                  AND (query LIKE '%FROM artifact_build_jobs%'
+                    OR query LIKE '%FROM artifact_build_dependencies%'
+                    OR query LIKE '%FROM artifact_build_outputs%')
+                  AND query NOT LIKE '%pg_stat_statements%'
+                """); var rows = statement.executeQuery()) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
+        }
     }
 
     private void assertClaimConnectionEvidence(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
@@ -234,9 +285,9 @@ class GeneratedValuePublicationIntegrationTest {
         assertThat(template.getExecutionPolicy().getFallbackPolicy()).isEqualTo(
                 org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID);
 
-        OperatorBinding taskBinding = new PublishedGenerationBindingResolver(buildStore).materializeForTask(
+        OperatorBinding taskBinding = new PublishedGenerationBindingResolver(buildStore).materializeForTasks(
                 TENANT, List.of(template),
-                List.of(split)).get(0);
+                List.of(List.of(split))).get(0).get(0);
         assertThat(taskBinding.getArtifacts(0).getSplitObjectsList())
                 .extracting(object -> object.getObjectRole())
                 .containsExactly("GENERATED_VALUES", "ROW_LOCATORS");

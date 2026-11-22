@@ -120,6 +120,11 @@ rebuilds its affected scan and ancestors. Reads of the same generated column and
 snapshot in one stage share one publication observation, including absence.
 Each scan retains its own binding node ID.
 
+Live artifact-bound tasks read publication metadata in windows of up to 16
+tasks, after split placement. The Coordinator loads each publication for the
+assigned source objects and builds task bindings with only their own source
+outputs and the publication's generation-wide outputs.
+
 The converter materializes Calcite's validated numeric result type in the function
 arguments. When an arithmetic expression has a floating result and a DECIMAL
 operand, it emits an explicit DECIMAL-to-floating cast before serializing the

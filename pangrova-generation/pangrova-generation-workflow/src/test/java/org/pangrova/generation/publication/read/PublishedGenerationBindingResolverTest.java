@@ -53,14 +53,14 @@ class PublishedGenerationBindingResolverTest {
         assertThat(resolved.getSplitObjectsCount()).isZero();
         assertThat(resolved.hasBindingChecksum()).isFalse();
 
-        OperatorBinding taskBinding = resolver.materializeForTask(
+        OperatorBinding taskBinding = resolver.materializeForTasks(
                 TENANT,
                 List.of(OperatorBinding.newBuilder()
                         .setPlanNodeId("retrieval-1")
                         .setCapability(BuiltInCapabilityCatalog.diskAnnRetrievalPlanRef())
                         .addArtifacts(resolved)
                         .build()),
-                List.of(split)).get(0);
+                List.of(List.of(split))).get(0).get(0);
         var artifact = taskBinding.getArtifacts(0);
         assertThat(artifact.getSplitObjectsList())
                 .extracting(object -> object.getObjectRole())
@@ -87,43 +87,47 @@ class PublishedGenerationBindingResolverTest {
         var template = resolver.resolveTemplate(intent(), List.of(split))
                 .orElseThrow().binding();
 
-        assertThatThrownBy(() -> resolver.materializeForTask(
+        assertThatThrownBy(() -> resolver.materializeForTasks(
                 TENANT,
                 List.of(OperatorBinding.newBuilder()
                         .setPlanNodeId("retrieval-1")
                         .setCapability(BuiltInCapabilityCatalog.diskAnnRetrievalPlanRef())
                         .addArtifacts(template)
                         .build()),
-                List.of(split)))
+                List.of(List.of(split))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("roles are incomplete");
     }
 
     @Test
-    void materializesBm25SourceBundleWithOneGenerationStatsObject() {
-        StoreStub store = new StoreStub(bm25Outputs("object-a"), true);
-        PublishedGenerationBindingResolver resolver =
-                new PublishedGenerationBindingResolver(store);
-        DataSplit split = split("object-a", "snapshot-1");
+    void sharesBm25GenerationStatsWhileKeepingEachTaskSourceBundleLocal() {
+        var outputs = new java.util.ArrayList<>(bm25Outputs("object-a"));
+        outputs.addAll(bm25Outputs("object-b").subList(1, 3));
+        StoreStub store = new StoreStub(outputs, true);
+        PublishedGenerationBindingResolver resolver = new PublishedGenerationBindingResolver(store);
+        DataSplit first = split("object-a", "snapshot-1");
+        DataSplit second = split("object-b", "snapshot-1");
 
-        var resolved = resolver.resolveTemplate(bm25Intent(), List.of(split)).orElseThrow().binding();
-        OperatorBinding taskBinding = resolver.materializeForTask(
-                TENANT,
-                List.of(OperatorBinding.newBuilder()
-                        .setPlanNodeId("retrieval-1")
-                        .setCapability(BuiltInCapabilityCatalog.bm25RetrievalPlanRef())
-                        .addArtifacts(resolved)
-                        .build()),
-                List.of(split)).get(0);
+        var resolved = resolver.resolveTemplate(bm25Intent(), List.of(first, second)).orElseThrow().binding();
+        var operator = OperatorBinding.newBuilder().setPlanNodeId("retrieval-1")
+                .setCapability(BuiltInCapabilityCatalog.bm25RetrievalPlanRef()).addArtifacts(resolved).build();
+        var window = resolver.materializeForTasks(TENANT, List.of(operator), List.of(List.of(first), List.of(second)));
 
-        var objects = taskBinding.getArtifacts(0).getSplitObjectsList();
-        assertThat(objects).extracting(object -> object.getObjectRole())
-                .containsExactly("BM25_CORPUS_STATS", "BM25_POSTINGS", "ROW_LOCATORS");
-        assertThat(objects.get(0).getScope())
-                .isEqualTo(org.pangrova.protocol.v2.ArtifactObjectScope
-                        .ARTIFACT_OBJECT_SCOPE_GENERATION);
-        assertThat(store.requestedSources).containsExactly("object-a");
-        PublishedGenerationBindingChecksum.verify(taskBinding.getArtifacts(0));
+        assertThat(window).hasSize(2);
+        for (int partition = 0; partition < window.size(); partition++) {
+            var artifact = window.get(partition).get(0).getArtifacts(0);
+            var objects = artifact.getSplitObjectsList();
+            assertThat(objects).extracting(object -> object.getObjectRole())
+                    .containsExactly("BM25_CORPUS_STATS", "BM25_POSTINGS", "ROW_LOCATORS");
+            assertThat(objects.get(0).getScope())
+                    .isEqualTo(org.pangrova.protocol.v2.ArtifactObjectScope.ARTIFACT_OBJECT_SCOPE_GENERATION);
+            assertThat(objects.subList(1, 3)).extracting(object -> object.getSourceObjectId())
+                    .containsOnly(partition == 0 ? "object-a" : "object-b");
+            PublishedGenerationBindingChecksum.verify(artifact);
+        }
+        assertThat(window.get(0).get(0).getArtifacts(0).getSplitObjects(0))
+                .isEqualTo(window.get(1).get(0).getArtifacts(0).getSplitObjects(0));
+        assertThat(store.requestedSources).containsExactlyInAnyOrder("object-a", "object-b");
     }
 
     @Test
@@ -270,7 +274,7 @@ class PublishedGenerationBindingResolverTest {
                                     .getSchemaSha256().toByteArray()),
                     BuiltInCapabilityIdentifiers.NATIVE_BUILD_ID,
                     "metadata://artifact-generation/" + SHA, SHA,
-                    3, 10, 300, PUBLISHED_AT));
+                    Math.max(3, outputs.size()), 10, 300, PUBLISHED_AT));
         }
 
         @Override
@@ -351,10 +355,12 @@ class PublishedGenerationBindingResolverTest {
         public java.util.Map<String, org.pangrova.generation.api.page.GenerationSplit>
                 loadPublishedSourceSplits(String tenantId, String jobId,
                         java.util.Set<String> sourceObjectIds) {
-            if (!sourceObjectIds.equals(Set.of("object-a"))) return java.util.Map.of();
-            byte[] bytes = split("object-a", "snapshot-1").toByteArray();
-            return java.util.Map.of("object-a",
-                    org.pangrova.generation.api.page.GenerationSplit.of("object-a", bytes));
+            return outputs.stream()
+                    .filter(output -> output.scope() == GenerationOutputScope.SOURCE_OBJECT)
+                    .map(GenerationOutput::sourceObjectId).distinct().filter(sourceObjectIds::contains)
+                    .collect(java.util.stream.Collectors.toUnmodifiableMap(id -> id,
+                            id -> org.pangrova.generation.api.page.GenerationSplit.of(
+                                    id, split(id, "snapshot-1").toByteArray())));
         }
 
         @Override public void createJob(GenerationJob job, GenerationDispatchSpec spec,

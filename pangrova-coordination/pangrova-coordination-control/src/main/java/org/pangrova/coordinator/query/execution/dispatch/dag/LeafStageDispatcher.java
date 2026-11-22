@@ -31,6 +31,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 final class LeafStageDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeafStageDispatcher.class);
+    private static final int ARTIFACT_DISPATCH_WINDOW = 16;
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
@@ -106,6 +108,7 @@ final class LeafStageDispatcher {
             List<List<DataSplit>> partitionedSplits,
             List<List<String>> partitionFilePaths,
             boolean leafStage,
+            boolean hasArtifacts,
             int taskCount) {}
 
     List<DAGDispatchEngine.PartitionDispatch> dispatchLeafStage(LeafDispatch input) {
@@ -117,8 +120,18 @@ final class LeafStageDispatcher {
         }
         PreparedDispatch prepared = prepareDispatch(input);
         List<DAGDispatchEngine.PartitionDispatch> dispatches = new ArrayList<>();
-        for (int partition = 0; partition < prepared.taskCount(); partition++) {
-            dispatches.add(dispatchPartition(input, prepared, partition));
+        var templates = input.boundPlan().operatorBindings();
+        int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : Math.max(1, prepared.taskCount());
+        for (int first = 0; first < prepared.taskCount();) {
+            int last = first + Math.min(window, prepared.taskCount() - first);
+            var taskBindings = prepared.hasArtifacts()
+                    ? materializeArtifactBindings(input.session().tenantId(), templates,
+                            prepared.partitionedSplits().subList(first, last))
+                    : java.util.Collections.nCopies(last - first, templates);
+            for (int partition = first; partition < last; partition++) {
+                dispatches.add(dispatchPartition(input, prepared, partition, taskBindings.get(partition - first)));
+            }
+            first = last;
         }
         LOG.info("event=push_mode_dispatch queryId={} stageId={} splits={}"
                         + " tasks={} shufflePartitions={}",
@@ -150,7 +163,7 @@ final class LeafStageDispatcher {
         return new PreparedDispatch(new TaskRequestFactory.FrozenStagePlan(input.boundPlan().planBytes()),
                 ExchangeSourceBuilder.prepare(plan, input.dag(), input.dispatched()),
                 input.workerSelector().bindStagePlacement(input.session().tenantId()),
-                shuffleConfig, partitionedSplits, partitionFilePaths, leafStage, taskCount);
+                shuffleConfig, partitionedSplits, partitionFilePaths, leafStage, hasArtifactBindings, taskCount);
     }
 
     private int taskCount(
@@ -215,9 +228,9 @@ final class LeafStageDispatcher {
     }
 
     private DAGDispatchEngine.PartitionDispatch dispatchPartition(
-            LeafDispatch input, PreparedDispatch prepared, int partition) {
+            LeafDispatch input, PreparedDispatch prepared, int partition, List<OperatorBinding> taskBindings) {
         var worker = selectWorker(input, prepared, partition);
-        var request = buildTaskRequest(input, prepared, partition, worker);
+        var request = buildTaskRequest(input, prepared, partition, worker, taskBindings);
         var issued = partitions.dispatch(request, worker);
         return new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(), worker.httpPort(),
                 worker.transportPort(), worker.workerId(), issued.request(), null);
@@ -279,7 +292,7 @@ final class LeafStageDispatcher {
 
     private SubmitTaskRequest buildTaskRequest(
             LeafDispatch input, PreparedDispatch prepared, int partition,
-            WorkerInfo selectedWorker) {
+            WorkerInfo selectedWorker, List<OperatorBinding> taskBindings) {
         var attempt = org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(
                 input.planEpoch(), 0);
         var sources = prepared.exchangeInputs().bind(partition, localShuffle ? selectedWorker : null);
@@ -287,9 +300,6 @@ final class LeafStageDispatcher {
         var limit = prepared.placement().computeResourceLimit(
                 stage == null ? input.plan().parallelism() : stage.physicalTaskCount(), 1, selectedWorker);
         List<DataSplit> taskSplits = prepared.partitionedSplits().get(partition);
-        var taskBindings = materializeArtifactBindings(
-                input.session().tenantId(),
-                input.boundPlan().operatorBindings(), taskSplits);
         if (input.writeConfig() != null) {
             return TaskRequestFactory.buildDmlWriteRequest(
                     new TaskRequestFactory.DmlWriteTask(
@@ -378,21 +388,13 @@ final class LeafStageDispatcher {
         }
     }
 
-    private List<org.pangrova.protocol.v2.OperatorBinding> materializeArtifactBindings(
-            String tenantId,
-            List<org.pangrova.protocol.v2.OperatorBinding> bindings,
-            List<DataSplit> taskSplits) {
-        boolean requiresArtifacts = bindings.stream()
-                .anyMatch(binding -> binding.getArtifactsCount() > 0);
-        if (!requiresArtifacts) {
-            return bindings;
-        }
+    private List<List<OperatorBinding>> materializeArtifactBindings(
+            String tenantId, List<OperatorBinding> bindings, List<List<DataSplit>> taskSplits) {
         if (artifactBindingResolver == null) {
-            throw new IllegalStateException(
-                    "artifact retrieval plan has no durable metadata resolver");
+            throw new IllegalStateException("artifact retrieval plan has no durable metadata resolver");
         }
-        return GenerationPartitionResources.bind(artifactBindingResolver.materializeForTask(
-                tenantId, bindings, taskSplits));
+        return artifactBindingResolver.materializeForTasks(tenantId, bindings, taskSplits).stream()
+                .map(GenerationPartitionResources::bind).toList();
     }
 
     private static List<SourceObjectSplits> groupSourceObjects(List<QuerySplit> splits) {
