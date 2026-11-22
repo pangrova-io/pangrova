@@ -30,7 +30,7 @@ unlisted: true
 | 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及两列分组的 Shuffle 行数从 192 降到 16 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
 | AQE 读取布局 | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 完整 SQL 负载仍需归因，Join 多输入合并、偏斜拆分和 durable replay 各需覆盖证明 |
 | 短查询、交换与结果 | JNI 完成轮询已读取标量状态。定时 HTTP、远端逐 batch SQL 与 Flight IPC 回转已有调用证据。现有局部 Top-K 和最终归并应作为基础 | 按查询类别量化固定开销、读放大、实际出口和客户端背压，优先缩短无数据依赖的等待 |
-| 归因能力 | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt 与被 Stage 接纳的物理成功尝试 | 补齐 Exchange 等待与调度原因，区分排队、执行、blocked、撤销和物理释放 |
+| 归因能力 | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt 与被 Stage 接纳的物理成功尝试 | 已记录实时读准备队列的排队、运行和拒绝。继续补齐 Exchange 阻塞原因、依赖准入和物理释放时间 |
 
 ## 修正工作包
 

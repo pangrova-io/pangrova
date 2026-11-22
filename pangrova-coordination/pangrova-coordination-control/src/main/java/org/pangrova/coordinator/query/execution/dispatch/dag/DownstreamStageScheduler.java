@@ -5,7 +5,9 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
+import org.pangrova.coordinator.query.task.QueryStageObservations;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
+import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -28,34 +30,51 @@ final class DownstreamStageScheduler implements AutoCloseable {
         this.executor = executor;
     }
 
-    void request(DAGExecutionState state, Runnable prepareReadyStages) {
+    void request(DAGExecutionState state, QueryStageObservations observations, Runnable prepareReadyStages) {
         if (!active(state) || state.downstreamWakeups().getAndIncrement() != 0) return;
         // Hold issuance through queueing, planning and actual split-source close.
         var operation = tracker.enterQueryOperation(state.queryId());
+        var preparation = observations == null ? null : observations.submitPreparation();
         try {
             executor.execute(() -> ExecutorDrain.runOwned(executor, () -> {
                 try (operation) {
-                    drain(state, prepareReadyStages);
+                    runPreparation(state, preparation, prepareReadyStages);
                 }
             }));
         } catch (RejectedExecutionException failure) {
+            if (preparation != null) preparation.finish(PreparationOutcome.REJECTED);
             operation.close();
             throw new PangrovaException(PangrovaErrorCode.RUNTIME_RESOURCE_EXHAUSTED,
                     "Downstream read preparation queue is full", failure);
         }
     }
 
-    private static void drain(DAGExecutionState state, Runnable prepareReadyStages) {
-        int wakeups = 1;
+    private static void runPreparation(DAGExecutionState state, QueryStageObservations.Preparation preparation,
+            Runnable prepareReadyStages) {
+        if (preparation != null) preparation.start();
         try {
-            do {
-                if (active(state)) prepareReadyStages.run();
-                wakeups = state.downstreamWakeups().addAndGet(-wakeups);
-            } while (wakeups != 0);
+            boolean ran = drain(state, prepareReadyStages);
+            if (preparation != null) {
+                preparation.finish(ran ? PreparationOutcome.COMPLETED : PreparationOutcome.SKIPPED);
+            }
         } catch (RuntimeException failure) {
+            if (preparation != null) preparation.finish(PreparationOutcome.FAILED);
             state.cancelled().set(true);
             state.completion().completeExceptionally(failure);
         }
+    }
+
+    private static boolean drain(DAGExecutionState state, Runnable prepareReadyStages) {
+        boolean ran = false;
+        int wakeups = 1;
+        do {
+            if (active(state)) {
+                prepareReadyStages.run();
+                ran = true;
+            }
+            wakeups = state.downstreamWakeups().addAndGet(-wakeups);
+        } while (wakeups != 0);
+        return ran;
     }
 
     private static boolean active(DAGExecutionState state) {

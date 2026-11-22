@@ -543,6 +543,13 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         assertThat(event.elapsedNanos()).isNotNegative();
                         assertThat(event.generation()).isNotNegative();
                     });
+                    assertThat(graph.downstreamPreparations()).isNotEmpty().allSatisfy(preparation -> {
+                        assertThat(preparation.startedNanos()).isGreaterThanOrEqualTo(preparation.submittedNanos());
+                        assertThat(preparation.finishedNanos()).isGreaterThanOrEqualTo(preparation.startedNanos());
+                    });
+                    assertThat(graph.downstreamPreparations()).anySatisfy(preparation ->
+                            assertThat(preparation.outcome()).isEqualTo(
+                                    org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome.COMPLETED));
                     var attempts = profile.orElseThrow().attempts();
                     assertThat(graph.selectedAttempts()).isNotEmpty().allSatisfy(selection ->
                             assertThat(attempts).anySatisfy(attempt -> {

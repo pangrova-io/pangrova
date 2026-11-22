@@ -53,6 +53,15 @@ and stage generation. A speculative copy can settle its original logical slot.
 The record carries both task IDs and the physical attempt’s plan epoch. It can
 include earlier stage generations from a retried query.
 
+`downstreamPreparations` describes work submitted to the live read preparation
+executor. Each entry covers one executor submission, which can handle multiple
+coalesced wakeups. The `submittedNanos`, `startedNanos` and `finishedNanos`
+offsets share the graph's monotonic origin. A queued entry has only a submission
+offset. A rejected entry also has a finish offset. The other outcomes are
+`RUNNING`, `COMPLETED`, `SKIPPED` (inactive when drained), and `FAILED`.
+Queue time is the start minus submission, and execution time is the finish
+minus start. Parallel work can overlap these intervals.
+
 ### Submit a Query
 
 Request:

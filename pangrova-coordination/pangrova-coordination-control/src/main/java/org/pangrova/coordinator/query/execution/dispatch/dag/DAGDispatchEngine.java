@@ -36,6 +36,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
+import org.pangrova.coordinator.query.task.QueryStageObservations;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
@@ -208,7 +209,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 }
                 updateRunningCount(previous, next, state.runningStageCount());
                 try {
-                    onStateChange(stage, next, state);
+                    onStateChange(stage, next, state, observations);
                 } catch (Exception failure) {
                     LOG.error("event=stage_listener_exception stageId={} queryId={}"
                                     + " transition={}→{} error={}",
@@ -222,13 +223,13 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void onStateChange(
-            Stage stage, StageState next, DAGExecutionState state) {
+            Stage stage, StageState next, DAGExecutionState state, QueryStageObservations observations) {
         switch (next) {
-            case RUNNING -> onStageRunning(stage, state);
+            case RUNNING -> onStageRunning(state, observations);
             case FINISHED -> {
                 fireHandlerEvent(stage, state, StageLifecycleHandler::onFinished);
                 if (state.buildFilter() != null) state.buildFilter().onFinished(stage);
-                onStageFinished(state);
+                onStageFinished(state, observations);
             }
             case FAILED -> onFailedState(stage, state);
             default -> {
@@ -292,7 +293,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         }
     }
 
-    private void onStageRunning(Stage stage, DAGExecutionState state) {
+    private void onStageRunning(DAGExecutionState state, QueryStageObservations observations) {
         if (state.durable() != null || !pipelineConfig.enabled() || state.cancelled().get()) {
             return;
         }
@@ -303,23 +304,23 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     pipelineConfig.maxConcurrentStages());
             return;
         }
-        requestReadyDownstream(stage.stageId(), state);
+        requestReadyDownstream(state, observations);
     }
 
-    private void onStageFinished(DAGExecutionState state) {
+    private void onStageFinished(DAGExecutionState state, QueryStageObservations observations) {
         if (DAGCompletionEvaluator.allStagesFinished(state.dag())) {
             completeQuery(state);
         } else if (!state.cancelled().get()) {
-            requestReadyDownstream(-1, state);
+            requestReadyDownstream(state, observations);
         }
     }
 
-    private void requestReadyDownstream(int triggerStageId, DAGExecutionState state) {
+    private void requestReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
         var context = lifecycle.queryContext(state.queryId());
         if (state.durable() == null && context != null && context.writeConfig() == null) {
-            downstreamStageScheduler.request(state, () -> scheduleReadyDownstream(triggerStageId, state));
+            downstreamStageScheduler.request(state, observations, () -> scheduleReadyDownstream(state));
         } else {
-            scheduleReadyDownstream(triggerStageId, state);
+            scheduleReadyDownstream(state);
         }
     }
 
@@ -328,7 +329,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         downstreamStageScheduler.close();
     }
 
-    private void scheduleReadyDownstream(int triggerStageId, DAGExecutionState state) {
+    private void scheduleReadyDownstream(DAGExecutionState state) {
         Set<Integer> activeIds = activeStageIds(state);
         for (Stage downstream : state.dag().readyStageEntities(activeIds)) {
             if (state.cancelled().get() || atConcurrencyLimit(state)) {
@@ -336,7 +337,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             }
             if (downstream.stateMachine().getState()
                     == StageState.PLANNED) {
-                logPipelineSchedule(triggerStageId, downstream, state.queryId());
                 scheduleStage(downstream, state);
             }
         }
@@ -359,15 +359,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         return pipelineConfig.maxConcurrentStages() > 0
                 && state.runningStageCount().get()
                         >= pipelineConfig.maxConcurrentStages();
-    }
-
-    private static void logPipelineSchedule(
-            int triggerStageId, Stage downstream, String queryId) {
-        if (triggerStageId >= 0) {
-            LOG.info("event=pipeline_schedule queryId={} triggerStageId={}"
-                            + " downstreamStageId={}",
-                    queryId, triggerStageId, downstream.stageId());
-        }
     }
 
     private void scheduleStage(Stage stage, DAGExecutionState state) {

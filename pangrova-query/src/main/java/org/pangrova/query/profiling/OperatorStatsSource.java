@@ -14,12 +14,13 @@ public interface OperatorStatsSource {
     }
 
     record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
-            List<SelectedAttempt> selectedAttempts) {
+            List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
             transitions = List.copyOf(transitions);
             selectedAttempts = List.copyOf(selectedAttempts);
+            downstreamPreparations = List.copyOf(downstreamPreparations);
         }
     }
 
@@ -34,6 +35,14 @@ public interface OperatorStatsSource {
 
     /** The offset is relative to the Coordinator's registration of this graph. */
     record StageTransition(int stageId, int generation, String previous, String state, long elapsedNanos) {}
+
+    /** One submission to the live read preparation executor, including coalesced wakeups. */
+    record DownstreamPreparation(long submittedNanos, Long startedNanos, Long finishedNanos,
+            PreparationOutcome outcome) {}
+
+    enum PreparationOutcome {
+        QUEUED, RUNNING, COMPLETED, SKIPPED, FAILED, REJECTED
+    }
 
     /** Coordinates and counters from the latest retained report for one exact attempt. */
     record Attempt(

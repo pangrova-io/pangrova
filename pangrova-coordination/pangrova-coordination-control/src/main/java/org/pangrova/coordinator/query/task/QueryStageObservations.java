@@ -6,19 +6,22 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
-import org.pangrova.query.profiling.OperatorStatsSource.SelectedAttempt;
+import org.pangrova.query.profiling.OperatorStatsSource.DownstreamPreparation;
 import org.pangrova.query.profiling.OperatorStatsSource.Exchange;
 import org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph;
+import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.SelectedAttempt;
 import org.pangrova.query.profiling.OperatorStatsSource.Stage;
 import org.pangrova.query.profiling.OperatorStatsSource.StageTransition;
 
-/** Records actual stage transitions observed on the owning Coordinator's monotonic clock. */
+/** Records actual stage transitions and scheduling work on the owning Coordinator's monotonic clock. */
 public final class QueryStageObservations {
     private final long startedAt = System.nanoTime();
     private final List<Stage> stages;
     private final List<Exchange> exchanges;
     private final ConcurrentLinkedQueue<StageTransition> transitions = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Preparation> preparations = new ConcurrentLinkedQueue<>();
 
     QueryStageObservations(StageDAG dag) {
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
@@ -30,7 +33,7 @@ public final class QueryStageObservations {
 
     public void record(int stageId, int generation, StageState previous, StageState state) {
         transitions.add(new StageTransition(stageId, generation, previous.name(), state.name(),
-                System.nanoTime() - startedAt));
+                elapsedNanos()));
     }
 
     public void recordSelection(int stageId, int generation, String logicalTaskId, SuccessfulAttempt attempt) {
@@ -38,11 +41,42 @@ public final class QueryStageObservations {
                 attempt.attemptId(), logicalTaskId, attempt.taskId()));
     }
 
+    /** Records submission before the work enters the executor. */
+    public Preparation submitPreparation() {
+        var preparation = new Preparation(elapsedNanos());
+        preparations.add(preparation);
+        return preparation;
+    }
+
+    private long elapsedNanos() {
+        return System.nanoTime() - startedAt;
+    }
+
+    /** One scheduler-owned operation, with a consistent snapshot at each transition. */
+    public final class Preparation {
+        private volatile DownstreamPreparation latest;
+
+        private Preparation(long submittedNanos) {
+            latest = new DownstreamPreparation(submittedNanos, null, null, PreparationOutcome.QUEUED);
+        }
+
+        public void start() {
+            latest = new DownstreamPreparation(latest.submittedNanos(), elapsedNanos(), null,
+                    PreparationOutcome.RUNNING);
+        }
+
+        public void finish(PreparationOutcome outcome) {
+            latest = new DownstreamPreparation(latest.submittedNanos(), latest.startedNanos(), elapsedNanos(), outcome);
+        }
+    }
+
     ExecutionGraph snapshot() {
         var timeline = transitions.stream().sorted(Comparator.comparingLong(StageTransition::elapsedNanos)).toList();
         var selected = selectedAttempts.stream().sorted(Comparator.comparingInt(SelectedAttempt::stageId)
                 .thenComparingInt(SelectedAttempt::generation).thenComparingInt(SelectedAttempt::partitionId)
                 .thenComparing(SelectedAttempt::taskId)).toList();
-        return new ExecutionGraph(stages, exchanges, timeline, selected);
+        var preparation = preparations.stream().map(work -> work.latest)
+                .sorted(Comparator.comparingLong(DownstreamPreparation::submittedNanos)).toList();
+        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation);
     }
 }
