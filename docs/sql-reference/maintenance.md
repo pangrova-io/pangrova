@@ -196,6 +196,9 @@ WHERE event_time >= TIMESTAMP '2024-06-01 00:00:00';
 
 ### SHOW CLUSTERING STATUS
 
+The caller needs `ALTER` on the table because this statement can reconcile an
+interrupted rewrite.
+
 The result reports the current order and the number of current files
 covered by it. The latest rewrite's durable task ID and task state appear
 in `task_id` and `task_state`. When a prior Coordinator left a running
