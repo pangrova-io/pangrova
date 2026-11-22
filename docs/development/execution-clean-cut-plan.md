@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 99 让普通 INSERT 直接进入现有 fenced commit。真实 HTTP、Iceberg 和 PostgreSQL 对照中，物化任务查询从 1 次降到 0 次，执行所有权 SELECT 从 4 次降到 3 次。客户端携带内部物化属性的用例仍走普通授权，写入文件在实际 drain 后可读且只有一行。COPY 持久化回执后的检查与物化发布的权威查验继续生效。连接器提供的发布回执以 journal 写入确认作为持久化证据。59 项 Java 和 Checkstyle 回归通过，含真实 PostgreSQL、COPY SQL、Dynamic Table 的真实空快照及 Materialized View 的提交与刷新。
+
 实施批次 98 复用 Calcite 生成的元数据处理器。无状态的 handler chain 由同一进程共享，统计估计器、成本参数和授权仍由各查询的规划上下文持有。两个独立范围对相同 Join 分别给出 0.001 和 0.05 的选择率，共享处理器身份。同一机器和同一持久 SDK 夹具开启 JFR，前后各 230 个完整结果及物理释放全部核验。正式窗口的规划线程采样中，Janino 元数据编译从 8/50 降到 0/28。常量、点查、选择性扫描、计数、分组的串行首行 P50 分别由 31.62、79.46、66.48、54.30、79.41 ms 降至 9.09、43.36、32.48、30.36、38.76 ms。这组延迟来自带 JFR 的单 Worker 对照。51 项定向 Java 及 Checkstyle 通过，覆盖 CBO、血缘、真实 PostgreSQL 权限和 Native 动态过滤。
 
 实施批次 97 保留每个已签发 task attempt 的最新 Native 算子计数。组装按同一 attempt 的上报序号保序，避免较晚处理的旧报告覆盖。REST JSON 分别给出 Stage、分区、计划代次、任务、Worker、执行状态和实际背压。旧的跨 Stage 同名归并、合成树和用 wall 减 CPU 推算 I/O 的字段已移除。真实 HTTP 与双 Worker SQL 回归验证了公开数据、不同 Stage 和两端 Worker 的归属。25 项 Java 回归、Checkstyle 和 114 项 TPC 工具自测通过。执行 DAG、获胜关系及阻塞原因的关键路径证据继续保留在待办。

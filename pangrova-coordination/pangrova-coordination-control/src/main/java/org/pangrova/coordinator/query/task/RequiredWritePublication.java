@@ -13,8 +13,7 @@ final class RequiredWritePublication {
     private RequiredWritePublication() {}
 
     static void commit(WriteCommitJournal journal, ConnectorMetadata metadata, ConnectorSession session,
-            ConnectorOutputTableHandle handle, WriteCommitEntry intent) {
-        boolean required = journal.requiresPublication(intent);
+            ConnectorOutputTableHandle handle, WriteCommitEntry intent, boolean required) {
         if (required && metadata instanceof DistributedWritePublicationMetadata publisher) {
             var receipt = publisher.finishDistributedWriteWithPublication(
                     session, handle, intent.fragments(), intent.commitContext());
@@ -22,12 +21,12 @@ final class RequiredWritePublication {
                 throw new IllegalStateException("Required write publication has not been confirmed");
             }
             journal.recordPublication(intent.queryId(), intent.commitFingerprint(), receipt);
-        } else {
-            if (required && handle.nativeWriteAllocation().isEmpty()) {
-                throw new UnsupportedOperationException("Connector cannot confirm the required write publication");
-            }
-            metadata.finishDistributedWrite(session, handle, intent.fragments(), intent.commitContext());
+            return;
         }
+        if (required && handle.nativeWriteAllocation().isEmpty()) {
+            throw new UnsupportedOperationException("Connector cannot confirm the required write publication");
+        }
+        metadata.finishDistributedWrite(session, handle, intent.fragments(), intent.commitContext());
         if (required && journal.getEntry(intent.queryId()).orElseThrow().publication() == null) {
             throw new IllegalStateException("Required write commit lost its exact publication receipt");
         }

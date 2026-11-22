@@ -14,6 +14,7 @@ import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
+import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
@@ -155,8 +156,8 @@ final class NativeTaskWriteCompletion {
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) return false;
         if (copyPublication != null) {
             writeCommitJournal.recordCopyFilePublication(intent, copyPublication);
+            if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         }
-        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         writeCommitJournal.markCommitted(queryId);
         retireCommittedWrite(intent);
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
@@ -175,7 +176,10 @@ final class NativeTaskWriteCompletion {
                 intent, writeState.outputHandle().targetTable().orElseThrow(),
                 connectorCatalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(writeState.session());
-        RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent);
+        boolean required = DynamicTableRewriter.isInternalExecution(writeState.session())
+                && writeCommitJournal.requiresPublication(intent);
+        RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent,
+                required);
         if (intent.copyFile() == null) {
             return null;
         }

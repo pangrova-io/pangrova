@@ -8,8 +8,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.query.QueryWaitTarget;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.json.JsonMapperFactory;
@@ -19,25 +21,31 @@ import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-/** Measures PostgreSQL statements across the real read result and drain lifecycle. */
+/** Measures PostgreSQL reads from SQL submission through physical drain. */
 class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     private static final String JOURNAL_LOOKUP =
             "SELECT query_id, catalog_name,%FROM write_commit_journal WHERE query_id = $1";
     private static final String ANCHOR_LOOKUP =
             "SELECT owner_id, owner_incarnation, fencing_token,%FROM execution_anchor "
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
+    private static final String PUBLICATION_LOOKUP =
+            "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of();
+        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString()));
     }
 
-    @Test
-    void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws SQLException {
+    @BeforeAll
+    static void installStatementCounters() throws SQLException {
         try (var connection = stateStoreDataSource().getConnection();
                 var statement = connection.createStatement()) {
             statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
         }
+    }
+
+    @Test
+    void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws SQLException {
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
         String queryId;
@@ -59,16 +67,40 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                 assertThat(((Number) cursor.value(0)).longValue()).isEqualTo(42L);
                 assertThat(cursor.next()).isFalse();
             }
-            var status = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
-            while (!Boolean.TRUE.equals(status.drained())) {
-                assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
-                status = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
-            }
-            assertThat(status.state()).isEqualTo("FINISHED");
+            awaitSuccessfulDrain(execution, deadline);
         }
         assertThat(calls(JOURNAL_LOOKUP) - previousJournalLookups).as("write journal SELECTs").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
         assertExactAttemptProfile(queryId);
+    }
+
+    @Test
+    void publicInsertPublishesWithoutLookingForAnInternalMaterializationAttempt() throws SQLException {
+        String table = "iceberg_catalog.default.completion_database_budget";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        long previousLookups = calls(PUBLICATION_LOOKUP);
+        long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
+        try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
+                .coordinatorPort(coordinatorHttpPort()).bearerToken(E2E_USER_BEARER_TOKEN)
+                .retryPolicy(RetryPolicy.NONE).build()) {
+            long deadline = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
+            var execution = client.beginQuery("INSERT INTO " + table + " VALUES (7)",
+                    Map.of("pangrova.materialization.internal-execution", "true"));
+            awaitSuccessfulDrain(execution, deadline);
+        }
+        assertThat(calls(PUBLICATION_LOOKUP) - previousLookups).as("materialization attempt SELECTs").isZero();
+        assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("distinct write fence SELECTs").isEqualTo(3L);
+        assertThat(sqlRunner.execute("SELECT id FROM " + table)).extracting(row -> row.getLong("id"))
+                .containsExactly(7L);
+    }
+
+    private static void awaitSuccessfulDrain(QueryExecution execution, long deadline) {
+        var status = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+        while (!Boolean.TRUE.equals(status.drained())) {
+            assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
+            status = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+        }
+        assertThat(status.state()).isEqualTo("FINISHED");
     }
 
     private static void assertExactAttemptProfile(String queryId) {

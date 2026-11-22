@@ -134,6 +134,8 @@ Routing rule: relational writes, including DELETE ALL and VALUES, use Native tas
 
 ## 2. Write Transaction Atomicity
 
+Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator checks the durable materialization consumer for trusted internal executions and during recovery. A COPY publication validates ownership after persisting its exact file receipt. A connector publication recorded by the journal carries its durable evidence into the remaining commit steps.
+
 ### Problem Statement
 
 There is an inherently ambiguous boundary between an external catalog commit and the coordinator
