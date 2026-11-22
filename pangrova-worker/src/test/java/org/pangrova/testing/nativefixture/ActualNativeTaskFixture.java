@@ -14,7 +14,6 @@ import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
@@ -148,7 +147,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
 
     /** Keeps the exact private submission evidence when obtaining a result ticket for COPY. */
     public String resultTicket(SubmitTaskRequest submission) {
-        return tickets.issue(new ValidatedTaskSubmission(submission));
+        return tickets.issue(submission.taskRequest());
     }
 
     /** Uses the authoritative generated Substrait payload, not a synthetic plan decoder. */
