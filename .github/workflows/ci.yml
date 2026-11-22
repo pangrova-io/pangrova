@@ -351,13 +351,13 @@ jobs:
           python-version: '3.12'
 
       - name: Download native library (for java.library.path fallback)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-library-linux-x86_64
           path: ${{ env.NATIVE_LIB_DIR }}
 
       - name: Download classifier JAR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-bundle-linux-x86_64
           path: native-bundle-jar
@@ -548,7 +548,7 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: tpc-client-cli
           path: tpc-client
