@@ -66,16 +66,19 @@ public final class QueryTerminalCleanup {
         Completion owner = pending.computeIfAbsent(queryId,
                 ignored -> new Completion(new Context(queryId, state, reason)));
         if (!owner.inProgress.compareAndSet(false, true)) return;
+        boolean retryNeeded = false;
         try {
             publishLogicalTerminal(owner.context);
             cleanup(owner.context);
             pending.remove(queryId, owner);
         } catch (RuntimeException | Error failure) {
-            schedule(owner);
+            retryNeeded = true;
             LOG.warn("event=query_terminal_cleanup_pending queryId={} state={}", queryId, state.getState(), failure);
             if (!state.terminalEffectsApplied() || failure instanceof Error) throw failure;
         } finally {
             owner.inProgress.set(false);
+            // Publish after yielding so a dispatcher cannot drop this retry against the failed attempt.
+            if (retryNeeded) schedule(owner);
         }
     }
 
