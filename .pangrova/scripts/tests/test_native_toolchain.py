@@ -196,6 +196,16 @@ esac
         for name in ("cmake", "ninja", "git", "cargo", "rustc", "rg", "autoconf",
                      "automake", "pkg-config", "glibtoolize", "xcode-select", "brew"):
             self.executable(self.bin / name, "exit 0")
+        openssl = self.root / "OpenSSL 3"
+        for name in ("include/openssl/ssl.h", "lib/libssl.a", "lib/libcrypto.a"):
+            path = openssl / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        self.executable(self.bin / "brew", """
+if [ "$*" = "--prefix openssl@3" ]; then
+    printf '%s\\n' "$TEST_OPENSSL_PREFIX"
+fi
+""")
         self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
         sdk = self.root / "macos sdk"
         (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
@@ -203,6 +213,7 @@ esac
         self.executable(default, "echo default-clang")
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
                    PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
+                   PANGROVA_BREW=str(self.bin / "brew"), TEST_OPENSSL_PREFIX=str(openssl),
                    TEST_SDKROOT=str(sdk), CMAKE_BUILD_PARALLEL_LEVEL="1")
         env.pop("PANGROVA_LLVM_PREFIX", None)
         env.pop("SDKROOT", None)
@@ -223,7 +234,10 @@ esac
         if build_deps:
             env["SKIP_DEPS"] = "0"
             env["TRACE"] = str(self.root / "cmake-trace")
-            self.executable(self.bin / "cmake", 'printf "%s\\n" "$@" >> "$TRACE"')
+            self.executable(self.bin / "cmake", """
+printf 'ssl=%s\\npc=%s\\n' "$OPENSSL_ROOT_DIR" "$PKG_CONFIG_PATH" >> "$TRACE"
+printf '%s\\n' "$@" >> "$TRACE"
+""")
             for name in ("abseil-cpp", "protobuf", "re2", "grpc"):
                 (self.root / "build" / name).mkdir(parents=True, exist_ok=True)
             copts = self.root / "build/abseil-cpp/absl/copts/AbseilConfigureCopts.cmake"
@@ -246,6 +260,23 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("-DCMAKE_OSX_ARCHITECTURES=arm64",
                       (self.root / "cmake-trace").read_text())
+
+    def test_macos_bootstrap_propagates_openssl3_to_dependency_builds_and_consumers(self):
+        self.env["OPENSSL_ROOT_DIR"] = "/system/openssl@4"
+        self.env["PKG_CONFIG_PATH"] = "/system/pkgconfig"
+        result = self.bootstrap(full=True, build_deps=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        openssl = self.root / "OpenSSL 3"
+        trace = (self.root / "cmake-trace").read_text()
+        self.assertTrue(trace.startswith(f"ssl={openssl}\npc={openssl}/lib/pkgconfig:/system/pkgconfig\n"))
+        self.assertIn(f"-DOPENSSL_ROOT_DIR={openssl}\n", trace)
+        self.assertNotIn("/system/openssl@4", trace)
+        env_file = self.root / ".pangrova/env.sh"
+        activated = subprocess.check_output(
+            ["bash", "-c", 'source "$1"; printf "%s\\n" "$OPENSSL_ROOT_DIR"', "bash", str(env_file)],
+            env=self.env, text=True,
+        )
+        self.assertEqual(activated, f"{openssl}\n")
 
     def test_optional_argument_arrays_preserve_empty_and_quoted_values(self):
         for script in (BOOTSTRAP, BOOTSTRAP.with_name("setup-native-asan-env.sh")):

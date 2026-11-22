@@ -179,11 +179,15 @@ option(PANGROVA_WERROR "Treat warnings as errors for first-party sources" ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(OPENSSL_USE_STATIC_LIBS TRUE)
-if(APPLE AND NOT OPENSSL_ROOT_DIR AND
-    EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
-  set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
+if(APPLE)
+  if(NOT OPENSSL_ROOT_DIR AND "$ENV{OPENSSL_ROOT_DIR}" STREQUAL "" AND
+      EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
+    set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
+  endif()
+  find_package(OpenSSL 3...<4 REQUIRED COMPONENTS SSL)
+else()
+  find_package(OpenSSL REQUIRED)
 endif()
-find_package(OpenSSL REQUIRED)
 
 # Only the JNI headers are consumed. Request the headless JVM component so
 # FindJNI does not also require the unrelated AWT library by default.

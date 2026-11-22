@@ -69,6 +69,10 @@ The same check requires the Homebrew Bison executable to satisfy Velox's
 minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
 keg when its executable is missing. CI also provisions the Flex keg and compiles
 against its `FlexLexer.h`, which Velox's generated C++ scanner includes.
+The macOS bootstrap selects Homebrew `openssl@3` before building gRPC and the
+Velox dependencies. It records the same root in `env.sh` so CMake links the
+Native function exporter, tests, and JNI library against OpenSSL 3. gRPC uses
+the OpenSSL ENGINE API, which was removed in OpenSSL 4.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
@@ -125,6 +129,7 @@ prepares dependencies without compiling Release Velox or Release Arrow Flight.
 and Arrow Flight into separate ASan prefixes and build directories. Folly uses C++20 and its upstream
 `FOLLY_LIBRARY_SANITIZE_ADDRESS` option. The generated `asan-env.sh` records
 `PANGROVA_ASAN_FOLLY_PREFIX`, which CI passes to Pangrova's CMake configure.
+On macOS it also records the OpenSSL 3 root used to build those dependencies.
 An explicitly supplied Folly prefix is consumed rather than overwritten, allowing
 the separately qualified Darwin build described in the sanitizer guide.
 
