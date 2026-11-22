@@ -1,6 +1,9 @@
 # UBSan suppressions for intentional unaligned loads inside pinned third-party
 # dependencies. Scoped to the dependency symbols; Pangrova sources keep the
 # full alignment check. Keep this list minimal and re-audit on dependency bumps.
+# src: entries are applied at compile time so inlined accessors are covered.
 alignment:*SpookyHashV2*
 alignment:*BaseBinaryArray*value_offset*
 alignment:*BaseBinaryArray*raw_value_offsets*
+src:*folly/hash/SpookyHashV2.cpp
+src:*arrow/array/array_binary.h

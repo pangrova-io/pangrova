@@ -221,6 +221,10 @@ jobs:
           command: |
             cmake --build build --target all
 
+      - name: Report native link inputs
+        if: failure()
+        run: cat pangrova-worker-native/build/CMakeFiles/pangrova_native.dir/link.txt 2>/dev/null || true
+
       - name: Report compiler cache usage
         run: ccache --show-stats || true
         working-directory: pangrova-worker-native
