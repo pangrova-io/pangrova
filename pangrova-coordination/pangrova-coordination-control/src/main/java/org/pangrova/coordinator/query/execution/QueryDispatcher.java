@@ -375,7 +375,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
                 deps.dispatcher(), deps.taskTracker(),
                 deps.lineageEmitter(), deps.catalogRegistry(),
                 deps.taskTimeoutSeconds(), deps.adaptiveQueryExecutor(),
-                deps.runtimeFilterRegistry(), deps.adaptiveQueryConfig(),
+                deps.adaptiveQueryConfig(),
                 deps.speculativeStageHandler(),
                 deps.workerManager().requiresLocalShuffle() ? PipelineConfig.LOCAL : PipelineConfig.ENABLED,
                 deps.shuffleLifecycleManager(), splitMgr,

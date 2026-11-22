@@ -3420,7 +3420,6 @@ artifacts:
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
       - org.pangrova.planner.rule
-      - org.pangrova.planner.runtimefilter
       - org.pangrova.planner.security
       - org.pangrova.planner.security.expression
       - org.pangrova.planner.stability
@@ -3504,7 +3503,6 @@ artifacts:
       - org.pangrova.planner.rerank
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
-      - org.pangrova.planner.runtimefilter
       - org.pangrova.planner.security
       - org.pangrova.planner.statistics
       - org.pangrova.planner.substrait

@@ -41,7 +41,7 @@ class RemoteShuffleTaskBindingTest {
                 new TaskRequestFactory.LeafTask(
                         new StageExecutionContext.Live(session()), new byte[] {1}, new org.pangrova.execution.api.stage.TaskStage(stage().stageId(),
                         org.pangrova.execution.api.enums.TaskPurpose.valueOf(stage().taskType())), 0, resourceGrant(),
-                        List.of(), List.of(),
+                        List.of(),
                         new ShuffleConfig(
                                 "ARROW_BATCH", "zstd", 1024,
                                 "MEMORY_AND_REMOTE", 8, List.of(0)),

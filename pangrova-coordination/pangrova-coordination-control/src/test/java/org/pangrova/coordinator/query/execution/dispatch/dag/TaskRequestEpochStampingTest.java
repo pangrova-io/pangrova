@@ -146,7 +146,7 @@ class TaskRequestEpochStampingTest {
         SubmitTaskRequest request = TaskRequestFactory.buildDmlWriteRequest(
                 new TaskRequestFactory.DmlWriteTask(
                         session, new byte[]{1}, grant(), List.of(source),
-                        List.of(binding), List.of(), List.of(), writeConfig, 5,
+                        List.of(binding), List.of(), writeConfig, 5,
                         TaskAttemptDescriptor.of(3, 1)));
 
         assertThat(request.taskRequest().getExchangeInputsList()).hasSize(1);
@@ -171,8 +171,7 @@ class TaskRequestEpochStampingTest {
             long timeoutSeconds) {
         return TaskRequestFactory.buildDmlWriteRequest(
                 new TaskRequestFactory.DmlWriteTask(
-                        session, plan, resourceGrant, List.of(), List.of(),
-                        List.of(), List.of(), writeConfig, timeoutSeconds,
+                        session, plan, resourceGrant, List.of(), List.of(), List.of(), writeConfig, timeoutSeconds,
                         TaskAttemptDescriptor.of(1, 0)));
     }
 

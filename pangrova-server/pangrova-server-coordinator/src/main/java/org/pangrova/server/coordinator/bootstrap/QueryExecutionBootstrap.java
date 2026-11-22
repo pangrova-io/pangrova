@@ -24,7 +24,6 @@ import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogSta
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowCatalogsTask;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -127,7 +126,7 @@ final class QueryExecutionBootstrap {
 
     QueryDispatcher buildQueryDispatcher(
             WorkerManager wm, CoordinatorTaskTracker tt, SqlCompiler compilerTemplate,
-            RuntimeFilterRegistry runtimeFilters, TaskScheduler taskScheduler, IndexAwareSplitFetcher indexedReads,
+            TaskScheduler taskScheduler, IndexAwareSplitFetcher indexedReads,
             CircuitBreakerPolicy circuitBreaker, CoordinatorResultService resultSvc,
             SplitAssignmentManager splitAssignmentManager,
             SpeculativeStageHandler speculativeStageHandler,
@@ -188,7 +187,6 @@ final class QueryExecutionBootstrap {
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 config.effectiveTaskTimeoutSeconds(),
-                runtimeFilters,
                 new org.pangrova.planner.adaptive.AdaptiveQueryExecutor(),
                 org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
                 shuffleSession, coordinationService,

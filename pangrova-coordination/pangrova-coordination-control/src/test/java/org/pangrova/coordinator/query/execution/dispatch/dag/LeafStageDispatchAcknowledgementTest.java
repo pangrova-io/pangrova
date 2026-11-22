@@ -66,7 +66,7 @@ class LeafStageDispatchAcknowledgementTest {
         TaskDispatcher unused = (request, worker) -> {
             throw new AssertionError("Acknowledgement publication should not dispatch a task");
         };
-        return new LeafStageDispatcher(unused, null, null, 15,
+        return new LeafStageDispatcher(unused, null, 15,
                 new DispatchCanceller(unused, new CoordinatorTaskTracker()), (query, task, stage) -> {},
                 new LeafStageDispatcher.LeafDispatchOptions(null, false, null, false, UnaryOperator.identity()));
     }

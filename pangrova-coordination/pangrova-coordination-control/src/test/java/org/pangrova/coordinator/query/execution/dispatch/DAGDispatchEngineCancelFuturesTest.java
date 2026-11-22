@@ -120,7 +120,6 @@ class DAGDispatchEngineCancelFuturesTest {
                 null,  // catalogRegistry
                 30L,   // taskTimeoutSeconds
                 null,  // adaptiveQueryExecutor
-                null,  // runtimeFilterRegistry
                 null,  // adaptiveQueryConfig
                 null,  // speculativeStageHandler
                 PipelineConfig.DISABLED,

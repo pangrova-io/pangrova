@@ -62,7 +62,7 @@ class PlannerWiringSessionIntegrationTest {
         MetadataBootstrap metadata = MetadataBootstrap.initialize(memoryTableStores(), store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
         try {
             SqlCompiler template = new PlannerWiring(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
-                    metadata, null, null).buildSqlCompiler(new org.pangrova.planner.runtimefilter.RuntimeFilterRegistry());
+                    metadata, null, null).buildSqlCompiler();
             assertThatThrownBy(() -> template.compileToResult("SELECT 1"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("forSession");
             assertDispatcherStartup(metadata, template);

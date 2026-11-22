@@ -77,8 +77,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                 dependencies.shuffleLifecycleManager(), dependencies.lineageEmitter(),
                 handlers);
         this.leafStageDispatcher = new LeafStageDispatcher(
-                dependencies.dispatcher(), dependencies.runtimeFilterRegistry(),
-                dependencies.stateJournal(), dependencies.taskTimeoutSeconds(),
+                dependencies.dispatcher(), dependencies.stateJournal(), dependencies.taskTimeoutSeconds(),
                 canceller, lifecycle::registerTask,
                 new LeafStageDispatcher.LeafDispatchOptions(
                         artifactResolver, pipelineConfig.localShuffle(),

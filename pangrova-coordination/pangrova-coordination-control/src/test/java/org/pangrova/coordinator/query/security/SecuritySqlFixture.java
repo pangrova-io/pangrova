@@ -139,7 +139,7 @@ final class SecuritySqlFixture implements AutoCloseable {
                         throw new AssertionError("Unexpected generation in security compilation");
                     }
                 }));
-        var context = new PlannerContext(null, null, null, null, rewrite, null, null, null);
+        var context = new PlannerContext(null, null, rewrite, null, null, null);
         return new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default"), context),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
     }

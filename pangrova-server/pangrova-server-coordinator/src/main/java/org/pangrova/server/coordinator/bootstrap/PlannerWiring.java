@@ -14,8 +14,6 @@ import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
-import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.statistics.StatisticsCollector;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -57,7 +55,7 @@ final class PlannerWiring {
      * Builds the compiler. Without a metadata bootstrap the planner has no catalog schema, so it
      * falls back to a bare planner that can still parse and convert but cannot resolve tables.
      */
-    SqlCompiler buildSqlCompiler(RuntimeFilterRegistry reg) {
+    SqlCompiler buildSqlCompiler() {
         SqlCompiler compiler = new SqlCompiler(new PangrovaPlanner(),
                 new org.pangrova.planner.substrait.SubstraitConverter(),
                 new org.pangrova.planner.substrait.SubstraitPlanSerializer());
@@ -65,10 +63,10 @@ final class PlannerWiring {
             return compiler;
         }
         return compiler.withSessionPlanner(
-                session -> buildMetadataAwarePlanner(reg, session));
+                this::buildMetadataAwarePlanner);
     }
 
-    private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
+    private PangrovaPlanner buildMetadataAwarePlanner(
             org.pangrova.connector.api.session.ConnectorSession session) {
         var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                 metadataBootstrap.catalogRegistry(), session);
@@ -95,7 +93,6 @@ final class PlannerWiring {
         }
         return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvCatalog,
-                        DynamicPartitionPruningConfig.DEFAULT, reg,
                         dynamicTableRewriter, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
     }
 

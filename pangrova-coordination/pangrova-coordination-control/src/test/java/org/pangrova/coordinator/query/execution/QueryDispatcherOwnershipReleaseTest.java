@@ -75,8 +75,7 @@ class QueryDispatcherOwnershipReleaseTest {
                 new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                         httpDispatcher, taskScheduler, workerManager, taskTracker,
                         null, null, null, null),
-                null, null, 0L,
-                null, null, null, null, haService, COORDINATOR_ID, null, null, null, null, null);
+                null, null, 0L, null, null, null, haService, COORDINATOR_ID, null, null, null, null, null);
         dispatcher = new QueryDispatcher(withPolicies(deps), null, null);
         executionCleanup = dispatcher;
         worker.connect(dispatcher, taskTracker, workerManager);

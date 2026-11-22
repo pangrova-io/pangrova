@@ -21,7 +21,6 @@ import org.pangrova.generation.execution.binding.GenerationPartitionResources;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.execution.task.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -44,7 +43,6 @@ final class LeafStageDispatcher {
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
-    private final org.pangrova.planner.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry;
     private final QueryStateJournal stateJournal;
     private final long taskTimeoutSeconds;
     private final TaskStageRegistrar taskStageRegistrar;
@@ -56,14 +54,12 @@ final class LeafStageDispatcher {
     private final DispatchCanceller canceller;
 
     LeafStageDispatcher(org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher,
-                        org.pangrova.planner.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry,
                         QueryStateJournal stateJournal,
                         long taskTimeoutSeconds,
                         DispatchCanceller canceller,
                         TaskStageRegistrar taskStageRegistrar,
                         LeafDispatchOptions options) {
         this.dispatcher = dispatcher;
-        this.runtimeFilterRegistry = runtimeFilterRegistry;
         this.stateJournal = stateJournal;
         this.taskTimeoutSeconds = taskTimeoutSeconds;
         this.taskStageRegistrar = taskStageRegistrar;
@@ -99,7 +95,6 @@ final class LeafStageDispatcher {
     }
 
     private record PreparedDispatch(
-            List<org.pangrova.protocol.rest.filter.DynamicFilterPayload> filters,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
             List<List<String>> partitionedSplits,
             List<List<String>> partitionFilePaths,
@@ -130,9 +125,6 @@ final class LeafStageDispatcher {
     private PreparedDispatch prepareDispatch(LeafDispatch input) {
         var session = input.session();
         var plan = input.plan();
-        var filters = DynamicFilterBinder.resolveFilters(
-                session.queryId() + ":" + plan.stageId(), session.queryId(),
-                runtimeFilterRegistry);
         var shuffleConfig = buildShuffleConfig(plan, input.dag(), remoteShuffle, localShuffle);
         List<String> allSplits = input.splitsWithPaths().stream()
                 .map(QuerySplit::serializedData).toList();
@@ -148,7 +140,7 @@ final class LeafStageDispatcher {
                 : StageSplitPartitions.partitionSplits(allSplits, taskCount);
         List<List<String>> partitionFilePaths = StageSplitPartitions.buildPartitionFilePaths(
                 input.splitsWithPaths(), partitionedSplits);
-        return new PreparedDispatch(filters, shuffleConfig, partitionedSplits,
+        return new PreparedDispatch(shuffleConfig, partitionedSplits,
                 partitionFilePaths, leafStage, taskCount);
     }
 
@@ -277,7 +269,7 @@ final class LeafStageDispatcher {
                     new TaskRequestFactory.DmlWriteTask(
                             input.session(), input.boundPlan().planBytes(),
                             dmlResourceGrant(limit), sources, taskBindings,
-                            prepared.filters(), taskSplits, input.writeConfig(),
+                            taskSplits, input.writeConfig(),
                             taskTimeoutSeconds, attempt));
         }
         return TaskRequestFactory.buildLeafTaskRequest(
@@ -285,7 +277,7 @@ final class LeafStageDispatcher {
                         input.execution(), input.boundPlan().planBytes(),
                         new TaskStage(input.plan().stageId(), TaskPurpose.valueOf(input.plan().taskType())),
                         partition, limit, sources,
-                        prepared.filters(), prepared.shuffleConfig(), taskSplits,
+                        prepared.shuffleConfig(), taskSplits,
                         org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                                 java.time.Duration.ofSeconds(taskTimeoutSeconds), java.time.Instant.now()),
                         attempt, taskBindings,

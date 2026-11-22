@@ -9,7 +9,6 @@ import java.util.Objects;
 import java.util.UUID;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.authority.StageExecutionContext;
@@ -20,14 +19,11 @@ import org.pangrova.execution.split.SchemaDescriptorDeduplicator;
 import org.pangrova.execution.api.stage.TaskStage;
 import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.protocol.rest.config.WriteConfig;
-import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
-import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskAttemptId;
@@ -60,7 +56,7 @@ public final class TaskRequestFactory {
                 task.planBytes(), task.serializedSplits(), bindings,
                 bindResourceGrant(taskId, task.resourceGrant(), bindings),
                 deadline, task.attempt(), task.exchangeInputs(),
-                task.dynamicFilters(), List.of(), TaskExecutionOptionsFactory.build(
+                List.of(), TaskExecutionOptionsFactory.build(
                         session.sessionProperties(), task.writeConfig(), null,
                         false, null, 0L)));
         return SubmitTaskRequest.from(request);
@@ -72,7 +68,6 @@ public final class TaskRequestFactory {
             StageResourceGrant resourceGrant,
             List<ExchangeInputBinding> exchangeInputs,
             List<OperatorBinding> operatorBindings,
-            List<DynamicFilterPayload> dynamicFilters,
             List<String> serializedSplits,
             WriteConfig writeConfig,
             long taskTimeoutSeconds,
@@ -86,7 +81,6 @@ public final class TaskRequestFactory {
                     resourceGrant, "resourceGrant must not be null");
             exchangeInputs = List.copyOf(exchangeInputs);
             operatorBindings = List.copyOf(operatorBindings);
-            dynamicFilters = List.copyOf(dynamicFilters);
             serializedSplits = List.copyOf(serializedSplits);
             writeConfig = Objects.requireNonNull(
                     writeConfig, "writeConfig must not be null");
@@ -120,7 +114,7 @@ public final class TaskRequestFactory {
                 taskId, execution, stage.stageId(), task.partition(),
                 leafTaskKind(task), task.planBytes(), task.serializedSplits(),
                 bindings, bindResourceGrant(taskId, task.resourceGrant(), bindings),
-                deadline, task.attempt(), task.exchangeInputs(), task.dynamicFilters(),
+                deadline, task.attempt(), task.exchangeInputs(),
                 task.resultColumnTypes(),
                 TaskExecutionOptionsFactory.build(
                         execution.executionProperties(), null, task.shuffleConfig(),
@@ -138,7 +132,6 @@ public final class TaskRequestFactory {
             int partition,
             StageResourceGrant resourceGrant,
             List<ExchangeInputBinding> exchangeInputs,
-            List<DynamicFilterPayload> dynamicFilters,
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
             List<String> serializedSplits,
             StageTaskDeadline deadline,
@@ -154,7 +147,6 @@ public final class TaskRequestFactory {
             stage = Objects.requireNonNull(stage, "stage must not be null");
             resourceGrant = Objects.requireNonNull(resourceGrant, "resourceGrant must not be null");
             exchangeInputs = List.copyOf(exchangeInputs);
-            dynamicFilters = List.copyOf(dynamicFilters);
             deadline = Objects.requireNonNull(deadline, "deadline must not be null");
             serializedSplits = serializedSplits == null ? List.of() : List.copyOf(serializedSplits);
             attempt = Objects.requireNonNull(attempt, "attempt must not be null");
@@ -265,8 +257,7 @@ public final class TaskRequestFactory {
                 .setResourceGrant(spec.resourceGrant())
                 .setDeadlineEpochMs(spec.deadlineEpochMs())
                 .addAllExchangeInputs(exchangeInputs(
-                        spec.exchangeInputs(), spec.deadlineEpochMs()))
-                .addAllInitialRuntimeFilters(runtimeFilters(spec.dynamicFilters()));
+                        spec.exchangeInputs(), spec.deadlineEpochMs()));
         if (!spec.executionOptions().equals(TaskExecutionOptions.getDefaultInstance())) {
             request.setExecutionOptions(spec.executionOptions());
         }
@@ -310,36 +301,6 @@ public final class TaskRequestFactory {
         }).toList();
     }
 
-    private static List<RuntimeFilterBinding> runtimeFilters(
-            List<DynamicFilterPayload> filters) {
-        if (filters == null || filters.isEmpty()) {
-            return List.of();
-        }
-        return filters.stream().map(TaskRequestFactory::runtimeFilter).toList();
-    }
-
-    private static RuntimeFilterBinding runtimeFilter(DynamicFilterPayload payload) {
-        final InjectRuntimeFilterRequest decoded;
-        try {
-            decoded = InjectRuntimeFilterRequest.parseFrom(payload.filterData());
-        } catch (InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException(
-                    "Invalid canonical runtime filter: " + payload.filterId(), failure);
-        }
-        if (decoded.getFiltersCount() == 0) {
-            throw new IllegalArgumentException(
-                    "Runtime filter must contain at least one predicate: "
-                            + payload.filterId());
-        }
-        String planNodeId = decoded.getPlanNodeId().isBlank()
-                ? "scan_" + decoded.getFilters(0).getColumnName()
-                : decoded.getPlanNodeId();
-        return RuntimeFilterBinding.newBuilder()
-                .setPlanNodeId(planNodeId)
-                .addAllFilters(decoded.getFiltersList())
-                .build();
-    }
-
     private static TaskKind taskKind(TaskPurpose taskType) {
         return switch (taskType) {
             case COMPUTE, OUTPUT -> TaskKind.TASK_KIND_READ;
@@ -363,7 +324,6 @@ public final class TaskRequestFactory {
             long deadlineEpochMs,
             TaskAttemptDescriptor attempt,
             List<ExchangeInputBinding> exchangeInputs,
-            List<DynamicFilterPayload> dynamicFilters,
             List<ResultColumnLogicalType> resultColumnTypes,
             TaskExecutionOptions executionOptions) {
 

@@ -14,7 +14,7 @@ class UnavailableExternalShuffleLifecycleTest {
     void dagDefaultRejectsExternalRegistrationAndCommitInsteadOfReturningLocalSuccess() {
         var context = new DAGDispatchContext((request, worker) -> {
             throw new AssertionError("No task should be dispatched by this construction test");
-        }, null, null, null, 0, null, null, null, null, null, null,
+        }, null, null, null, 0, null, null, null, null, null,
                 new SplitAssignmentManager(), null, null);
         var lifecycle = context.shuffleLifecycleManager();
         assertThat(lifecycle).isSameAs(UnavailableExternalShuffleLifecycle.INSTANCE);

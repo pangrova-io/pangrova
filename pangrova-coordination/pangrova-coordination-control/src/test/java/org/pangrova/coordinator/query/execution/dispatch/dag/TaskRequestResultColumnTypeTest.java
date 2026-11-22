@@ -68,7 +68,7 @@ class TaskRequestResultColumnTypeTest {
                                 .setNativeMemoryBytes(1024)
                                 .setCpuSlots(1)
                                 .build(),
-                        List.of(), List.of(), null, List.of(),
+                        List.of(), null, List.of(),
                         org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                                 java.time.Duration.ofSeconds(30), java.time.Instant.now()),
                         TaskAttemptDescriptor.of(1L, 0), List.of(), null,

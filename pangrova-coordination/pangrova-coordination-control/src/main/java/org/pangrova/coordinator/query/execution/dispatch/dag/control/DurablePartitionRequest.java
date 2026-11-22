@@ -51,7 +51,7 @@ public final class DurablePartitionRequest {
         var plan = new TaskStage(stage.stageId(), taskType);
         return TaskRequestFactory.buildLeafTaskRequest(new TaskRequestFactory.LeafTask(
                 new StageExecutionContext.Deferred(partition.authority(), lease, traceContext), bound.planBytes(), plan,
-                lease.partitionId(), resourceGrant(partition, bound.operatorBindings()), exchange.inputs(), List.of(),
+                lease.partitionId(), resourceGrant(partition, bound.operatorBindings()), exchange.inputs(),
                 exchange.output(), lease.splits().stream().map(split -> split.canonicalSplitBase64()).toList(),
                 TaskLeaseDeadlines.forPartition(lease, spec, now),
                 new TaskAttemptDescriptor(exchange.planEpoch(), lease.attemptId(), lease.fencingToken()),

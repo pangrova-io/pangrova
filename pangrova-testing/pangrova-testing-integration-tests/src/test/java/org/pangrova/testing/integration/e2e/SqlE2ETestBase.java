@@ -2275,8 +2275,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 E2eCurrentAuthority.configuredSpillBudget(NATIVE_WRITE_STAGE_BYTES), null);
         var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
                 compiler, security, scheduling,
-                metadataBootstrap.catalogRegistry(), null, 0L,
-                null, null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
+                metadataBootstrap.catalogRegistry(), null, 0L, null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
                 new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         sharedArtifactBuildStore),
                 new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(
@@ -2801,8 +2800,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                     new org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider(
                                             bindings)),
                             mvCatalog,
-                            org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig.DEFAULT,
-                            null, durableRewriter, null,
+                            durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,
                             org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
                     return new PangrovaPlanner(new MetadataSchemaBuilder(

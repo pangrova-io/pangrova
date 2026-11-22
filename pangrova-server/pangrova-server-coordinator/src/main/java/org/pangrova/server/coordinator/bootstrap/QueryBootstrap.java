@@ -19,7 +19,6 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.query.runtime.QueryManager;
@@ -201,9 +200,8 @@ final class QueryBootstrap {
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
         org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases =
                 createReaderPinLeases();
-        var runtimeFilters = new RuntimeFilterRegistry();
         SqlCompiler compiler = new PlannerWiring(config, metadataBootstrap, readerPinLeases, accessControl)
-                .buildSqlCompiler(runtimeFilters);
+                .buildSqlCompiler();
         queryScheduling = new QuerySchedulingWiring(
                 moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
         taskScheduler = queryScheduling.scheduler();
@@ -213,7 +211,7 @@ final class QueryBootstrap {
         }
         embeddingModelRegistry = runtimeWiring.createEmbeddingModelRegistry();
         auditEmitter = runtimeWiring.createAuditEmitter();
-        wireExecutionContext(compiler, runtimeFilters, createIndexedReads(moduleWiring, catalog), catalog);
+        wireExecutionContext(compiler, createIndexedReads(moduleWiring, catalog), catalog);
         var queryManagerResult = runtimeWiring.buildQueryManager(
                 queryDispatcher, stateJournal, auditEmitter,
                 java.util.Optional.ofNullable(readerPinLeases)
@@ -255,7 +253,7 @@ final class QueryBootstrap {
     }
 
     /** Builds the execution wiring, dispatcher, and speculative dependencies. */
-    private void wireExecutionContext(SqlCompiler compiler, RuntimeFilterRegistry runtimeFilters,
+    private void wireExecutionContext(SqlCompiler compiler,
             IndexAwareSplitFetcher indexedReads, CatalogRegistry catalog) {
         var materializationWiring = new QueryMaterializationWiring(
                 new QueryMaterializationWiring.Dependencies(
@@ -279,7 +277,7 @@ final class QueryBootstrap {
                 featureViewService, embeddingModelRegistry,
                 durableRecovery::resolveShuffleOwner, metadataDataSource, auditEmitter, modelAuthority);
         queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
-                compiler, runtimeFilters, taskScheduler, indexedReads, resolveCircuitBreaker(),
+                compiler, taskScheduler, indexedReads, resolveCircuitBreaker(),
                         controlPlaneResultService,
                 splitAssignmentManager, speculativeStageHandler, stateJournal, publishedReads, generatedValueReads);
         this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();

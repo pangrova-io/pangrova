@@ -23,9 +23,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
-import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.optimization.CascadesCboPass;
 import org.pangrova.planner.optimization.HepOptimizationPass;
 import org.pangrova.planner.optimization.MaterializedViewRewritePass;
@@ -107,9 +104,7 @@ public final class PangrovaPlanner {
         this.materializedViewRewritePass = new MaterializedViewRewritePass(
                 mvCatalog == null ? null : new org.pangrova.planner.mv.CalciteMaterializedViewRewriter(
                         mvCatalog, this::compileMaterializationDefinition, this::resolveTable,
-                        java.time.Instant::now),
-                deps.dynamicPartitionPruningConfig(),
-                deps.runtimeFilterRegistry());
+                        java.time.Instant::now));
         DynamicTableSqlRewriter dynamicTableSqlRewriter = deps.dynamicTableRewriter() != null
                 ? new DynamicTableSqlRewriter(this.parserFactory, deps.dynamicTableRewriter())
                 : null;
@@ -408,28 +403,6 @@ public final class PangrovaPlanner {
     /** Returns the cost estimator, or null if statistics not wired. Package-private. */
     StatisticsBasedCostEstimator getCostEstimator() {
         return costEstimator;
-    }
-
-    /** Returns the query result cache, or null if not wired. */
-
-    // ---- DPP (Dynamic Partition Pruning) ----
-
-    /** Returns the runtime filter registry for DPP. */
-    public RuntimeFilterRegistry getRuntimeFilterRegistry() {
-        return materializedViewRewritePass.getRuntimeFilterRegistry();
-    }
-
-    /** Returns the DPP configuration. */
-    public DynamicPartitionPruningConfig getDynamicPartitionPruningConfig() {
-        return materializedViewRewritePass.getDynamicPartitionPruningConfig();
-    }
-
-    /**
-     * Analyze a plan for partition-pruning-eligible joins without registering filters.
-     * Useful for testing and inspection.
-     */
-    public List<RuntimeFilterDescriptor> analyzeJoinsForPartitionPruning(RelNode plan) {
-        return materializedViewRewritePass.analyzeJoinsForPartitionPruning(plan);
     }
 
     private SqlNode parse(String sql) {

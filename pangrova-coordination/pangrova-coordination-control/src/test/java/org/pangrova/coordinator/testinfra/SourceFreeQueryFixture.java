@@ -31,8 +31,7 @@ public final class SourceFreeQueryFixture {
             throw new IllegalArgumentException("Fixture must not replace an existing policy authority");
         }
         return new QueryDispatcherContext(context.skewDetector(), context.compiler(), policies(), context.scheduling(),
-                context.catalogRegistry(), context.lineageEmitter(), context.taskTimeoutSeconds(),
-                context.runtimeFilterRegistry(), context.adaptiveQueryExecutor(), context.adaptiveQueryConfig(),
+                context.catalogRegistry(), context.lineageEmitter(), context.taskTimeoutSeconds(), context.adaptiveQueryExecutor(), context.adaptiveQueryConfig(),
                 context.shuffleLifecycleManager(), context.haService(), context.coordinatorId(),
                 context.stateJournal(), context.indexAwareSplitFetcher(), context.embeddingModelRegistry(), context.artifactBindingResolver(), context.generatedValueReadResolver());
     }
