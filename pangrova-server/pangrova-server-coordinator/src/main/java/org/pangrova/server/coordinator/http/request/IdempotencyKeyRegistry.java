@@ -36,12 +36,15 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /** Coordinates authenticated HTTP submissions on one Coordinator, including concurrent retries. */
 public final class IdempotencyKeyRegistry {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
-    private static final int SWEEP_THRESHOLD = 10_000;
+    private static final int MAX_EXPIRATIONS_PER_SUBMISSION = 16;
 
     private record Key(String principal, String idempotencyKey) {}
 
@@ -56,8 +59,29 @@ public final class IdempotencyKeyRegistry {
     }
 
     private final ConcurrentHashMap<Key, Entry> entries = new ConcurrentHashMap<>();
+    private final DelayQueue<Expiration> expirations = new DelayQueue<>();
     private final long ttlMillis;
     private final Clock clock;
+
+    private final class Expiration implements Delayed {
+        private final Key key;
+        private final Entry entry;
+
+        private Expiration(Key key, Entry entry) {
+            this.key = key;
+            this.entry = entry;
+        }
+
+        @Override
+        public long getDelay(TimeUnit unit) {
+            return unit.convert(entry.expiresAtMillis - clock.millis(), TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public int compareTo(Delayed other) {
+            return Long.compare(entry.expiresAtMillis, ((Expiration) other).entry.expiresAtMillis);
+        }
+    }
 
     public IdempotencyKeyRegistry() {
         this(DEFAULT_TTL, Clock.systemUTC());
@@ -81,9 +105,7 @@ public final class IdempotencyKeyRegistry {
             Supplier<SubmitQueryResponse> submit) {
         var scopedKey = new Key(Objects.requireNonNull(principal, "principal"), Objects.requireNonNull(key, "key"));
         long now = clock.millis();
-        if (entries.size() > SWEEP_THRESHOLD) {
-            entries.entrySet().removeIf(item -> item.getValue().expiresAtMillis <= now);
-        }
+        retireExpiredReceipts();
         var candidate = new Entry(fingerprint(request));
         Entry selected = entries.compute(scopedKey, (ignored, existing) ->
                 existing == null || existing.expiresAtMillis <= now ? candidate : existing);
@@ -107,17 +129,30 @@ public final class IdempotencyKeyRegistry {
         try {
             SubmitQueryResponse receipt = Objects.requireNonNull(submit.get(), "submission receipt");
             selected.receipt.complete(receipt);
-            selected.expiresAtMillis = clock.millis() + ttlMillis;
+            retainReceipt(scopedKey, selected);
             return receipt;
         } catch (RuntimeException | Error failure) {
             selected.receipt.completeExceptionally(failure);
             if (failure instanceof RecordedSubmissionException || failure instanceof Error) {
-                selected.expiresAtMillis = clock.millis() + ttlMillis;
+                retainReceipt(scopedKey, selected);
             } else {
                 entries.remove(scopedKey, selected);
             }
             throw failure;
         }
+    }
+
+    private void retireExpiredReceipts() {
+        for (int removed = 0; removed < MAX_EXPIRATIONS_PER_SUBMISSION; removed++) {
+            Expiration expired = expirations.poll();
+            if (expired == null) return;
+            entries.remove(expired.key, expired.entry);
+        }
+    }
+
+    private void retainReceipt(Key key, Entry entry) {
+        entry.expiresAtMillis = clock.millis() + ttlMillis;
+        expirations.add(new Expiration(key, entry));
     }
 
     private static String fingerprint(SubmitQueryRequest request) {

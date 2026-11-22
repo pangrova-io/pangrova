@@ -71,7 +71,7 @@ A retry with the same SQL and session properties returns that receipt, including
 original state and result endpoint. Poll the state endpoint for later transitions.
 Changing the SQL or session properties with the same key returns HTTP 409. Each
 principal has an independent key space. Concurrent matching requests share the first
-submission.
+submission. Receipt expiry is processed in bounded batches during subsequent submissions.
 
 A rejection before query registration, such as a draining Coordinator, releases the
 key. If the submission throws after registration or registration cannot be confirmed,
