@@ -560,6 +560,8 @@ curl -s http://coordinator-1:8080/v1/health | python3 -m json.tool
 systemctl start pangrova-worker
 ```
 
+Install the packaged Worker role directory as a unit. Its `classpath.list` selects the Jakarta REST API used by Jersey. If startup fails with `NoClassDefFoundError: jakarta/ws/rs/core/Configurable`, check the installed Worker role inventory and redeploy the matching distribution.
+
 ### 6.4 Verify Cluster Health
 
 ```bash
