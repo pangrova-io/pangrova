@@ -56,7 +56,7 @@ class PartitionCoalescerEvaluateTest {
         assertThat(result.originalCount()).isEqualTo(8);
         assertThat(result.coalescedCount()).isEqualTo(1);
         assertThat(result.groups()).hasSize(1);
-        assertThat(result.groups().get(0).partitionIds()).hasSize(8);
+        assertThat(result.groups().get(0).partitionCount()).isEqualTo(8);
     }
 
     @Test
@@ -76,14 +76,10 @@ class PartitionCoalescerEvaluateTest {
     }
 
     @Test
-    void mixedSizes_correctBinPacking() {
+    void mixedSizes_keepAdjacentOriginalPartitionRanges() {
         long mb = 1024L * 1024;
         // target = 100MB (custom config)
         AdaptiveQueryConfig config = new AdaptiveQueryConfig(true, 100 * mb, 5.0, 256 * mb, 2);
-        // Partitions: 10, 20, 30, 40, 50 MB (sorted ascending)
-        // Group 1: 10+20+30 = 60MB (adding 40 would be 100, still fits)
-        // Actually: 10+20+30+40 = 100 → fits. 10+20+30+40+50 = 150 > 100
-        // So group 1: 10+20+30+40 = 100, group 2: 50
         Map<Integer, ShufflePartitionStats> partitions = Map.of(
                 0, new ShufflePartitionStats(0, 50 * mb, 500),
                 1, new ShufflePartitionStats(1, 10 * mb, 100),
@@ -96,12 +92,22 @@ class PartitionCoalescerEvaluateTest {
 
         assertThat(result.isCoalesced()).isTrue();
         assertThat(result.originalCount()).isEqualTo(5);
-        assertThat(result.coalescedCount()).isLessThan(5);
-        // All partition ids accounted for
-        long totalPartitions = result.groups().stream()
-                .mapToLong(g -> g.partitionIds().size())
-                .sum();
-        assertThat(totalPartitions).isEqualTo(5);
+        assertThat(result.groups()).containsExactly(
+                new org.pangrova.planner.api.adaptive.PartitionGroup(0, 3, 90 * mb),
+                new org.pangrova.planner.api.adaptive.PartitionGroup(3, 5, 60 * mb));
+    }
+
+    @Test
+    void missingPartitionIsDifferentFromAnExplicitEmptyPartition() {
+        var first = new ShufflePartitionStats(0, 32, 1);
+        var third = new ShufflePartitionStats(2, 64, 1);
+        var incomplete = new ShuffleStageStats("s1", 96, 2, 0, 0, Map.of(0, first, 2, third));
+        var complete = new ShuffleStageStats("s1", 96, 2, 0, 0,
+                Map.of(0, first, 1, new ShufflePartitionStats(1, 0, 0), 2, third));
+
+        assertThat(coalescer.evaluate(incomplete, AdaptiveQueryConfig.ENABLED)).isEqualTo(CoalesceResult.NO_OP);
+        assertThat(coalescer.evaluate(complete, AdaptiveQueryConfig.ENABLED).groups()).containsExactly(
+                new org.pangrova.planner.api.adaptive.PartitionGroup(0, 3, 96));
     }
 
     @Test

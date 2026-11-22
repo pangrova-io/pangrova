@@ -47,7 +47,7 @@ class PartitionCoalescerPropertyTest {
 
         Set<Integer> allIds = new HashSet<>();
         for (PartitionGroup group : result.groups()) {
-            for (int id : group.partitionIds()) {
+            for (int id = group.startInclusive(); id < group.endExclusive(); id++) {
                 assertThat(allIds.add(id))
                         .as("Partition %d appears in multiple groups", id)
                         .isTrue();
@@ -76,7 +76,7 @@ class PartitionCoalescerPropertyTest {
         }
 
         for (PartitionGroup group : result.groups()) {
-            if (group.partitionIds().size() > 1) {
+            if (group.partitionCount() > 1) {
                 assertThat(group.totalBytes())
                         .as("Multi-partition group exceeds target")
                         .isLessThanOrEqualTo(targetBytes);
