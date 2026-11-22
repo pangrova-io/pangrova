@@ -8,7 +8,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.api.clustering.ClusteringMaintenance;
-import org.pangrova.connector.api.clustering.ClusteringPublicationException;
+import org.pangrova.connector.api.exception.ClusteringPublicationException;
 import org.pangrova.connector.api.enums.ClusteringMode;
 import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.session.ConnectorSession;
