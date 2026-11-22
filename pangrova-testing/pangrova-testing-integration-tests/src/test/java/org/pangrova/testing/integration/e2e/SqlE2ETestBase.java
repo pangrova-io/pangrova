@@ -2197,13 +2197,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 E2E_INTERNAL_AUTH_SECRET, "grpc").withBindHost(IN_PROCESS_WORKER_HOST);
         closeQuietly(fileSpaceAccessors, "file_space_accessors");
         fileSpaceAccessors = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
+        var catalogs = java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime");
         WorkerHttpServer server = new WorkerHttpServer(
                 httpConfig, taskManager, exchangeTransport, healthEndpoint,
-                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
-                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
+                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager, catalogs),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}),
+                new org.pangrova.worker.http.endpoint.ReclusterStageResource(catalogs));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2479,7 +2480,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.task.CoordinatorTaskTracker tt,
             org.pangrova.coordinator.result.CoordinatorResultService resultSvc,
             org.pangrova.ai.control.embedding.EmbeddingModelRegistry embeddingRegistry,
-            WorkerManager embeddingWorkers) {
+            WorkerManager workers) {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder::invalidateTableCaches);
@@ -2495,6 +2496,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 catalog, maintenancePolicyService,
                 new org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+        controlledMaintenance.setReclusterDispatcher(new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                workers::getActiveWorkers, E2E_INTERNAL_AUTH_SECRET));
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -2544,6 +2547,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
+        tasks.put(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.SetClusteringOrderTask(
+                        controlledMaintenance::setClusteringOrder));
+        tasks.put(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ReclusterTableTask(
+                        controlledMaintenance::recluster));
+        tasks.put(org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ShowClusteringStatusTask(
+                        controlledMaintenance::showClusteringStatus));
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
@@ -2630,7 +2642,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         if (embeddingRegistry != null) {
             org.pangrova.server.coordinator.bootstrap.EmbeddingModelTaskRegistration.register(
-                    metadataFactory, embeddingRegistry, embeddingWorkers);
+                    metadataFactory, embeddingRegistry, workers);
         }
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
