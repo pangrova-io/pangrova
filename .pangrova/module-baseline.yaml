@@ -5158,7 +5158,6 @@ artifacts:
         - pangrova-persistence-workflow-api
         - pangrova-protocol
         - pangrova-security-api
-        - pangrova-shuffle-api
         - pangrova-shuffle-exchange
         - pangrova-types
       test:
