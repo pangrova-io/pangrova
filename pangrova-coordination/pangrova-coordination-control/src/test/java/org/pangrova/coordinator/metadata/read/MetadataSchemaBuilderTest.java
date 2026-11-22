@@ -51,6 +51,34 @@ class MetadataSchemaBuilderTest {
         assertThat(catalogSchema.getSubSchemaMap()).containsKey("analytics");
     }
 
+    @Test
+    void repeatedNamespaceLookupsUseOneListingPerAdmittedQuery() {
+        StubMetadataService service = new StubMetadataService(List.of("lake"));
+        service.addSchemas("lake", List.of("live"));
+        var builder = new MetadataSchemaBuilder(service);
+        var firstQuery = new org.pangrova.coordinator.task.TestConnectorQuery("namespace-first");
+        var nextQuery = new org.pangrova.coordinator.task.TestConnectorQuery("namespace-next");
+        try {
+            var first = builder.buildRootSchema(firstQuery.session("lake", "live"));
+            for (int i = 0; i < 8; i++) {
+                assertThat(first.getSubSchema("lake", false).getSubSchema("live", false)).isNotNull();
+            }
+            assertThat(service.catalogListings).isOne();
+            assertThat(service.schemaListings).isOne();
+
+            service.addSchemas("lake", List.of("live", "added"));
+            var next = builder.buildRootSchema(nextQuery.session("lake", "live"));
+            assertThat(next.getSubSchema("lake", false).getSubSchema("added", false)).isNotNull();
+            assertThat(service.catalogListings).isEqualTo(2);
+            assertThat(service.schemaListings).isEqualTo(2);
+        } finally {
+            firstQuery.seal();
+            firstQuery.retire();
+            nextQuery.seal();
+            nextQuery.retire();
+        }
+    }
+
     /**
      * Minimal MetadataService for testing schema adapter without real catalog backend.
      */
@@ -69,6 +97,8 @@ class MetadataSchemaBuilderTest {
 
         private final List<String> catalogs;
         private final java.util.Map<String, List<String>> schemas = new java.util.HashMap<>();
+        private int catalogListings;
+        private int schemaListings;
 
         StubMetadataService(List<String> catalogs) {
             this.catalogs = catalogs;
@@ -80,11 +110,13 @@ class MetadataSchemaBuilderTest {
 
         @Override
         public List<String> listCatalogs(MetadataSessionContext session) {
+            catalogListings++;
             return catalogs;
         }
 
         @Override
         public List<String> listSchemas(MetadataSessionContext session, String catalogName) {
+            schemaListings++;
             return schemas.getOrDefault(catalogName, List.of());
         }
 

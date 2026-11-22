@@ -69,6 +69,11 @@ public final class PlanningReadBindings {
                 .listTables(session, Optional.of(schema)));
     }
 
+    List<String> listSchemaNames(String catalog) {
+        return withSession(catalog, null, session -> catalogs.metadataForQuery(catalog, session)
+                .listSchemaNames(session));
+    }
+
     private MetadataResolvedTable discover(QualifiedTableName table, boolean requireExactSpelling) {
         if (!requireExactSpelling) {
             var admitted = bindings.get(table);

@@ -53,7 +53,7 @@ class LazyMetadataSchemaResolutionFailureTest {
 
         var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
-        assertThatThrownBy(lazySchema::getTableMap)
+        assertThatThrownBy(lazySchema::getTableNames)
                 .isInstanceOf(MetadataResolutionException.class)
                 .hasMessageContaining("metadata backend")
                 .hasMessageContaining(CATALOG)
@@ -68,13 +68,13 @@ class LazyMetadataSchemaResolutionFailureTest {
     }
 
     @Test
-    void singleTableResolutionFailureAggregatesErrors() {
+    void tableResolutionFailureSurfacesWhenTheTableIsRequested() {
         CatalogRegistry registry = buildRegistry(
                 new FailingGetTableHandleMetadata(new RuntimeException("Timeout reading table metadata")));
 
         var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
-        assertThatThrownBy(lazySchema::getTableMap)
+        assertThatThrownBy(() -> lazySchema.getTable("test_table"))
                 .isInstanceOf(MetadataResolutionException.class)
                 .satisfies(ex -> {
                     var mre = (MetadataResolutionException) ex;
@@ -93,7 +93,7 @@ class LazyMetadataSchemaResolutionFailureTest {
 
         // Backend failure must NOT silently return empty map
         // (which would cause "table not found" semantic drift)
-        assertThatThrownBy(lazySchema::getTableMap)
+        assertThatThrownBy(() -> lazySchema.getTableMap().entrySet())
                 .isInstanceOf(MetadataResolutionException.class);
     }
 

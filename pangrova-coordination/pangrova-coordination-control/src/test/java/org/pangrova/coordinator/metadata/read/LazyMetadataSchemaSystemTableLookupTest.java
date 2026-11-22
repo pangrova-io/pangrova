@@ -125,6 +125,21 @@ class LazyMetadataSchemaSystemTableLookupTest {
     }
 
     @Test
+    void calciteSchemaAccessorsDoNotLoadUnrelatedTableHandles() {
+        TestMetadata metadata = new TestMetadata();
+        for (int i = 0; i < 1_000; i++) {
+            metadata.tableNames.add("Unrelated" + i);
+        }
+        var schema = schema(metadata);
+
+        assertThat(schema.getTable("Orders")).isNotNull();
+        assertThat(metadata.listCalls).isZero();
+        assertThat(schema.getTableNames()).hasSize(1_001);
+        assertThat(metadata.listCalls).isOne();
+        assertThat(metadata.lookups).containsExactly("Orders");
+    }
+
+    @Test
     void nameEnumerationDoesNotLoadTableMetadataAndHonorsDdlInvalidation() {
         TestMetadata metadata = new TestMetadata();
         var lazySchema = schema(metadata);
