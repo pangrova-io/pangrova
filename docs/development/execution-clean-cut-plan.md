@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 103 将精确任务的远端 Shuffle 能力签发和续期合并到现有 fenced 事务。生产者的分区与代次、消费者的查询身份和当前 owner 均在持锁 allocation 上查验。真实 PostgreSQL 中，Coordinator 写能力签发和 Worker 读能力续期的 Shuffle 与执行锚点语句均从 7 条减至 5 条，allocation 与 owner 各读取一次。数据库时钟检查单独计量。续票令牌与任务身份不符时，服务在访问数据库前拒绝。69 项 Shuffle 服务与 Checkstyle 回归通过。真实双 Worker SQL 继续通过完整 Flight 结果与对象、分配和槽位释放。
+
 实施批次 102 将远端 Shuffle 的注册、提交回执和 cleanup 能力归属到单个查询。完成或移交后按查询直接移除状态，其他活跃查询的注册和发布回执继续可用。本地进程内微测预装 20,000 个查询，每个四个 Stage，分别运行两组，每组 3,000 次回收。回收 P50 从 1.56–1.67 ms 降到 0.1 µs 以内。计时粒度约为 42 ns，测量范围是进程内状态释放。36 项定向测试、Checkstyle 和正式包双 Worker REMOTE SQL 的 MinIO 与租户释放回归通过。
 
 实施批次 101 复用 Iceberg JDBC SDK 新建表对象时读取的权威元数据。现有非空发布快照复用同一次元数据确认，要求发布回执的空 INSERT 仍提交并查验精确标记。真实 PostgreSQL `pg_stat_statements` 对照中，已绑定写入的精确 Iceberg 目录指针 SELECT 由 8 次减为 7 次，要求发布回执时由 11 次减为 8 次。50 项定向 Java 和 Checkstyle 通过，包含普通 SQL、COPY、空快照、精确重复提交、Dynamic Table 和 Materialized View。

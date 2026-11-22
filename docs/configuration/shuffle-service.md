@@ -183,6 +183,7 @@ an identity mismatch fails the read or registration path rather than falling bac
 unverified connection.
 
 Set the capability lifetime at least as long as the longest task timeout for queries that use remote Shuffle. A Worker verifies that its read capability covers the task deadline before admitting the task. The default task timeout is five minutes.
+Task-scoped issuance and renewal verify the exact allocation and live owner in the same transaction that extends the durable expiry. Worker renewal also checks the previous signed capability before opening that transaction.
 
 ## limits
 

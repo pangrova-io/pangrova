@@ -541,6 +541,54 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void exactTaskGrantChecksTheDurableAllocationAndOwnerOnce() throws Exception {
+        String query = "task-grant-statements-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        var harness = openHarness();
+        try (var engine = harness.engine) {
+            var registration = engine.register(registration().toBuilder().setQueryId(query).setShuffleId(shuffle)
+                    .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
+                            ShuffleProducerSetChecksum.forContiguousPartitions(query, 1, 2, 1))).build());
+            var producer = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
+            var consumer = consumerAttempt().toBuilder().setQueryOrJobId(query).build();
+            var write = org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE;
+            var read = org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ;
+
+            var before = shuffleStatements();
+            var writeGrant = taskGrant(harness, registration, producer, write);
+            assertExactTaskGrantStatements(before);
+            assertThat(writeGrant.getToken()).isNotEmpty();
+            var readGrant = taskGrant(harness, registration, consumer, read);
+            before = shuffleStatements();
+            var renewal = org.pangrova.protocol.v2.shuffle.RenewAccessRequest.newBuilder()
+                    .setOperation(read).setShuffleId(shuffle).setExecutionOwner(owner()).setTaskAttempt(consumer)
+                    .setPreviousCapability(readGrant).build();
+            var renewed = engine.renewAccess(renewal, false);
+            assertExactTaskGrantStatements(before);
+            assertThat(renewed.getAccessCapability().getToken()).isNotEmpty();
+            before = shuffleStatements();
+            assertThatThrownBy(() -> engine.renewAccess(renewal.toBuilder()
+                    .setTaskAttempt(consumer.toBuilder().setTaskId("different-consumer")).build(), false))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("capability scope");
+            assertShuffleStatementCount(before, 0);
+            assertThatThrownBy(() -> taskGrant(harness, registration, producer.toBuilder().setPlanEpoch(1).build(), write))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("producer attempt");
+        }
+    }
+
+    private static void assertExactTaskGrantStatements(Map<String, Long> before) throws Exception {
+        var changes = shuffleStatementDelta(before);
+        assertThat(changes.values().stream().mapToLong(Long::longValue).sum()).isEqualTo(5);
+        assertThat(changes.entrySet().stream().filter(entry -> entry.getKey().startsWith("SELECT"))
+                .filter(entry -> entry.getKey().contains("FROM public.execution_anchor"))
+                .mapToLong(Map.Entry::getValue).sum()).isOne();
+        assertThat(changes.entrySet().stream().filter(entry -> entry.getKey().startsWith("SELECT"))
+                .filter(entry -> entry.getKey().contains("FROM shuffle_allocation a"))
+                .mapToLong(Map.Entry::getValue).sum()).isOne();
+    }
+
+    @Test
     void acknowledgesOneWriteWindowForThirtyTwoUploadedBatches() throws Exception {
         String query = "batch-statements-" + UUID.randomUUID();
         String shuffle = "shuffle-" + query;

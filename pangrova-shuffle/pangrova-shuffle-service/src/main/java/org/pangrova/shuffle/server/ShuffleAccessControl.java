@@ -96,6 +96,9 @@ final class ShuffleAccessControl {
                 || !control && !coordinatorPeer && !request.hasTaskAttempt()) {
             throw new IllegalArgumentException("shuffle renewal scope is invalid");
         }
+        if (request.hasTaskAttempt()) {
+            return renewTaskAccess(request, owner, operation, coordinatorPeer, now, expiry);
+        }
         boolean recovering = control && request.getPreviousCapability().getToken().isEmpty();
         if (recovering) {
             lifecycle.recoverFinalizeAccess(request.getShuffleId(), owner, expiry);
@@ -105,15 +108,33 @@ final class ShuffleAccessControl {
                 || allocation.state() == ShuffleAllocationState.CLEANING) {
             throw new SecurityException("shuffle renewal owner is fenced");
         }
-        if (!control && request.hasTaskAttempt()) {
-            requireRenewalAttempt(request.getOperation(), allocation,
-                    request.getTaskAttempt());
-        }
         CapabilityScope scope = control
                 ? renewControlAccess(request, allocation, owner, operation,
                         recovering, now, expiry)
-                : renewDataAccess(request, allocation, owner, operation,
-                        coordinatorPeer, now, expiry);
+                : renewStageAccess(request, allocation, owner, operation, now, expiry);
+        return renewalResponse(scope, expiry);
+    }
+
+    private RenewAccessResponse renewTaskAccess(RenewAccessRequest request, ExecutionOwnerIdentity owner,
+            CapabilityOperation operation, boolean coordinatorPeer, long now, long expiry) {
+        String shuffleId = request.getShuffleId();
+        if (!validShuffleId(shuffleId)) {
+            throw new IllegalArgumentException("shuffle id is invalid");
+        }
+        TaskAttemptId attempt = request.getTaskAttempt();
+        if (!owner.equals(attempt.getExecutionOwner())) {
+            throw new SecurityException("shuffle renewal owner differs from the task attempt");
+        }
+        var scope = CapabilityScope.forTask(operation, shuffleId, owner, attempt);
+        var previous = request.getPreviousCapability();
+        if (coordinatorPeer) {
+            if (!previous.getToken().isEmpty()) {
+                throw new SecurityException("Coordinator task grant cannot reuse a bearer ticket");
+            }
+        } else {
+            capabilities.verify(previous, scope, now);
+        }
+        lifecycle.renewTaskAccess(shuffleId, owner, expiry, attempt, operation);
         return renewalResponse(scope, expiry);
     }
 
@@ -135,40 +156,16 @@ final class ShuffleAccessControl {
         return scope;
     }
 
-    private CapabilityScope renewDataAccess(
+    private CapabilityScope renewStageAccess(
             RenewAccessRequest request,
             Allocation allocation,
             ExecutionOwnerIdentity owner,
             CapabilityOperation operation,
-            boolean coordinatorPeer,
             long now,
             long expiry) {
-        CapabilityScope scope;
-        if (coordinatorPeer && request.hasTaskAttempt()) {
-            if (!request.getPreviousCapability().getToken().isEmpty()) {
-                throw new SecurityException("Coordinator task grant cannot reuse a bearer ticket");
-            }
-            scope = CapabilityScope.forTask(operation,
-                    allocation.identity().shuffleId(), owner,
-                    request.getTaskAttempt());
-            lifecycle.renewAccess(allocation.identity().queryId(),
-                    allocation.identity().shuffleId(), owner, expiry);
-        } else if (coordinatorPeer) {
-            // Stage tickets are retained only in the Coordinator control plane.
-            // Data RPCs and Worker renewal never accept them.
-            scope = CapabilityScope.forShuffle(operation,
-                    allocation.identity().shuffleId(), owner);
-            capabilities.verify(request.getPreviousCapability(), scope, now);
-            lifecycle.renewAccess(allocation.identity().queryId(),
-                    allocation.identity().shuffleId(), owner, expiry);
-        } else {
-            scope = CapabilityScope.forTask(operation,
-                    allocation.identity().shuffleId(), owner,
-                    request.getTaskAttempt());
-            capabilities.verify(request.getPreviousCapability(), scope, now);
-            lifecycle.renewAccess(allocation.identity().queryId(),
-                    allocation.identity().shuffleId(), owner, expiry);
-        }
+        var scope = CapabilityScope.forShuffle(operation, allocation.identity().shuffleId(), owner);
+        capabilities.verify(request.getPreviousCapability(), scope, now);
+        lifecycle.renewAccess(allocation.identity().queryId(), allocation.identity().shuffleId(), owner, expiry);
         return scope;
     }
 
@@ -185,17 +182,6 @@ final class ShuffleAccessControl {
             case SHUFFLE_ACCESS_OPERATION_CLEANUP -> CapabilityOperation.CLEANUP;
             default -> throw new IllegalArgumentException("shuffle renewal operation is invalid");
         };
-    }
-
-    private static void requireRenewalAttempt(
-            ShuffleAccessOperation operation,
-            Allocation allocation,
-            TaskAttemptId attempt) {
-        if (operation == ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE) {
-            requireProducerAttempt(allocation, attempt, -1);
-        } else {
-            requireConsumerAttempt(allocation, attempt);
-        }
     }
 
     Allocation requireAllocation(String shuffleId) {

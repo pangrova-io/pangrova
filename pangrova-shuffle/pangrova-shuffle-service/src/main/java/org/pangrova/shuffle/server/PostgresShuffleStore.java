@@ -11,12 +11,15 @@ import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 import org.pangrova.shuffle.server.enums.FailureKind;
 import org.pangrova.shuffle.server.exception.ShuffleServiceException;
@@ -300,6 +303,23 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             String shuffleId,
             ExecutionOwnerIdentity owner,
             long expiresAtMs) {
+        renewAccess(queryId, shuffleId, owner, expiresAtMs, allocation -> {});
+    }
+
+    @Override
+    public void renewTaskAccess(String shuffleId, ExecutionOwnerIdentity owner, long expiresAtMs,
+            TaskAttemptId attempt, CapabilityOperation operation) {
+        renewAccess(attempt.getQueryOrJobId(), shuffleId, owner, expiresAtMs, allocation -> {
+            switch (operation) {
+                case READ -> ShuffleAccessControl.requireConsumerAttempt(allocation, attempt);
+                case WRITE -> ShuffleAccessControl.requireProducerAttempt(allocation, attempt, -1);
+                default -> throw new IllegalArgumentException("task access requires READ or WRITE");
+            }
+        });
+    }
+
+    private void renewAccess(String queryId, String shuffleId, ExecutionOwnerIdentity owner, long expiresAtMs,
+            Consumer<Allocation> validateAllocation) {
         transaction(dataSource, connection -> {
             requireFutureExpiry(connection, expiresAtMs);
             ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
@@ -311,11 +331,12 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             if (!shuffleId.isBlank()) {
                 Allocation allocation = PostgresShuffleRecords.findAllocation(
                         connection, shuffleId, true).orElseThrow(
-                                () -> new IllegalArgumentException("shuffle does not exist"));
+                                () -> new ShuffleServiceException(FailureKind.NOT_FOUND, "shuffle does not exist"));
                 if (!allocation.identity().queryId().equals(queryId)
                         || allocation.state() == ShuffleAllocationState.CLEANING) {
                     throw new SecurityException("shuffle allocation does not belong to query");
                 }
+                validateAllocation.accept(allocation);
                 refreshAllocationExpiry(connection, shuffleId, expiresAtMs);
             }
             refreshQueryScopeExpiry(connection, queryId, expiresAtMs);

@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
@@ -51,6 +53,10 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
             String shuffleId,
             ExecutionOwnerIdentity owner,
             long expiresAtMs);
+
+    /** Validates an exact task against the locked allocation and renews both durable expiries. */
+    void renewTaskAccess(String shuffleId, ExecutionOwnerIdentity owner, long expiresAtMs,
+            TaskAttemptId attempt, CapabilityOperation operation);
 
     Allocation register(RegisterCommand command);
 
