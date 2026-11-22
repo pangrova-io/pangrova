@@ -149,6 +149,7 @@ When terminal cleanup closes the scope, the current execution owner can renew
 cleanup access while in-flight I/O drains. A successor can recover cleanup
 access after acquiring the durable anchor. The scope and its allocations stay
 closed to new data access during recovery.
+The Coordinator holds allocation and publication state per query and drops that state after the service acknowledges cleanup.
 
 ## object-storage
 

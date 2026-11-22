@@ -2,7 +2,9 @@ package org.pangrova.shuffle.pangrova.client.coordinator;
 
 import org.pangrova.shuffle.api.enums.ShuffleDataOperation;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -69,13 +71,7 @@ public final class PangrovaShuffleCoordinator
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ShuffleServiceGrpc.ShuffleServiceBlockingStub> stubs =
             new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ShuffleExecutionOwner> queryOwners =
-            new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ShuffleAccess> queryCleanupAccess =
-            new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<QueryStageKey, RegisteredShuffle> registeredShuffles =
-            new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<QueryStageKey, ShuffleCommitReceipt> finalizedShuffles =
+    private final ConcurrentHashMap<String, QueryShuffleState> queryStates =
             new ConcurrentHashMap<>();
     private final ShuffleLifecycleOperations operations = new ShuffleLifecycleOperations();
     private volatile boolean closed;
@@ -96,8 +92,8 @@ public final class PangrovaShuffleCoordinator
     @Override
     public void detachDurableControl(String executionId, ShuffleExecutionOwner expectedOwner) {
         operations.execute(executionId, () -> {
-            var owner = queryOwners.get(executionId);
-            if (owner != null && !owner.equals(expectedOwner)) {
+            var state = queryStates.get(executionId);
+            if (state != null && !state.owner.equals(expectedOwner)) {
                 throw new IllegalStateException("Cannot detach another shuffle execution owner's control state");
             }
             if (evidence.find(executionId) == null) {
@@ -143,10 +139,9 @@ public final class PangrovaShuffleCoordinator
     }
 
     private ShuffleHandle registerShuffleOwned(ShuffleRegistration registration) {
-        QueryStageKey key = new QueryStageKey(
-                registration.queryId(), registration.stageId());
-        ShuffleExecutionOwner owner = requireStableOwner(registration.queryId());
-        ShuffleHandle reused = reuseRegisteredShuffle(registration, key);
+        QueryShuffleState state = requireStableState(registration.queryId());
+        ShuffleExecutionOwner owner = state.owner;
+        ShuffleHandle reused = reuseRegisteredShuffle(registration, state);
         if (reused != null) {
             return reused;
         }
@@ -182,10 +177,8 @@ public final class PangrovaShuffleCoordinator
             }
             observer.registered(registration, allocation, owner);
         }
-        rememberCleanupAccess(registration.queryId(), handle);
-        registeredShuffles.put(key, new RegisteredShuffle(
-                registration, handle, owner));
-        finalizedShuffles.remove(key);
+        state.rememberCleanupAccess(handle.cleanupAccess());
+        state.stages.put(registration.stageId(), new RegisteredShuffle(registration, handle, null));
         LOG.info("event=shuffle_registered queryId={} stageId={} shuffleId={} "
                         + "endpointCount={}",
                 registration.queryId(), registration.stageId(),
@@ -205,23 +198,9 @@ public final class PangrovaShuffleCoordinator
                 handle.endpoints(), registration.numPartitions()));
     }
 
-    private void rememberCleanupAccess(String executionId, ShuffleHandle handle) {
-        queryCleanupAccess.compute(executionId, (queryId, existingCleanup) -> {
-            ShuffleAccess renewed = handle.cleanupAccess();
-            if (existingCleanup == null || existingCleanup.equals(renewed)) {
-                return renewed;
-            }
-            if (renewed.expiresAtEpochMs() <= existingCleanup.expiresAtEpochMs()) {
-                throw new IllegalStateException(
-                        "shuffle cleanup capability changed without a later expiry");
-            }
-            return renewed;
-        });
-    }
-
     private ShuffleHandle reuseRegisteredShuffle(
-            ShuffleRegistration registration, QueryStageKey key) {
-        RegisteredShuffle existing = registeredShuffles.get(key);
+            ShuffleRegistration registration, QueryShuffleState state) {
+        RegisteredShuffle existing = state.stages.get(registration.stageId());
         if (existing != null) {
             long existingEpoch = existing.registration().planEpoch();
             if (existingEpoch > registration.planEpoch()) {
@@ -237,9 +216,9 @@ public final class PangrovaShuffleCoordinator
                                 > System.currentTimeMillis()
                         && existing.handle().writeAccess().expiresAtEpochMs()
                                 > System.currentTimeMillis()) {
-                    ShuffleHandle refreshed = refreshDataAccess(existing);
-                    registeredShuffles.put(key, new RegisteredShuffle(
-                            registration, refreshed, existing.owner()));
+                    ShuffleHandle refreshed = refreshDataAccess(existing.handle(), state.owner);
+                    state.stages.put(registration.stageId(), new RegisteredShuffle(
+                            registration, refreshed, existing.receipt()));
                     return refreshed;
                 }
             }
@@ -259,14 +238,14 @@ public final class PangrovaShuffleCoordinator
     private ShuffleCommitReceipt commitShuffleOwned(ShufflePublication publication) {
         String queryId = publication.queryId();
         int stageId = publication.stageId();
-        QueryStageKey key = new QueryStageKey(queryId, stageId);
-        RegisteredShuffle registered = registeredShuffles.get(key);
+        QueryShuffleState state = queryStates.get(queryId);
+        RegisteredShuffle registered = state == null ? null : state.stages.get(stageId);
         if (registered == null || registered.registration().planEpoch() != publication.generation()
                 || !registered.handle().shuffleId().equals(publication.allocationId())) {
             throw new IllegalStateException("Shuffle allocation is unregistered or stale: " + publication);
         }
-        requireStableOwner(queryId);
-        ShuffleCommitReceipt existing = finalizedShuffles.get(key);
+        requireStableState(queryId);
+        ShuffleCommitReceipt existing = registered.receipt();
         if (existing != null) {
             return existing;
         }
@@ -275,11 +254,11 @@ public final class PangrovaShuffleCoordinator
         FinalizeShuffleRequest request = FinalizeShuffleRequest.newBuilder()
                 .setShuffleId(handle.shuffleId())
                 .setPlanEpoch(registration.planEpoch())
-                .setExecutionOwner(toProtocol(registered.owner()))
+                .setExecutionOwner(toProtocol(state.owner))
                 .setExpectedProducerPartitions(registration.expectedProducerCount())
                 .setExpectedProducerSetChecksum(toProtocolChecksum(
                         registration.expectedProducerSetChecksum()))
-                .setAccessCapability(finalizeCapability(registered))
+                .setAccessCapability(finalizeCapability(handle, state.owner))
                 .build();
         FinalizeShuffleResponse response = stubFor(handle.commitAddress())
                 .withDeadlineAfter(RPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -287,10 +266,10 @@ public final class PangrovaShuffleCoordinator
         ShuffleCommitReceipt result = validateFinalization(publication, registration, response);
         var observer = evidence.find(queryId);
         if (observer != null) {
-            observer.finalized(registration, allocation(handle, registration), registered.owner(), result,
+            observer.finalized(registration, allocation(handle, registration), state.owner, result,
                     response.toByteArray());
         }
-        finalizedShuffles.put(key, result);
+        state.stages.put(stageId, new RegisteredShuffle(registration, handle, result));
         LOG.info("event=shuffle_finalized queryId={} stageId={} shuffleId={} "
                         + "producerCount={} partitions={} totalBytes={} totalRows={}",
                 queryId, stageId, handle.shuffleId(),
@@ -321,7 +300,7 @@ public final class PangrovaShuffleCoordinator
     }
 
     private void recoverCleanupOwned(String queryId) {
-        ShuffleExecutionOwner owner = requireStableOwner(queryId);
+        ShuffleExecutionOwner owner = requireStableState(queryId).owner;
         ShuffleServiceGrpc.ShuffleServiceBlockingStub stub = stubFor(selectEndpoint(queryId));
         var renewed = stub.withDeadlineAfter(RPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 .renewAccess(RenewAccessRequest.newBuilder()
@@ -343,19 +322,15 @@ public final class PangrovaShuffleCoordinator
     }
 
     private void cleanupShuffleOwned(String queryId) {
-        ShuffleExecutionOwner owner = queryOwners.get(queryId);
-        ShuffleAccess cleanupAccess = queryCleanupAccess.get(queryId);
-        if (owner == null && cleanupAccess == null) {
+        QueryShuffleState state = queryStates.get(queryId);
+        if (state == null) {
             removeQueryState(queryId);
             return;
         }
+        ShuffleAccess cleanupAccess = state.cleanupAccess;
         if (cleanupAccess == null) {
             recoverCleanupOwned(queryId);
             return;
-        }
-        if (owner == null) {
-            throw new IllegalStateException(
-                    "shuffle cleanup capability has no execution owner: " + queryId);
         }
         if (cleanupAccess.expiresAtEpochMs()
                 <= System.currentTimeMillis() + CAPABILITY_REFRESH_MARGIN_MS) {
@@ -366,7 +341,7 @@ public final class PangrovaShuffleCoordinator
         ShuffleServiceGrpc.ShuffleServiceBlockingStub stub = stubFor(endpoint);
         CleanupRequest request = CleanupRequest.newBuilder()
                 .setQueryId(queryId)
-                .setExecutionOwner(toProtocol(owner))
+                .setExecutionOwner(toProtocol(state.owner))
                 .setAccessCapability(toProtocol(cleanupAccess))
                 .build();
         var response = stub
@@ -378,10 +353,7 @@ public final class PangrovaShuffleCoordinator
     }
 
     private void removeQueryState(String queryId) {
-        registeredShuffles.keySet().removeIf(key -> key.queryId().equals(queryId));
-        finalizedShuffles.keySet().removeIf(key -> key.queryId().equals(queryId));
-        queryOwners.remove(queryId);
-        queryCleanupAccess.remove(queryId);
+        queryStates.remove(queryId);
         evidence.remove(queryId);
     }
 
@@ -393,11 +365,10 @@ public final class PangrovaShuffleCoordinator
                 || handle.cleanupAccess().expiresAtEpochMs() <= threshold;
     }
 
-    private ShuffleHandle refreshDataAccess(RegisteredShuffle registered) {
-        ShuffleHandle old = registered.handle();
-        ShuffleAccess read = renewDataAccess(registered,
+    private ShuffleHandle refreshDataAccess(ShuffleHandle old, ShuffleExecutionOwner owner) {
+        ShuffleAccess read = renewDataAccess(old, owner,
                 ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ, old.readAccess());
-        ShuffleAccess write = renewDataAccess(registered,
+        ShuffleAccess write = renewDataAccess(old, owner,
                 ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE, old.writeAccess());
         return new ShuffleHandle(old.shuffleId(), old.endpoints(), old.commitAddress(),
                 read, write, old.finalizeAccess(), old.cleanupAccess(),
@@ -405,16 +376,16 @@ public final class PangrovaShuffleCoordinator
     }
 
     private ShuffleAccess renewDataAccess(
-            RegisteredShuffle registered,
+            ShuffleHandle handle,
+            ShuffleExecutionOwner owner,
             ShuffleAccessOperation operation,
             ShuffleAccess previous) {
-        ShuffleHandle handle = registered.handle();
         var renewed = stubFor(handle.commitAddress())
                 .withDeadlineAfter(RPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 .renewAccess(RenewAccessRequest.newBuilder()
                         .setOperation(operation)
                         .setShuffleId(handle.shuffleId())
-                        .setExecutionOwner(toProtocol(registered.owner()))
+                        .setExecutionOwner(toProtocol(owner))
                         .setPreviousCapability(toProtocol(previous))
                         .build())
                 .getAccessCapability();
@@ -456,13 +427,12 @@ public final class PangrovaShuffleCoordinator
     }
 
     private org.pangrova.protocol.v2.ShuffleAccessCapability finalizeCapability(
-            RegisteredShuffle registered) {
-        ShuffleHandle handle = registered.handle();
+            ShuffleHandle handle, ShuffleExecutionOwner owner) {
         if (handle.finalizeAccess().expiresAtEpochMs()
                 > System.currentTimeMillis() + CAPABILITY_REFRESH_MARGIN_MS) {
             return toProtocol(handle.finalizeAccess());
         }
-        return recoverFinalizeGrant(stubFor(handle.commitAddress()), handle.shuffleId(), registered.owner());
+        return recoverFinalizeGrant(stubFor(handle.commitAddress()), handle.shuffleId(), owner);
     }
 
     private org.pangrova.protocol.v2.ShuffleAccessCapability recoverFinalizeGrant(
@@ -488,10 +458,7 @@ public final class PangrovaShuffleCoordinator
         ShuffleControlChannels.closeChannels(channels.values());
         channels.clear();
         stubs.clear();
-        queryOwners.clear();
-        queryCleanupAccess.clear();
-        registeredShuffles.clear();
-        finalizedShuffles.clear();
+        queryStates.clear();
         evidence.clear();
         drained = true;
         LOG.info("event=coordinator_shuffle_lifecycle_closed");
@@ -530,21 +497,42 @@ public final class PangrovaShuffleCoordinator
         });
     }
 
-    private ShuffleExecutionOwner requireStableOwner(String queryId) {
+    private QueryShuffleState requireStableState(String queryId) {
         ShuffleExecutionOwner resolved = checkNotNull(
                 ownerResolver.resolve(queryId), "shuffle owner must not be null");
-        ShuffleExecutionOwner existing = queryOwners.putIfAbsent(queryId, resolved);
-        if (existing != null && !existing.equals(resolved)) {
+        QueryShuffleState state = queryStates.get(queryId);
+        if (state == null) {
+            state = new QueryShuffleState(resolved);
+            queryStates.put(queryId, state);
+        } else if (!state.owner.equals(resolved)) {
             throw new IllegalStateException(
                     "Shuffle owner changed during one query lifecycle: " + queryId);
         }
-        return existing == null ? resolved : existing;
+        return state;
     }
 
-    private record QueryStageKey(String queryId, int stageId) {}
+    /** Mutable state accessed only during the serialized lifecycle operation for this query. */
+    private static final class QueryShuffleState {
+        private final ShuffleExecutionOwner owner;
+        private final Map<Integer, RegisteredShuffle> stages = new HashMap<>();
+        private ShuffleAccess cleanupAccess;
+
+        private QueryShuffleState(ShuffleExecutionOwner owner) {
+            this.owner = owner;
+        }
+
+        private void rememberCleanupAccess(ShuffleAccess renewed) {
+            if (cleanupAccess != null && !cleanupAccess.equals(renewed)
+                    && renewed.expiresAtEpochMs() <= cleanupAccess.expiresAtEpochMs()) {
+                throw new IllegalStateException(
+                        "shuffle cleanup capability changed without a later expiry");
+            }
+            cleanupAccess = renewed;
+        }
+    }
 
     private record RegisteredShuffle(
             ShuffleRegistration registration,
             ShuffleHandle handle,
-            ShuffleExecutionOwner owner) {}
+            ShuffleCommitReceipt receipt) {}
 }
