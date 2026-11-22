@@ -181,7 +181,7 @@ class AdaptiveQueryEvaluatorTest {
         // 4 partitions of 1MB each → all fit in one coalesced group (< 256MB target)
         assertThat(coalesced.isCoalesced()).isTrue();
         assertThat(coalesced.coalescedCount()).isEqualTo(1);
-        assertThat(coalesced.groups().get(0).partitionIds()).hasSize(4);
+        assertThat(coalesced.groups().get(0).partitionCount()).isEqualTo(4);
     }
 
     // ── Helpers ──
