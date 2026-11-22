@@ -21,6 +21,11 @@ Pangrova is an open-source distributed SQL engine for open lakehouses.
 It brings relational analytics and AI retrieval to lakehouse data through familiar
 SQL clients, for teams building on existing open-format storage.
 
+**Try it:** [Build and start Pangrova](#quick-start), then run the
+[one-command Iceberg trial](docs/getting-started/quickstart.md#run-the-iceberg-trial-in-one-command).
+The [SQL fixture](examples/iceberg-smoke.sql) creates a local events table and
+aggregates it to two clicks and one purchase.
+
 > **Status:** Under active development; production qualification is ongoing.
 > Support varies by connector and execution path. Review the
 > [current capability status](docs/getting-started/capability-status.md) before
