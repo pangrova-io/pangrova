@@ -270,7 +270,7 @@ final class PlanFragmenter {
 
         private static boolean canReduceBeforeExchange(LogicalAggregate aggregate, int producers) {
             int groupCount = aggregate.getGroupCount();
-            if (producers <= SINGLE_PARALLELISM || groupCount > 1
+            if (producers <= SINGLE_PARALLELISM
                     || aggregate.getGroupSets().size() != 1 || aggregate.getAggCallList().isEmpty()
                     || !containsDirectTableScan(aggregate.getInput())
                     || !aggregate.getAggCallList().stream().allMatch(FragmentContext::hasExactScalarMerge)) {
@@ -281,25 +281,31 @@ final class PlanFragmenter {
             Double inputRows = metadata.getRowCount(input);
             if (inputRows == null || !Double.isFinite(inputRows) || inputRows <= producers) return false;
             if (groupCount == 0) return true;
-            var origin = metadata.getColumnOrigin(input, aggregate.getGroupSet().nth(0));
-            if (origin == null || origin.isDerived()) {
-                LOG.debug("event=group_aggregate_distribution_retained reason=missing_direct_column_origin");
-                return false;
+            // Charge for each observed combination when joint cardinality is unavailable.
+            double groups = 1;
+            for (int ordinal : aggregate.getGroupSet()) {
+                var origin = metadata.getColumnOrigin(input, ordinal);
+                if (origin == null || origin.isDerived()) {
+                    LOG.debug("event=group_aggregate_distribution_retained reason=missing_direct_column_origin");
+                    return false;
+                }
+                var source = origin.getOriginTable();
+                var table = source.unwrap(MetadataResolvedTable.class);
+                if (table == null) {
+                    LOG.debug("event=group_aggregate_distribution_retained reason=no_selected_connector_snapshot");
+                    return false;
+                }
+                var column = source.getRowType().getFieldNames().get(origin.getOriginColumnOrdinal());
+                var statistics = table.selectedColumnStatistics(column);
+                if (statistics.ndv() < 0) {
+                    LOG.debug("event=group_aggregate_distribution_retained reason=unknown_column_cardinality column={}",
+                            column);
+                    return false;
+                }
+                double cardinality = statistics.ndv() + (statistics.nullCount() == 0 ? 0.0 : 1.0);
+                groups *= Math.max(cardinality, 1);
+                if (groups * producers >= inputRows) return false;
             }
-            var source = origin.getOriginTable();
-            var table = source.unwrap(MetadataResolvedTable.class);
-            if (table == null) {
-                LOG.debug("event=group_aggregate_distribution_retained reason=no_selected_connector_snapshot");
-                return false;
-            }
-            var column = source.getRowType().getFieldNames().get(origin.getOriginColumnOrdinal());
-            var statistics = table.selectedColumnStatistics(column);
-            if (statistics.ndv() < 0) {
-                LOG.debug("event=group_aggregate_distribution_retained reason=unknown_column_cardinality column={}",
-                        column);
-                return false;
-            }
-            double groups = statistics.ndv() + (statistics.nullCount() == 0 ? 0.0 : 1.0);
             double partialRows = groups * producers;
             var rawWidth = metadata.getAverageRowSize(input);
             var resultWidth = metadata.getAverageRowSize(aggregate);

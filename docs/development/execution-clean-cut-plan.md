@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 122 将低基数局部归约扩到多个直接分组列。每列沿用同一选定快照的列统计，规划器按各列基数估算组合数并计入 NULL，同时校验预计交换行数和字节都下降。真实双 Worker 的 `COUNT/MIN/MAX` 查询读取 192 行，原来 192 行进入 Shuffle，候选启用后 16 行进入 Shuffle。未发布列统计时仍交换 192 行。四个结果组逐组核对，涵盖 NULL、区间边界和物理释放。54 项 Planner、真实 PostgreSQL 读绑定、JNI 命令及双 Worker Java 用例和 Checkstyle 通过。
+
 实施批次 121 将已解析的初始 `RuntimeFilterBinding` 和运行时 JNI 命令的类型化过滤器直接送入同一 Velox 转换入口。以实际生成的 Protobuf 类型测量，262,160 字节 Bloom 的内部消息为 262,194 字节。旧路径的晚到命令序列化与解析每次约 8.86–9.20 µs，初始绑定还复制一次过滤器，每次约 14.81–15.10 µs。两条路径均移除内部往返。测量仅覆盖本机协议交接。48 项定向及 4,350 项完整 Native CTest 通过，14 项真实 SQL Java 端到端和 Checkstyle 通过。
 
 实施批次 120 修复 Native Flight 客户端断连后 OUTPUT 未退出的问题。独立客户端消费 72 MiB 变长结果的首行后被强制终止，期间未调用 Coordinator 取消接口。基线在 15 秒内未释放；探针确认 gRPC 已销毁 reader 且清空队列，实际 Velox 生产者仍存活。修复复用已绑定的失败回执，终止对应的 SDK 任务，并保留真实读取者、缓冲区与生产者的释放条件。本地对照在 34 ms 内观测到 `FAILED` 和物理释放。完整读取与显式取消用例保持正确。独立复测的物理释放为 27 ms。31 项 Java/JNI、Checkstyle、模块边界检查与 4,349 项完整 Native CTest 通过。显式取消回归核对原生终态和相同尝试的真实释放回执。同一 macOS ARM64 正式角色包通过 Native 双 Worker 最终结果和重启，以及 mTLS Remote Shuffle、Flight 和实物清理。739 项清单摘要为 `2fb6a8b853eee3e74623ab12b74382b122deb03c55aa6d2ab4b0d70a1da0f046`。

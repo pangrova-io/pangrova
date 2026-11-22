@@ -6,7 +6,7 @@ unlisted: true
 
 # Pangrova 查询性能对齐与执行引擎修正计划
 
-分片放置已采用物理扫描字节。Remote Shuffle 消费窗口内无 PostgreSQL 同步读取，生产端按窗口预留并发布批次。Exchange 前的局部归约已覆盖全局聚合以及满足成本门槛的单列低基数分组。后续优先减少跨 Stage 动态过滤遗漏的扫描量。控制面、对象存储 I/O 和结果返回继续按各自的成本归因验收。实施进度见 [执行链路重构与清理记录](./execution-clean-cut-plan.md#验证记录与覆盖边界)。
+分片放置已采用物理扫描字节。Remote Shuffle 消费窗口内无 PostgreSQL 同步读取，生产端按窗口预留并发布批次。Exchange 前的局部归约已覆盖全局聚合以及满足成本门槛的低基数组合分组。后续优先减少跨 Stage 动态过滤遗漏的扫描量。控制面、对象存储 I/O 和结果返回继续按各自的成本归因验收。实施进度见 [执行链路重构与清理记录](./execution-clean-cut-plan.md#验证记录与覆盖边界)。
 
 ## 同类对标及适用边界
 
@@ -27,7 +27,7 @@ unlisted: true
 | Join 并行化 | `PlanFragmenter.resolveStageParallelism` 对缺少兼容 Exchange 或仍混有直接表扫描的 Join 回到单任务，保护分布式覆盖 | 记录哪些多表 SQL 触发此保护、部署中实际 Worker/driver 数与单任务耗时，再为高成本形态补齐双输入分布 |
 | 跨 Stage 动态过滤 | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 评估单任务内稀疏键、等待、其他键及连接器。删除名称型描述与测试专用收集器留下的断开路径 |
 | 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用 split 实际文件范围和物理字节估计 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
-| 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及读取 161 行、输出至多 40 条分组状态 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
+| 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及两列分组的 Shuffle 行数从 192 降到 16 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
 | AQE 读取布局 | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 完整 SQL 负载仍需归因，Join 多输入合并、偏斜拆分和 durable replay 各需覆盖证明 |
 | 短查询、交换与结果 | JNI 完成轮询已读取标量状态。定时 HTTP、远端逐 batch SQL 与 Flight IPC 回转已有调用证据。现有局部 Top-K 和最终归并应作为基础 | 按查询类别量化固定开销、读放大、实际出口和客户端背压，优先缩短无数据依赖的等待 |
 | 归因能力 | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt 与被 Stage 接纳的物理成功尝试 | 补齐 Exchange 等待与调度原因，区分排队、执行、blocked、撤销和物理释放 |
@@ -58,7 +58,7 @@ unlisted: true
    - 普通 Iceberg 规划从选定快照的摘要读取行数、文件数和字节量。列统计复用版本匹配的 `ANALYZE` 发布结果或快照匹配的 Puffin 元数据，重型 manifest 聚合留在显式采集。已删除按名称预查统计的中间层。`PlanningReadBindings` 为同一编译中的合格表源按授权表 ID 读取一次统计，并同时匹配选定快照版本。历史 Iceberg 和 Paimon 快照用对应快照的统计，增量范围和缺少证据的统计保留 unknown。
    - 用同一查询分别测量目录指针 SQL、表所有权 SQL、统计读取 SQL 和 manifest I/O。验证提交新快照、并发 `ANALYZE`、历史快照及撤销访问后的估计和物理计划。基线已观测到 20 个 manifest、10,000 个文件描述时，统计阶段开启 41 个 Avro 读取流，分片规划又开启 20 个。
    - Calcite 的行类型和行数访问复用查询内的不可变绑定，可选表能力探测直接判断类型。受控 Paimon 自连接加分组的规划探针每轮所有权 SQL 从 31 次降到 5 次，物理计划指纹一致。连接器声明和读绑定的交接仍检查当前所有权。
-2. **扩大可证明的局部聚合覆盖。** 已验证标量和符合成本门槛的单列 COUNT 与整数 MIN/MAX。剩余工作按实际 SQL 热点验证 SUM、AVG 及更多分组形状的 Substrait phase 和 Velox 中间状态。覆盖 DECIMAL 溢出、DISTINCT、GROUPING SETS 和高 NDV，按输入行、状态字节、CPU 与内存决定是否启用。 [Trino 预聚合规则](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/iterative/rule/PushPartialAggregationThroughExchange.java)
+2. **扩大可证明的局部聚合覆盖。** 已验证符合成本门槛的标量和多列分组 COUNT 与整数 MIN/MAX。剩余工作按实际 SQL 热点验证 SUM、AVG 的 Substrait phase 和 Velox 中间状态。覆盖 DECIMAL 溢出、DISTINCT、GROUPING SETS 和高 NDV，按输入行、状态字节、CPU 与内存决定是否启用。 [Trino 预聚合规则](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/iterative/rule/PushPartialAggregationThroughExchange.java)
 3. **扩展 AQE。** 用端到端 SQL 测量已启用的单哈希输入范围合并，记录任务数、尾 task、spill、Shuffle 授权与实际网络。多输入优先验证 Join 两侧对齐范围，然后按 Join 类型拆热点并限制另一侧复制。覆盖 NULL、重复值、投机获胜、重试及 durable replay，按实际分布确定阈值。 [Spark AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
 4. **先减少要交换的数据。** 预聚合、列裁剪、有效 dynamic filters 和正确的局部/广播 Join 优先。Storage Partition Join 仅在两端 partition spec、变换、键类型及哈希/NULL 语义可证兼容时开启。分段存储、codec 和 JNI payload 优化按各自占比验证。Remote Shuffle 消费窗口内保持零同步 SQL，写入元数据事务按窗口统计，分别验证撤权及实际回收。 [Spark Storage Partition Join](https://spark.apache.org/docs/latest/sql-performance-tuning.html#storage-partition-join)
 

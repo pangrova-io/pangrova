@@ -229,6 +229,59 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void observedLowCardinalityCompositeGroupsReduceBeforeHashExchange(TestReporter metrics) {
+        String table = orders + "_joint_groups";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, region VARCHAR, segment VARCHAR)");
+        var regionLabels = List.of("'east'", "'east'", "'west'", "NULL");
+        var segmentLabels = List.of("'retail'", "NULL", "'retail'", "'wholesale'");
+        for (int first = 0; first < 192; first += 48) {
+            String values = java.util.stream.IntStream.range(first, first + 48)
+                    .mapToObj(id -> "(" + id + ", " + regionLabels.get(id % 4) + ", " + segmentLabels.get(id % 4) + ")")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            sqlRunner.execute("INSERT INTO " + table + " VALUES " + values);
+        }
+        String sql = "SELECT region, segment, COUNT(*) AS total, MIN(id) AS lowest, MAX(id) AS highest FROM "
+                + table + " GROUP BY region, segment";
+        var raw = executeWithScanAggregates(sql, false);
+        var observed = sqlRunner.execute("SELECT COUNT(*) AS rows, COUNT(DISTINCT region) AS r_ndv, "
+                + "COUNT(region) AS r_nonnull, COUNT(DISTINCT segment) AS s_ndv, COUNT(segment) AS s_nonnull FROM "
+                + table).get(0);
+        long rows = observed.getLong("rows");
+        Map<String, TableStatistics.ColumnStatistics> columns = Map.of(
+                "region", new TableStatistics.ColumnStatistics(rows - observed.getLong("r_nonnull"),
+                        observed.getLong("r_ndv"), null, null, -1),
+                "segment", new TableStatistics.ColumnStatistics(rows - observed.getLong("s_nonnull"),
+                        observed.getLong("s_ndv"), null, null, -1));
+        var analyzed = sqlRunner.execute("ANALYZE TABLE " + table).get(0);
+        assertThat(analyzed.getLong("row_count")).isEqualTo(rows);
+        metadataBootstrap.catalogRegistry().tableStatistics().record(CATALOG, SCHEMA,
+                table.substring(table.lastIndexOf('.') + 1), new TableStatistics(rows, -1, columns),
+                "ANALYZE", analyzed.getString("version_token"));
+
+        var planned = executeWithScanAggregates(sql);
+        assertThat(planned.rows()).hasSize(4).allSatisfy(row -> {
+            int group = Math.toIntExact(row.getLong("lowest"));
+            assertThat(group).isBetween(0, 3);
+            assertThat(row.getLong("total")).isEqualTo(48L);
+            assertThat(row.getLong("highest")).isEqualTo(group + 188L);
+            assertThat(row.getString("region")).isEqualTo(group == 3 ? null : regionLabels.get(group).replace("'", ""));
+            assertThat(row.getString("segment")).isEqualTo(group == 1 ? null : segmentLabels.get(group).replace("'", ""));
+        });
+        assertThat(planned.rows()).containsExactlyInAnyOrderElementsOf(raw.rows());
+        assertThat(raw.scannedRows()).isEqualTo(192);
+        assertThat(planned.scannedRows()).isEqualTo(raw.scannedRows());
+        assertThat(raw.exchangeRows()).isEqualTo(192);
+        long aggregateRows = planned.localAggregates().stream().mapToLong(OperatorStats::getOutputRows).sum();
+        assertThat(planned.exchangeRows()).isEqualTo(aggregateRows).isBetween(4L, 16L);
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(planned.scannedRows()),
+                "raw_shuffle_rows", Long.toString(raw.exchangeRows()),
+                "planned_shuffle_rows", Long.toString(planned.exchangeRows())));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=composite_group_shuffle_rows raw={} stat_bound={} scan={}",
+                raw.exchangeRows(), planned.exchangeRows(), planned.scannedRows());
+    }
+
+    @Test
     void completedBuildPrunesPinnedIcebergPartitionsBeforeWorkerDispatch(TestReporter metrics) {
         String prefix = orders + "_filter";
         String probe = prefix + "_probe";
@@ -368,6 +421,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     private static ScanAggregates executeWithScanAggregates(String sql) {
+        return executeWithScanAggregates(sql, true);
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql, boolean reduce) {
         var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
         taskTracker.addExecutionDrainListener(report -> {
             var reports = capture.get();
@@ -402,8 +459,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         var localReductions = scanStats.stream()
                                 .filter(stat -> stat.getOperatorType().equals("Aggregation"))
                                 .toList();
-                        assertThat(localReductions).hasSameSizeAs(scanWorkers);
-                        aggregateResult.set(new ScanAggregates(rows, scannedRows, localReductions));
+                        assertThat(localReductions).hasSize(reduce ? scanWorkers.size() : 0);
+                        long exchangeRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals(
+                                "CallbackSink")).mapToLong(OperatorStats::getInputRows).sum();
+                        aggregateResult.set(new ScanAggregates(rows, scannedRows, localReductions, exchangeRows));
                     });
             return aggregateResult.get();
         } finally {
@@ -411,7 +470,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         }
     }
 
-    private record ScanAggregates(List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates) {}
+    private record ScanAggregates(
+            List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates, long exchangeRows) {}
 
     private void requireDistributedResultAndDrain(Map<String, Set<WorkerExecutionIdentity>> drainedWorkers,
             Set<WorkerExecutionIdentity> expected) {

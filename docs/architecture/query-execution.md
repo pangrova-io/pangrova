@@ -295,7 +295,7 @@ The Coordinator executes no data-processing operators. All Output Stages (includ
 
 Eligible global counts and integral minima and maxima reduce on the parallel scan tasks. The final stage gathers the scalar results and merges them. Each scan task evaluates the original aggregate inputs and filter masks.
 
-Eligible grouped counts and integral minima and maxima also reduce on scan tasks. The planner requires a direct grouping column with snapshot-matched distinct counts and an estimated reduction in both rows and bytes. The exchange hashes the grouped key and the downstream stage merges matching keys, including the NULL group.
+Eligible grouped counts and integral minima and maxima also reduce on scan tasks. The planner estimates combinations from snapshot-matched distinct counts for every direct grouping column, with a NULL bucket where applicable. It requires lower estimated exchange rows and bytes. The exchange hashes the complete grouping key, and the downstream stage merges matching groups, including NULL keys.
 
 #### 3.3.1 Design Goals and Constraints
 
