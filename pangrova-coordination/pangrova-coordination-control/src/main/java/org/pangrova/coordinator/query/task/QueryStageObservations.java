@@ -6,12 +6,14 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
+import org.pangrova.query.profiling.OperatorStatsSource.DispatchPhase;
 import org.pangrova.query.profiling.OperatorStatsSource.DownstreamPreparation;
 import org.pangrova.query.profiling.OperatorStatsSource.Exchange;
 import org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph;
 import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
 import org.pangrova.query.profiling.OperatorStatsSource.SelectedAttempt;
 import org.pangrova.query.profiling.OperatorStatsSource.Stage;
+import org.pangrova.query.profiling.OperatorStatsSource.StageDispatchWork;
 import org.pangrova.query.profiling.OperatorStatsSource.StageTransition;
 
 /** Records actual stage transitions and scheduling work on the owning Coordinator's monotonic clock. */
@@ -22,6 +24,7 @@ public final class QueryStageObservations {
     private final ConcurrentLinkedQueue<StageTransition> transitions = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Preparation> preparations = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<StageDispatchWork> stageDispatchWork = new ConcurrentLinkedQueue<>();
 
     QueryStageObservations(StageDAG dag) {
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
@@ -48,8 +51,16 @@ public final class QueryStageObservations {
         return preparation;
     }
 
-    private long elapsedNanos() {
+    /** Returns a timestamp relative to the enclosing physical graph. */
+    public long elapsedNanos() {
         return System.nanoTime() - startedAt;
+    }
+
+    /** Records a measured interval for one actual Stage generation. */
+    public void recordDispatchWork(int stageId, int generation, DispatchPhase phase, long start,
+            Integer itemCount, boolean successful) {
+        stageDispatchWork.add(new StageDispatchWork(stageId, generation, phase, start,
+                elapsedNanos(), itemCount, successful));
     }
 
     /** One scheduler-owned operation, with a consistent snapshot at each transition. */
@@ -77,6 +88,8 @@ public final class QueryStageObservations {
                 .thenComparing(SelectedAttempt::taskId)).toList();
         var preparation = preparations.stream().map(work -> work.latest)
                 .sorted(Comparator.comparingLong(DownstreamPreparation::submittedNanos)).toList();
-        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation);
+        var dispatch = stageDispatchWork.stream().sorted(Comparator.comparingLong(StageDispatchWork::startedNanos))
+                .toList();
+        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch);
     }
 }

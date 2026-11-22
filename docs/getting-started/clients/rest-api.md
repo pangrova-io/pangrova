@@ -62,6 +62,14 @@ offset. A rejected entry also has a finish offset. The other outcomes are
 Queue time is the start minus submission, and execution time is the finish
 minus start. Parallel work can overlap these intervals.
 
+`stageDispatchWork` contains measured intervals for each live stage and
+generation. The phases are `SERIALIZE_PLAN`, `ENUMERATE_SPLITS`,
+`VALIDATE_AND_BIND_PLAN`, `SUBMIT_TASKS`, and `OBSERVE_COHORT_ACK`.
+The item count identifies enumerated splits or submitted task partitions as
+applicable. The ACK interval starts after submission and measures how long the
+Coordinator still waits for the cohort; it uses the same clock as the stage
+transitions. The interval reports whether the cohort acknowledged successfully.
+
 ### Submit a Query
 
 Request:

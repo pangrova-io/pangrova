@@ -550,6 +550,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     assertThat(graph.downstreamPreparations()).anySatisfy(preparation ->
                             assertThat(preparation.outcome()).isEqualTo(
                                     org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome.COMPLETED));
+                    assertDispatchWork(graph);
                     var attempts = profile.orElseThrow().attempts();
                     assertThat(graph.selectedAttempts()).isNotEmpty().allSatisfy(selection ->
                             assertThat(attempts).anySatisfy(attempt -> {
@@ -563,7 +564,46 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                             .isGreaterThanOrEqualTo(2);
                     assertThat(attempts).extracting(attempt -> attempt.workerId())
                             .contains(WORKER_ID, SECOND_WORKER_ID);
+                    var timings = new java.util.TreeMap<String, String>();
+                    for (var interval : graph.stageDispatchWork()) {
+                        String key = "stage." + interval.stageId() + "." + interval.phase();
+                        timings.put(key + ".nanos", Long.toString(interval.finishedNanos() - interval.startedNanos()));
+                        if (interval.itemCount() != null) {
+                            timings.put(key + ".items", Integer.toString(interval.itemCount()));
+                        }
+                    }
+                    System.out.println("[E2E-DIAG] Observed stage dispatch work: " + timings);
                 });
+    }
+
+    private static void assertDispatchWork(org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph graph) {
+        var work = graph.stageDispatchWork();
+        assertThat(work).isNotEmpty().allSatisfy(interval -> {
+            assertThat(interval.startedNanos()).isNotNegative();
+            assertThat(interval.finishedNanos()).isGreaterThanOrEqualTo(interval.startedNanos());
+            assertThat(interval.successful()).isTrue();
+        });
+        for (var stage : graph.stages()) {
+            var intervals = work.stream().filter(interval -> interval.stageId() == stage.stageId()).toList();
+            assertThat(intervals).extracting(interval -> interval.phase().name()).containsExactly(
+                    "SERIALIZE_PLAN", "ENUMERATE_SPLITS", "VALIDATE_AND_BIND_PLAN", "SUBMIT_TASKS",
+                    "OBSERVE_COHORT_ACK");
+            for (int index = 1; index < intervals.size(); index++) {
+                assertThat(intervals.get(index).startedNanos()).isGreaterThanOrEqualTo(
+                        intervals.get(index - 1).finishedNanos());
+                assertThat(intervals.get(index).generation()).isEqualTo(intervals.get(0).generation());
+            }
+            assertThat(intervals.get(3).itemCount()).isPositive();
+            assertThat(intervals.get(4).itemCount()).isEqualTo(intervals.get(3).itemCount());
+            var running = graph.transitions().stream().filter(transition ->
+                    transition.stageId() == stage.stageId() && "RUNNING".equals(transition.state()))
+                    .findFirst().orElseThrow();
+            assertThat(intervals.get(4).finishedNanos()).isLessThanOrEqualTo(running.elapsedNanos());
+        }
+        assertThat(work).anySatisfy(interval -> {
+            assertThat(interval.phase().name()).isEqualTo("ENUMERATE_SPLITS");
+            assertThat(interval.itemCount()).isPositive();
+        });
     }
 
     private static void seedTablesBeforeSecondWorkerJoins() {

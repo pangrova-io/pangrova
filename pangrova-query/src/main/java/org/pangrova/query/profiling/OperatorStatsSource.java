@@ -14,13 +14,15 @@ public interface OperatorStatsSource {
     }
 
     record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
-            List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations) {
+            List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations,
+            List<StageDispatchWork> stageDispatchWork) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
             transitions = List.copyOf(transitions);
             selectedAttempts = List.copyOf(selectedAttempts);
             downstreamPreparations = List.copyOf(downstreamPreparations);
+            stageDispatchWork = List.copyOf(stageDispatchWork);
         }
     }
 
@@ -43,6 +45,14 @@ public interface OperatorStatsSource {
     enum PreparationOutcome {
         QUEUED, RUNNING, COMPLETED, SKIPPED, FAILED, REJECTED
     }
+
+    enum DispatchPhase {
+        SERIALIZE_PLAN, ENUMERATE_SPLITS, VALIDATE_AND_BIND_PLAN, SUBMIT_TASKS, OBSERVE_COHORT_ACK
+    }
+
+    /** A completed interval measured on the graph's Coordinator, with an item count where applicable. */
+    record StageDispatchWork(int stageId, int generation, DispatchPhase phase, long startedNanos,
+            long finishedNanos, Integer itemCount, boolean successful) {}
 
     /** Coordinates and counters from the latest retained report for one exact attempt. */
     record Attempt(

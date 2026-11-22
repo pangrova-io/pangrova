@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 129 将实时 Stage 的 Substrait 序列化、split 枚举、校验与绑定、任务提交和提交后等待整组 ACK 分开计时。每段保留 Stage ID、代次和同一个 Coordinator 的单调时钟，枚举及派发保留实际数量。真实双 Worker SQL 的一个样本中，8 个 split 的 Stage 枚举 115.75 ms、序列化 92.86 ms、绑定 5.72 ms、提交 10.88 ms、提交后 8 个 ACK 等待 236.10 ms。另一 Stage 枚举 16 个 split 用 35.41 ms，实际签发 1 个任务。此处是带回执的本机单次样本，各阶段可能并行。57 项 Java 回归和 Checkstyle 通过，随后单独复测 SQL、Flight 完整结果和物理释放。
+
 实施批次 128 将已发布产物的读取守卫改为只读状态列和共享行锁。PostgreSQL 16 基线在 `pg_blocking_pids` 中可见一个产物读取事务被另一个读者阻塞。候选在持有另一个共享锁时完成读取，遇到独占锁仍等待，释放后读取精确对象。每个派发窗口的相关 SELECT 从 6 降到 5，清单层仍验证依赖校验和。96 项测试覆盖真实 PostgreSQL 的发布状态、授权和持久交换，以及真实 SQL 生成值读写。Checkstyle 通过。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
 
 实施批次 127 将实时任务产物物化收敛到最多 16 个任务的派发窗口。同一发布版本每窗口只加载一次清单及已分配源对象的产物。每个任务单独验证精确来源、对象角色和完成覆盖，再构造并校验摘要。BM25 的全局统计在多个任务共享，各自的倒排和行定位限定在自己的源对象。真实 PostgreSQL 对两个任务、每任务两个绑定节点连续测量三次，相关 SELECT 从 24 降到 6。57 项检查涵盖真实 PostgreSQL、DiskANN SQL、双 Worker、生成值写入与读取及 BM25 任务归属，Checkstyle 和模块边界检查通过。
