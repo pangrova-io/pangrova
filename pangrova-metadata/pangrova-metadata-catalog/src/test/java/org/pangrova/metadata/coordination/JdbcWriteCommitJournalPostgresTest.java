@@ -7,6 +7,7 @@ import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJour
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
+import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
@@ -60,6 +61,26 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         assertThat(committed.state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(committed.fragments()).singleElement().isEqualTo(new byte[]{1, 2, 3});
         assertThat(journal.replayPendingEntries(Set.of("query-1"))).isEmpty();
+    }
+
+    @Test
+    void cdcCheckpointPrefersPendingAndIsScopedToTheExactStreamGeneration() {
+        var source = new CdcSourceIdentity("orders", "stream:orders-v1",
+                List.of(new CdcSourceIdentity.OffsetRange("source", 0, 0, 10)));
+        var olderPending = pending("cdc-pending", 1_000L, source);
+        var confirmed = pending("cdc-confirmed", 2_000L, source);
+        journal.recordIntent(olderPending);
+        journal.recordIntent(confirmed);
+        journal.markCommitted(confirmed.queryId());
+        var reopened = new JdbcWriteCommitJournal(dataSource);
+        assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
+                .get().extracting(WriteCommitEntry::queryId).isEqualTo(olderPending.queryId());
+        assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v2")).isEmpty();
+        assertThat(reopened.findCdcCheckpoint("tenant-b", "orders", "stream:orders-v1")).isEmpty();
+
+        journal.markAborted(olderPending.queryId(), olderPending.commitFingerprint());
+        assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
+                .get().extracting(WriteCommitEntry::queryId).isEqualTo(confirmed.queryId());
     }
 
     @Test
@@ -226,7 +247,31 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void releaseKeepsAnUnresolvedWriteClaimableUntilCommitIsConfirmed() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = java.time.Duration.ofMinutes(1);
+        var original = leases.tryAcquire("pending-after-query", "coordinator-a", "process-a", lifetime).orElseThrow();
+        journal.recordIntent(pending(original.executionId(), System.currentTimeMillis()));
+
+        assertThat(leases.release(original)).isTrue();
+        assertThat(leases.current(original.executionId())).isEmpty();
+        var recovered = leases.claimExpired("coordinator-b", "process-b", lifetime, 1);
+        assertThat(recovered).singleElement().satisfies(anchor -> {
+            assertThat(anchor.executionId()).isEqualTo(original.executionId());
+            assertThat(anchor.fencingToken()).isGreaterThan(original.fencingToken());
+        });
+        assertThat(leases.release(original)).isFalse();
+        journal.markCommitted(original.executionId());
+        assertThat(leases.release(recovered.get(0))).isTrue();
+        assertThat(leases.claimExpired("coordinator-c", "process-c", lifetime, 1)).isEmpty();
+    }
+
     private static WriteCommitEntry pending(String queryId, long timestampMs) {
+        return pending(queryId, timestampMs, null);
+    }
+
+    private static WriteCommitEntry pending(String queryId, long timestampMs, CdcSourceIdentity source) {
         var fragments = List.of(new byte[]{1, 2, 3});
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
@@ -238,7 +283,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                         42L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
+                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null, source),
                 fragments);
         return new WriteCommitEntry(
                 queryId,
@@ -258,6 +303,6 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                 "coordinator-a",
                 "process-a",
                 7L,
-                null, null, null);
+                null, null, source);
     }
 }

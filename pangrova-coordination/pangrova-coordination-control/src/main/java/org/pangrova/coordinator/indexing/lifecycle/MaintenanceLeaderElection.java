@@ -74,6 +74,13 @@ public final class MaintenanceLeaderElection {
         return OptionalLong.empty();
     }
 
+    /** Confirms that a captured epoch is still held at a side-effecting boundary. */
+    public boolean holdsEpoch(long epoch) {
+        LeaseEntry held = heldLease.get();
+        return held != null && held.epoch() == epoch && lease.currentHolder(LEASE_KEY)
+                .filter(current -> current.epoch() == epoch && current.holderId().equals(coordinatorId)).isPresent();
+    }
+
     /** Returns the configured lease duration. */
     public Duration leaseDuration() {
         return LEASE_DURATION;

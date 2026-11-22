@@ -37,6 +37,7 @@ final class WorkerBootstrapLifecycle {
         if (state == WorkerBootstrapState.STOPPED) return false;
         if (state == WorkerBootstrapState.NEW
                 && refs.cdcConsumer() == null
+                && refs.workerExecutedTaskBackend() == null
                 && !(refs.catalogResourceResolver() instanceof AutoCloseable)) return false;
         if (state != WorkerBootstrapState.NEW && state != WorkerBootstrapState.RUNNING
                 && state != WorkerBootstrapState.CLEANUP_PENDING) {

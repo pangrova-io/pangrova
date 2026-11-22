@@ -9,8 +9,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiPredicate;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -67,15 +69,15 @@ public final class WriteCommitRecoveryService {
                 claimedExecutionTokens.keySet());
         if (pending.isEmpty()) {
             LOG.info("event=write_commit_recovery_noop pending=0");
-            return new RecoveryReport(0, 0, 0, 0);
+            return new RecoveryReport(0, 0, 0, 0, Set.of());
         }
         LOG.warn("event=write_commit_recovery_start pending={}", pending.size());
         RecoveryCounters counters = recoverEntries(
                 pending, claimedExecutionTokens, durableFence);
-        LOG.warn("event=write_commit_recovery_done pending={} committed={} aborted={} quarantined={}",
-                pending.size(), counters.committed, counters.aborted, counters.quarantined);
-        return new RecoveryReport(
-                pending.size(), counters.committed, counters.aborted, counters.quarantined);
+        LOG.warn("event=write_commit_recovery_done pending={} committed={} aborted={} quarantined={} deferred={}",
+                pending.size(), counters.committed, counters.aborted, counters.quarantined, counters.deferred.size());
+        return new RecoveryReport(pending.size(), counters.committed, counters.aborted,
+                counters.quarantined, counters.deferred);
     }
 
     private RecoveryCounters recoverEntries(
@@ -117,6 +119,7 @@ public final class WriteCommitRecoveryService {
         switch (outcome) {
             case COMMITTED -> markRecoveredCommitted(entry, claimedToken, durableFence, counters);
             case ABORTED -> markRecoveredAborted(entry, claimedToken, durableFence, counters);
+            case DEFERRED -> counters.deferred.add(entry.queryId());
             case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, counters);
             default -> throw new IllegalStateException("Unhandled recovery outcome: " + outcome);
         }
@@ -182,12 +185,17 @@ public final class WriteCommitRecoveryService {
     }
 
     /** Summary of a recovery pass; quarantined includes intents skipped from earlier passes. */
-    public record RecoveryReport(int pending, int committed, int aborted, int quarantined) {
+    public record RecoveryReport(int pending, int committed, int aborted, int quarantined,
+            Set<String> deferredExecutionIds) {
+        public RecoveryReport {
+            deferredExecutionIds = Set.copyOf(deferredExecutionIds);
+        }
     }
 
     private static final class RecoveryCounters {
         private int committed;
         private int aborted;
         private int quarantined;
+        private final Set<String> deferred = new HashSet<>();
     }
 }

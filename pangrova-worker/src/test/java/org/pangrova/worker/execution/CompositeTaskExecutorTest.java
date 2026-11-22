@@ -38,6 +38,16 @@ class CompositeTaskExecutorTest {
         assertThat(backend.closed).isTrue();
     }
 
+    @Test
+    void copyUsesTheSameNativeOwnerWithOrWithoutCdc() {
+        try (var nativeExecutor = new NativeTaskExecutor();
+                var composite = new CompositeTaskExecutor(nativeExecutor, new RecordingBackend())) {
+            assertThat(NativeTaskExecutor.ownerOf(nativeExecutor)).containsSame(nativeExecutor);
+            assertThat(NativeTaskExecutor.ownerOf(composite)).containsSame(nativeExecutor);
+            assertThat(NativeTaskExecutor.ownerOf(new RecordingNative())).isEmpty();
+        }
+    }
+
     private static TaskRequest cdcRequest() {
         return TaskRequest.newBuilder()
                 .setAttempt(attempt())

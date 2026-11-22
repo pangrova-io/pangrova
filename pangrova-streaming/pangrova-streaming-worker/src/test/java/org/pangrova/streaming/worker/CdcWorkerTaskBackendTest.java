@@ -78,6 +78,26 @@ class CdcWorkerTaskBackendTest {
     }
 
     @Test
+    void rejectsSourceOperationOutsideAdmittedWriteScopeBeforeStaging() throws Exception {
+        try (var backend = new CdcWorkerTaskBackend(request -> new Resources(reader(), envelopes -> {
+            throw new AssertionError("Unauthorized source operation reached the connector sink");
+        }), options())) {
+            TaskRequest request = request().toBuilder().setCdcIngest(request().getCdcIngest().toBuilder()
+                    .clearAllowedOperations()
+                    .addAllowedOperations(org.pangrova.protocol.v2.CdcWriteOperation.CDC_WRITE_OPERATION_UPDATE))
+                    .build();
+            long handle = backend.create(request);
+            backend.start(handle);
+            awaitFinished(backend, handle);
+
+            TaskReport report = TaskReport.parseFrom(backend.getTaskStatus(handle));
+            assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(report.getError().getMessage()).isEqualTo("CDC stream is not authorized for INSERT");
+            assertThat(backend.getCommitFragments(handle)).isEmpty();
+        }
+    }
+
+    @Test
     void cancellationProducesAnUnsuccessfulNoNativeOwnerReceipt() {
         CdcWorkerTaskBackend backend = new CdcWorkerTaskBackend(
                 request -> new Resources(reader(), envelopes -> List.of()), options());
@@ -99,6 +119,39 @@ class CdcWorkerTaskBackendTest {
             throw new AssertionError(failure);
         }
         backend.close();
+    }
+
+    @Test
+    void cancellationDoesNotAdvertiseDrainWhileTaskResourcesAreClosing() throws Exception {
+        var closing = new java.util.concurrent.CountDownLatch(1);
+        var allowClose = new java.util.concurrent.CountDownLatch(1);
+        try (var backend = new CdcWorkerTaskBackend(
+                request -> new Resources(reader(), envelopes -> List.of(), () -> {
+                    closing.countDown();
+                    boolean interrupted = false;
+                    for (;;) {
+                        try {
+                            allowClose.await();
+                            break;
+                        } catch (InterruptedException ignored) {
+                            interrupted = true;
+                        }
+                    }
+                    if (interrupted) Thread.currentThread().interrupt();
+                }), options())) {
+            long handle = backend.create(request());
+            backend.start(handle);
+            try {
+                assertThat(closing.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                backend.cancel(handle);
+                assertThat(backend.isFinished(handle)).isFalse();
+            } finally {
+                allowClose.countDown();
+            }
+            awaitFinished(backend, handle);
+            assertThat(TaskReport.parseFrom(backend.release(handle).orElseThrow()).getState())
+                    .isEqualTo(TaskState.TASK_STATE_CANCELLED);
+        }
     }
 
     @Test
@@ -181,6 +234,7 @@ class CdcWorkerTaskBackendTest {
                         .setStreamId(STREAM).setTenantId(TENANT)
                         .setSourceOwnershipEpoch("epoch-1")
                         .setSourceProvider("fixture").setFormatId("fixture")
+                        .addAllowedOperations(org.pangrova.protocol.v2.CdcWriteOperation.CDC_WRITE_OPERATION_INSERT)
                         .addRanges(CdcSourceRange.newBuilder()
                                 .setTopic("orders").setPartition(0)
                                 .setStartOffset(10).setEndOffset(12)))
@@ -188,7 +242,11 @@ class CdcWorkerTaskBackendTest {
     }
 
     private record Resources(
-            CdcSourceReader reader, CdcRangeBatchWriter writer) implements CdcWorkerTaskResources {
+            CdcSourceReader reader, CdcRangeBatchWriter writer, InterruptibleClose onClose)
+            implements CdcWorkerTaskResources {
+        private Resources(CdcSourceReader reader, CdcRangeBatchWriter writer) {
+            this(reader, writer, () -> {});
+        }
         @Override
         public CdcSourceReader sourceReader() {
             return reader;
@@ -206,7 +264,18 @@ class CdcWorkerTaskBackendTest {
 
         @Override
         public void close() {
-            reader.close();
+            try {
+                onClose.run();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                reader.close();
+            }
         }
+    }
+
+    @FunctionalInterface
+    private interface InterruptibleClose {
+        void run() throws InterruptedException;
     }
 }

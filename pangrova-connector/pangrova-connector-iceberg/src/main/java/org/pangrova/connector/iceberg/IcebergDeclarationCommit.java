@@ -36,6 +36,26 @@ final class IcebergDeclarationCommit {
         return new BaseTable(new IcebergDeclarationTableOperations(operations, handle), table.name());
     }
 
+    static Table bindExact(Catalog catalog, Table table, Runnable requireAuthority) {
+        requireSupported(catalog, table);
+        var operations = ((HasTableOperations) table).operations();
+        return new BaseTable(new IcebergDeclarationTableOperations(
+                operations, operations.current(), requireAuthority), table.name());
+    }
+
+    static Table bindCdcBase(Catalog catalog, Table table, IcebergOutputTableHandle handle) {
+        Table exact = bindExact(catalog, table, () -> {});
+        var operations = ((HasTableOperations) exact).operations();
+        // Both declarations must be read at the same exact catalog pointer.
+        var original = new IcebergDeclarationTableOperations(operations, handle).current();
+        long snapshot = original.currentSnapshot() == null
+                ? IcebergOutputTableHandle.NO_SNAPSHOT : original.currentSnapshot().snapshotId();
+        if (snapshot != handle.baseSnapshotId()) {
+            throw new org.apache.iceberg.exceptions.ValidationException("Iceberg CDC base snapshot changed");
+        }
+        return exact;
+    }
+
     private static boolean local(String location) {
         // SDK locations may be raw absolute paths, including spaces and quotes.
         if (location.startsWith("/")) return true;

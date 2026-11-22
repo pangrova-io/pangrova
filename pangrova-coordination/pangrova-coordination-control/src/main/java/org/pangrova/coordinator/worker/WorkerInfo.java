@@ -40,8 +40,24 @@ public record WorkerInfo(
         CapabilityInventory capabilityInventory,
         int copyTaskTlsPort,
         WorkerExecutionIdentity workerExecutionIdentity,
-        org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment) implements PlacementWorker {
+        org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment,
+        boolean cdcIngestSupported) implements PlacementWorker {
     private static final int MAX_TCP_PORT = 65535;
+
+    /** Creates a Worker view without a registered JVM CDC backend. */
+    public WorkerInfo(String workerId, String host, int httpPort, int transportPort,
+                      int resultServerPort, HealthState healthState, MemoryPressure memoryPressure,
+                      double cpuUtilization, int runningTaskCount, long availableMemoryBytes,
+                      Instant lastHeartbeat, double performanceScore, String resourcePoolId,
+                      int protocolVersion, String rackId, List<String> dataLocality,
+                      CacheCatalogSummary cacheSummary, CapabilityInventory capabilityInventory,
+                      int copyTaskTlsPort, WorkerExecutionIdentity workerExecutionIdentity,
+                      org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment) {
+        this(workerId, host, httpPort, transportPort, resultServerPort, healthState,
+                memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeat,
+                performanceScore, resourcePoolId, protocolVersion, rackId, dataLocality, cacheSummary,
+                capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, shuffleDeployment, false);
+    }
 
     /** Validates the ports and health fields of a Worker view. */
     public WorkerInfo(
@@ -117,7 +133,7 @@ public record WorkerInfo(
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
                 rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
-                        shuffleDeployment);
+                        shuffleDeployment, cdcIngestSupported);
     }
 
     /** Returns a Worker snapshot with the updated cache summary. */
@@ -127,7 +143,7 @@ public record WorkerInfo(
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
                 rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
-                        shuffleDeployment);
+                        shuffleDeployment, cdcIngestSupported);
     }
 
     WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {
@@ -135,6 +151,6 @@ public record WorkerInfo(
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore, resourcePoolId,
                 protocolVersion, rackId, dataLocality, cacheSummary, inventory, copyTaskTlsPort,
-                workerExecutionIdentity, shuffleDeployment);
+                workerExecutionIdentity, shuffleDeployment, cdcIngestSupported);
     }
 }
