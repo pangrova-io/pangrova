@@ -285,12 +285,7 @@ void handleInjectRuntimeFilter(const proto::RuntimeCommand& cmd,
     return;
   }
 
-  // Serialize the full payload back to string for TaskExecutor to parse.
-  // TaskExecutor::injectDynamicFilter handles the proto → Velox Filter
-  // conversion via DynamicFilterConverter.
-  std::string payload_bytes;
-  payload.SerializeToString(&payload_bytes);
-  executor->injectDynamicFilter(payload.plan_node_id(), payload_bytes);
+  executor->injectDynamicFilter(payload.plan_node_id(), payload.filters());
   resp = successResponse();
 }
 

@@ -268,15 +268,12 @@ std::string PlanExecutionDriver::resolveScanNodeId(
 
 void PlanExecutionDriver::injectDynamicFilter(
     const std::string& plan_node_id,
-    const std::string& filter_proto) {
-  pangrova::protocol::v2::InjectRuntimeFilterRequest payload;
-  if (!payload.ParseFromString(filter_proto) || payload.plan_node_id().empty() ||
-      payload.plan_node_id() != plan_node_id) {
-    throw std::invalid_argument(
-        "Invalid Native runtime-filter command payload or plan_node_id");
+    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters) {
+  if (plan_node_id.empty()) {
+    throw std::invalid_argument("Native runtime filters require a plan_node_id");
   }
 
-  auto converted = pangrova::velox::convertDynamicFilters(payload);
+  auto converted = pangrova::velox::convertDynamicFilters(filters);
   std::shared_ptr<velox::VeloxTaskRunner> runner;
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);

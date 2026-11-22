@@ -108,10 +108,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
 
 bool PlanExecutionDriver::publishRunner(const std::shared_ptr<Execution>& execution) {
   for (const auto& binding : config_.initial_runtime_filters) {
-    protocol::v2::InjectRuntimeFilterRequest payload;
-    payload.set_plan_node_id(binding.plan_node_id());
-    payload.mutable_filters()->CopyFrom(binding.filters());
-    injectDynamicFilter(binding.plan_node_id(), payload.SerializeAsString());
+    injectDynamicFilter(binding.plan_node_id(), binding.filters());
   }
   std::vector<PendingDynamicFilter> filters;
   {

@@ -80,6 +80,10 @@ generate these fields from the same source:
 | 14 | `exchange_inputs` | repeated ExchangeInputBinding | Signed remote data-plane sources |
 | 15 | `initial_runtime_filters` | repeated RuntimeFilterBinding | Typed initial filters |
 
+The initial task binding and the decoded Native runtime command pass their
+typed runtime-filter predicates to the same Velox converter. The converter
+binds each admitted predicate to its assigned scan before row filtering.
+
 ### 1.5 `DataSplit` Field Alignment
 
 | Field # | Name | Type | Notes |

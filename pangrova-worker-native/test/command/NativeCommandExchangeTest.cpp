@@ -527,6 +527,29 @@ TEST_F(NativeCommandExchangeTest, RejectsExchangeDataOnTheCommandChannel) {
   EXPECT_TRUE(separated.success()) << separated.error().message();
 }
 
+TEST_F(NativeCommandExchangeTest, RuntimeFilterCommandValidatesTheDecodedBinding) {
+  constexpr auto commandType = proto::RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER;
+  proto::InjectRuntimeFilterRequest request;
+  auto* filter = request.add_filters();
+  filter->set_column_name("id");
+  filter->set_scope(proto::RUNTIME_FILTER_SCOPE_ROW_FILTER);
+  filter->mutable_in_list()->add_values()->set_int64_value(42);
+
+  const auto missingNode = dispatch(commandType, request);
+  ASSERT_FALSE(missingNode.success());
+  EXPECT_NE(missingNode.error().message().find("plan_node_id"), std::string::npos);
+
+  request.set_plan_node_id("iceberg-read");
+  const auto accepted = dispatch(commandType, request);
+  ASSERT_TRUE(accepted.success()) << accepted.error().message();
+
+  filter->clear_in_list();
+  const auto invalidPredicate = dispatch(commandType, request);
+  ASSERT_FALSE(invalidPredicate.success());
+  EXPECT_NE(invalidPredicate.error().message().find("Unsupported or invalid Native dynamic filter"),
+            std::string::npos);
+}
+
 TEST_F(NativeCommandExchangeTest, RejectsWrongPayloadAndUnknownCommand) {
   proto::NoMoreExchangeSourcesRequest wrong_payload;
   wrong_payload.set_plan_node_id(kPlanNodeId);

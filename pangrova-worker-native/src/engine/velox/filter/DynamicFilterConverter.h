@@ -39,10 +39,10 @@ struct ConvertedDynamicFilter {
 std::unique_ptr<facebook::velox::common::Filter> convertDynamicFilterEntry(
     const pangrova::protocol::v2::RuntimeFilter& entry);
 
-// Convert all RuntimeFilter messages from an InjectRuntimeFilterRequest.
-// DPP-only entries are skipped explicitly. Unsupported Native entries throw.
+// Convert the actual predicates of an initial binding or a runtime command.
+// DPP-only entries are handled by the Coordinator. Unsupported Native entries throw.
 std::vector<ConvertedDynamicFilter> convertDynamicFilters(
-    const pangrova::protocol::v2::InjectRuntimeFilterRequest& payload);
+    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
 
 // Resolve column name to column index in the given output type.
 // Returns -1 if column not found (caller should log WARN and skip).

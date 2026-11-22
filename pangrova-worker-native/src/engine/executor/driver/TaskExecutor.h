@@ -265,7 +265,7 @@ class TaskExecutor {
 
   // Dynamic filter injection.
   void injectDynamicFilter(const std::string& plan_node_id,
-                           const std::string& filter_proto);
+      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
 
   // Memory limit update from Java side — delegates to VeloxMemoryGovernor.
   void updateMemoryLimit(int64_t new_limit_bytes);

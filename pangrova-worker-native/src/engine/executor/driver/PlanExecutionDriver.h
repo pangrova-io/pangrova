@@ -18,6 +18,7 @@
 #include "engine/observability/NativeMetricsCollector.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "pangrova/protocol/v2/result.pb.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/type/Type.h"
 #include "velox/type/Filter.h"
 #include "velox/common/memory/Memory.h"
@@ -120,7 +121,8 @@ class PlanExecutionDriver {
   // Validate and enqueue an external runtime filter. Calls racing task startup
   // are retained and applied before the first Velox driver is started.
   void injectDynamicFilter(
-      const std::string& plan_node_id, const std::string& filter_proto);
+      const std::string& plan_node_id,
+      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
 
  private:
   struct Execution;
