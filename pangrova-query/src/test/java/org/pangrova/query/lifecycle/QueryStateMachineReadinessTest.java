@@ -1,7 +1,7 @@
 package org.pangrova.query.lifecycle;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.common.client.result.ResultEndpoint;
 

@@ -10,7 +10,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;

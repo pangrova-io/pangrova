@@ -1,6 +1,6 @@
 package org.pangrova.query.lifecycle;
 
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;

@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 111 将状态等待的四个事件统一归属到共享值类型。修复查询生命周期依赖客户端 DTO 包的架构检查。HTTP 参数、版本比较、排队和物理 release 合同沿用现有行为。37 项 Java、Checkstyle 和 114 项 TPC 工具自测通过，另用 Corretto 17 编译了实际 TPC Java 适配器。
+
 实施批次 110 在已认证 JSON Profile 公开实际派发的执行 DAG。阶段计划宽度、Exchange 分布和读取模式来自 Coordinator 注册的同一张图。阶段观测按单进程单调时钟记录，并包含重试代次。使用原本的有界遥测存储，无新增查询路径 SQL。真实 HTTP、PostgreSQL 和 Native Flight 验证了单 Stage 的转换与读查询的 SQL 预算。双 Worker SQL 验证了多 Stage、Exchange 端点、结果和实际释放。25 项 Java 与 Checkstyle 通过。获胜 attempt 和 Exchange 阻塞的关键路径证据仍列在性能对齐计划。
 
 实施批次 109 用单条 PostgreSQL 查询读取持久执行的交换图索引、登记、终态证据和源快照。合并前后的真实单交换终态测试确认这四类 SQL 从 4 条降到 1 条。九条交换边的夹具验证了跨多个游标窗口的完整性和同租户不同任务的隔离。每次游标取 4 行，查询仍持有各证据行的共享锁。生产者赢家的权威检查继续单独执行。86 项 Java 和 Checkstyle 回归通过。 [PostgreSQL 行锁](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE) · [pgJDBC 游标](https://jdbc.postgresql.org/documentation/query/#getting-results-based-on-a-cursor)

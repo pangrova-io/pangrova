@@ -32,7 +32,7 @@ import org.pangrova.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;

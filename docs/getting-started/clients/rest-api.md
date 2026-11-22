@@ -208,8 +208,8 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 
 The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
 handle. Its status and cancellation requests stay on the endpoint that accepted
-the submission. `awaitStatus(target, deadlineEpochMs)` requests a specific owner
-event. `drained` becomes true after the Coordinator records physical resource
+the submission. `awaitStatus(target, deadlineEpochMs)` takes a
+`org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. `drained` becomes true after the Coordinator records physical resource
 release.
 
 HTTP callers can use `GET /v1/query/{queryId}/state?afterVersion=0&waitMs=0`

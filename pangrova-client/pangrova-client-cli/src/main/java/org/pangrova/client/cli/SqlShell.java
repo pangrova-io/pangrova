@@ -5,7 +5,7 @@ import org.pangrova.client.http.QueryClient;
 import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.transport.client.ColumnDescriptor;
 import org.pangrova.transport.client.ResultCursor;

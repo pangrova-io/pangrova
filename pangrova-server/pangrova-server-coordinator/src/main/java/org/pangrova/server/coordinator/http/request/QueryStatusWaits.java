@@ -5,7 +5,7 @@ import jakarta.ws.rs.container.CompletionCallback;
 import jakarta.ws.rs.container.ConnectionCallback;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.common.client.error.ErrorDetail;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.QueryExecution;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;

@@ -12,7 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.common.client.query.QueryWaitTarget;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
