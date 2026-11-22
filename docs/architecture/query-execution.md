@@ -96,6 +96,8 @@ replace Planner validation.
 
 ### 2.1 The Role of Calcite in Pangrova
 
+Stage serialization reuses the validated capability union while the active Worker inventory identities match. An inventory change rebuilds the union from the actual manifests. Worker selection and task admission still check the exact function, signature and execution identity.
+
 ![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
 **Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.

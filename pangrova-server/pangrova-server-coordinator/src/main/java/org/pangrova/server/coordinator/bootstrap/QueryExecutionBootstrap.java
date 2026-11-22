@@ -135,14 +135,15 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
         this.resultService = java.util.Objects.requireNonNull(resultSvc, "resultService must not be null");
-        SqlCompiler scopedCompiler = compilerTemplate.withNativeCapabilities(() -> {
+        var nativeCapabilities = org.pangrova.planner.validation.NativeCapabilityRegistry.live(() -> {
             var inventories = wm.getActiveWorkers().stream().map(
                     org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
             if (inventories.isEmpty()) {
                 throw new org.pangrova.scheduler.api.exception.NoAvailableWorkerException();
             }
-            return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
+            return inventories;
         });
+        SqlCompiler scopedCompiler = compilerTemplate.withNativeCapabilities(nativeCapabilities);
         this.compiler = scopedCompiler;
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
