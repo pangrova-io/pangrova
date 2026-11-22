@@ -42,6 +42,7 @@ public final class DAGStagePlanBinder {
             QuerySession session, WorkerSelector workerSelector, boolean outputStage) {
         public Input {
             splits = List.copyOf(splits);
+            java.util.Objects.requireNonNull(session, "Live stage binding requires a query session");
         }
     }
 
@@ -56,12 +57,20 @@ public final class DAGStagePlanBinder {
                 : generatedValueReadResolver.bindReadOverlays(serialized.planBytes(), input.session(),
                         splits.stream().map(QuerySplit::data).toList(),
                         plan.stagePlan().splitSources());
+        boolean outputStage = input.outputStage();
+        if (serialized.retrievalTopKHints().isEmpty() && serialized.aiInvocationHints().isEmpty()) {
+            List<ResultColumnLogicalType> resultTypes = outputStage
+                    ? bindResultColumnTypes(plan.stagePlan(), Map.of())
+                    : List.of();
+            return resultTypes.isEmpty()
+                    ? generated
+                    : new BoundExecutionPlan(generated.planBytes(), generated.operatorBindings(), resultTypes);
+        }
         SerializedPlanFragment readable = new SerializedPlanFragment(generated.planBytes(),
                 serialized.retrievalTopKHints(), serialized.aiInvocationHints());
         Map<String, ResolvedRetrievalGeneration> artifacts =
                 queryContext == null ? Map.of() : retrievalArtifactResolver.resolve(readable,
                         queryContext.retrievalArtifacts(), queryContext.retrievalMerge(), splits);
-        boolean outputStage = input.outputStage();
         BoundExecutionPlan retrievalPlan = bindRetrieval(
                 readable, input.session().queryId(), plan.stageId(), outputStage,
                 splits.isEmpty(), queryContext, artifacts);
