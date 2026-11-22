@@ -112,6 +112,10 @@ each stage into a Substrait plan. Worker submission carries these bytes in the b
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
 task request for JNI. The enclosed Substrait plan is decoded on the Native side.
 
+Managed cluster control clients use HTTP/1.1 to match their Jetty listeners.
+This covers task submission, Worker reports, heartbeats and registration.
+The private COPY client uses HTTP/1.1 with mutual TLS.
+
 A stage with no retrieval or AI binding hints reuses its immutable bound plan.
 Generated-value reads are resolved before this handoff, and the output stage
 validates declared result column logical types. Generated-value scan enumeration

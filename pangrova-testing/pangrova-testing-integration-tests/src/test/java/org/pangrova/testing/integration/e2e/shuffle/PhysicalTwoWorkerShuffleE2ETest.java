@@ -348,8 +348,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + build + " VALUES (35), (36), (NULL)");
 
         String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON ";
-        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
+        // Measure the pruned read before the full scan can warm its file ranges.
         var pruned = executeWithDrainedReports(join + "p.id = b.id ORDER BY p.id");
+        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
         assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(2L, 2L, 3L, 35L, 36L);
         assertThat(pruned.rows()).extracting(row -> row.getLong("payload"))
                 .containsExactly(102L, 102L, 103L, 135L, 136L);

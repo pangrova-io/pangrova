@@ -89,6 +89,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     public void configureCopyTaskTls(ShuffleTlsConfig config) {
         checkNotNull(config, "config must not be null");
         this.copyTaskTlsClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .sslContext(org.pangrova.transport.http.tls.PemMutualTls.context(
                         config.certificateChain(), config.privateKey(), config.rootCa()))
                 .connectTimeout(Duration.ofSeconds(10))

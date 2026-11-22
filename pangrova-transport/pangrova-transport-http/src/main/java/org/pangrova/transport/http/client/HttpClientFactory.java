@@ -27,6 +27,7 @@ public final class HttpClientFactory {
             return t;
         });
         HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(config.connectTimeout())
                 .executor(executor)
                 .proxy(ProxySelector.of(null))

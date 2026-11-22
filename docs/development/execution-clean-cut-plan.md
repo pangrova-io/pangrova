@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 131 让内部控制面客户端与实际 Jetty HTTP/1.1 监听器一致。真实 Jetty 探针在每组 8 条持久连接发送 80 次 Protobuf POST，Java 17 默认在每次请求附加 117 B 的 h2c 升级头，共 9,360 B。候选默认请求的升级头为零，连接数、消息体和响应协议一致。证据覆盖请求头开销。94 项回归和 Checkstyle、模块边界检查通过，含 Worker 回报、注册启动、真实双 Worker SQL、并发重试和 COPY 私有 mTLS。分片读量回归先测剪裁，再执行全量读取，避免全量扫描提前预热同一组文件。 [Java 17 HttpClient](https://docs.oracle.com/en/java/javase/17/docs/api/java.net.http/java/net/http/HttpClient.html#version())
+
 实施批次 130 在持久分区认领事务里用一次受共享锁保护的清单读取确定当前发布状态，再在同一连接读取对象和校验源分片。移除对象读取与分片检查各自重复执行的状态查询。真实 PostgreSQL 的基线记录两条独立状态 SELECT，候选为零并保留一条受锁清单 SELECT。夹具外部持有源发布的独占行锁时，认领确实等待，释放后通过精确源对象、校验和及单连接检查。102 项 Java 回归和 Checkstyle 通过，覆盖持久交换、发布授权、动态表物化和生成值 SQL。
 
 实施批次 129 将实时 Stage 的 Substrait 序列化、split 枚举、校验与绑定、任务提交和提交后等待整组 ACK 分开计时。每段保留 Stage ID、代次和同一个 Coordinator 的单调时钟，枚举及派发保留实际数量。真实双 Worker SQL 的一个样本中，8 个 split 的 Stage 枚举 115.75 ms、序列化 92.86 ms、绑定 5.72 ms、提交 10.88 ms、提交后 8 个 ACK 等待 236.10 ms。另一 Stage 枚举 16 个 split 用 35.41 ms，实际签发 1 个任务。此处是带回执的本机单次样本，各阶段可能并行。57 项 Java 回归和 Checkstyle 通过，随后单独复测 SQL、Flight 完整结果和物理释放。
