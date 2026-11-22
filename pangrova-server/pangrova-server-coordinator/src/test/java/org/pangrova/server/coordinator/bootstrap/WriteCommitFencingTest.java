@@ -8,11 +8,11 @@ import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class WriteCommitWiringActiveActiveTest {
+class WriteCommitFencingTest {
 
     @Test
     void eachCoordinatorOwnsItsProcessLocalWriteJournal() {
-        assertThat(WriteCommitWiring.createJournal(null)).isNotSameAs(WriteCommitWiring.createJournal(null));
+        assertThat(WriteCommitComponentFactory.createJournal(null)).isNotSameAs(WriteCommitComponentFactory.createJournal(null));
     }
 
 
@@ -30,7 +30,7 @@ class WriteCommitWiringActiveActiveTest {
             peer.start("coordinator-b");
             assertThat(peer.acquireQueryOwnership("query-1", "coordinator-b")).isTrue();
 
-            WriteCommitFencer fencer = WriteCommitWiring.createFencer(peer);
+            WriteCommitFencer fencer = WriteCommitComponentFactory.createFencer(peer);
             var anchor = fencer.currentAnchor("query-1");
 
             assertThat(peer.isLeader("coordinator-b")).isFalse();
@@ -56,12 +56,12 @@ class WriteCommitWiringActiveActiveTest {
             first.start("coordinator-a");
             replacement.start("coordinator-b");
             assertThat(first.acquireQueryOwnership("query-1", "coordinator-a")).isTrue();
-            WriteCommitFencer stale = WriteCommitWiring.createFencer(first);
+            WriteCommitFencer stale = WriteCommitComponentFactory.createFencer(first);
             var oldAnchor = stale.currentAnchor("query-1");
 
             assertThat(first.yieldExecution(oldAnchor)).isTrue();
             assertThat(replacement.acquireQueryOwnership("query-1", "coordinator-b")).isTrue();
-            WriteCommitFencer current = WriteCommitWiring.createFencer(replacement);
+            WriteCommitFencer current = WriteCommitComponentFactory.createFencer(replacement);
             var newAnchor = current.currentAnchor("query-1");
 
             assertThat(newAnchor.fencingToken()).isGreaterThan(oldAnchor.fencingToken());

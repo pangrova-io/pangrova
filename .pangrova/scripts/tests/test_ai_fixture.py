@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -24,7 +25,8 @@ class ModelIntegrityTest(unittest.TestCase):
         (self.root / "blobs").mkdir()
         self.blob_path = self.root / "blobs" / ("sha256-" + digest)
         self.blob_path.write_bytes(self.blob)
-        self.entry = {"digest": "sha256:" + digest, "size": len(self.blob)}
+        self.entry = {"digest": "sha256:" + digest, "size": len(self.blob),
+                      "mediaType": "application/vnd.ollama.image.model"}
         self.manifests = []
         for model in FIXTURE.MODELS:
             name, tag = model.split(":")
@@ -57,6 +59,29 @@ class ModelIntegrityTest(unittest.TestCase):
             "digest": "../../other-file", "size": 1}, "layers": []}))
         with self.assertRaisesRegex(ValueError, "Invalid blob identity"):
             FIXTURE.verify_models(self.root)
+
+    def test_configured_fixture_requires_fixed_threads_and_preserves_model_layers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            configured = Path(temporary) / "models"
+            shutil.copytree(self.root, configured)
+            for threads in (8, FIXTURE.INFERENCE_THREADS):
+                contents = json.dumps({"num_thread": threads}).encode()
+                digest = hashlib.sha256(contents).hexdigest()
+                (configured / "blobs" / ("sha256-" + digest)).write_bytes(contents)
+                parameters = {"digest": "sha256:" + digest, "size": len(contents),
+                              "mediaType": "application/vnd.ollama.image.params"}
+                for model in FIXTURE.MODELS:
+                    manifest = FIXTURE.model_manifest(configured, model)
+                    carried_layer = {**self.entry, "from": model}
+                    manifest.write_text(json.dumps({"config": self.entry, "layers": [carried_layer, parameters]}))
+                if threads != FIXTURE.INFERENCE_THREADS:
+                    with self.assertRaisesRegex(ValueError, "inference thread count"):
+                        FIXTURE.verify_configured_models(self.root, configured)
+            expected = FIXTURE.verify_models(configured)
+            self.assertEqual(FIXTURE.verify_configured_models(self.root, configured), expected)
+            manifest.write_text(json.dumps({"config": self.entry, "layers": [parameters]}))
+            with self.assertRaisesRegex(ValueError, "non-parameter layer"):
+                FIXTURE.verify_configured_models(self.root, configured)
 
     def test_production_regression_receives_the_built_immutable_artifact(self):
         root = SCRIPT.parents[2]

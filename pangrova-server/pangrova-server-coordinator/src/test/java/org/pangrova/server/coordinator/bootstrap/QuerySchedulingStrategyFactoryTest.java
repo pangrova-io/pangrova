@@ -17,19 +17,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QuerySchedulingStrategyFactoryTest {
     @Test
     void incompatibleFactoryIsRejectedBeforeCreation() {
-        assertThatThrownBy(() -> new QuerySchedulingWiring(null, "test", List.of(new IncompatibleFactory("test", 0))))
+        assertThatThrownBy(() -> new QuerySchedulingRuntime(null, "test", List.of(new IncompatibleFactory("test", 0))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unsupported placement API version");
     }
 
     @Test
     void emptyProviderIdentityIsRejectedBeforeCreation() {
-        assertThatThrownBy(() -> new QuerySchedulingWiring(null, "test", List.of(new IncompatibleFactory(" ", 1))))
+        assertThatThrownBy(() -> new QuerySchedulingRuntime(null, "test", List.of(new IncompatibleFactory(" ", 1))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("providerId");
     }
 
     @Test
     void builtinIsSelectedFromItsPackagedDescriptor() {
-        try (var wiring = new QuerySchedulingWiring(null, "load-balanced")) {
+        try (var wiring = new QuerySchedulingRuntime(null, "load-balanced")) {
             var busy = worker("busy", .8);
             var idle = worker("idle", 0);
             assertThat(wiring.scheduler().selectWorker(1, List.of(busy, idle))).containsSame(idle);
@@ -38,7 +38,7 @@ class QuerySchedulingStrategyFactoryTest {
 
     @Test
     void missingProviderFailsWithoutSubstitutingTheBuiltin() {
-        assertThatThrownBy(() -> new QuerySchedulingWiring(null, "missing"))
+        assertThatThrownBy(() -> new QuerySchedulingRuntime(null, "missing"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing").hasMessageContaining("load-balanced");
     }
@@ -46,7 +46,7 @@ class QuerySchedulingStrategyFactoryTest {
     @Test
     void duplicateProviderIsRejectedBeforeEitherCreatesAStrategy() {
         var factory = new IncompatibleFactory("duplicate", WorkerSelectionStrategyFactory.API_VERSION);
-        assertThatThrownBy(() -> new QuerySchedulingWiring(null, "duplicate", List.of(factory, factory)))
+        assertThatThrownBy(() -> new QuerySchedulingRuntime(null, "duplicate", List.of(factory, factory)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Duplicate placement provider");
     }
 
@@ -56,7 +56,7 @@ class QuerySchedulingStrategyFactoryTest {
                 Map.of("coordinator.query.placement-provider", "test-first-eligible")));
         var busy = worker("busy", .8);
         var idle = worker("idle", 0);
-        try (var wiring = new QuerySchedulingWiring(null, config.query().placementProvider())) {
+        try (var wiring = new QuerySchedulingRuntime(null, config.query().placementProvider())) {
             assertThat(wiring.scheduler().selectWorker(1, List.of(busy, idle))).containsSame(busy);
         }
     }

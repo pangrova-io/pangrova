@@ -30,9 +30,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Owns durable shuffle cleanup and write-commit recovery wiring for queries. */
-final class QueryDurableRecoveryWiring implements AutoCloseable {
+final class QueryDurableRecovery implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecoveryWiring.class);
+    private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecovery.class);
     private static final int CLEANUP_PAGE_SIZE = 256;
     private static final long CALLBACK_DRAIN_TIMEOUT_MS = 5_000;
 
@@ -55,7 +55,7 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
     /** Only the single-flight scan worker advances this keyset cursor. */
     private String cleanupCursor;
 
-    QueryDurableRecoveryWiring(
+    QueryDurableRecovery(
             CoordinatorBootstrapConfig config,
             DataSource metadataDataSource,
             HighAvailabilityCoordinationService initialCoordination) {
@@ -64,11 +64,11 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         liveCoordination.set(initialCoordination);
     }
 
-    static QueryDurableRecoveryWiring withCleanupSource(
+    static QueryDurableRecovery withCleanupSource(
             CoordinatorBootstrapConfig config,
             Supplier<List<String>> cleanupBatchProvider,
             Consumer<String> cleanupAction) {
-        QueryDurableRecoveryWiring wiring = new QueryDurableRecoveryWiring(
+        QueryDurableRecovery wiring = new QueryDurableRecovery(
                 config, null, null);
         wiring.cleanupBatchProvider = java.util.Objects.requireNonNull(
                 cleanupBatchProvider, "cleanupBatchProvider");
@@ -183,25 +183,34 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
     private Set<String> recoverEntered(List<ExecutionAnchor> claimed, HighAvailabilityCoordinationService service,
             WriteCommitRecoveryService writeCommitRecoveryService) {
         liveCoordination.set(service);
+        Set<String> deferred = Set.of();
         if (writeCommitRecoveryService != null) {
             Map<String, Long> tokens = claimed.stream()
                     .collect(Collectors.toUnmodifiableMap(
                             ExecutionAnchor::executionId,
                             ExecutionAnchor::fencingToken));
-            writeCommitRecoveryService.recover(tokens,
-                    service::validateDurableExecutionToken);
+            deferred = writeCommitRecoveryService.recover(tokens, service::validateDurableExecutionToken)
+                    .deferredExecutionIds();
         }
-        return recoverShuffleCleanupIntents(claimed);
+        // Keep deferred writes out of ordinary query and shuffle recovery until they can publish.
+        Set<String> handled = new HashSet<>(deferred);
+        for (ExecutionAnchor anchor : claimed) {
+            if (deferred.contains(anchor.executionId())) {
+                service.yieldExecution(anchor);
+            }
+        }
+        handled.addAll(recoverShuffleCleanupIntents(claimed, deferred));
+        return Set.copyOf(handled);
     }
 
-    private Set<String> recoverShuffleCleanupIntents(List<ExecutionAnchor> claimed) {
+    private Set<String> recoverShuffleCleanupIntents(List<ExecutionAnchor> claimed, Set<String> deferred) {
         if (shuffleCleanupIntents == null) {
             return Set.of();
         }
         Set<String> cleaned = new HashSet<>();
         for (ExecutionAnchor anchor : claimed) {
             String queryId = anchor.executionId();
-            if (!shuffleCleanupIntents.isPending(queryId)) {
+            if (deferred.contains(queryId) || !shuffleCleanupIntents.isPending(queryId)) {
                 continue;
             }
             queryDispatcher.retryPendingShuffleCleanup(queryId);

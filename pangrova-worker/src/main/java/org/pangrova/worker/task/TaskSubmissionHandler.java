@@ -52,10 +52,17 @@ final class TaskSubmissionHandler {
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
         owner.verifyExecutionOwnerForAdmission(request);
+        if (canonical.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST
+                && !owner.cdcIngestSupported()) {
+            throw new TaskAdmissionException(TaskAdmissionReason.CLOSED,
+                    "Worker has no configured CDC ingestion backend");
+        }
         if (canonical.hasCopySourceStagingCommandSha256()) {
-            var executor = owner.getSharedNativeExecutor().orElse(null);
-            if (!(executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor)
-                    || !nativeExecutor.hasCopyInputs()) {
+            boolean hasCopyInputs = owner.getSharedNativeExecutor()
+                    .flatMap(org.pangrova.worker.execution.NativeTaskExecutor::ownerOf)
+                    .filter(org.pangrova.worker.execution.NativeTaskExecutor::hasCopyInputs)
+                    .isPresent();
+            if (!hasCopyInputs) {
                 throw new IllegalStateException("COPY source task requires its configured Native input runtime");
             }
         }

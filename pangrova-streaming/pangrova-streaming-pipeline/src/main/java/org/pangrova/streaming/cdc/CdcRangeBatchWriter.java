@@ -16,4 +16,9 @@ public interface CdcRangeBatchWriter {
      * write journal; this writer must not acknowledge source offsets.
      */
     List<byte[]> writeBatch(List<CdcEnvelope> envelopes);
+
+    /** Whether dependent row changes from one source range must share a single staged batch. */
+    default boolean requiresSingleRange() {
+        return false;
+    }
 }

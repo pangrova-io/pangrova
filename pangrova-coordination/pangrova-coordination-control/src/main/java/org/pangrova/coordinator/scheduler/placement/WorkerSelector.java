@@ -18,6 +18,16 @@ public interface WorkerSelector {
     /** Binds a stage's placement scope before any task in its cohort is submitted. */
     default WorkerSelector bindStagePlacement(String tenantId) { return this; }
 
+    /** Selects a Worker with a registered JVM CDC backend. */
+    default WorkerInfo selectForCdc(String tenantId) {
+        WorkerInfo selected = select(tenantId);
+        if (!selected.cdcIngestSupported()) {
+            throw new org.pangrova.scheduler.api.exception.NoAvailableWorkerException(
+                    "Selected Worker does not advertise a CDC backend");
+        }
+        return selected;
+    }
+
     /**
      * Returns the number of active workers available for task dispatch.
      * Used to cap intermediate stage parallelism to cluster capacity.

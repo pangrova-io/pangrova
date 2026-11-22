@@ -148,6 +148,18 @@ public final class WorkerHttpServer {
                             org.pangrova.worker.result.ResultReadTickets resultTickets,
                             org.pangrova.worker.copy.CopyStageLeases copyStageLeases,
                             org.pangrova.worker.file.FileSpaceFileResource fileSpaceResource) {
+        this(config, taskManager, exchangeTransport, healthCheckEndpoint, datasetControl,
+                resultTickets, copyStageLeases, fileSpaceResource, null);
+    }
+
+    /** Installs the optional authenticated connector maintenance endpoint. */
+    public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
+                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
+                            org.pangrova.worker.result.ResultReadTickets resultTickets,
+                            org.pangrova.worker.copy.CopyStageLeases copyStageLeases,
+                            org.pangrova.worker.file.FileSpaceFileResource fileSpaceResource,
+                            org.pangrova.worker.http.endpoint.ReclusterStageResource recluster) {
         checkNotNull(config, "config must not be null");
         checkNotNull(taskManager, "taskManager must not be null");
         checkNotNull(exchangeTransport, "exchangeTransport must not be null");
@@ -156,11 +168,9 @@ public final class WorkerHttpServer {
         // Jersey owns endpoint routing; the server retains only its destruction capability.
         this.fileSpaceClose = fileSpaceResource == null ? null : fileSpaceResource::close;
         if (copyStageLeases != null && copyStageLeases.supportsNativeInputs()) {
-            taskManager.getSharedNativeExecutor().ifPresent(executor -> {
-                if (executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor) {
-                    nativeExecutor.setCopyInputs(copyStageLeases);
-                }
-            });
+            taskManager.getSharedNativeExecutor()
+                    .flatMap(org.pangrova.worker.execution.NativeTaskExecutor::ownerOf)
+                    .ifPresent(nativeExecutor -> nativeExecutor.setCopyInputs(copyStageLeases));
         }
         this.taskResource = new TaskResource(
                 taskManager, exchangeTransport,
@@ -172,7 +182,7 @@ public final class WorkerHttpServer {
                 copyStageLeases == null ? null
                         : new org.pangrova.worker.http.endpoint.CopyStageResource(
                                 taskManager, copyStageLeases),
-                fileSpaceResource);
+                fileSpaceResource, recluster);
         ServletContainer servletContainer = new ServletContainer(resourceConfig);
         ServletContextHandler handler = new ServletContextHandler();
         handler.setContextPath("/");
@@ -265,7 +275,8 @@ public final class WorkerHttpServer {
             HealthCheckEndpoint healthCheckEndpoint, TaskResource taskResource,
             String internalAuthSecret, org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
             org.pangrova.worker.http.endpoint.CopyStageResource copyStageResource,
-            org.pangrova.worker.file.FileSpaceFileResource fileSpaceResource) {
+            org.pangrova.worker.file.FileSpaceFileResource fileSpaceResource,
+            org.pangrova.worker.http.endpoint.ReclusterStageResource recluster) {
         ResourceConfig rc = new ResourceConfig();
         rc.register(taskResource);
         if (copyStageResource != null) rc.register(copyStageResource);
@@ -278,6 +289,7 @@ public final class WorkerHttpServer {
         }
         if (internalAuthSecret != null && !internalAuthSecret.isBlank()) {
             rc.register(new InternalAuthFilter(internalAuthSecret));
+            if (recluster != null) rc.register(recluster);
         }
         rc.register(WorkerExceptionMapper.class);
         rc.register(JacksonFeature.class);

@@ -64,6 +64,16 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     }
 
     @Override
+    public WorkerInfo selectForCdc(String tenantId) {
+        List<WorkerInfo> candidates = workerManager.getActiveWorkers().stream()
+                .filter(WorkerInfo::cdcIngestSupported)
+                .toList();
+        return taskScheduler.selectWorkerForTenant(MIN_TASK_MEMORY_BYTES, candidates, tenantId)
+                .orElseThrow(() -> new NoAvailableWorkerException(
+                        "No eligible Worker advertises a CDC backend"));
+    }
+
+    @Override
     public int activeWorkerCount() {
         return schedulableWorkers().size();
     }

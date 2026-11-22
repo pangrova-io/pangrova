@@ -26,14 +26,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Builds the query manager and its durable runtime registries. */
-final class QueryRuntimeWiring {
+final class QueryRuntimeFactory {
 
-    private static final Logger LOG = LoggerFactory.getLogger(QueryRuntimeWiring.class);
+    private static final Logger LOG = LoggerFactory.getLogger(QueryRuntimeFactory.class);
     private static final double DEFAULT_THROTTLE_BURST = 50.0;
 
     private final Dependencies dependencies;
 
-    QueryRuntimeWiring(Dependencies dependencies) {
+    QueryRuntimeFactory(Dependencies dependencies) {
         this.dependencies = dependencies;
     }
 

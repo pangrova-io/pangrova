@@ -57,6 +57,7 @@ class AiProviderDeploymentTest {
     private static Map<String, String> labels() {
         return Map.of(AiProviderDeployment.LABEL_PREFIX + "base-image", "sha256:" + "c".repeat(64),
                 AiProviderDeployment.LABEL_PREFIX + "ollama-version", "0.6.2",
+                AiProviderDeployment.LABEL_PREFIX + "inference-threads", "2",
                 AiProviderDeployment.LABEL_PREFIX + "completion-digest", "a".repeat(64),
                 AiProviderDeployment.LABEL_PREFIX + "embedding-digest", "b".repeat(64));
     }

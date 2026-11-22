@@ -13,6 +13,7 @@ import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.CdcWriteOperation;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.ShufflePartitionPublication;
@@ -229,6 +230,12 @@ public final class CanonicalTaskRequests {
         }
         if (!cdc.getTenantId().equals(request.getSecurity().getTenantId())) {
             throw new IllegalArgumentException("CDC ingest tenant differs from the task security tenant");
+        }
+        var operations = cdc.getAllowedOperationsList();
+        if (operations.isEmpty() || operations.stream().distinct().count() != operations.size()
+                || operations.contains(CdcWriteOperation.CDC_WRITE_OPERATION_UNSPECIFIED)
+                || operations.contains(CdcWriteOperation.UNRECOGNIZED)) {
+            throw new IllegalArgumentException("CDC ingest task requires explicit, unique authorized operations");
         }
         if (cdc.getRangesCount() == 0) {
             throw new IllegalArgumentException("CDC ingest task requires at least one bounded source range");

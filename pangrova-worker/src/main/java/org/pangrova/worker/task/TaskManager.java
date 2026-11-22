@@ -285,6 +285,12 @@ public class TaskManager implements AutoCloseable {
         controlEpochFence.verifyExistingCleanup(epoch);
     }
 
+    /** Reports whether this process can execute bounded CDC ingestion in its JVM. */
+    public boolean cdcIngestSupported() {
+        return taskExecutor instanceof org.pangrova.worker.execution.CompositeTaskExecutor composite
+                && composite.supportsWorkerTask(org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST);
+    }
+
     /** Rejects task admission when its exact query or job owner does not match. */
     public void verifyExecutionOwnerForAdmission(SubmitTaskRequest request) {
         var attempt = request.taskRequest().getAttempt();

@@ -1081,6 +1081,7 @@ artifacts:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
+      - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.enums
@@ -3536,6 +3537,7 @@ artifacts:
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
+      - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert
@@ -3592,6 +3594,7 @@ artifacts:
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
       - org.pangrova.protocol.rest.data
+      - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.convert
@@ -4725,6 +4728,7 @@ artifacts:
         - pangrova-streaming-api
         - pangrova-types
       test:
+        - pangrova-batch
         - pangrova-common
         - pangrova-connector-api
         - pangrova-observability-api
@@ -4777,17 +4781,12 @@ artifacts:
       pangrova-worker: compile
     imports:
       main:
-        - pangrova-batch
         - pangrova-common
-        - pangrova-connector-api
         - pangrova-protocol
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
-        - pangrova-types
         - pangrova-worker
       test:
-        - pangrova-batch
-        - pangrova-connector-api
         - pangrova-protocol
         - pangrova-streaming-api
         - pangrova-streaming-pipeline

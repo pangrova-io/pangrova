@@ -263,6 +263,12 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
+        String internalSecret = config.internalAuthSecret();
+        if (internalSecret != null && !internalSecret.isBlank()) {
+            controlledMaintenance.setReclusterDispatcher(
+                    new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                            () -> requireWorkerManager().getActiveWorkers(), internalSecret));
+        }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -321,19 +327,10 @@ final class QueryExecutionBootstrap {
             LOG.info("event=ddl_leader_routing_enabled coordinatorId={}", config.coordinatorId());
         }
 
-        var listenerWiring = statementListeners(schemaListener);
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
                 compilerSnapshot, resultSvc,
-                List.copyOf(factories), listenerWiring.listeners(), accessControl, ddlGuard);
+                List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
-    }
-
-    record StatementListenerWiring(
-            List<org.pangrova.query.dispatch.StatementCompletionListener> listeners) { }
-
-    static StatementListenerWiring statementListeners(
-            org.pangrova.query.dispatch.StatementCompletionListener schemaListener) {
-        return new StatementListenerWiring(List.of(schemaListener));
     }
 
     /** Registers metadata tasks whose wiring depends on optional modules. */
@@ -370,7 +367,7 @@ final class QueryExecutionBootstrap {
 
     /**
      * Builds a MetadataExecutionFactory with control-plane DDL, SHOW/DESCRIBE,
-     * and maintenance tasks. Index, clustering, stream, dynamic table, and tenant
+     * and maintenance tasks. Index, stream, dynamic table, and tenant
      * tasks are registered dynamically via registerTask() after construction.
      */
     private org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory buildMetadataFactory(
@@ -434,6 +431,15 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
                         new org.pangrova.coordinator.query.statement.AnalyzeExecutor(
                                 catalogRegistry)));
+        tasks.put(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.SetClusteringOrderTask(
+                        controlledMaintenance::setClusteringOrder));
+        tasks.put(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ReclusterTableTask(
+                        controlledMaintenance::recluster));
+        tasks.put(org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ShowClusteringStatusTask(
+                        controlledMaintenance::showClusteringStatus));
         // CALL procedure
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.CallStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(

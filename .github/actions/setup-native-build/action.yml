@@ -105,8 +105,17 @@ runs:
         ensure_tool automake automake
         ensure_tool libtool glibtoolize
         ensure_tool pkg-config pkg-config
-        ensure_tool bison bison
-        ensure_tool flex flex
+        # Xcode's /usr/bin/bison exists but is too old for Velox.
+        bison_bin="$(brew --prefix bison)/bin/bison"
+        ensure_tool bison "$bison_bin"
+        [[ -x "$bison_bin" ]] || { echo "ERROR: Homebrew Bison is missing at $bison_bin" >&2; exit 1; }
+        # Velox's generated C++ scanner also needs the FlexLexer.h header.
+        flex_prefix="$(brew --prefix flex)"
+        ensure_tool flex "$flex_prefix/bin/flex"
+        [[ -x "$flex_prefix/bin/flex" && -f "$flex_prefix/include/FlexLexer.h" ]] || {
+          echo "ERROR: Homebrew Flex executable and FlexLexer.h are required at $flex_prefix" >&2
+          exit 1
+        }
         ensure_tool ripgrep rg
 
         select_llvm() {
@@ -146,7 +155,7 @@ runs:
         echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
         for tool in bison flex; do
           prefix="$(brew --prefix "$tool" 2>/dev/null || true)"
-          if [[ -d "$prefix/bin" ]]; then
+          if [[ -n "$prefix" && -x "$prefix/bin/$tool" ]]; then
             echo "$prefix/bin" >> "$GITHUB_PATH"
           fi
         done
@@ -221,6 +230,9 @@ runs:
         cmake -S pangrova-worker-native/cmake/dependency-checks/macos-sdk \
           -B "$build_dir" -G Ninja \
           -DCMAKE_CXX_COMPILER="$PANGROVA_LLVM_PREFIX/bin/clang++" \
+          -DBISON_EXECUTABLE="$(brew --prefix bison)/bin/bison" \
+          -DFLEX_EXECUTABLE="$(brew --prefix flex)/bin/flex" \
+          -DFLEX_INCLUDE_DIR="$(brew --prefix flex)/include" \
           -DCMAKE_PREFIX_PATH="$HOME/.pangrova/native-deps" \
           -DCMAKE_IGNORE_PATH="/opt/local;/opt/homebrew"
         cmake --build "$build_dir" --verbose

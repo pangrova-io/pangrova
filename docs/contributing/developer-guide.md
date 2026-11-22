@@ -67,6 +67,17 @@ an older archive into the expected path is rejected. When installing a separate
 matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
+The daily Java jobs and production regression restore the Lance fixture tool
+from the same workflow run's Linux x86-64 Native build. The test artifact
+preserves executable permissions and includes the tool's shared dependencies.
+Locally, build the `pangrova_lance_fixture_tool` Native target before running
+the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
+default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
+
+On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
+through a temporary Lima Docker VM with loopback port forwarding. The Native
+test binary and its Java fixture broker run on the macOS host.
+
 ### 1.3 Matching AddressSanitizer Dependencies
 
 ASan must use one compiler and a matching instrumented dependency cohort. Using
@@ -670,6 +681,17 @@ public class QueryExecutorTest {
 }
 ```
 
+### 5.2 Mutation Testing
+
+After installing the reactor dependencies, use the `mutation` profile on the
+module you want to measure. PIT selects classes from that module's build output.
+
+```bash
+mvn -pl :pangrova-scheduler-policy -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+```
+
+The report is written to the selected module's `target/pit-reports/` directory.
+
 ## 6. Code Submission Conventions
 
 ### 6.1 Commit Message Format
@@ -745,6 +767,14 @@ logging:
 ---
 
 
+
+### 7.3 CI Failure Summaries
+
+When CI fails on a push to `main`, open the **Main CI failure diagnostics**
+workflow for the corresponding run and attempt. Its summary lists the first
+failing step in each job, incomplete jobs, report publishing failures, and the
+aggregate validation result. Open the linked job to inspect its logs and
+confirm the cause. The summary covers the jobs reported for that attempt.
 
 ## 8. Observability Integration
 

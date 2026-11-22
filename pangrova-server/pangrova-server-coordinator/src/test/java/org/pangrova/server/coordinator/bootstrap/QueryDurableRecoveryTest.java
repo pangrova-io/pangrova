@@ -16,11 +16,11 @@ import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLea
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class QueryDurableRecoveryWiringTest {
+class QueryDurableRecoveryTest {
 
     @Test
     void nonRemoteWiringDoesNotStartCleanupScheduler() {
-        QueryDurableRecoveryWiring wiring = new QueryDurableRecoveryWiring(
+        QueryDurableRecovery wiring = new QueryDurableRecovery(
                 CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0), null, null);
         assertThatThrownBy(() -> wiring.resolveShuffleOwner("query-1"))
                 .isInstanceOf(IllegalStateException.class)
@@ -47,7 +47,7 @@ class QueryDurableRecoveryWiringTest {
         CountDownLatch allCleaned = new CountDownLatch(pending.size());
         AtomicInteger activeRpc = new AtomicInteger();
         AtomicInteger maxActiveRpc = new AtomicInteger();
-        QueryDurableRecoveryWiring wiring = QueryDurableRecoveryWiring.withCleanupSource(
+        QueryDurableRecovery wiring = QueryDurableRecovery.withCleanupSource(
                 CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0),
                 () -> pending.stream().sorted().limit(256).toList(), queryId -> {
                     int current = activeRpc.incrementAndGet();
@@ -92,7 +92,7 @@ class QueryDurableRecoveryWiringTest {
         CountDownLatch rpcStarted = new CountDownLatch(1);
         CountDownLatch releaseRpc = new CountDownLatch(1);
         AtomicInteger attempts = new AtomicInteger();
-        QueryDurableRecoveryWiring wiring = QueryDurableRecoveryWiring.withCleanupSource(
+        QueryDurableRecovery wiring = QueryDurableRecovery.withCleanupSource(
                 CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0),
                 () -> List.of("q-shutdown"), ignored -> {
                     attempts.incrementAndGet();
@@ -140,7 +140,7 @@ class QueryDurableRecoveryWiringTest {
         var installing = Executors.newSingleThreadExecutor();
         CountDownLatch selected = new CountDownLatch(1);
         CountDownLatch publish = new CountDownLatch(1);
-        var wiring = QueryDurableRecoveryWiring.withCleanupSource(
+        var wiring = QueryDurableRecovery.withCleanupSource(
                 CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0), List::of, ignored -> { });
         try (var service = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore())) {
             var actualInstall = installing.submit(() -> wiring.wireHighAvailability(service, () -> {
@@ -174,7 +174,7 @@ class QueryDurableRecoveryWiringTest {
         pending.add("q-fail-once");
         AtomicInteger attempts = new AtomicInteger();
         CountDownLatch recovered = new CountDownLatch(1);
-        QueryDurableRecoveryWiring wiring = QueryDurableRecoveryWiring.withCleanupSource(
+        QueryDurableRecovery wiring = QueryDurableRecovery.withCleanupSource(
                 CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0),
                 () -> List.copyOf(pending), queryId -> {
                     if (attempts.incrementAndGet() == 1) {

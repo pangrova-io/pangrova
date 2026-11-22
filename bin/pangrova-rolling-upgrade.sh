@@ -140,6 +140,12 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+# SSH passes the command to the remote login shell as text.
+quote_remote_path() {
+    local escaped=${1//\'/\'\\\'\'}
+    printf "'%s'" "$escaped"
+}
+
 # Build SSH command with optional user, key, and standard options
 run_ssh() {
     local host="$1"
@@ -174,27 +180,34 @@ upgrade_node() {
     local role="$1"
     local host_port="$2"
     local host="${host_port%%:*}"
+    local remote_home remote_release
+    remote_home=$(quote_remote_path "$PANGROVA_HOME")
+    remote_release=$(quote_remote_path "$NEW_VERSION_DIR")
 
     log "--- Upgrading ${role} at ${host_port} ---"
 
     # Step 1: Backup current lib/ (only binaries, not logs or config)
     log "  Backing up lib/ on ${host}..."
-    run_ssh "$host" "cp -r ${PANGROVA_HOME}/lib ${PANGROVA_HOME}/lib.backup" 2>/dev/null || {
-        log "  WARN: lib/ backup via SSH failed (host=${host}). Skipping backup."
+    # Reserve a fresh destination. cp into an existing backup would nest lib/
+    # and leave rollback pointing at an older or incomplete snapshot.
+    run_ssh "$host" "mkdir -- ${remote_home}/lib.backup && cp -Rp -- ${remote_home}/lib/. ${remote_home}/lib.backup/" || {
+        log "  ERROR: lib/ backup failed on ${host}; aborting before stopping the node."
+        return 1
     }
 
     # Step 2: Stop the node
     log "  Stopping ${role} on ${host}..."
-    run_ssh "$host" "${PANGROVA_HOME}/bin/pangrova-stop.sh --${role}" 2>/dev/null || {
-        log "  WARN: Stop command failed. Node may already be stopped."
-    }
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}"; then
+        log "  ERROR: Stop failed on ${host}; aborting before replacing libraries. Backup retained."
+        return 1
+    fi
 
     # Step 3: Deploy new lib/ (only replace binaries; config and logs are preserved)
     log "  Deploying new lib/ from ${NEW_VERSION_DIR}/lib/ ..."
     if [[ "$DRY_RUN" == "true" ]]; then
-        log "  [DRY-RUN] rsync -a --delete ${NEW_VERSION_DIR}/lib/ ${PANGROVA_HOME}/lib/ (on ${host})"
+        log "  [DRY-RUN] rsync -a --delete -- ${remote_release}/lib/ ${remote_home}/lib/ (on ${host})"
     else
-        run_ssh "$host" "rsync -a --delete ${NEW_VERSION_DIR}/lib/ ${PANGROVA_HOME}/lib/" 2>/dev/null || {
+        run_ssh "$host" "rsync -a --delete -- ${remote_release}/lib/ ${remote_home}/lib/" 2>/dev/null || {
             log "  ERROR: Failed to deploy new lib/ to ${host}."
             rollback_node "$role" "$host_port" "$host"
             return 1
@@ -203,7 +216,7 @@ upgrade_node() {
 
     # Step 4: Start the node
     log "  Starting ${role} on ${host}..."
-    run_ssh "$host" "${PANGROVA_HOME}/bin/pangrova-${role}.sh --daemon" 2>/dev/null || {
+    run_ssh "$host" "${remote_home}/bin/pangrova-${role}.sh --daemon" 2>/dev/null || {
         log "  ERROR: Failed to start ${role} on ${host}."
         rollback_node "$role" "$host_port" "$host"
         return 1
@@ -214,13 +227,13 @@ upgrade_node() {
     if [[ "$DRY_RUN" == "true" ]]; then
         log "  [DRY-RUN] health check skipped"
         log "  [DRY-RUN] ${role} at ${host_port} upgrade simulation complete."
-        run_ssh "$host" "rm -rf ${PANGROVA_HOME}/lib.backup" 2>/dev/null || true
+        run_ssh "$host" "rm -rf -- ${remote_home}/lib.backup" 2>/dev/null || true
         return 0
     fi
 
     if wait_for_healthy "$host_port"; then
         log "  OK: ${role} at ${host_port} upgraded successfully."
-        run_ssh "$host" "rm -rf ${PANGROVA_HOME}/lib.backup" 2>/dev/null || true
+        run_ssh "$host" "rm -rf -- ${remote_home}/lib.backup" 2>/dev/null || true
         return 0
     else
         log "  FAIL: ${role} at ${host_port} failed health check after upgrade."
@@ -233,22 +246,28 @@ rollback_node() {
     local role="$1"
     local host_port="$2"
     local host="$3"
+    local remote_home
+    remote_home=$(quote_remote_path "$PANGROVA_HOME")
 
     log "  Rolling back ${role} at ${host_port}..."
 
-    run_ssh "$host" "${PANGROVA_HOME}/bin/pangrova-stop.sh --${role}" 2>/dev/null || true
-
-    if run_ssh "$host" "test -d ${PANGROVA_HOME}/lib.backup" 2>/dev/null; then
-        run_ssh "$host" "rm -rf ${PANGROVA_HOME}/lib && mv ${PANGROVA_HOME}/lib.backup ${PANGROVA_HOME}/lib" 2>/dev/null || {
-            log "  ERROR: Rollback failed for ${host}. Manual intervention required."
-            return 1
-        }
-        run_ssh "$host" "${PANGROVA_HOME}/bin/pangrova-${role}.sh --daemon" 2>/dev/null || true
-        log "  Rollback complete for ${role} at ${host_port}."
-    else
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-stop.sh --${role}"; then
+        log "  ERROR: Stop failed on ${host}; aborting rollback before restoring libraries. Backup retained."
+        return 1
+    fi
+    if ! run_ssh "$host" "test -d ${remote_home}/lib.backup"; then
         log "  ERROR: No lib.backup found on ${host}. Manual intervention required."
         return 1
     fi
+    if ! run_ssh "$host" "rm -rf -- ${remote_home}/lib && mv -- ${remote_home}/lib.backup ${remote_home}/lib"; then
+        log "  ERROR: Rollback failed for ${host}. Manual intervention required."
+        return 1
+    fi
+    if ! run_ssh "$host" "${remote_home}/bin/pangrova-${role}.sh --daemon"; then
+        log "  ERROR: Previous libraries restored, but restart failed on ${host}. Manual intervention required."
+        return 1
+    fi
+    log "  Rollback complete for ${role} at ${host_port}."
 }
 
 # --- Pre-flight: verify Coordinator API is reachable ---

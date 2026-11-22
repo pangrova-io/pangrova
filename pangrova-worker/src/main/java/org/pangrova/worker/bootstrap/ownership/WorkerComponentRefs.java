@@ -210,6 +210,7 @@ public final class WorkerComponentRefs {
         this.cdcConsumer = v;
     }
 
+    /** Returns the pending JVM backend until task bootstrap takes ownership. */
     public org.pangrova.worker.execution.WorkerExecutedTaskBackend workerExecutedTaskBackend() {
         return workerExecutedTaskBackend;
     }

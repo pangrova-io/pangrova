@@ -28,15 +28,15 @@ import org.slf4j.LoggerFactory;
 
 import java.util.function.Function;
 
-/** Wires durable generated-value and feature-view materialization services. */
-final class QueryMaterializationWiring {
+/** Creates durable generated-value build and read components and the feature-view service factory. */
+final class QueryMaterializationFactory {
 
-    private static final Logger LOG = LoggerFactory.getLogger(QueryMaterializationWiring.class);
+    private static final Logger LOG = LoggerFactory.getLogger(QueryMaterializationFactory.class);
 
     private final Dependencies dependencies;
     private final PostgresGenerationStores artifactStores;
 
-    QueryMaterializationWiring(Dependencies dependencies) {
+    QueryMaterializationFactory(Dependencies dependencies) {
         this.dependencies = dependencies;
         artifactStores = new PostgresGenerationStores(dependencies.modelAuthority(),
                 CoordinatorTableWriteAuthority.create());

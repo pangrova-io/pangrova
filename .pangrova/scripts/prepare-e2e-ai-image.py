@@ -16,12 +16,15 @@ import uuid
 
 
 VERSION = "0.6.2"
+INFERENCE_THREADS = 2
 MODELS = {"tinyllama:latest": "completion-digest", "all-minilm:latest": "embedding-digest"}
 LABEL_PREFIX = "org.pangrova.ai-fixture."
+PARAMETER_LAYER = "application/vnd.ollama.image.params"
 
 
-def docker(*args):
-    return subprocess.check_output(["docker", *args], text=True, timeout=600).strip()
+def docker(*args, input_text=None):
+    return subprocess.check_output(
+        ["docker", *args], text=True, input=input_text, timeout=600).strip()
 
 
 def request(endpoint, path, body=None, timeout=30):
@@ -73,13 +76,17 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def model_manifest(directory, model):
+    name, tag = model.split(":")
+    return directory / "manifests" / "registry.ollama.ai" / "library" / name / tag
+
+
 def verify_models(directory):
     """Verify real manifest bytes, every referenced blob and sizes before image creation."""
     digests = {}
     verified_blobs = set()
     for model, label in MODELS.items():
-        name, tag = model.split(":")
-        manifest = directory / "manifests" / "registry.ollama.ai" / "library" / name / tag
+        manifest = model_manifest(directory, model)
         content = json.loads(manifest.read_bytes())
         for entry in [content["config"], *content["layers"]]:
             digest = entry["digest"]
@@ -96,20 +103,65 @@ def verify_models(directory):
     return digests
 
 
-def freeze_image(base, models, labels):
+def configure_models(container):
+    deadline = time.monotonic() + 30
+    while True:
+        probe = subprocess.run(["docker", "exec", container, "ollama", "list"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=5, check=False)
+        if probe.returncode == 0:
+            break
+        if time.monotonic() >= deadline:
+            raise ValueError("Offline Ollama failed to start for model configuration")
+        time.sleep(0.1)
+    for model in MODELS:
+        modelfile = f"FROM {model}\nPARAMETER num_thread {INFERENCE_THREADS}\n"
+        docker("exec", "-i", container, "ollama", "create", model, "-f", "/dev/stdin", input_text=modelfile)
+
+
+def non_parameter_layers(manifest):
+    return [(layer["mediaType"], layer["digest"]) for layer in manifest["layers"]
+            if layer["mediaType"] != PARAMETER_LAYER]
+
+
+def verify_configured_models(original, configured):
+    identities = verify_models(configured)
+    for model in MODELS:
+        source = json.loads(model_manifest(original, model).read_bytes())
+        deployed = json.loads(model_manifest(configured, model).read_bytes())
+        if non_parameter_layers(source) != non_parameter_layers(deployed):
+            raise ValueError(f"Configuring the fixture changed a non-parameter layer for {model}")
+        parameters = [layer for layer in deployed["layers"] if layer["mediaType"] == PARAMETER_LAYER]
+        if len(parameters) != 1:
+            raise ValueError(f"Expected one parameter layer for {model}")
+        parameter_blob = configured / "blobs" / parameters[0]["digest"].replace(":", "-")
+        if json.loads(parameter_blob.read_bytes()).get("num_thread") != INFERENCE_THREADS:
+            raise ValueError(f"Ollama did not record the expected inference thread count for {model}")
+    return identities
+
+
+def freeze_image(base, models):
     # Create directly from the exact local image ID. BuildKit treats FROM sha256:...
     # as a registry reference, which would reintroduce a network dependency.
     name = "pangrova-ai-image-" + uuid.uuid4().hex
-    docker("create", "--name", name, base)
+    docker("create", "--name", name, "--network", "none", base, "serve")
     try:
         bundle = models.parent / ".ollama"
         bundle.mkdir()
         models.rename(bundle / "models")
         docker("cp", str(bundle), name + ":/root/")
+        docker("start", name)
+        configure_models(name)
+        docker("stop", name)
+        configured = models.parent / "configured-models"
+        docker("cp", name + ":/root/.ollama/models", str(configured))
+        identities = verify_configured_models(bundle / "models", configured)
+        labels = {"base-image": base, "ollama-version": VERSION,
+                  "inference-threads": str(INFERENCE_THREADS), **identities}
         changes = []
         for key, value in labels.items():
             changes.extend(["--change", f"LABEL {LABEL_PREFIX}{key}={json.dumps(value)}"])
-        return docker("commit", *changes, name)
+        return docker("commit", *changes, name), labels
     finally:
         docker("rm", "--force", "--volumes", name)
 
@@ -132,9 +184,8 @@ def main():
             download_models(base["Id"], models, args.dns)
         else:
             shutil.copytree(args.models_dir, models)
-        identities = verify_models(models)
-        labels = {"base-image": base["Id"], "ollama-version": VERSION, **identities}
-        image = freeze_image(base["Id"], models, labels)
+        verify_models(models)
+        image, labels = freeze_image(base["Id"], models)
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
             raise ValueError("Docker did not produce an immutable fixture image ID")
         actual = json.loads(docker("image", "inspect", image))[0]

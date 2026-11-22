@@ -21,9 +21,9 @@ import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
  * crashed predecessor left behind, and the leadership fence. Extracted from QueryBootstrap to
  * keep bootstrap wiring under the 500-line quality gate.
  */
-final class WriteCommitWiring {
+final class WriteCommitComponentFactory {
 
-    private WriteCommitWiring() {
+    private WriteCommitComponentFactory() {
     }
 
     /**

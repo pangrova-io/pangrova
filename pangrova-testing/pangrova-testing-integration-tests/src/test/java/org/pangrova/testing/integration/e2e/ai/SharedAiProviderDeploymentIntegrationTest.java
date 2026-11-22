@@ -56,6 +56,11 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
                 assertThat(deployed.get("models." + binding.getKey() + ".provider-model"))
                         .isEqualTo(binding.getValue());
                 assertThat(deployed.get("models." + binding.getKey() + ".version")).isEqualTo(digest);
+                var parameters = selected.container().execInContainer(
+                        "ollama", "show", binding.getValue(), "--parameters");
+                assertThat(parameters.getExitCode()).isZero();
+                assertThat(parameters.getStdout()).containsPattern("(?m)^num_thread\\s+"
+                        + AiProviderDeployment.INFERENCE_THREADS + "\\s*$");
                 assertThat(deployed.get("models." + binding.getKey() + ".max-input-tokens"))
                         .isEqualTo(Integer.toString(AiProviderDeployment.MAX_INPUT_TOKENS));
             }

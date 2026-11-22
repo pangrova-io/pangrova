@@ -28,7 +28,7 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
         dependencies = new WorkerNativeDatasetControl.Dependencies(
                 () -> requireStarted(requireStarted(queries.get()).workerManager()).getActiveWorkers(),
                 () -> requireStarted(requireStarted(queries.get()).writeCommitJournal()),
-                () -> WriteCommitWiring.createFencer(requireStarted(coordination.get())),
+                () -> WriteCommitComponentFactory.createFencer(requireStarted(coordination.get())),
                 () -> requireStarted(coordination.get()).getCurrentEpoch());
     }
 

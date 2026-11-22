@@ -70,7 +70,7 @@ final class QueryBootstrap {
     private final javax.sql.DataSource metadataDataSource;
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
-    private final QueryDurableRecoveryWiring durableRecovery;
+    private final QueryDurableRecovery durableRecovery;
     private final org.pangrova.security.api.secret.SecretResolver secretResolver;
     private final org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
@@ -100,7 +100,7 @@ final class QueryBootstrap {
     private org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
-    private QuerySchedulingWiring queryScheduling;
+    private QuerySchedulingRuntime queryScheduling;
     private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -162,7 +162,7 @@ final class QueryBootstrap {
                 : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore());
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
-        durableRecovery = new QueryDurableRecoveryWiring(
+        durableRecovery = new QueryDurableRecovery(
                 config, metadataDataSource, coordinationService);
         this.secretResolver = secretResolver;
         this.aiInfrastructureStores = aiInfrastructureStores;
@@ -172,10 +172,10 @@ final class QueryBootstrap {
 
     void start() {
         CoordinatorPreflightChecks.validateJdbcConnection(metadataDataSource);
-        var runtimeWiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
+        var runtimeFactory = new QueryRuntimeFactory(new QueryRuntimeFactory.Dependencies(
                 config, tracingProvider, metricsProvider, moduleWiring, metadataDataSource,
                 queryAuditServices.auditService()));
-        WorkerRegistry workerRegistry = runtimeWiring.createWorkerRegistry();
+        WorkerRegistry workerRegistry = runtimeFactory.createWorkerRegistry();
         workerManager = new WorkerManager(
                 config.workerSuspectThresholdMs(), config.workerDeadThresholdMs(), workerRegistry,
                 new org.pangrova.coordination.api.membership.WorkerShuffleDeployment(config.shuffleMode().name(),
@@ -193,26 +193,26 @@ final class QueryBootstrap {
             workerManager.addTopologyListener(cacheAffinityAssigner);
         }
         initSpeculation();
-        stateJournal = runtimeWiring.createStateJournal();
+        stateJournal = runtimeFactory.createStateJournal();
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         this.writeCommitTracker = catalog != null
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
         org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases =
                 createReaderPinLeases();
-        SqlCompiler compiler = new PlannerWiring(config, metadataBootstrap, readerPinLeases, accessControl)
+        SqlCompiler compiler = new SqlCompilerFactory(config, metadataBootstrap, readerPinLeases, accessControl)
                 .buildSqlCompiler();
-        queryScheduling = new QuerySchedulingWiring(
+        queryScheduling = new QuerySchedulingRuntime(
                 moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
         taskScheduler = queryScheduling.scheduler();
         if (metadataDataSource != null) {
             artifactBuildStore = artifactStores.builds(
                     metadataDataSource);
         }
-        embeddingModelRegistry = runtimeWiring.createEmbeddingModelRegistry();
-        auditEmitter = runtimeWiring.createAuditEmitter();
+        embeddingModelRegistry = runtimeFactory.createEmbeddingModelRegistry();
+        auditEmitter = runtimeFactory.createAuditEmitter();
         wireExecutionContext(compiler, createIndexedReads(moduleWiring, catalog), catalog);
-        var queryManagerResult = runtimeWiring.buildQueryManager(
+        var queryManagerResult = runtimeFactory.buildQueryManager(
                 queryDispatcher, stateJournal, auditEmitter,
                 java.util.Optional.ofNullable(readerPinLeases)
                         .map(org.pangrova.coordinator.materialization.QueryReaderPinLifecycle::new));
@@ -255,13 +255,13 @@ final class QueryBootstrap {
     /** Builds the execution wiring, dispatcher, and speculative dependencies. */
     private void wireExecutionContext(SqlCompiler compiler,
             IndexAwareSplitFetcher indexedReads, CatalogRegistry catalog) {
-        var materializationWiring = new QueryMaterializationWiring(
-                new QueryMaterializationWiring.Dependencies(
+        var materializationFactory = new QueryMaterializationFactory(
+                new QueryMaterializationFactory.Dependencies(
                         config, moduleWiring, metadataDataSource, artifactBuildStore,
                         workerManager, taskScheduler, splitAssignmentManager,
                         aiInfrastructureStores, accessControl, embeddingModelRegistry, modelAuthority));
-        generatedValueMaterialization = materializationWiring.createGeneratedValue(catalog);
-        var generatedValueReads = materializationWiring.createGeneratedValueReads(catalog);
+        generatedValueMaterialization = materializationFactory.createGeneratedValue(catalog);
+        var generatedValueReads = materializationFactory.createGeneratedValueReads(catalog);
         var publishedReads = artifactBuildStore == null ? null
                 : new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         artifactBuildStore);
@@ -270,7 +270,7 @@ final class QueryBootstrap {
                         : new org.pangrova.persistence.semantic.postgresql.JdbcSemanticViewStore(
                                 metadataDataSource);
         var featureViewService =
-                materializationWiring.createFeatureView(catalog);
+                materializationFactory.createFeatureView(catalog);
         executionWiring = new QueryExecutionBootstrap(config, tracingProvider, accessControl,
                 metadataBootstrap, moduleWiring, streamingBootstrap, coordinationService,
                 writeCommitTracker, generatedValueMaterialization, semanticViewStore,
@@ -393,7 +393,7 @@ final class QueryBootstrap {
                     anchor.ownerId(), anchor.ownerIncarnation(),
                     anchor.fencingToken());
         });
-        var fencer = WriteCommitWiring.createFencer(service);
+        var fencer = WriteCommitComponentFactory.createFencer(service);
         if (fencer != null) {
             taskStatusReceiver.setWriteCommitFencer(fencer);
         }
@@ -541,17 +541,17 @@ final class QueryBootstrap {
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         DAGDispatchEngine engine = queryDispatcher.dagEngine();
-        writeCommitJournal = WriteCommitWiring.createJournal(metadataDataSource);
-        writeCommitRecoveryService = WriteCommitWiring.createRecoveryService(
+        writeCommitJournal = WriteCommitComponentFactory.createJournal(metadataDataSource);
+        writeCommitRecoveryService = WriteCommitComponentFactory.createRecoveryService(
                 writeCommitJournal, catalog,
-                WriteCommitWiring.createQuarantineStore(metadataDataSource));
+                WriteCommitComponentFactory.createQuarantineStore(metadataDataSource));
         TaskStatusReceiver receiver = createTaskStatusReceiver(
                 catalog, engine, writeCommitJournal);
         if (moduleWiring != null && moduleWiring.getWriteQualityGate() != null) {
             receiver.setWriteQualityGate(moduleWiring.getWriteQualityGate());
         }
         org.pangrova.coordinator.query.task.write.WriteCommitFencer fencer =
-                WriteCommitWiring.createFencer(coordinationService);
+                WriteCommitComponentFactory.createFencer(coordinationService);
         if (fencer != null) {
             receiver.setWriteCommitFencer(fencer);
         }

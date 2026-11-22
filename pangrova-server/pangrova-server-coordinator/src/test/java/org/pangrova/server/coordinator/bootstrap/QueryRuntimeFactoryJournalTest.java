@@ -10,11 +10,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class QueryRuntimeWiringJournalTest {
+class QueryRuntimeFactoryJournalTest {
 
     @Test
     void asyncDispatchCapturesRequestLoggingFieldsAtSubmission() throws Exception {
-        var executor = QueryRuntimeWiring.createAsyncSubmitExecutor();
+        var executor = QueryRuntimeFactory.createAsyncSubmitExecutor();
         try {
             var first = executorRequest(executor, "first");
             var second = executorRequest(executor, "second");
@@ -38,7 +38,7 @@ class QueryRuntimeWiringJournalTest {
     void missingJournalIsRejectedBeforeConstructingRuntimeDependencies() {
         // No other dependencies are available yet. Journal validation must happen
         // before accessing them or acquiring the owned async executor.
-        var wiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
+        var wiring = new QueryRuntimeFactory(new QueryRuntimeFactory.Dependencies(
                 null, null, null, null, null, null));
 
         assertThatThrownBy(() -> wiring.buildQueryManager(null, null, null, Optional.empty()))

@@ -293,7 +293,9 @@ Connector-specific read semantics are documented in
 Producer output is partitioned and serialized by the Native execution path.
 `SerializedShuffleQueue` owns queued pages; `FlightShuffleServer` serves
 ticket-scoped DoGet streams; `PangrovaExchangeSource` consumes upstream
-partitions directly in Native. There is no Java per-batch shuffle relay.
+partitions directly in Native. There is no Java per-batch shuffle relay. The
+exchange source aligns Arrow binary offsets when Flight delivers them
+unaligned, keeping the page payload buffer in place.
 `ShuffleBufferStore` bounds demux retention separately from the producer
 queue. The current/default deployment must not be described as zero-copy or
 producer-loss recoverable without matching storage and fault tests.
