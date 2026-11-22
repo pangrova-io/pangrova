@@ -25,12 +25,12 @@ unlisted: true
 |---|---|---|
 | CBO 统计质量 | 已移除由 min/max/NDV 推导的均匀直方图，并保留缺失 NDV。Join 和过滤器按直接列来源读取统计。三表 Join 的两个等价写法在本地规划探针中均使用实际来源的列统计 | 范围过滤仍需实测分布。倾斜和相关性可能影响 Join 顺序、build 侧、broadcast 和并行度。用每 plan node 的估计偏差与实际物理计划验证 |
 | Join 并行化 | `PlanFragmenter.resolveStageParallelism` 对缺少兼容 Exchange 或仍混有直接表扫描的 Join 回到单任务，保护分布式覆盖 | 记录哪些多表 SQL 触发此保护、部署中实际 Worker/driver 数与单任务耗时，再为高成本形态补齐双输入分布 |
-| 跨 Stage 动态过滤 | 描述符进入 `DispatchQueryContext`。`RuntimeFilterStageHandler` 与 build 数据收集器位于测试源码。初始任务直接携带 registry 中已绑定 Node ID 的 `RuntimeFilterBinding`，任务构建已移除旧 DTO 和内部二次解析 | 真实 Parquet 回归验证跨 driver 发布、物理读取前安全下推及演进后的逻辑过滤。跨 Stage 仍需实际 build 获胜集合、准确扫描身份与枚举剪裁的运行证据 |
+| 跨 Stage 动态过滤 | 实时 INNER BIGINT 等值 Join 可用完整获胜 build 回执约束选定 Iceberg 快照的 probe。实际双 Worker 查询的 probe 从 40 个分片、32,449 字节降到 2 个分片、1,398 字节 | 继续评估范围精度、等待、其他键和连接器。删除名称型描述与测试专用收集器留下的断开路径 |
 | 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用 split 实际文件范围和物理字节估计 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
 | 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及读取 161 行、输出至多 40 条分组状态 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
-| AQE 读取布局 | 移除缺少范围绑定的运行时并行度修改。当前派发按初始图覆盖每个 producer 输出分区，已提交数据的统计继续输出候选调整 | 需要显式映射源分区和读取范围，并以已提交产物证明覆盖，才能启用真实 coalesce/skew |
+| AQE 读取布局 | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 完整 SQL 负载仍需归因，Join 多输入合并、偏斜拆分和 durable replay 各需覆盖证明 |
 | 短查询、交换与结果 | JNI 完成轮询已读取标量状态。定时 HTTP、远端逐 batch SQL 与 Flight IPC 回转已有调用证据。现有局部 Top-K 和最终归并应作为基础 | 按查询类别量化固定开销、读放大、实际出口和客户端背压，优先缩短无数据依赖的等待 |
-| 归因能力 | `QueryOperatorStatsRegistry` 按 task/plan node 采集，汇总只按 plan node 或算子类型。TPC bridge 统一标记算子证据不合格 | Profile 汇总不足以重建 stage/attempt 的关键路径。区分实际执行与排队、blocked、撤销和释放 |
+| 归因能力 | JSON Profile 保留已签发 task attempt 的阶段、分区、计划代次、上报顺序和 Native 算子计数。TPC 对完整终态坐标与计数单独验收 | 补齐获胜关系和执行 DAG 时间线，区分实际执行、排队、blocked、撤销和释放 |
 
 ## 修正工作包
 
@@ -50,10 +50,7 @@ unlisted: true
 
 1. 在已有按物理扫描字节分配的基础上分开校准对象打开、解码和删除成本，记录估计缺失。需要 durable cohort 的阶段按固定快照和完整分片覆盖验证限流派发。 [Spark 文件分区](https://spark.apache.org/docs/latest/sql-performance-tuning.html#tuning-partitions)
 2. 先从 manifest、分区/文件统计剪裁开始，基于 Native reader 指标证明 row group/page 的读取量。大文件按不重叠的合法范围拆分，小文件按工作量组包。测试快照演进、删除文件、冷/热缓存、宽表、稀疏与随机访问。索引按成本和实际跳过 bytes 评估。缓存亲和用实际命中与驻留证据，prefetch 按字节预算，避免无效读取把热数据挤出。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning)
-3. **闭合跨 Stage 动态过滤。** 从已授权 inner equi-join 起步，将 descriptor 精确绑定 build cohort、probe scan 和列类型。从 Native build 收集有界摘要，只合并获胜尝试并校验完整集合。复用已实现的 `RuntimeFilterBinding` 直传路径，将获准条件与 Bound Stage Plan 的真实 Node ID 和列类型绑定。给 filter 大小和等待设预算，超出预算直接启动有效扫描，晚到过滤应用到尚未执行的工作。测试空构建、NULL、重复值、缺失与旧 producer、多过滤、outer/semi，并统计产出延迟、已发 I/O、文件/row group 跳过和实际字节。禁止误杀。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
-   - 首个可执行范围限定到实时查询中已经独立分片的 INNER 等值 Join 和直接 BIGINT 键。按物理 Exchange 输出标识 build 列序号。按已授权的源表、选定快照、schema 和稳定字段 ID 绑定 probe。投影只允许直接列映射，表达式、类型转换或掩码路径需要单独证明。
-   - 在 build 生产任务现有的 Shuffle 输出回调为非空键计算有界范围，随 canonical Native 终态送出。每个 callback 先在本地求值域，再合并一次。阶段完成时使用被接受的精确 attempt 和覆盖证明。Shuffle logical producer 集合摘要本身不足以证明投机尝试胜出。缺失、失败、旧代次和超时保持原扫描。
-   - 在 probe 分片发现前应用已证实的范围，和现有授权与静态谓词共同约束同一次 SDK 扫描。避免为了动态过滤重新读取 build、目录或 PostgreSQL。真正空 build 仅在所有获胜生产者都有完整覆盖时才能跳过 probe。端到端的首个对照须同时交付基线与候选的完整结果摘要、split 数、实际对象读取字节、等待和排空回执。
+3. **扩大可证明的动态过滤覆盖。** 当前 Iceberg INNER BIGINT 单列路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。下一步按实测数据分布比较区间、稀疏值集合与多键的收益。在并行探测、迟报、投机和大扫描夹具中验证尚未签发的工作可以安全接收新条件。统计等待、已发 I/O、文件/row group 跳过和实际字节沿用现有回执。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
 
 ### Q3 让 CBO、聚合和 AQE 缩减跨节点工作
 
@@ -62,7 +59,7 @@ unlisted: true
    - 用同一查询分别测量目录指针 SQL、表所有权 SQL、统计读取 SQL 和 manifest I/O。验证提交新快照、并发 `ANALYZE`、历史快照及撤销访问后的估计和物理计划。基线已观测到 20 个 manifest、10,000 个文件描述时，统计阶段开启 41 个 Avro 读取流，分片规划又开启 20 个。
    - Calcite 的行类型和行数访问复用查询内的不可变绑定，可选表能力探测直接判断类型。受控 Paimon 自连接加分组的规划探针每轮所有权 SQL 从 31 次降到 5 次，物理计划指纹一致。连接器声明和读绑定的交接仍检查当前所有权。
 2. **扩大可证明的局部聚合覆盖。** 已验证标量和符合成本门槛的单列 COUNT 与整数 MIN/MAX。剩余工作按实际 SQL 热点验证 SUM、AVG 及更多分组形状的 Substrait phase 和 Velox 中间状态。覆盖 DECIMAL 溢出、DISTINCT、GROUPING SETS 和高 NDV，按输入行、状态字节、CPU 与内存决定是否启用。 [Trino 预聚合规则](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/iterative/rule/PushPartialAggregationThroughExchange.java)
-3. **实际 AQE。** 从已提交的 map 输出采集 partition/producer bytes 和 rows。冻结消费映射及 epoch，保留源分区 ID。先验证合并小分区的完整范围，再按 Join 类型拆热点、限制另一侧复制。为 NULL、重复、winner、重试及 durable replay 证明无缺失无重复，随后比较尾 task、spill 和网络。业界的阈值按各平台配置，本项目用真实分布校准。 [Spark AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
+3. **扩展 AQE。** 用端到端 SQL 测量已启用的单哈希输入范围合并，记录任务数、尾 task、spill、Shuffle 授权与实际网络。多输入优先验证 Join 两侧对齐范围，然后按 Join 类型拆热点并限制另一侧复制。覆盖 NULL、重复值、投机获胜、重试及 durable replay，按实际分布确定阈值。 [Spark AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
 4. **先减少要交换的数据。** 预聚合、列裁剪、有效 dynamic filters 和正确的局部/广播 Join 优先。Storage Partition Join 仅在两端 partition spec、变换、键类型及哈希/NULL 语义可证兼容时开启。分段存储、codec 和 JNI payload 优化按各自占比验证。Remote Shuffle 消费窗口内保持零同步 SQL，写入元数据事务按窗口统计，分别验证撤权及实际回收。 [Spark Storage Partition Join](https://spark.apache.org/docs/latest/sql-performance-tuning.html#storage-partition-join)
 
 ### Q4 专项优化 Native 与结果返回
@@ -72,7 +69,7 @@ unlisted: true
 
 ## 同条件对标与发布门槛
 
-2026-11-23 复核了发布环境。仓库未登记专用基准 runner，未设置 `TPC_BENCHMARK_CONFIG_DIR`，本机也没有共享 SF100/SF1000 快照。本机可复用的 Docker 镜像持有 macOS Mach-O 测试产物，无法作为 Linux Native 构建证据。现有 TPC 工具通过 113 项自测，正式跨引擎门槛仍待运行。
+2026-11-23 复核了发布环境。仓库未登记专用基准 runner，未设置 `TPC_BENCHMARK_CONFIG_DIR`，本机也没有共享 SF100/SF1000 快照。本机可复用的 Docker 镜像持有 macOS Mach-O 测试产物，无法作为 Linux Native 构建证据。现有 TPC 工具通过 114 项自测，正式跨引擎门槛仍待运行。
 
 | 活动 | 数据与场景 | 必交证据 |
 |---|---|---|

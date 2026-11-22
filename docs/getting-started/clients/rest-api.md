@@ -24,12 +24,21 @@ http://<coordinator-host>:<port>/v1
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
-| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON); operator tree comes from real task telemetry and is empty with `telemetryAvailable=false` when none was retained |
+| `GET` | `/v1/query/profile/{queryId}/json` | Get audit totals and retained Native task-attempt counters |
 | `GET` | `/v1/health` | Health check (`503` when not ready) |
 | `POST` | `/v1/workers/register` | Worker registration (internal) |
 | `POST` | `/v1/worker/heartbeat` | Worker heartbeat (internal) |
 | `POST` | `/v1/streaming/cdc/register` | Register a CDC stream consumer (internal) |
 | `POST` | `/v1/streaming/cdc/heartbeat` | CDC stream heartbeat (internal) |
+
+### Query Profile
+
+The JSON profile returns query audit timing and memory totals. Each element of `attempts`
+identifies an issued stage, partition, plan epoch, task attempt, and Worker. `reportState`
+and `reportSequence` identify the measured snapshot. The attempt includes measured output
+backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts for a
+retry and its predecessor appear separately. If the Coordinator retains no attempt
+counters, `attempts` is empty and `telemetryAvailable` is false.
 
 ### Submit a Query
 

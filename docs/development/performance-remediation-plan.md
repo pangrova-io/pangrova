@@ -56,9 +56,9 @@ A 完成基线后，B、C、E 中互不改变同一变量的改动可独立推�
 
 ### A 让基准识别实际算子证据
 
-`TaskStatusReceiver.recordOperatorStats` 已接入 `QueryOperatorStatsRegistry`，`QueryBootstrap` 为 Profile 组装同一个 registry。`QueryProfileService.buildProfile` 在没有统计时返回空树和 `telemetryAvailable=false`，有统计时返回聚合算子；`buildTimingBreakdown` 的 `ioWaitMs` 仍由 wall 减 CPU 推导。当前 `scripts/tpc_clients.py::profile` 和方法文档仍按旧版合成树描述并将算子证据统一标为不合格。Registry 写入键含 task ID，汇总时只按 plan node ID（缺失时按算子类型）归并，并累加各任务 wall time。不同 stage 或 attempt 的可重名节点和并行时间需要独立证据才能用于关键路径归因。
+Profile 以已签发的 Native attempt 为身份保留最新的测量报告，可以区分不同 Stage、重试和同名算子。TPC 基准采集在具有完整终态坐标和算子计数的报告上才标记算子数据合格。查询的审计总量、单任务等待和并行算子时间仍各自解释。
 
-1. 以 v2 Native 的原始 operator stats、获胜 attempt 和 plan node ID 对照公开 Profile。先用真实 SQL 验证有统计、无统计/过期、重试和推测执行各自的语义，再更新 TPC 标记与方法文档。保留当前聚合字段的兼容，单独暴露实际 blocked 时间和按 stage/attempt 的诊断证据。采集路径需计入 CPU、序列化字节、丢样和保留成本。
+1. 补齐获胜 attempt 与可执行 DAG 依赖的同源证据。分别用重试和推测执行查询验证关键路径、排队、实际阻塞、撤销与释放。量化采集路径的 CPU、序列化字节、丢样和保留成本。
 2. 冻结 Git/工作树内容散列、Native/JAR、JDK、配置、数据布局和快照、服务拓扑、CPU/RAM、并发与缓存状态。短 SQL 同时用持久客户端测引擎延迟，用独立 CLI 测冷启动。TCP/TLS 建连与连接复用分别采样。
 3. Query Profile 读取失败、有实际统计却被错误降级、重复报告、过期和部分覆盖设单独用例。生产级基线要求所有选定模板完成、正确性通过，同步保存错误、取消和释放证据。对热路径测采集开/关的扰动。
 

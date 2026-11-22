@@ -144,7 +144,7 @@ public final class TaskStatusReceiver {
             boolean accepted = publishReport(expectedRequest, report, validation, ownership, durableWork);
             if (accepted) {
                 sequence.accept();
-                recordOperatorStats(report);
+                recordOperatorStats(expectedRequest, report);
             }
             return accepted;
         }
@@ -155,12 +155,12 @@ public final class TaskStatusReceiver {
         return taskTracker.supersedesResultNotice(report);
     }
 
-    private void recordOperatorStats(TaskStatusReport report) {
+    private void recordOperatorStats(SubmitTaskRequest issued, TaskStatusReport report) {
         var registry = operatorStats;
-        if (registry == null || report.stats() == null) {
+        if (registry == null || issued == null || report.stats() == null) {
             return;
         }
-        registry.record(report.queryId(), report.taskId(), report.stats().operatorStats());
+        registry.record(issued.taskRequest().getAttempt(), report);
     }
 
     private boolean publishReport(SubmitTaskRequest expectedRequest, TaskStatusReport report,

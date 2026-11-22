@@ -1,5 +1,8 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpResponse;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
@@ -9,10 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.client.query.QueryWaitTarget;
 import org.pangrova.common.client.session.RetryPolicy;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /** Measures PostgreSQL statements across the real read result and drain lifecycle. */
 class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
@@ -35,11 +40,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         }
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
+        String queryId;
         try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
                 .coordinatorPort(coordinatorHttpPort()).bearerToken(E2E_USER_BEARER_TOKEN)
                 .retryPolicy(RetryPolicy.NONE).build()) {
             long deadline = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
             var execution = client.beginQuery("SELECT CAST(42 AS BIGINT) AS answer", Map.of());
+            queryId = execution.submission().queryId();
             var endpoint = execution.submission().resultEndpoint();
             while (endpoint == null) {
                 var status = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
@@ -61,6 +68,28 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         }
         assertThat(calls(JOURNAL_LOOKUP) - previousJournalLookups).as("write journal SELECTs").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
+        assertExactAttemptProfile(queryId);
+    }
+
+    private static void assertExactAttemptProfile(String queryId) {
+        var uri = URI.create("http://localhost:" + coordinatorHttpPort() + "/v1/query/profile/" + queryId + "/json");
+        var http = HttpClient.newHttpClient();
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            var response = http.send(authenticatedHttpRequest(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(200);
+            var body = JsonMapperFactory.shared().readTree(response.body());
+            assertThat(body.path("queryId").asText()).isEqualTo(queryId);
+            assertThat(body.path("telemetryAvailable").asBoolean()).isTrue();
+            assertThat(body.path("attempts").size()).isPositive();
+            for (var attempt : body.path("attempts")) {
+                assertThat(attempt.path("taskId").asText()).isNotBlank();
+                assertThat(attempt.path("workerId").asText()).isNotBlank();
+                assertThat(attempt.path("planEpoch").asLong()).isPositive();
+                assertThat(attempt.path("operators").size()).isPositive();
+            }
+            assertThat(body.has("operatorTree")).isFalse();
+            assertThat(body.path("timing").has("ioWaitMs")).isFalse();
+        });
     }
 
     private static long calls(String sqlPattern) throws SQLException {

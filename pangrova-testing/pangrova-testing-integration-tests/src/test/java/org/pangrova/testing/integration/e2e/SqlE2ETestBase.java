@@ -968,7 +968,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         workerManager,
                         null,
                         null,
-                        null,
+                        metadataDataSource() == null ? null : queryProfileService(),
                         metadataBootstrap.metadataService(),
                         E2E_INTERNAL_AUTH_SECRET,
                         () -> requireE2ECoordination().getCurrentEpoch()));

@@ -2,22 +2,32 @@ package org.pangrova.query.profiling;
 
 import java.util.List;
 
-/**
- * Supplies per-operator execution telemetry for one query.
- *
- * <p>Implemented by the Coordinator, which owns task status reports. Returning an
- * empty list means no telemetry was retained for that query; the profile must then
- * report {@code telemetryAvailable=false} rather than inventing a tree.</p>
- */
+/** Supplies the latest measured counters for each retained Native task attempt. */
 public interface OperatorStatsSource {
 
-    /** Aggregated per-plan-node metrics for the query, or an empty list when absent. */
-    List<Metric> operatorStats(String queryId);
+    /** Exact attempt telemetry for the query, or an empty list when absent. */
+    List<Attempt> attemptStats(String queryId);
 
-    /**
-     * One operator's aggregated counters. Identity is the plan node, so retries of
-     * the same task contribute once per node rather than once per attempt.
-     */
+    /** Coordinates and counters from the latest retained report for one exact attempt. */
+    record Attempt(
+            int stageId,
+            int partitionId,
+            long planEpoch,
+            int attemptId,
+            String taskId,
+            String workerId,
+            String reportState,
+            long reportSequence,
+            long elapsedTimeMs,
+            long cpuTimeMs,
+            long backpressureWaitMs,
+            List<Metric> operators) {
+        public Attempt {
+            operators = List.copyOf(operators);
+        }
+    }
+
+    /** One operator instance reported by Native, within the named task attempt. */
     record Metric(
             String operatorType,
             String planNodeId,

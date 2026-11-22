@@ -426,6 +426,13 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     taskTracker.requireQueryExecutionDrained(queryId);
                     assertThat(drainedWorkers.getOrDefault(queryId, Set.of())).containsAll(expected);
                     assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    var profile = queryProfileService().getProfile(queryId);
+                    assertThat(profile).isPresent();
+                    var attempts = profile.orElseThrow().attempts();
+                    assertThat(attempts.stream().mapToInt(attempt -> attempt.stageId()).distinct().count())
+                            .isGreaterThanOrEqualTo(2);
+                    assertThat(attempts).extracting(attempt -> attempt.workerId())
+                            .contains(WORKER_ID, SECOND_WORKER_ID);
                 });
     }
 

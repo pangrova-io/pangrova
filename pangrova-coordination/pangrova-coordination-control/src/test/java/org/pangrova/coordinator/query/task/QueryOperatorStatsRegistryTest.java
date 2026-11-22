@@ -1,67 +1,82 @@
 package org.pangrova.coordinator.query.task;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.rest.task.OperatorStats;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.protocol.rest.task.TaskStats;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.NativeTaskStats;
+import org.pangrova.protocol.v2.OperatorStats;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.query.profiling.OperatorStatsSource.Attempt;
 
-import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class QueryOperatorStatsRegistryTest {
 
-    private static OperatorStats stats(String type, String node, long rows, long peakMemory) {
-        return new OperatorStats(type, 0, rows, 0, 0, 0, 0, node, 0, peakMemory, 0);
+    @Test
+    void aLateOlderReportCannotOverwriteTheFullLatestAttempt() {
+        var registry = new QueryOperatorStatsRegistry();
+        var attempt = attempt(2, 3, 4, "first");
+        registry.record(attempt, report(attempt, 3, "FINISHED", stats(40)));
+        registry.record(attempt, report(attempt, 2, "RUNNING", stats(10)));
+        registry.record(attempt, report(attempt, 4, "FINISHED", NativeTaskStats.getDefaultInstance()));
+
+        assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
+            assertThat(sample.stageId()).isEqualTo(2);
+            assertThat(sample.partitionId()).isEqualTo(3);
+            assertThat(sample.attemptId()).isEqualTo(4);
+            assertThat(sample.planEpoch()).isEqualTo(1);
+            assertThat(sample.reportSequence()).isEqualTo(3);
+            assertThat(sample.reportState()).isEqualTo("FINISHED");
+            assertThat(sample.backpressureWaitMs()).isEqualTo(5);
+            assertThat(sample.operators()).singleElement().satisfies(metric ->
+                    assertThat(metric.outputRows()).isEqualTo(40));
+        });
     }
 
     @Test
-    void latestCumulativeReportReplacesEarlierOneForTheSameTaskAndNode() {
+    void sameNamedOperatorsAndRetriedAttemptsRemainDistinct() {
         var registry = new QueryOperatorStatsRegistry();
-        registry.record("q-1", "task-a", List.of(stats("TableScan", "node-1", 10, 100)));
-        registry.record("q-1", "task-a", List.of(stats("TableScan", "node-1", 40, 250)));
+        var original = attempt(0, 2, 0, "original");
+        var retry = attempt(0, 2, 1, "retry");
+        var downstream = attempt(1, 2, 0, "downstream");
+        var twoOperators = stats(8).toBuilder().addOperatorStats(OperatorStats.newBuilder()
+                .setPlanNodeId("node-1").setOperatorType("Project").setOutputRows(7)).build();
+        registry.record(downstream, report(downstream, 1, "FINISHED", stats(11)));
+        registry.record(original, report(original, 3, "CANCELLED", stats(6)));
+        registry.record(retry, report(retry, 3, "FINISHED", twoOperators));
 
-        assertThat(registry.operatorStats("q-1"))
-                .singleElement()
-                .satisfies(metric -> {
-                    assertThat(metric.outputRows()).isEqualTo(40);
-                    assertThat(metric.peakMemoryBytes()).isEqualTo(250);
-                });
+        assertThat(registry.attemptStats("query")).extracting(Attempt::taskId)
+                .containsExactly("original", "retry", "downstream");
+        assertThat(registry.attemptStats("query").get(1).operators()).hasSize(2);
     }
 
     @Test
-    void aggregatesAcrossTasksAndKeepsMaximumPeakMemory() {
+    void absentAndEmptyReportsProvideNoTelemetry() {
         var registry = new QueryOperatorStatsRegistry();
-        registry.record("q-2", "task-a", List.of(stats("Filter", "node-2", 10, 100)));
-        registry.record("q-2", "task-b", List.of(stats("Filter", "node-2", 5, 400)));
-
-        assertThat(registry.operatorStats("q-2"))
-                .singleElement()
-                .satisfies(metric -> {
-                    assertThat(metric.operatorType()).isEqualTo("Filter");
-                    assertThat(metric.planNodeId()).isEqualTo("node-2");
-                    assertThat(metric.outputRows()).isEqualTo(15);
-                    assertThat(metric.peakMemoryBytes()).isEqualTo(400);
-                });
+        var attempt = attempt(0, 0, 0, "empty");
+        registry.record(attempt, report(attempt, 1, "RUNNING", NativeTaskStats.getDefaultInstance()));
+        assertThat(registry.attemptStats("absent")).isEmpty();
+        assertThat(registry.attemptStats("query")).isEmpty();
     }
 
-    @Test
-    void reportsWithoutPlanNodeIdentityGroupByOperatorType() {
-        var registry = new QueryOperatorStatsRegistry();
-        registry.record("q-3", "task-a", List.of(stats("Project", "", 3, 0)));
-        registry.record("q-3", "task-b", List.of(stats("Project", null, 4, 0)));
-
-        assertThat(registry.operatorStats("q-3"))
-                .singleElement()
-                .satisfies(metric -> {
-                    assertThat(metric.planNodeId()).isEqualTo("Project");
-                    assertThat(metric.outputRows()).isEqualTo(7);
-                });
+    private static TaskAttemptId attempt(int stage, int partition, int number, String taskId) {
+        return TaskAttemptId.newBuilder().setQueryOrJobId("query").setStageId(stage).setPartitionId(partition)
+                .setPlanEpoch(1).setAttemptId(number).setFencingToken(1).setTaskId(taskId).build();
     }
 
-    @Test
-    void unknownOrEmptyQueriesReturnNothing() {
-        var registry = new QueryOperatorStatsRegistry();
-        assertThat(registry.operatorStats("absent")).isEmpty();
-        registry.record("q-4", "task-a", List.of());
-        assertThat(registry.operatorStats("q-4")).isEmpty();
+    private static TaskStatusReport report(TaskAttemptId attempt, long sequence, String state, NativeTaskStats stats) {
+        return new TaskStatusReport(attempt.getTaskId(), attempt.getQueryOrJobId(), attempt.getStageId(),
+                attempt.getPartitionId(), "COMPUTE", "worker", state, TaskStats.fromNative(stats),
+                null, null, sequence, 1L, null, Map.of(),
+                new TaskAttemptDescriptor(attempt.getPlanEpoch(), attempt.getAttemptId(), attempt.getFencingToken()));
+    }
+
+    private static NativeTaskStats stats(long rows) {
+        return NativeTaskStats.newBuilder().setBackpressureWaitMs(5)
+                .addOperatorStats(OperatorStats.newBuilder().setPlanNodeId("node-1")
+                        .setOperatorType("TableScan").setOutputRows(rows)).build();
     }
 }
