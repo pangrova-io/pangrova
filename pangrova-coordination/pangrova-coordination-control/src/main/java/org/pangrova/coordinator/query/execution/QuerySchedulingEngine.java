@@ -387,6 +387,9 @@ final class QuerySchedulingEngine {
                         d.partitionSpec(), writeFileFormat(session.queryId()), 0,
                         connectorWriteBinding(session.queryId())))
                 .orElse(null);
+        if (writeConfig == null && dag.stages().stream().noneMatch(stage -> "WRITE".equals(stage.taskType()))) {
+            sm.markReadOnlyTaskExecution();
+        }
         var dagQueryContext = new QueryExecutionScope(
                 new org.pangrova.execution.authority.StageExecutionContext.Live(session),
                 ctx.snapshotOverrides(), ctx.originalSql(),

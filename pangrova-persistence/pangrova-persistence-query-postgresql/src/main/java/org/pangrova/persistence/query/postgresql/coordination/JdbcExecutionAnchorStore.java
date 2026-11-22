@@ -34,7 +34,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "FROM execution_anchor WHERE execution_id = ? FOR UPDATE";
     private static final String SELECT_CURRENT =
             "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
-                    + "FROM execution_anchor WHERE execution_id = ?";
+                    + "FROM execution_anchor WHERE execution_id = ? AND expires_at > clock_timestamp()";
     private static final String INSERT_ANCHOR =
             "INSERT INTO execution_anchor "
                     + "(execution_id, owner_id, owner_incarnation, fencing_token, "
@@ -312,12 +312,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             try (PreparedStatement statement = connection.prepareStatement(SELECT_CURRENT)) {
                 statement.setString(1, executionId);
                 try (ResultSet result = statement.executeQuery()) {
-                    if (!result.next()) {
-                        return Optional.empty();
-                    }
-                    AnchorRow row = mapRow(result);
-                    return row.expiresAt.isAfter(dbNow(connection))
-                            ? Optional.of(anchor(executionId, row)) : Optional.empty();
+                    return result.next() ? Optional.of(anchor(executionId, mapRow(result))) : Optional.empty();
                 }
             }
         } catch (SQLException failure) {

@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 94–95 让已证实为只读的实时 DAG 跳过写提交日志。真实 HTTP 与 Native Flight 读取到 EOF 并实际释放后，PostgreSQL 的写提交日志 SELECT 由 1 次降为 0 次。终态仍校验当前执行身份和租约，并将 PostgreSQL 时钟与执行身份检查合并到同一条 SELECT。写入及待恢复的执行沿用提交日志与权威 fence。48 项定向回归和 Checkstyle 通过，覆盖真实 PostgreSQL 租约过期和接管、COPY SQL、写提交幂等与恢复。
+
 执行协议原子切换通过独立发布候选验证。使用同一源码重新构建 C++20 Release Native，加载实际 JNI 库，运行全部 4,347 项 CTest，包括真实 PostgreSQL 的 Lance 夹具。92 项定向 Java 回归通过，覆盖 SQL 鉴权、快照与统计、双 Worker、HTTP 状态交付、端到端 Native Flight、COPY 来源、Native 读配额和 Connector 数据读取。持久 Shuffle 另通过 22 项真实 PostgreSQL 与 MinIO 回归。共享 Native 夹具冲突的用例使用独立 Maven 调用复验。锁定的 Protobuf descriptor、模块边界和定向 Checkstyle 检查通过。
 
 实施批次 93 统一取消响应和终态上报中的物理释放回执。Worker 在 Native 已给出匹配的取消终态时沿用同一份回执，包括没有错误字段的正常取消。Coordinator 继续对已受理的释放身份、状态及错误分类作精确校验。真实故障回归丢弃前两次取消上报，第三次获 ACK，三个二进制请求逐字节一致。

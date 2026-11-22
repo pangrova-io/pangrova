@@ -95,7 +95,7 @@ final class NativeTaskWriteCompletion {
      * <p>Integrates with {@link WriteCommitJournal} for idempotent recovery:
      * already-committed writes (detected via journal) are skipped.</p>
      */
-    boolean commitDistributedWriteIfNeeded(String queryId) {
+    boolean commitDistributedWriteIfNeeded(String queryId, boolean readOnlyTaskExecution) {
         if (writeCommitTracker == null || catalogRegistry == null) {
             return true;
         }
@@ -103,8 +103,11 @@ final class NativeTaskWriteCompletion {
         WriteCommitFencer fencer = this.writeCommitFencer;
         ExecutionAnchor anchor = fencer != null
                 ? fencer.currentAnchor(queryId) : null;
-        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_journal_read")) {
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_query_finalization")) {
             return false;
+        }
+        if (readOnlyTaskExecution) {
+            return true;
         }
 
         // The same durable entry proves COMMITTED and carries its acknowledgement identity.

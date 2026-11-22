@@ -76,6 +76,7 @@ public class QueryStateMachine {
     private final CompletableFuture<QueryState> terminalStateReady = new CompletableFuture<>();
     private final CompletableFuture<QueryState> nativeWriteCompletionReady = new CompletableFuture<>();
     private volatile boolean controlPlaneWriteFinalization;
+    private volatile boolean readOnlyTaskExecution;
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
@@ -570,6 +571,16 @@ public class QueryStateMachine {
     /** True only after the execution owner signals a dispatched write in an executable state. */
     public boolean isWriteDispatchReady() {
         return writeDispatchReady.isDone();
+    }
+
+    /** Records the scheduler's read-only execution before the first task can report. */
+    public void markReadOnlyTaskExecution() {
+        readOnlyTaskExecution = true;
+    }
+
+    /** Requires positive local planning evidence. Recovered executions have no such evidence. */
+    public boolean hasReadOnlyTaskExecution() {
+        return readOnlyTaskExecution;
     }
 
     /** Terminal owner claims logical notifications once, after durable terminal recording succeeds. */
