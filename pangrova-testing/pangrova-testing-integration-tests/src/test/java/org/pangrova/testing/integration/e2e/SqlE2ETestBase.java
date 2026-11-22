@@ -154,7 +154,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             "e2e-internal-service-credential-key";
     protected static final String E2E_USER_BEARER_TOKEN = "e2e-user-token";
     protected static final String E2E_SECOND_USER_BEARER_TOKEN = "e2e-second-user-token";
-    private static final String E2E_USER_PRINCIPAL = "e2e-user";
+    protected static final String E2E_USER_PRINCIPAL = "e2e-user";
     private static final String E2E_SECOND_USER_PRINCIPAL = "e2e-second-user";
     private static final String E2E_TENANT_ID = "e2e-tenant";
     private static final long WORKER_MEMORY_BYTES = 2L * 1024 * 1024 * 1024; // 2GB — balances Velox memory needs vs OS process limits

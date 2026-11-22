@@ -33,6 +33,8 @@ http://<coordinator-host>:<port>/v1
 
 ### Query Profile
 
+Query profiles are scoped to the authenticated submitting principal. The Web UI lists
+that principal’s active queries. An available SVG profile requires a live local query.
 The JSON profile returns query audit timing and memory totals. Each element of `attempts`
 identifies an issued stage, partition, plan epoch, task attempt, and Worker. `reportState`
 and `reportSequence` identify the measured snapshot. The attempt includes measured output

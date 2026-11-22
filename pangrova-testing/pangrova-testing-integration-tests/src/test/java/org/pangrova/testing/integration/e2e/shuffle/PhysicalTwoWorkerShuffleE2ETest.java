@@ -427,7 +427,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     taskTracker.requireQueryExecutionDrained(queryId);
                     assertThat(drainedWorkers.getOrDefault(queryId, Set.of())).containsAll(expected);
                     assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
-                    var profile = queryProfileService().getProfile(queryId);
+                    var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
                     assertThat(profile).isPresent();
                     var graph = profile.orElseThrow().executionGraph();
                     assertThat(graph).isNotNull();

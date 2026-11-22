@@ -35,11 +35,9 @@ public final class QueryAuditService implements QueryAuditSink {
         }
     }
 
-    /**
-     * Retrieves an audit record by query ID.
-     */
-    public Optional<QueryAuditRecord> findByQueryId(String queryId) {
-        return auditStore.findById(queryId);
+    /** Retrieves an exact query audit record for its submitting principal. */
+    public Optional<QueryAuditRecord> findByQueryId(String queryId, String principal) {
+        return auditStore.findById(queryId, principal);
     }
 
     /**

@@ -45,7 +45,7 @@ class QueryProfileServiceTest {
         var store = new InMemoryQueryAuditStore();
         var service = new QueryProfileService(new QueryAuditService(store));
 
-        Optional<QueryProfileService.QueryProfile> result = service.getProfile("nonexistent");
+        Optional<QueryProfileService.QueryProfile> result = service.getProfile("nonexistent", "user-1");
 
         assertThat(result).isEmpty();
     }
@@ -65,7 +65,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        Optional<QueryProfileService.QueryProfile> result = service.getProfile("q-profile-1");
+        Optional<QueryProfileService.QueryProfile> result = service.getProfile("q-profile-1", "user-1");
 
         assertThat(result).isPresent();
         var profile = result.get();
@@ -89,7 +89,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-tree-1").orElseThrow();
+        var profile = service.getProfile("q-tree-1", "user-1").orElseThrow();
 
         assertThat(profile.telemetryAvailable()).isFalse();
         assertThat(profile.attempts()).isEmpty();
@@ -116,7 +116,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-telemetry-1").orElseThrow();
+        var profile = service.getProfile("q-telemetry-1", "user-1").orElseThrow();
         assertThat(profile.telemetryAvailable()).isTrue();
         assertThat(profile.attempts()).containsExactly(attempt);
         assertThat(profile.attempts().get(0).operators()).containsExactly(metric);
@@ -137,7 +137,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-timing-1").orElseThrow();
+        var profile = service.getProfile("q-timing-1", "user-1").orElseThrow();
         var timing = profile.timing();
 
         assertThat(timing.totalWallMs()).isEqualTo(500L);
@@ -161,7 +161,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-mem-1").orElseThrow();
+        var profile = service.getProfile("q-mem-1", "user-1").orElseThrow();
         var memory = profile.memory();
 
         assertThat(memory.peakMemoryBytes()).isEqualTo(8192L);

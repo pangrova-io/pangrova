@@ -134,7 +134,7 @@ class InMemoryQueryAuditStoreTest {
     @Test
     void findByIdAlwaysReturnsEmpty() {
         var store = new InMemoryQueryAuditStore();
-        assertThat(store.findById("any")).isEmpty();
+        assertThat(store.findById("any", "user-1")).isEmpty();
     }
 
     @Test

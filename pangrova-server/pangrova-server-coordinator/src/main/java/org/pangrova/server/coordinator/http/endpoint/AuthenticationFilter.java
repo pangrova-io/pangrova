@@ -131,6 +131,12 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
         requestContext.setProperty(USER_IDENTITY_PROPERTY, result.userIdentity());
     }
 
+    static String queryPrincipal(ContainerRequestContext context) {
+        Object identity = context == null ? null : context.getProperty(USER_IDENTITY_PROPERTY);
+        return identity instanceof org.pangrova.security.api.identity.UserIdentity user
+                ? user.principal() : "anonymous";
+    }
+
     /**
      * Requires the internal identity produced by this filter, not an ordinary user
      * identity or a caller-supplied HTTP header.

@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 114 将 REST 和 Web UI 查询 Profile 读取绑定到原始提交主体。已知的本机查询先核对主体，历史 Profile 在单条 SQL 内按查询 ID 与主体检索。真实 HTTP、PostgreSQL 和 Native Flight 用例核验读完、释放和 Profile 内容，确认提交者读一次审计库，其他主体访问本机已知查询的两条 Profile 路由均为零 SELECT。57 项 Java、Checkstyle 和模块边界检查通过，覆盖实际双 Worker SQL。
+
 实施批次 113 让按租户和任务加载持久执行规格与随后的权限判断共用已获取的事务级发布锁。直接接收规格的调用仍在入口取得锁，权限、最新租户与模型校验继续执行。真实 PostgreSQL 的三窗口分区检查中，授权发布锁 SQL 从 9 次降到 6 次。33 项 Java 和 Checkstyle 通过，覆盖撤权、取消、终态上报和真实 SQL 编译的受保护 DAG。 [PostgreSQL 事务级 advisory locks](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS)
 
 实施批次 112 将持久 Stage 的分区检查改为最多 8 个连续分区一笔事务。真实 PostgreSQL 的 20 分区对照中，页索引 SELECT、已持锁的交换屏障 SELECT 和执行路由 SELECT 各由 20 次降到 3 次。这三类语句合计从 60 条降到 9 条。按索引顺序验证整个窗口的精确页坐标和 winner，缺失分区拒绝派发。真正申领仍验证当前 owner、权限和页状态。101 项 Java、Checkstyle 和缺页回归通过，覆盖实际 SQL 生成的持久图和原始 Native winner 重放。

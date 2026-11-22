@@ -58,7 +58,7 @@ public final class JdbcQueryAuditStore implements QueryAuditStore {
                     + "cpu_time_ms, wall_time_ms, peak_memory_bytes, spilled_bytes, "
                     + "input_rows, output_rows, input_bytes, output_bytes, "
                     + "shuffle_read_bytes, shuffle_write_bytes, completed_at, success "
-                    + "FROM query_audit_records WHERE query_id = ?";
+                    + "FROM query_audit_records WHERE query_id = ? AND user_id = ?";
 
     private static final String SQL_DELETE_OLDER_THAN =
             "DELETE FROM query_audit_records "
@@ -103,11 +103,13 @@ public final class JdbcQueryAuditStore implements QueryAuditStore {
     }
 
     @Override
-    public Optional<QueryAuditRecord> findById(String queryId) {
+    public Optional<QueryAuditRecord> findById(String queryId, String principal) {
         Objects.requireNonNull(queryId, "queryId must not be null");
+        Objects.requireNonNull(principal, "principal must not be null");
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SQL_FIND_BY_ID)) {
             ps.setString(1, queryId);
+            ps.setString(2, principal);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
                     return Optional.empty();

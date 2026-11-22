@@ -211,12 +211,18 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}")
     @Produces("image/svg+xml")
-    public Response getProfile(@PathParam("queryId") String queryId) {
+    public Response getProfile(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
         if (profilerEndpoint == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .type(MediaType.APPLICATION_JSON)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "Profiler not available"))
                     .build();
+        }
+        var owner = queryManager.getStateMachine(queryId);
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        if (owner != null && !java.util.Objects.equals(owner.getAuditPrincipal(), principal)) {
+            return profileNotFound(queryId);
         }
         byte[] flameGraphData;
         try {
@@ -228,12 +234,8 @@ public final class QueryResource {
                             unavailable.getMessage()))
                     .build();
         }
-        if (flameGraphData == null || flameGraphData.length == 0) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .type(MediaType.APPLICATION_JSON)
-                    .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
-                            "No profile data for query: " + queryId))
-                    .build();
+        if (flameGraphData == null || flameGraphData.length == 0 || owner == null) {
+            return profileNotFound(queryId);
         }
         return Response.ok(flameGraphData, "image/svg+xml").build();
     }
@@ -242,21 +244,27 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}/json")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getProfileJson(@PathParam("queryId") String queryId) {
+    public Response getProfileJson(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
                             "Query profile service not available"))
                     .build();
         }
-        var profile = queryProfileService.getProfile(queryId);
-        if (profile.isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
-                            "No profile data for query: " + queryId))
-                    .build();
+        var owner = queryManager.getStateMachine(queryId);
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        if (owner != null && !java.util.Objects.equals(owner.getAuditPrincipal(), principal)) {
+            return profileNotFound(queryId);
         }
-        return Response.ok(profile.get()).build();
+        return queryProfileService.getProfile(queryId, principal)
+                .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
+    }
+
+    private static Response profileNotFound(String queryId) {
+        return Response.status(Response.Status.NOT_FOUND).type(MediaType.APPLICATION_JSON)
+                .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "No profile data for query: " + queryId))
+                .build();
     }
 
     private static void validateSubmitRequest(SubmitQueryRequest request) {

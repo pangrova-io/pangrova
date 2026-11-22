@@ -22,9 +22,10 @@ public final class QueryProfileService {
         this.operatorStats = operatorStats;
     }
 
-    /** Retrieves the structured profile if the query exists in the audit store. */
-    public Optional<QueryProfile> getProfile(String queryId) {
-        return auditService.findByQueryId(queryId).map(this::buildProfile);
+    /** Retrieves the structured profile for the exact submitting principal. */
+    public Optional<QueryProfile> getProfile(String queryId, String principal) {
+        if (principal == null || principal.isBlank()) return Optional.empty();
+        return auditService.findByQueryId(queryId, principal).map(this::buildProfile);
     }
 
     private QueryProfile buildProfile(QueryAuditRecord record) {

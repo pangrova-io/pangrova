@@ -45,7 +45,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     }
 
     @Test
-    void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws SQLException {
+    void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws Exception {
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
         String queryId;
@@ -72,6 +72,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(JOURNAL_LOOKUP) - previousJournalLookups).as("write journal SELECTs").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
         assertExactAttemptProfile(queryId);
+        assertProfileIsScopedToTheSubmittingPrincipal(queryId);
     }
 
     @Test
@@ -103,12 +104,30 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(status.state()).isEqualTo("FINISHED");
     }
 
+    private static void assertProfileIsScopedToTheSubmittingPrincipal(String queryId) throws Exception {
+        String sql = "SELECT%FROM query_audit_records WHERE query_id =%";
+        long before = calls(sql);
+        var http = HttpClient.newHttpClient();
+        String base = "http://localhost:" + coordinatorHttpPort();
+        for (String route : java.util.List.of("/v1/query/profile/" + queryId + "/json",
+                "/api/queries/" + queryId + "/profile")) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create(base + route))
+                    .header("Authorization", "Bearer " + E2E_SECOND_USER_BEARER_TOKEN).GET().build();
+            var response = http.send(request, HttpResponse.BodyHandlers.discarding());
+            assertThat(response.statusCode()).isEqualTo(404);
+        }
+        assertThat(calls(sql) - before).as("foreign live query profile SELECTs").isZero();
+    }
+
     private static void assertExactAttemptProfile(String queryId) {
         var uri = URI.create("http://localhost:" + coordinatorHttpPort() + "/v1/query/profile/" + queryId + "/json");
         var http = HttpClient.newHttpClient();
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            String sql = "SELECT%FROM query_audit_records WHERE query_id =%AND user_id =%";
+            long before = calls(sql);
             var response = http.send(authenticatedHttpRequest(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(calls(sql) - before).as("owner's scoped profile SELECTs").isOne();
             var body = JsonMapperFactory.shared().readTree(response.body());
             assertThat(body.path("queryId").asText()).isEqualTo(queryId);
             assertThat(body.path("telemetryAvailable").asBoolean()).isTrue();

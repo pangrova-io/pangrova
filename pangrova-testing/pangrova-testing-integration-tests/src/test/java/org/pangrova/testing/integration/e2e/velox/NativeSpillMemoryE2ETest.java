@@ -563,7 +563,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
                         assertThat(operatorStatsRegistry().attemptStats(queryId))
                                 .as("native operator telemetry reached the Coordinator")
                                 .isNotEmpty();
-                        var profile = queryProfileService().getProfile(queryId);
+                        var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
                         assertThat(profile).isPresent();
                         assertThat(profile.get().telemetryAvailable()).isTrue();
                         assertThat(profile.get().attempts()).isNotEmpty().allSatisfy(attempt -> {

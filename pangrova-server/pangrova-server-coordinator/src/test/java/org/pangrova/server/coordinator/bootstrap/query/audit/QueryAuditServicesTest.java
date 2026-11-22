@@ -14,8 +14,8 @@ class QueryAuditServicesTest {
         var services = new QueryAuditServices(new InMemoryQueryAuditStore());
         var record = record("profile-query");
         services.auditService().persist(record);
-        assertThat(services.auditService().findByQueryId(record.queryId())).contains(record);
-        assertThat(services.profileService().getProfile(record.queryId())).get()
+        assertThat(services.auditService().findByQueryId(record.queryId(), record.userId())).contains(record);
+        assertThat(services.profileService().getProfile(record.queryId(), record.userId())).get()
                 .extracting(profile -> profile.queryId()).isEqualTo(record.queryId());
     }
 
@@ -24,8 +24,8 @@ class QueryAuditServicesTest {
         var first = new QueryAuditServices(new InMemoryQueryAuditStore());
         var second = new QueryAuditServices(new InMemoryQueryAuditStore());
         first.auditService().persist(record("same-query"));
-        assertThat(second.auditService().findByQueryId("same-query")).isEmpty();
-        assertThat(second.profileService().getProfile("same-query")).isEmpty();
+        assertThat(second.auditService().findByQueryId("same-query", "user")).isEmpty();
+        assertThat(second.profileService().getProfile("same-query", "user")).isEmpty();
     }
 
     private static QueryAuditRecord record(String queryId) {

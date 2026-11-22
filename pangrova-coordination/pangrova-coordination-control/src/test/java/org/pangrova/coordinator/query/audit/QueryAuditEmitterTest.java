@@ -30,7 +30,7 @@ class QueryAuditEmitterTest {
             assertThat(event.success()).isFalse();
             assertThat(event.errorMessage()).isNull();
         });
-        var record = service.findByQueryId("cancelled-query").orElseThrow();
+        var record = service.findByQueryId("cancelled-query", "alice").orElseThrow();
         assertThat(record.success()).isFalse();
         assertThat(record.tenantId()).isEqualTo("tenant-a");
         assertThat(record.wallTimeMs()).isEqualTo(41);
@@ -44,7 +44,7 @@ class QueryAuditEmitterTest {
         emitter.emitQueryCompleted("completed-query", 17,
                 new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
 
-        var record = service.findByQueryId("completed-query").orElseThrow();
+        var record = service.findByQueryId("completed-query", "alice").orElseThrow();
         assertThat(record.userId()).isEqualTo("alice");
         assertThat(record.tenantId()).isEqualTo("tenant-a");
         assertThat(record.wallTimeMs()).isEqualTo(17);
@@ -60,12 +60,12 @@ class QueryAuditEmitterTest {
         emitter.emitQueryFailed("bob-query", "denied", 23,
                 new QueryAuditEmitter.AuditSubject("bob", "tenant-b"));
 
-        var record = service.findByQueryId("bob-query").orElseThrow();
+        var record = service.findByQueryId("bob-query", "bob").orElseThrow();
         assertThat(record.userId()).isEqualTo("bob");
         assertThat(record.tenantId()).isEqualTo("tenant-b");
         assertThat(record.wallTimeMs()).isEqualTo(23);
         assertThat(record.success()).isFalse();
-        assertThat(service.findByQueryId("alice-query").orElseThrow().tenantId()).isEqualTo("tenant-a");
+        assertThat(service.findByQueryId("alice-query", "alice").orElseThrow().tenantId()).isEqualTo("tenant-a");
     }
 
     @Test
@@ -75,7 +75,7 @@ class QueryAuditEmitterTest {
         emitter.emitQueryFailed("anonymous-query", "rejected", 7,
                 new QueryAuditEmitter.AuditSubject("anonymous", null));
 
-        var record = service.findByQueryId("anonymous-query").orElseThrow();
+        var record = service.findByQueryId("anonymous-query", "anonymous").orElseThrow();
         assertThat(record.userId()).isEqualTo("anonymous");
         assertThat(record.tenantId()).isNull();
         assertThat(record.success()).isFalse();
