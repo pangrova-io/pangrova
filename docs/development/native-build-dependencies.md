@@ -166,11 +166,13 @@ only in the build rules, not the cache. Pangrova asks the same helper for that
 baseline and applies it to every consumer of Velox SIMD headers; without it,
 `xsimd::default_arch` falls back to `sse2` and `crc32U64` has no implementation.
 
-Native test runs build the Java fixture with the project reactor, which
-resolves the locally published Iceberg candidate. Native and sanitizer jobs
-restore the Maven dependency cache with their fixture JDK setup, before the
-Iceberg SDK action publishes the pinned candidate locally. The reactor still
-builds the fixture from the checked-out source.
+Native and sanitizer jobs prepare the Lance Java fixture before compiling
+Native dependencies. They restore the fixture's Maven dependencies, publish
+the pinned Iceberg SDK locally, and build the broker from the checked-out
+reactor. The Maven dependency cache is saved as soon as the broker is ready.
+CTest uses that broker in the same checkout. Local test runs prepare it at
+startup unless given `--prepared-java` with a directory produced by
+`--prepare-java`.
 
 Velox's own dependency build also compiles Folly in `velox/deps-download`. On
 macOS with OpenSSL 3.6 or newer, Folly's non-const assignments from
