@@ -5,6 +5,8 @@ import org.pangrova.planner.api.adaptive.CoalesceResult;
 import java.util.Map;
 
 import org.pangrova.shuffle.api.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt;
+import org.pangrova.shuffle.api.ShufflePublication;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,6 +110,21 @@ class PartitionCoalescerEvaluateTest {
         assertThat(coalescer.evaluate(incomplete, AdaptiveQueryConfig.ENABLED)).isEqualTo(CoalesceResult.NO_OP);
         assertThat(coalescer.evaluate(complete, AdaptiveQueryConfig.ENABLED).groups()).containsExactly(
                 new org.pangrova.planner.api.adaptive.PartitionGroup(0, 3, 96));
+    }
+
+    @Test
+    void committedReceiptsRequireExactCoverageAndBoundTheReadsPerConsumer() {
+        String checksum = "00".repeat(32);
+        var empty = new ShuffleCommitReceipt.Partition(-1, 0, 0, checksum);
+        var full = new ShuffleCommitReceipt.Partition(0, 16, 1, checksum);
+        var receipt = new ShuffleCommitReceipt(new ShufflePublication("query", 1, 2, "shuffle"),
+                1, checksum, Map.of(0, full, 1, empty, 2, full, 3, full));
+
+        assertThat(coalescer.evaluate(receipt, 5, AdaptiveQueryConfig.ENABLED, 2)).isEqualTo(CoalesceResult.NO_OP);
+        assertThat(coalescer.evaluate(receipt, 4, AdaptiveQueryConfig.ENABLED, 1)).isEqualTo(CoalesceResult.NO_OP);
+        assertThat(coalescer.evaluate(receipt, 4, AdaptiveQueryConfig.ENABLED, 2).groups()).containsExactly(
+                new org.pangrova.planner.api.adaptive.PartitionGroup(0, 2, 16),
+                new org.pangrova.planner.api.adaptive.PartitionGroup(2, 4, 32));
     }
 
     @Test

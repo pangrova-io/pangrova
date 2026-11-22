@@ -6,7 +6,9 @@ import org.pangrova.planner.api.adaptive.PartitionGroup;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToLongFunction;
 
+import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 /**
@@ -23,7 +25,24 @@ public class PartitionCoalescer {
      */
     public CoalesceResult evaluate(ShuffleStageStats stats, AdaptiveQueryConfig config) {
         Map<Integer, ShufflePartitionStats> partitionStats = stats.partitionStats();
-        int partitionCount = partitionStats.size();
+        return group(partitionStats.size(), config, Integer.MAX_VALUE, partition -> {
+            var observed = partitionStats.get(partition);
+            return observed != null && observed.partitionId() == partition ? observed.dataBytes() : -1;
+        });
+    }
+
+    /** Bounds reads per consumer using the committed publication, without copying its partition statistics. */
+    public CoalesceResult evaluate(ShuffleCommitReceipt receipt, int partitionCount,
+            AdaptiveQueryConfig config, int maxPartitionsPerGroup) {
+        if (receipt.partitions().size() != partitionCount || maxPartitionsPerGroup < 2) {
+            return CoalesceResult.NO_OP;
+        }
+        return group(partitionCount, config, maxPartitionsPerGroup,
+                partition -> receipt.partitions().get(partition).bytes());
+    }
+
+    private static CoalesceResult group(int partitionCount, AdaptiveQueryConfig config,
+            int maxPartitionsPerGroup, IntToLongFunction partitionBytes) {
         if (partitionCount < Math.max(2, config.minPartitionsForCoalesce())) {
             return CoalesceResult.NO_OP;
         }
@@ -32,12 +51,12 @@ public class PartitionCoalescer {
         int firstPartition = 0;
         long currentBytes = 0;
         for (int partition = 0; partition < partitionCount; partition++) {
-            var observed = partitionStats.get(partition);
-            if (observed == null || observed.partitionId() != partition) {
+            long partBytes = partitionBytes.applyAsLong(partition);
+            if (partBytes < 0) {
                 return CoalesceResult.NO_OP;
             }
-            long partBytes = observed.dataBytes();
-            if (partition > firstPartition && currentBytes > targetBytes - partBytes) {
+            if (partition > firstPartition && (partition - firstPartition == maxPartitionsPerGroup
+                    || currentBytes > targetBytes - partBytes)) {
                 groups.add(new PartitionGroup(firstPartition, partition, currentBytes));
                 firstPartition = partition;
                 currentBytes = 0;

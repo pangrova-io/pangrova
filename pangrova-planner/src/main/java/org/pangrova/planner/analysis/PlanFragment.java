@@ -101,6 +101,11 @@ public final class PlanFragment implements StagePlanAccess {
         return hasWindow(planNode);
     }
 
+    /** Proves source partition coalescing preserves the stage's row or grouped semantics. */
+    public boolean supportsCoalescedHashInput(String exchangeId, List<Integer> hashKeys) {
+        return PartitionLocalPlanInspector.supportsCoalescedHashInput(planNode, exchangeId, hashKeys);
+    }
+
     private static boolean hasWindow(RelNode node) {
         if (node instanceof Window) {
             return true;
