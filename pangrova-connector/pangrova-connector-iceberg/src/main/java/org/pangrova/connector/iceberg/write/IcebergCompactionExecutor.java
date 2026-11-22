@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.write;
 
+import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
@@ -8,6 +9,10 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.util.JsonUtil;
+import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.actions.BinPackRewriteFilePlanner;
 import org.apache.iceberg.actions.RewriteFileGroup;
@@ -30,10 +35,13 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 
 /**
  * Executes Iceberg table compaction by rewriting data files that have
@@ -56,7 +64,133 @@ public final class IcebergCompactionExecutor {
     /** Default target size for merged data files. */
     public static final long DEFAULT_TARGET_FILE_SIZE_BYTES = 512L * 1024 * 1024;
 
+    private static final long MAX_RECLUSTER_BYTES = 64L * 1024 * 1024;
+    private static final long MAX_RECLUSTER_ROWS = 100_000L;
+    private static final int MAX_RECLUSTER_FILES = 1_024;
+    public static final String RECLUSTER_RUN = "pangrova.recluster.run-id";
+    public static final String RECLUSTER_GENERATION = "pangrova.recluster.generation";
+
     private IcebergCompactionExecutor() {}
+
+    /** Writes one disjoint set of replacement files without publishing a snapshot. */
+    public static List<String> stageRecluster(Table table, SortOrder order, UUID attemptId,
+            Consumer<List<Record>> arrange, Runnable requireActive) {
+        Snapshot base = table.currentSnapshot();
+        if (base == null) return List.of();
+        var groups = planClustering(table, base);
+        List<String> fragments = new ArrayList<>();
+        for (List<FileScanTask> group : groups.values()) {
+            List<Record> rows = new ArrayList<>();
+            for (FileScanTask task : group) {
+                requireActive.run();
+                rows.addAll(readSurvivingRows(table, table.schema(), task, Set.of()));
+            }
+            if (!rows.isEmpty()) {
+                requireActive.run();
+                arrange.accept(rows);
+                FileScanTask sample = group.get(0);
+                writeDataFiles(table, table.schema(), sample.spec(), sample.file().partition(), rows,
+                        DEFAULT_TARGET_FILE_SIZE_BYTES, order, "recluster-" + attemptId + "-")
+                        .forEach(file -> fragments.add(ContentFileParser.toJson(file, table.spec())));
+            }
+        }
+        requireActive.run();
+        return List.copyOf(fragments);
+    }
+
+    /** Publishes only the replacement files produced for the winning attempt and exact base. */
+    public static boolean publishRecluster(Table table, SortOrder order, UUID runId, String generation,
+            UUID attemptId, List<String> fragments) {
+        Snapshot base = table.currentSnapshot();
+        var groups = base == null ? Map.<StructLikeWrapper, List<FileScanTask>>of() : planClustering(table, base);
+        Set<DataFile> previous = new HashSet<>();
+        Map<StructLikeWrapper, Long> remaining = new LinkedHashMap<>();
+        var partitionType = table.spec().partitionType();
+        groups.forEach((partition, tasks) -> {
+            long rows = 0;
+            for (FileScanTask task : tasks) {
+                previous.add(task.file());
+                rows = Math.addExact(rows, task.file().recordCount());
+            }
+            if (rows != 0) remaining.put(partition, rows);
+        });
+        if (fragments.size() > MAX_RECLUSTER_FILES) {
+            throw new IllegalArgumentException("RECLUSTER received too many replacement files");
+        }
+        Set<DataFile> replacement = new HashSet<>();
+        Set<String> paths = new HashSet<>();
+        String prefix = table.location() + "/data/recluster-" + attemptId + "-";
+        for (String fragment : fragments) {
+            DataFile file = parseReclusterFile(fragment, table.spec(), order, prefix);
+            if (!paths.add(file.path().toString())) {
+                throw new IllegalArgumentException("RECLUSTER replacement repeats a data file");
+            }
+            var partition = StructLikeWrapper.forType(partitionType).set(file.partition());
+            long rowsLeft = remaining.getOrDefault(partition, 0L) - file.recordCount();
+            if (rowsLeft < 0) {
+                throw new IllegalArgumentException("RECLUSTER replacement exceeds the admitted partition row count");
+            }
+            if (table.io().newInputFile(file.path().toString()).getLength() != file.fileSizeInBytes()) {
+                throw new IllegalArgumentException("RECLUSTER replacement size differs from the staged object");
+            }
+            remaining.put(partition, rowsLeft);
+            replacement.add(file);
+        }
+        if (remaining.values().stream().anyMatch(rows -> rows != 0)) {
+            throw new IllegalArgumentException("RECLUSTER replacement does not cover the admitted files");
+        }
+        if (previous.isEmpty()) return false;
+        table.newRewrite()
+                .validateFromSnapshot(base.snapshotId())
+                .set(RECLUSTER_RUN, runId.toString())
+                .set(RECLUSTER_GENERATION, generation)
+                .rewriteFiles(previous, replacement)
+                .commit();
+        return true;
+    }
+
+    private static DataFile parseReclusterFile(String fragment, PartitionSpec spec, SortOrder order, String prefix) {
+        var content = JsonUtil.parse(fragment, node -> ContentFileParser.fromJson(node, spec));
+        if (!(content instanceof DataFile file)) {
+            throw new IllegalArgumentException("RECLUSTER requires data-file fragments");
+        }
+        String path = file.path().toString();
+        if (!path.startsWith(prefix) || !path.substring(prefix.length()).matches("[0-9a-f-]{36}\\.parquet")
+                || file.format() != FileFormat.PARQUET || file.specId() != spec.specId()
+                || !Integer.valueOf(order.orderId()).equals(file.sortOrderId())
+                || file.recordCount() <= 0 || file.fileSizeInBytes() <= 0) {
+            throw new IllegalArgumentException("RECLUSTER replacement differs from the winning attempt");
+        }
+        return file;
+    }
+
+    private static Map<StructLikeWrapper, List<FileScanTask>> planClustering(Table table, Snapshot snapshot) {
+        Map<StructLikeWrapper, List<FileScanTask>> groups = new LinkedHashMap<>();
+        long bytes = 0;
+        long rows = 0;
+        int files = 0;
+        try (var tasks = table.newScan().useSnapshot(snapshot.snapshotId()).planFiles()) {
+            for (FileScanTask task : tasks) {
+                if (task.spec().specId() != table.spec().specId()
+                        || task.file().format() != FileFormat.PARQUET
+                        || !task.deletes().isEmpty()) {
+                    throw new UnsupportedOperationException(
+                            "RECLUSTER requires Parquet files with the current partition spec and no row deletes");
+                }
+                bytes = Math.addExact(bytes, task.file().fileSizeInBytes());
+                rows = Math.addExact(rows, task.file().recordCount());
+                if (++files > MAX_RECLUSTER_FILES || bytes > MAX_RECLUSTER_BYTES || rows > MAX_RECLUSTER_ROWS) {
+                    throw new IllegalArgumentException(
+                            "RECLUSTER input exceeds the bounded connector rewrite limit");
+                }
+                var partition = StructLikeWrapper.forType(table.spec().partitionType()).set(task.file().partition());
+                groups.computeIfAbsent(partition, ignored -> new ArrayList<>()).add(task);
+            }
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to plan Iceberg clustering rewrite", failure);
+        }
+        return groups;
+    }
 
     /**
      * Compacts the table using Iceberg's bin-pack planner: files carrying deletes
@@ -85,6 +219,10 @@ public final class IcebergCompactionExecutor {
             throw new IllegalArgumentException("targetFileSizeBytes must be positive");
         }
         table.refresh();
+        var baseSnapshot = table.currentSnapshot();
+        if (baseSnapshot == null) {
+            return new CompactionSummary(0, 0, 0L, 0L, 0);
+        }
 
         var planner = new BinPackRewriteFilePlanner(table);
         planner.init(Map.of(
@@ -132,7 +270,7 @@ public final class IcebergCompactionExecutor {
             }
         }
 
-        commitRewrite(table, oldDataFiles, oldDeleteFiles, newDataFiles);
+        commitRewrite(table, baseSnapshot.snapshotId(), oldDataFiles, oldDeleteFiles, newDataFiles);
 
         long totalBytesProduced = newDataFiles.stream()
                 .mapToLong(DataFile::fileSizeInBytes)
@@ -218,7 +356,7 @@ public final class IcebergCompactionExecutor {
      * Sorts records according to the table's sort order. If the table has no
      * sort order defined (unsorted), records are written in their original order.
      */
-    private static void sortBySortOrder(List<Record> records,
+    public static void sortBySortOrder(List<Record> records,
                                         org.apache.iceberg.SortOrder sortOrder,
                                         Schema schema) {
         if (sortOrder == null || sortOrder.isUnsorted() || records.size() <= 1) {
@@ -269,7 +407,7 @@ public final class IcebergCompactionExecutor {
         return 0;
     }
 
-    private static Set<Long> collectDeletedPositions(Table table, FileScanTask task) {
+    static Set<Long> collectDeletedPositions(Table table, FileScanTask task) {
         Set<Long> positions = new HashSet<>();
         String dataFilePath = task.file().path().toString();
 
@@ -344,7 +482,12 @@ public final class IcebergCompactionExecutor {
             Table table, Schema schema, FileScanTask task,
             Set<Long> deletedPositions) {
         List<Record> surviving = new ArrayList<>();
+        forEachSurvivingRow(table, schema, task, deletedPositions, (row, position) -> surviving.add(row));
+        return surviving;
+    }
 
+    static void forEachSurvivingRow(Table table, Schema schema, FileScanTask task,
+            Set<Long> deletedPositions, ObjLongConsumer<Record> consumer) {
         try (CloseableIterable<Record> reader = Parquet
                 .read(table.io().newInputFile(task.file().path().toString()))
                 .project(schema)
@@ -355,7 +498,7 @@ public final class IcebergCompactionExecutor {
             long position = task.start();
             for (Record row : reader) {
                 if (!deletedPositions.contains(position)) {
-                    surviving.add(row);
+                    consumer.accept(row, position);
                 }
                 position++;
             }
@@ -363,7 +506,6 @@ public final class IcebergCompactionExecutor {
             throw new UncheckedIOException(
                     "Failed to read data file: " + task.file().path(), e);
         }
-        return surviving;
     }
 
     private static DataFile writeDataFile(
@@ -378,12 +520,19 @@ public final class IcebergCompactionExecutor {
             Table table, Schema schema, PartitionSpec spec,
             org.apache.iceberg.StructLike partition, List<Record> rows,
             long targetFileSizeBytes) {
+        return writeDataFiles(table, schema, spec, partition, rows, targetFileSizeBytes, SortOrder.unsorted(), "");
+    }
+
+    private static List<DataFile> writeDataFiles(
+            Table table, Schema schema, PartitionSpec spec,
+            org.apache.iceberg.StructLike partition, List<Record> rows,
+            long targetFileSizeBytes, SortOrder order, String filePrefix) {
         List<DataFile> files = new ArrayList<>();
         DataWriter<Record> writer = null;
         try {
             for (Record row : rows) {
                 if (writer == null) {
-                    writer = newWriter(table, schema, spec, partition);
+                    writer = newWriter(table, schema, spec, partition, order, filePrefix);
                 }
                 writer.write(row);
                 if (writer.length() >= targetFileSizeBytes) {
@@ -410,13 +559,15 @@ public final class IcebergCompactionExecutor {
     }
 
     private static DataWriter<Record> newWriter(Table table, Schema schema,
-            PartitionSpec spec, org.apache.iceberg.StructLike partition) throws IOException {
-        String path = table.location() + "/data/" + UUID.randomUUID() + ".parquet";
+            PartitionSpec spec, org.apache.iceberg.StructLike partition, SortOrder order, String filePrefix)
+            throws IOException {
+        String path = table.location() + "/data/" + filePrefix + UUID.randomUUID() + ".parquet";
         OutputFile outputFile = table.io().newOutputFile(path);
         return Parquet.writeData(outputFile)
                 .schema(schema)
                 .withSpec(spec)
                 .withPartition(partition)
+                .withSortOrder(order)
                 .createWriterFunc(GenericParquetWriter::create)
                 .overwrite()
                 .build();
@@ -424,11 +575,12 @@ public final class IcebergCompactionExecutor {
 
     private static void commitRewrite(
             Table table,
+            long baseSnapshotId,
             Set<DataFile> oldDataFiles,
             Set<DeleteFile> oldDeleteFiles,
             Set<DataFile> newDataFiles) {
         RewriteFiles rewrite = table.newRewrite();
-        rewrite.validateFromSnapshot(table.currentSnapshot().snapshotId());
+        rewrite.validateFromSnapshot(baseSnapshotId);
         rewrite.rewriteFiles(oldDataFiles, oldDeleteFiles, newDataFiles, Set.of());
         rewrite.commit();
     }

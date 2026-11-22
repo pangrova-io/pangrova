@@ -35,7 +35,18 @@ public record WorkerRegistrationRequest(
         @JsonProperty(WorkerRegistrationRequest.INVENTORY_PROPERTY) String capabilityInventory,
         @JsonProperty("copy_task_tls_port") int copyTaskTlsPort,
         @JsonProperty("worker_execution_identity") WorkerExecutionIdentity workerExecutionIdentity,
-        @JsonProperty("shuffle_provider") String shuffleProvider) {
+        @JsonProperty("shuffle_provider") String shuffleProvider,
+        @JsonProperty("cdc_ingest_supported") boolean cdcIngestSupported) {
+
+    /** Registers a Worker that advertises only Native execution. */
+    public WorkerRegistrationRequest(String workerId, String httpHost, int httpPort,
+                                     int transportPort, int resultServerPort, int protocolVersion,
+                                     String rackId, List<String> dataLocality, String shuffleMode,
+                                     String capabilityInventory, int copyTaskTlsPort,
+                                     WorkerExecutionIdentity workerExecutionIdentity, String shuffleProvider) {
+        this(workerId, httpHost, httpPort, transportPort, resultServerPort, protocolVersion, rackId, dataLocality,
+                shuffleMode, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity, shuffleProvider, false);
+    }
 
     public WorkerRegistrationRequest(String workerId, String httpHost, int httpPort,
                                      int transportPort, int resultServerPort, int protocolVersion,

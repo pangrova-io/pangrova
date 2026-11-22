@@ -15,7 +15,7 @@ Maintenance syntax and catalog procedures have different execution paths.
 | Automatic scan | Maintenance leader only; scans ACTIVE LINKED/MANAGED records, runs due policy operations, records `AUTOMATIC` history |
 | `ANALYZE` | Collects connector statistics for ACTIVE LINKED/MANAGED tables and persists them against the stable table ID and observed version |
 | Catalog-qualified `CALL` | Enforces ownership, maintenance policy, identity and a distributed lease before connector execution |
-| Clustering / `RECLUSTER` | Parser and task/executor components exist; no default production task registration found |
+| Clustering / `RECLUSTER` | Bounded Iceberg v2 rewrite through the controlled maintenance path |
 
 **A successful standalone maintenance response does not prove that maintenance ran.**
 Every statement either executes a policy-authorized connector operation or fails
@@ -69,6 +69,9 @@ automatic maintenance.
 
 
 ## Table Maintenance
+
+Iceberg compaction validates its rewrite against the snapshot used for planning.
+A concurrent delete that affects a file selected for rewrite invalidates the attempt.
 
 ### COMPACT TABLE
 
@@ -130,11 +133,23 @@ value that would be immediately stale or fabricated as zero.
 
 ## Clustering
 
-**Status: syntax and partial implementation only.** The examples below are not
-executable support claims for the default Coordinator. Task registration and a
-qualified maintenance path are required before using this lifecycle.
+Clustering requires `ALTER` authorization on the target table. Mutating
+statements require an ACTIVE MANAGED table with `RECLUSTER` allowed by its
+maintenance policy. Pangrova supports the bounded Iceberg connector rewrite
+for catalogs with verified metadata compare-and-swap, including JDBC and
+local Hadoop catalogs.
+
+A rewrite operates on the current Iceberg v2 snapshot and sorts each
+partition separately. It accepts up to 1,024 Parquet files, 100,000 rows
+and 64 MiB of file bytes. Input files must use the current partition spec
+and have no attached row deletes.
 
 ### SET CLUSTERING ORDER
+
+The table metadata records the column field IDs and clustering mode.
+`LINEAR` uses ascending order with nulls last. `INTERLEAVE` is the default
+and bit-interleaves two to eight top-level integer, floating-point, boolean
+or string columns. String keys contribute their first eight UTF-8 bytes.
 
 **With MODE INTERLEAVE:**
 
@@ -154,11 +169,25 @@ MODE LINEAR;
 
 ### RECLUSTER TABLE
 
+The SQL call waits for an authenticated Worker to stage replacement files and
+for the Coordinator to publish the result under the table maintenance lease.
+The Worker uses the exact admitted catalog and table metadata revisions. The
+catalog and data paths must be accessible from the Coordinator and Workers.
+If a Worker is unavailable before returning its staging receipt, another
+eligible Worker can stage the same revision under a fresh attempt in the same
+durable run. The Coordinator publishes only the winning files in one snapshot.
+Files from interrupted attempts remain eligible for ordinary Iceberg orphan cleanup.
+The response includes the durable task ID and snapshot identifier. An empty
+table records a successful run without publishing a snapshot.
+
 ```sql
 RECLUSTER TABLE prod.analytics.events;
 ```
 
-**With WHERE clause (partial recluster):**
+**Planned partition filtering:**
+
+The task component rejects a `WHERE` predicate until it can bind and publish
+a constrained connector rewrite.
 
 ```sql
 RECLUSTER TABLE prod.analytics.events
@@ -166,6 +195,18 @@ WHERE event_time >= TIMESTAMP '2024-06-01 00:00:00';
 ```
 
 ### SHOW CLUSTERING STATUS
+
+The caller needs `ALTER` on the table because this statement can reconcile an
+interrupted rewrite.
+
+The result reports the current order and the number of current files
+covered by it. The latest rewrite's durable task ID and task state appear
+in `task_id` and `task_state`. When a prior Coordinator left a running
+record, a later request can reconcile the exact catalog snapshot marker.
+If the catalog still points to the original metadata revision, recovery
+can fence that revision and record a failed unpublished attempt. An
+unresolved catalog outcome keeps the run pending and blocks another
+clustering mutation.
 
 ```sql
 SHOW CLUSTERING STATUS FOR TABLE prod.analytics.events;

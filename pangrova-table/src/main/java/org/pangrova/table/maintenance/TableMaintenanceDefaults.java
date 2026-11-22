@@ -18,7 +18,8 @@ final class TableMaintenanceDefaults {
     public static TableMaintenancePolicy managedDefaults(UUID tableId, Instant now) {
         return new TableMaintenancePolicy(tableId,
                 EnumSet.of(MaintenanceOperation.COMPACT, MaintenanceOperation.OPTIMIZE,
-                        MaintenanceOperation.VACUUM, MaintenanceOperation.EXPIRE_SNAPSHOTS,
+                        MaintenanceOperation.RECLUSTER, MaintenanceOperation.VACUUM,
+                        MaintenanceOperation.EXPIRE_SNAPSHOTS,
                         MaintenanceOperation.REMOVE_ORPHAN_FILES),
                 10, Duration.ofDays(3), Duration.ofDays(7), false, "", now);
     }
