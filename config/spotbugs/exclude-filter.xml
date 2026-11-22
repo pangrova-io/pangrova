@@ -1766,11 +1766,6 @@
         <Field name="~(scheduler|watermarkTracker)"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
-    <Match>
-        <Class name="org.pangrova.streaming.pipeline.StreamingWiring"/>
-        <Field name="~(scheduler|watermarkTracker)"/>
-        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
-    </Match>
     <!-- SourceRecord is the raw wire payload handed from a message source to the
          decoder; key/value are consumed read-only and copying every record's bytes
          on both construction and access would double allocation per message without

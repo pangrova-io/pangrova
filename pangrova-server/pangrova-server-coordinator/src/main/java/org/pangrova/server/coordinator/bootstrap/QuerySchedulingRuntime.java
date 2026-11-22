@@ -19,16 +19,16 @@ import org.pangrova.security.api.enums.TenantStatus;
  * The executor is independent of placement ranking; its presence is not evidence of
  * distributed tenant fairness. Production query admission owns separate quota checks.
  */
-final class QuerySchedulingWiring implements AutoCloseable {
+final class QuerySchedulingRuntime implements AutoCloseable {
     private final WeightedFairScheduler tenantScheduler;
     private final TaskScheduler scheduler;
 
-    QuerySchedulingWiring(TenantStore tenantStore, String providerId) {
+    QuerySchedulingRuntime(TenantStore tenantStore, String providerId) {
         this(tenantStore, providerId, ServiceLoader.load(WorkerSelectionStrategyFactory.class,
-                QuerySchedulingWiring.class.getClassLoader()));
+                QuerySchedulingRuntime.class.getClassLoader()));
     }
 
-    QuerySchedulingWiring(TenantStore tenantStore, String providerId,
+    QuerySchedulingRuntime(TenantStore tenantStore, String providerId,
             Iterable<WorkerSelectionStrategyFactory> factories) {
         var installed = new HashMap<String, WorkerSelectionStrategyFactory>();
         for (var candidate : factories) {

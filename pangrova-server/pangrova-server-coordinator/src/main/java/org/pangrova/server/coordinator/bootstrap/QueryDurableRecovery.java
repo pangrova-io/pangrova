@@ -30,9 +30,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Owns durable shuffle cleanup and write-commit recovery wiring for queries. */
-final class QueryDurableRecoveryWiring implements AutoCloseable {
+final class QueryDurableRecovery implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecoveryWiring.class);
+    private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecovery.class);
     private static final int CLEANUP_PAGE_SIZE = 256;
     private static final long CALLBACK_DRAIN_TIMEOUT_MS = 5_000;
 
@@ -55,7 +55,7 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
     /** Only the single-flight scan worker advances this keyset cursor. */
     private String cleanupCursor;
 
-    QueryDurableRecoveryWiring(
+    QueryDurableRecovery(
             CoordinatorBootstrapConfig config,
             DataSource metadataDataSource,
             HighAvailabilityCoordinationService initialCoordination) {
@@ -64,11 +64,11 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         liveCoordination.set(initialCoordination);
     }
 
-    static QueryDurableRecoveryWiring withCleanupSource(
+    static QueryDurableRecovery withCleanupSource(
             CoordinatorBootstrapConfig config,
             Supplier<List<String>> cleanupBatchProvider,
             Consumer<String> cleanupAction) {
-        QueryDurableRecoveryWiring wiring = new QueryDurableRecoveryWiring(
+        QueryDurableRecovery wiring = new QueryDurableRecovery(
                 config, null, null);
         wiring.cleanupBatchProvider = java.util.Objects.requireNonNull(
                 cleanupBatchProvider, "cleanupBatchProvider");

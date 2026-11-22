@@ -26,25 +26,25 @@ import org.slf4j.LoggerFactory;
  * registry (recovered from the metadata store), and the plan-result cache. Extracted from
  * QueryBootstrap to keep bootstrap wiring under the 500-line quality gate.
  */
-final class PlannerWiring {
+final class SqlCompilerFactory {
 
-    private static final Logger LOG = LoggerFactory.getLogger(PlannerWiring.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SqlCompilerFactory.class);
 
     private final CoordinatorBootstrapConfig config;
     private final MetadataBootstrap metadataBootstrap;
     private final org.pangrova.materialization.usecase.ReaderPinLeases readerPins;
     private final AccessControl accessControl;
 
-    PlannerWiring(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap) {
+    SqlCompilerFactory(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap) {
         this(config, metadataBootstrap, null, null);
     }
 
-    PlannerWiring(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap,
+    SqlCompilerFactory(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap,
             org.pangrova.materialization.usecase.ReaderPinLeases readerPins) {
         this(config, metadataBootstrap, readerPins, null);
     }
 
-    PlannerWiring(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap,
+    SqlCompilerFactory(CoordinatorBootstrapConfig config, MetadataBootstrap metadataBootstrap,
             org.pangrova.materialization.usecase.ReaderPinLeases readerPins,
             AccessControl accessControl) {
         this.config = config;

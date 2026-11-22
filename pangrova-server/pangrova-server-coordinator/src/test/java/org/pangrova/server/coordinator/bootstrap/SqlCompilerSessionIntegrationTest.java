@@ -41,7 +41,7 @@ import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataP
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual PostgreSQL directory and plugin/bootstrap chain; no metadata or planner substitutes. */
-class PlannerWiringSessionIntegrationTest {
+class SqlCompilerSessionIntegrationTest {
     @TempDir Path warehouse;
 
     @Test
@@ -61,7 +61,7 @@ class PlannerWiringSessionIntegrationTest {
                                 CoordinatorTableWriteAuthority.create()::requireCurrent)));
         MetadataBootstrap metadata = MetadataBootstrap.initialize(memoryTableStores(), store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
         try {
-            SqlCompiler template = new PlannerWiring(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
+            SqlCompiler template = new SqlCompilerFactory(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
                     metadata, null, null).buildSqlCompiler(new org.pangrova.planner.runtimefilter.RuntimeFilterRegistry());
             assertThatThrownBy(() -> template.compileToResult("SELECT 1"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("forSession");
@@ -77,7 +77,7 @@ class PlannerWiringSessionIntegrationTest {
     private static void assertDispatcherStartup(
             MetadataBootstrap metadata, SqlCompiler template) {
         var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        try (var scheduling = new QuerySchedulingWiring(null, "load-balanced");
+        try (var scheduling = new QuerySchedulingRuntime(null, "load-balanced");
              var dispatcher = new RemoteTaskDispatcher(
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                 org.pangrova.testing.testkit.constants.TestObservability.TRACING)) {

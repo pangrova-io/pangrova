@@ -191,10 +191,10 @@ Publication retains the checksummed build split bytes. Query attachment verifies
 the same immutable connector, source snapshot, object, location and physical
 range identity; query-only scan predicates and schema detail may differ.
 
-Generated-value materialization is wired only on a coordinator with a local
-indexing bootstrap that can register the durable commit processor. A query-only
-coordinator can start with indexing flags present, but does not create a dormant
-materialization service or claim that it can process committed writes.
+`QueryMaterializationFactory` activates generated-value materialization for catalogs
+registered by the local indexing bootstrap with the durable commit processor.
+A query-only Coordinator can start with indexing flags present. It serves published
+generated values through the separately configured persistence path.
 
 The complete diagram describes the required contract, not a blanket capability
 acceptance result. A focused SQL ASYNC regression has exercised authentic commit events,

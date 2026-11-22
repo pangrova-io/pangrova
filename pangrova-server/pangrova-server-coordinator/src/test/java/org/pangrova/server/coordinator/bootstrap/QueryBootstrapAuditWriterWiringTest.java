@@ -46,7 +46,7 @@ class QueryBootstrapAuditWriterWiringTest extends ContainerTestBase {
     }
 
     private static String emitAndVerifyLog(DataSource source) {
-        var wiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
+        var wiring = new QueryRuntimeFactory(new QueryRuntimeFactory.Dependencies(
                 CoordinatorBootstrapConfig.withDefaults("audit-test", 0), new NoOpTracingProvider(),
                 null, new ModuleIntegrationBootstrap(), source, new QueryAuditServices(new InMemoryQueryAuditStore()).auditService()));
         var emitter = wiring.createAuditEmitter();

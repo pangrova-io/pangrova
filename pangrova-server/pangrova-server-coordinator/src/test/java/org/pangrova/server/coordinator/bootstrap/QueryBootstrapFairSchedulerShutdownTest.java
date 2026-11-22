@@ -38,7 +38,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
                 throw failure;
             }
         };
-        assertThatThrownBy(() -> new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), factory.providerId(), java.util.List.of(factory))).isSameAs(failure);
+        assertThatThrownBy(() -> new QuerySchedulingRuntime(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), factory.providerId(), java.util.List.of(factory))).isSameAs(failure);
         // Shutdown is asynchronous: the acquired executor must terminate, but the
         // thread may still be unwinding when the constructor throws.
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
@@ -47,7 +47,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
 
     @Test
     void querySchedulingWiringOwnsAndJoinsTheActualScheduler() throws Exception {
-        try (var scheduling = new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), "load-balanced")) {
+        try (var scheduling = new QuerySchedulingRuntime(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), "load-balanced")) {
             var owner = scheduling.tenantScheduler();
             assertThat(scheduling.scheduler()).isNotNull();
             var executed = new CountDownLatch(1);
@@ -64,7 +64,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
 
     @Test
     void tenantDisabledCreatesNoFairSchedulerOwner() {
-        try (var scheduling = new QuerySchedulingWiring(null, "load-balanced")) {
+        try (var scheduling = new QuerySchedulingRuntime(null, "load-balanced")) {
             assertThat(scheduling.scheduler()).isNotNull();
             assertThat(scheduling.tenantScheduler()).isNull();
         }

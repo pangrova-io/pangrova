@@ -60,12 +60,11 @@ rejection propagates to the query. A real table scan without its configured cata
 registry fails; a source-free plan can legitimately have no connector splits.
 Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
 
-Server constructs published-artifact and generated-value readers from the configured
-Generation store and passes both explicitly into Query/DAG construction. The readers
-are borrowed by dispatch and independent of whether index pruning is enabled. They
-are never installed later through `IndexAwareSplitFetcher`. Storage connections,
-current authorization, transaction fencing and publication facts retain their
-existing owners.
+`QueryBootstrap` creates the published-artifact reader and obtains the generated-value
+reader from `QueryMaterializationFactory`. It passes both readers explicitly into
+Query/DAG construction. Dispatch borrows the readers independently of whether index
+pruning is enabled. Storage connections, current authorization, transaction fencing
+and publication facts retain their existing owners.
 
 `StageSplitSource` and the stage binder still reside in the existing Coordinator
 artifact during this migration: their signatures include live Planner and session
