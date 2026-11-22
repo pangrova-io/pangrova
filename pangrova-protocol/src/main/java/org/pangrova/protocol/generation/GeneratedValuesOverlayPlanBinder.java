@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /** Inserts exact published generated-value reads below already compiled policy expressions. */
 public final class GeneratedValuesOverlayPlanBinder {
@@ -52,9 +53,9 @@ public final class GeneratedValuesOverlayPlanBinder {
     /** Lists actual serialized reads, preserving order and their full schema/emit contracts. */
     public static List<ReadRel> reads(byte[] planBytes) {
         List<ReadRel> result = new ArrayList<>();
-        rewrite(parse(planBytes), read -> {
-            result.add(read);
-            return Rel.newBuilder().setRead(read).build();
+        rewrite(parse(planBytes), relation -> {
+            result.add(relation.getRead());
+            return relation;
         });
         return List.copyOf(result);
     }
@@ -72,8 +73,10 @@ public final class GeneratedValuesOverlayPlanBinder {
         }
         List<OperatorBinding> bindings = new ArrayList<>();
         var ordinal = new java.util.concurrent.atomic.AtomicInteger();
-        Plan rewritten = rewrite(parse(planBytes),
-                read -> bindRead(read, byRead.get(ordinal.getAndIncrement()), bindings));
+        Plan rewritten = rewrite(parse(planBytes), relation -> {
+            var requested = byRead.get(ordinal.getAndIncrement());
+            return requested == null ? relation : bindRead(relation.getRead(), requested, bindings);
+        });
         if (bindings.size() != overlays.size()) {
             throw new IllegalArgumentException("Generated overlays must match exactly one serialized read each");
         }
@@ -82,7 +85,6 @@ public final class GeneratedValuesOverlayPlanBinder {
 
     private static Rel bindRead(ReadRel read, List<ReadOverlay> overlays,
                                 List<OperatorBinding> bindings) {
-        if (overlays == null) return Rel.newBuilder().setRead(read).build();
         requirePhysicalRead(read, overlays);
         ReadLayout layout = prepareRead(read, overlays);
         NamedStruct schema = read.getBaseSchema();
@@ -199,44 +201,59 @@ public final class GeneratedValuesOverlayPlanBinder {
         }
     }
 
-    private static Plan rewrite(Plan plan, java.util.function.Function<ReadRel, Rel> rewriter) {
-        var result = plan.toBuilder();
+    private static Plan rewrite(Plan plan, UnaryOperator<Rel> rewriter) {
+        Plan.Builder changed = null;
         for (int index = 0; index < plan.getRelationsCount(); index++) {
             var relation = plan.getRelations(index);
             if (!relation.hasRoot()) throw new IllegalArgumentException("Generated query requires rooted fragments");
-            result.setRelations(index, relation.toBuilder().setRoot(relation.getRoot().toBuilder()
-                    .setInput(rewriteRel(relation.getRoot().getInput(), rewriter))));
+            var root = relation.getRoot();
+            var input = root.getInput();
+            Rel replacement = rewriteRel(input, rewriter);
+            if (replacement != input) {
+                if (changed == null) changed = plan.toBuilder();
+                changed.setRelations(index, relation.toBuilder().setRoot(root.toBuilder().setInput(replacement)));
+            }
         }
-        return result.build();
+        return changed == null ? plan : changed.build();
     }
 
-    private static Rel rewriteRel(Rel relation, java.util.function.Function<ReadRel, Rel> rewriter) {
-        if (relation.hasRead()) return rewriter.apply(relation.getRead());
+    private static Rel rewriteRel(Rel relation, UnaryOperator<Rel> rewriter) {
+        if (relation.hasRead()) return rewriter.apply(relation);
         FieldDescriptor active = relation.getDescriptorForType()
                 .findFieldByNumber(relation.getRelTypeCase().getNumber());
         if (active == null || !relation.hasField(active)) {
             throw new IllegalArgumentException("Generated query contains an invalid relation");
         }
         Message payload = (Message) relation.getField(active);
-        var changed = payload.toBuilder();
+        Message.Builder changed = null;
         for (var field : payload.getDescriptorForType().getFields()) {
             if (field.getJavaType() == FieldDescriptor.JavaType.MESSAGE
                     && field.getMessageType().getFullName().equals("substrait.Rel")) {
-                rewriteChild(payload, changed, field, rewriter);
+                changed = rewriteChild(payload, changed, field, rewriter);
             }
         }
-        return relation.toBuilder().setField(active, changed.build()).build();
+        return changed == null ? relation : relation.toBuilder().setField(active, changed.build()).build();
     }
 
-    private static void rewriteChild(Message payload, Message.Builder changed, FieldDescriptor field,
-                                     java.util.function.Function<ReadRel, Rel> rewriter) {
+    private static Message.Builder rewriteChild(Message payload, Message.Builder changed, FieldDescriptor field,
+            UnaryOperator<Rel> rewriter) {
         if (field.isRepeated()) {
             for (int index = 0; index < payload.getRepeatedFieldCount(field); index++) {
-                changed.setRepeatedField(field, index,
-                        rewriteRel((Rel) payload.getRepeatedField(field, index), rewriter));
+                var child = (Rel) payload.getRepeatedField(field, index);
+                Rel replacement = rewriteRel(child, rewriter);
+                if (replacement != child) {
+                    if (changed == null) changed = payload.toBuilder();
+                    changed.setRepeatedField(field, index, replacement);
+                }
             }
         } else if (payload.hasField(field)) {
-            changed.setField(field, rewriteRel((Rel) payload.getField(field), rewriter));
+            var child = (Rel) payload.getField(field);
+            Rel replacement = rewriteRel(child, rewriter);
+            if (replacement != child) {
+                if (changed == null) changed = payload.toBuilder();
+                changed.setField(field, replacement);
+            }
         }
+        return changed;
     }
 }

@@ -10,6 +10,7 @@ import io.substrait.proto.ReadRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.RelRoot;
+import io.substrait.proto.SetRel;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
@@ -95,6 +96,25 @@ class GeneratedValuesOverlayPlanBinderTest {
         assertThat(bound.operatorBindings()).extracting(OperatorBinding::getPlanNodeId)
                 .containsExactly("left", "right");
         assertThat(GeneratedValuesOverlayPlanBinder.reads(bound.planBytes())).hasSize(2);
+    }
+
+    @Test
+    void preservesRepeatedSetScanOrderAndLeavesOtherInputsIntact() throws Exception {
+        var first = read().toBuilder().setFilter(isNotNull(0)).build();
+        var second = read().toBuilder().setFilter(isNotNull(1)).build();
+        var firstInput = Rel.newBuilder().setRead(first).build();
+        var secondInput = Rel.newBuilder().setRead(second).build();
+        var set = SetRel.newBuilder().setOp(SetRel.SetOp.SET_OP_UNION_ALL)
+                .addInputs(firstInput).addInputs(secondInput).addInputs(firstInput);
+        byte[] original = plan(Rel.newBuilder().setSet(set).build());
+        assertThat(GeneratedValuesOverlayPlanBinder.reads(original)).containsExactly(first, second, first);
+        var bound = GeneratedValuesOverlayPlanBinder.bind(original, List.of(intent(1, "middle")));
+        var rewritten = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput().getSet();
+        assertThat(rewritten.getOp()).isEqualTo(set.getOp());
+        assertThat(rewritten.getInputs(0)).isEqualTo(firstInput);
+        assertThat(rewritten.getInputs(1).getProject().getInput().getFilter().getCondition()).isEqualTo(second.getFilter());
+        assertThat(rewritten.getInputs(2)).isEqualTo(firstInput);
+        assertThat(bound.operatorBindings()).containsExactly(intent(1, "middle").binding());
     }
 
     @Test
