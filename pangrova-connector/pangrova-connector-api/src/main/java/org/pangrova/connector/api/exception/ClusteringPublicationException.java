@@ -1,7 +1,6 @@
-package org.pangrova.connector.api.clustering;
+package org.pangrova.connector.api.exception;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.connector.api.exception.ConnectorException;
 
 /** Publication may have occurred and must be reconciled from the connector's durable marker. */
 public final class ClusteringPublicationException extends ConnectorException {
