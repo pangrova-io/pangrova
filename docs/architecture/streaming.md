@@ -11,16 +11,12 @@ sidebar_label: "Streaming & CDC"
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
-> **Current CDC boundary.** Sections 2.4–2.5 describe current wiring and gaps;
-> sections 2.6–2.8 retain retired `TableWriter` sketches: that batch-write hierarchy
-> had no production factory, consumer or close owner and was removed. The running pipeline uses
-> `CdcPipelineLoop` → `CdcTwoPhaseCommitter` → `ConnectorPageSinkCdcWriter` on the
-> Coordinator. The source offset and Iceberg/Paimon catalog do not share an
-> atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
-> Paimon rejects the context-free CDC commit, and UPDATE phases are not one
-> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending)
-> for the required durable Native design and its acceptance criteria. No
-> exactly-once/effectively-once production guarantee is currently claimed.
+> **Current CDC boundary.** A COMBINED Coordinator dispatches admitted CDC ranges
+> to Workers. A MAINTENANCE Coordinator stages the same ranges locally. Both roles
+> journal the write and acknowledge source offsets after catalog publication.
+> Sections 2.4–2.5 describe the execution and recovery paths. See
+> [distributed writes](./distributed-writes.md#worker-cdc-publication-and-recovery)
+> for the remaining process-level acceptance criteria.
 
 > **Summary.** CDC ingestion, incremental queries, streaming writes, and watermark tracking.
 
@@ -44,8 +40,8 @@ it does not make source acknowledgement and lake publication one transaction.
 ## 0. Product Positioning
 
 The Pangrova streaming module is a **declarative incremental data transformation** engine.
-CDC-related components exist, but complete incremental transformation and automatic
-materialized-view refresh remain incomplete. Stream task registration is conditional.
+Stream task registration depends on the streaming role. Incremental continuous-query
+refresh and watermark-gated materialization remain open.
 Dynamic-table, continuous-query, and materialized-view DDL, refresh, scheduling,
 recovery, and GC are served by the unified materialization kernel when durable
 metadata publication is configured: refreshes claim a durable lease, execute Native
@@ -75,10 +71,10 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 
 | Capability | Description |
 |---|---|
-| CDC Ingestion | Kafka source/parser and connector-sink components; current bootstrap writes on the Coordinator and has unresolved publication/offset semantics |
+| CDC Ingestion | Kafka feeds bounded Worker JVM tasks with both roles enabled, or the local connector writer with only the streaming role. Catalog publication precedes source acknowledgement |
 | Incremental ETL | Component/design scope; arbitrary transformation execution is not established |
 | Materialized View Refresh | Served by the unified materialization kernel alongside dynamic tables: durable schedule, reserved attempts, Native execution, immutable publication |
-| Table Maintenance | Scheduler/provider components; distinct from standalone SQL maintenance, whose default provider is a no-op |
+| Table Maintenance | Leader-gated maintenance and standalone SQL use the configured maintenance services. See [maintenance SQL](../sql-reference/maintenance.md) |
 | Watermark Tracking | Tracking components; does not establish a functioning refresh lifecycle |
 
 #### What Pangrova Streaming is NOT
@@ -128,101 +124,17 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ## 1. Unified Batch-Streaming Architecture Overview
 
-![Streaming and CDC pipeline: source, CdcSourceReader, format decoding, pipeline buffering, checkpoint state, two-phase commit, connector page-sink writes, and catalog publication](../../website/static/img/diagrams/streaming-pipeline.svg)
+![Streaming and CDC pipeline with Worker ingestion and the streaming-only local path](../../website/static/img/diagrams/streaming-pipeline.svg)
 
 ---
 
 ## 2. CDC Data Ingestion
 
-### 2.1 CDC Architecture
-
-![CDC Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-01-97804f6e4b.svg)
-
-### 2.2 Unified Write Architecture
-
-**Earlier unified-write proposal (retired).** CDC writes and client writes were to share the retired `TableWriter` batch component, with CDC adding a parsing layer. That hierarchy had no production factory, consumer or close owner and was removed. The coordinator CDC runtime writes through `CdcWriteSink` and `ConnectorPageSinkCdcWriter`; SQL writes use the Worker `NativeWriteExecutor` with the connector page sink. The coordinator owns transaction orchestration and metadata commit and does not write data files.
-
-![Unified Write Architecture](../../website/static/img/diagrams/generated/streaming-02-acec7a6186.svg)
-
-### 2.3 CDC Ingestion Loop
-
-The CDC loop parses source records and publishes them through `CdcWriteSink`; the coordinator-side `ConnectorPageSinkCdcWriter` performs the connector write.
-
-> **Historical sketch.** The retired `CdcConsumer` batch-writer class shown below belongs to the retired `TableWriter` hierarchy.
-
-```java
-/**
- * CDC Consumer - consumes Debezium messages from Kafka.
- * Only responsible for parsing, delegates actual write to TableWriter.
- */
-public class CdcConsumer implements AutoCloseable {
-
-    private final KafkaConsumer<String, String> consumer;
-    private final TableWriter writer;  // Unified TableWriter SPI
-    private final CdcConfig config;
-    private final ObjectMapper objectMapper;
-    private volatile boolean running = true;
-
-    public CdcConsumer(CdcConfig config, TableWriter writer) {
-        this.config = config;
-        this.writer = writer;
-        this.objectMapper = new ObjectMapper();
-        this.consumer = createConsumer(config);
-    }
-
-    /**
-     * Consume CDC messages and delegate to TableWriter
-     */
-    public void consume() {
-        while (running) {
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
-            if (records.isEmpty()) continue;
-
-            Map<String, List<CdcRecord>> byTable = groupByTable(records);
-
-            for (Map.Entry<String, List<CdcRecord>> entry : byTable.entrySet()) {
-                String tableName = entry.getKey();
-                List<CdcRecord> cdcRecords = entry.getValue();
-
-                // Convert to unified WriteRecord and delegate to TableWriter
-                List<WriteRecord> writeRecords = cdcRecords.stream()
-                    .map(WriteRecord::fromCdc)
-                    .toList();
-
-                writer.write(tableName, writeRecords, WriteMode.UPSERT,
-                    new WriteContext(org.pangrova.connector.api.enums.WriteTransactionMode.SELF_MANAGED, Optional.empty()));
-            }
-
-            consumer.commitSync();
-        }
-    }
-
-    /**
-     * Parse Debezium message
-     */
-    CdcRecord parseDebeziumMessage(String json) {
-        JsonNode node = objectMapper.readTree(json);
-
-        CdcOperation op = switch (node.get("op").asText()) {
-            case "c", "r" -> CdcOperation.INSERT;
-            case "u" -> CdcOperation.UPDATE;
-            case "d" -> CdcOperation.DELETE;
-            default -> throw new IllegalArgumentException("Unknown op");
-        };
-
-        JsonNode after = node.get("after");
-        JsonNode before = node.get("before");
-        long tsMs = node.get("ts_ms").asLong();
-
-        return CdcRecord.builder()
-            .operation(op)
-            .before(before != null && !before.isNull() ? parseRow(before) : null)
-            .after(after != null && !after.isNull() ? parseRow(after) : null)
-            .eventTime(Instant.ofEpochMilli(tsMs))
-            .build();
-    }
-}
-```
+Both roles use `CdcRangeIngestor` to stage the admitted source ranges. Execution
+runs in Worker JVMs for COMBINED and in the Coordinator JVM for MAINTENANCE.
+Each publication cycle admits up to 1,000 offsets per partition. The journal
+records only those ranges, and acknowledgement leaves later offsets for
+subsequent cycles.
 
 ### 2.4 CDC vs SQL Write: Transaction Orchestration Comparison
 
@@ -230,32 +142,40 @@ The production relational DML path uses Native Workers to produce fragments for
 one Coordinator-owned, fenced catalog publication. It does not use a Coordinator
 row writer for `INSERT VALUES` or other relational DML.
 
-When the Coordinator hosts both streaming and query roles, the streaming scheduler
-disables its local pipeline and the supervised CDC Worker runtime owns execution:
+The leader-gated runtime owns execution and publication in both roles.
 
 ```text
 StreamingBootstrap
-  -> CdcWorkerRuntime (leader-gated)
+  -> JournaledCdcRuntime (leader-gated)
   -> CdcTaskPlanner (bounded topic/partition ranges)
-  -> Worker CDC_INGEST tasks (Kafka read + connector fragment staging)
+  -> COMBINED: Worker CDC_INGEST tasks
+  -> MAINTENANCE: local range ingestion
+  -> BoundCdcPageSinkWriter (connector fragment staging)
   -> WriteCommitJournal intent -> connector publication -> source-offset ack
 ```
 
-A streaming-only Coordinator still instantiates the local path:
+The Coordinator routes bounded ingest only to Workers whose current
+registration advertises CDC, subject to tenant placement and resource limits.
+The shared membership store persists the capability for the registered Worker
+incarnation so Coordinator failover preserves eligibility.
+Both roles bind the persisted stream creator and durable execution owner before staging.
+COMBINED also binds the selected Worker incarnation before dispatch. Dispatch, publication, and
+acknowledgement check the active control and maintenance terms against the
+same stream revision. Pending publication records block another batch for
+that checkpoint generation. Once publication is durably confirmed, restart
+can restore missing offsets from the exact ranges in the journal.
+PostgreSQL checks the running stream revision in the same transaction that
+advances these offsets. Replayed acknowledgements preserve the greatest
+committed offset for each partition. When a stream first switches from the previous
+two-phase writer, the runtime imports confirmed checkpoints for that stream generation.
+An unresolved legacy transaction blocks admission until its catalog outcome is reconciled.
 
-```text
-StreamingBootstrap
-  -> CdcPipelineLoop
-  -> CdcTwoPhaseCommitter
-  -> ConnectorPageSinkCdcWriter (Coordinator-local)
-```
-
-The local path is not covered by the relational distributed write journal. The Worker
-path journals its intent and fences publication and offset acknowledgement on streaming
-leadership. A live test drives real Kafka through two Worker CDC backends, injects a backend
-failure, and verifies the retry publishes to Paimon exactly once with offsets acknowledged only
-after publication; process-level Worker crash qualification is still required. See
-[Distributed Write](distributed-writes.md) for the current publication and repair boundary.
+Both paths use the same write journal and connector publication context.
+Independent process tests exercise Paimon recovery when a Worker exits after
+staging and when a MAINTENANCE Coordinator restarts after catalog publication
+while the journal is still PENDING. The other crash windows and equivalent
+Iceberg cases remain open. See
+[distributed writes](distributed-writes.md#worker-cdc-publication-and-recovery).
 
 Schedulers start paused until maintenance leadership is acquired. A dedicated
 control loop reconciles persisted stream states every five seconds, and immediately
@@ -277,276 +197,24 @@ Catalog publication and source-offset persistence are separate operations. Exist
 primary-key semantics do not prove that replay, partial publication, delete/insert
 phases, or ambiguous outcomes are safe across both Iceberg and Paimon.
 
-The current pipeline fences batch ownership, but ambiguous `COMMITTING` state is
-quarantined rather than blindly replayed. Paimon rejects context-free sink writes;
-UPDATE delete and insert phases are not established as one atomic table publication.
-There is no production claim of exactly-once or effectively-once semantics.
-
-The required repair design must bind tenant, source offset range, table identity,
-snapshot, attempt, and fence to a durable Native batch and one observable catalog
-publication. It is a proposed acceptance contract, not implemented support. See the
-[CDC repair contract](distributed-writes.md#cdc-repair-contract-identity-implemented-execution-pending).
-
-### 2.6 Retired Table Writer SPI (historical sketch)
-
-**Scope: SPI contract and illustrative code.** The current CDC bootstrap instantiates
-`ConnectorPageSinkCdcWriter`, not the writer sketches below.
-
-> **Historical.** The batch-write SPI below was retired; the current write contracts are
-> `CdcWriteSink` for CDC and `ConnectorPageSink` for connector persistence.
-
-Earlier proposal for one batch-write entry point shared by CDC ingestion and SQL writes.
-It was never given a production factory, consumer or close owner, so the code and its
-writers were removed.
-
-
-
-```java
-/**
- * Table Writer SPI - unified interface for all write paths.
- * Shared by CDC ingestion (record-oriented) and SQL writes (batch-oriented).
- *
- * This is the AUTHORITATIVE definition. query-execution.md §6 DataWriter is
- * DEPRECATED — use TableWriter for all new write path implementations.
- *
- * After each write()/writeBatch(), notifies MaintenanceScheduler to check
- * if maintenance should be triggered based on time interval.
- */
-public interface TableWriter extends AutoCloseable {
-
-    /**
-     * Write records to the table (CDC path — record-oriented).
-     *
-     * @param tableName  fully qualified table name
-     * @param records    list of WriteRecord (CDC or client records)
-     * @param writeMode  APPEND, UPSERT, or OVERWRITE
-     * @param context    write context specifying transaction mode and metadata
-     * @return write result containing data file list and statistics
-     */
-    WriteResult write(String tableName, List<WriteRecord> records,
-                      WriteMode writeMode, WriteContext context);
-
-    /**
-     * Write an Arrow batch to the table (SQL path — batch-oriented).
-     * Accepts VectorSchemaRoot directly from the native execution engine,
-     * avoiding expensive columnar-to-row conversion.
-     *
-     * Resolves IC-WR-004: bridges native VectorSchemaRoot output with
-     * the TableWriter input interface for zero-conversion SQL writes.
-     *
-     * @param tableName  fully qualified table name
-     * @param batch      Arrow VectorSchemaRoot produced by native Velox engine
-     * @param writeMode  APPEND or OVERWRITE (UPSERT not supported for batch path)
-     * @param context    write context specifying transaction mode and metadata
-     * @return write result containing data file list and statistics
-     */
-    WriteResult writeBatch(String tableName, VectorSchemaRoot batch,
-                           WriteMode writeMode, WriteContext context);
-
-    TableFormat format();
-}
-
-/**
- * Write context — distinguishes transaction orchestration modes.
- * Resolves IC-WR-008: provides transaction mode so TableWriter implementations
- * can decide whether to commit internally or defer to Coordinator.
- *
- * @param transactionMode  COORDINATOR_MANAGED (SQL) or SELF_MANAGED (CDC)
- * @param sessionContext   optional session metadata for multi-tenant isolation
- */
-public record WriteContext(
-    TransactionMode transactionMode,
-    Optional<SessionContext> sessionContext
-) {
-    public enum TransactionMode {
-        /** SQL write path: Coordinator orchestrates commit across multiple Workers. */
-        COORDINATOR_MANAGED,
-        /** CDC write path: TableWriter commits transaction internally per batch. */
-        SELF_MANAGED
-    }
-}
-```
-
-**Write path selection:**
-
-| Caller | Method | WriteContext.transactionMode | Behavior |
-|--------|--------|-----------------------------|----------|
-| SQL INSERT (Worker) | `writeBatch(VectorSchemaRoot)` | `COORDINATOR_MANAGED` | Writes data files only; does NOT commit. Coordinator collects DataFile list and commits atomically. |
-| CDC Consumer | `write(List<WriteRecord>)` | `SELF_MANAGED` | Writes data files AND commits transaction internally. |
-
-```java
-/**
- * Unified write record - abstracts CDC and client records.
- */
-public record WriteRecord(
-    Map<String, Object> data,
-    WriteOperation operation,
-    Instant eventTime
-) {
-    public enum WriteOperation { INSERT, UPDATE, DELETE }
-
-    // Convert from CdcRecord (used by CDC Consumer)
-    public static WriteRecord fromCdc(CdcRecord cdc) {
-        return new WriteRecord(
-            cdc.operation() == CdcOperation.DELETE ? cdc.before() : cdc.after(),
-            switch (cdc.operation()) {
-                case INSERT -> WriteOperation.INSERT;
-                case UPDATE -> WriteOperation.UPDATE;
-                case DELETE -> WriteOperation.DELETE;
-            },
-            cdc.eventTime()
-        );
-    }
-
-    // Convert from client Record (used by SQL writes)
-    public static WriteRecord fromClient(Map<String, Object> data, WriteOperation op) {
-        return new WriteRecord(data, op, Instant.now());
-    }
-}
-
-/**
- * Unified write record - abstracts CDC and client records
- */
-public record WriteRecord(
-    Map<String, Object> data,
-    WriteOperation operation,
-    Instant eventTime
-) {
-    public enum WriteOperation { INSERT, UPDATE, DELETE }
-
-    // Convert from CdcRecord (used by CDC Consumer)
-    public static WriteRecord fromCdc(CdcRecord cdc) {
-        return new WriteRecord(
-            cdc.operation() == CdcOperation.DELETE ? cdc.before() : cdc.after(),
-            switch (cdc.operation()) {
-                case INSERT -> WriteOperation.INSERT;
-                case UPDATE -> WriteOperation.UPDATE;
-                case DELETE -> WriteOperation.DELETE;
-            },
-            cdc.eventTime()
-        );
-    }
-
-    // Convert from client Record (used by SQL writes)
-    public static WriteRecord fromClient(Map<String, Object> data, WriteOperation op) {
-        return new WriteRecord(data, op, Instant.now());
-    }
-}
-```
-
-### 2.7 Iceberg Table Writer (historical sketch)
-
-**Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
-
-```java
-/**
- * Iceberg Table Writer with hybrid delete strategy.
- *
- * Hybrid Delete Strategy:
- * - Same-batch updates: Position Delete (same file, query engine friendly)
- * - Cross-batch updates: Equality Delete (needs async compaction)
- */
-public class IcebergTableWriter implements TableWriter {
-
-    private final Catalog catalog;
-    private final MaintenanceScheduler scheduler;
-
-    @Override
-    public WriteResult write(String tableName, List<WriteRecord> records,
-                             WriteMode writeMode, WriteContext context) {
-        Table table = catalog.loadTable(TableIdentifier.parse(tableName));
-        List<String> primaryKeys = getPrimaryKeys(table);
-
-        // Group by primary key to detect same-batch updates
-        Map<Object, List<WriteRecord>> byKey = groupByPrimaryKey(records, primaryKeys);
-
-        List<Record> inserts = new ArrayList<>();
-        List<PositionDelete> positionDeletes = new ArrayList<>();  // Same-batch
-        List<Record> equalityDeletes = new ArrayList<>();          // Cross-batch
-
-        for (var entry : byKey.entrySet()) {
-            List<WriteRecord> keyRecords = entry.getValue();
-
-            if (keyRecords.size() > 1) {
-                // Multiple updates to same key in same batch → Position Delete
-                processSameBatchUpdates(table, keyRecords, inserts, positionDeletes);
-            } else {
-                WriteRecord record = keyRecords.get(0);
-                switch (record.operation()) {
-                    case INSERT -> inserts.add(toIcebergRecord(record.data(), table.schema()));
-                    case UPDATE -> {
-                        equalityDeletes.add(toIcebergRecord(record.data(), table.schema()));
-                        inserts.add(toIcebergRecord(record.data(), table.schema()));
-                    }
-                    case DELETE -> equalityDeletes.add(toIcebergRecord(record.data(), table.schema()));
-                }
-            }
-        }
-
-        WriteResult result = commitWithHybridDeletes(table, inserts, positionDeletes,
-                                                      equalityDeletes, primaryKeys);
-
-        // Notify scheduler to check if maintenance should be triggered
-        scheduler.onWriteComplete(tableName, result);
-
-        return result;
-    }
-}
-```
-
-### 2.8 Paimon Table Writer (historical sketch)
-
-**Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
-
-```java
-/**
- * Paimon Table Writer with native changelog support.
- * Paimon handles changelog natively, no need for hybrid delete strategy.
- */
-public class PaimonTableWriter implements TableWriter {
-
-    private final ConnectorManager connectorManager;
-    private final MaintenanceScheduler scheduler;
-
-    @Override
-    public WriteResult write(String tableName, List<WriteRecord> records,
-                             WriteMode writeMode, WriteContext context) {
-        FileStoreTable table = loadPaimonTable(tableName);
-
-        var write = table.newWrite(UUID.randomUUID().toString());
-        var commit = table.newCommit(UUID.randomUUID().toString());
-
-        for (WriteRecord record : records) {
-            RowKind rowKind = switch (record.operation()) {
-                case INSERT -> RowKind.INSERT;
-                case UPDATE -> RowKind.UPDATE_AFTER;
-                case DELETE -> RowKind.DELETE;
-            };
-
-            var row = toPaimonRow(record.data(), rowKind);
-            write.write(row);
-        }
-
-        var messages = write.prepareCommit(true, 0);
-        commit.commit(0, messages);
-
-        WriteResult result = new WriteResult(tableName, records.size(), 1, 0, 0, Instant.now());
-
-        // Notify scheduler to check if maintenance should be triggered
-        scheduler.onWriteComplete(tableName, result);
-
-        return result;
-    }
-}
-```
-
----
+The journal records tenant, source ranges, table identity, base snapshot, attempt
+and ownership fence before publishing a snapshot. Paimon stages UPDATE before
+and after images as native row kinds in one merge. Iceberg stages one ordered
+range against the allocated snapshot. It resolves each full before-image to a
+live position or an earlier staged row, then emits one fragment containing
+position delete files and surviving after-images. The Coordinator publishes
+one fenced RowDelta. Recovery uses the original fingerprint and rejects a
+legacy mutation fragment without typed CDC evidence.
+Position delete files contain the file path and physical row number. Native
+scans with positional deletes apply them before predicate and runtime filters
+can change row positions.
+See [Worker CDC publication and recovery](distributed-writes.md#worker-cdc-publication-and-recovery).
 
 ### 2.9 TableMaintenance
 
 This interface describes maintenance operations, not their statement wiring. The
 default bootstrap injects `ControlledTableMaintenance` into `MaintenanceExecutor`;
-catalog-qualified `CALL` uses a separate connector path. See
+mutating catalog-qualified `CALL` operations share the same policy and lease checks. See
 [Maintenance SQL](../sql-reference/maintenance.md).
 
 A unified table maintenance interface supporting compaction, orphan cleanup, and snapshot expiration.
@@ -768,105 +436,9 @@ public class ChangelogReader {
 
 ## 4. Streaming Ingestion
 
-### 4.1 Mini-Batch Writes
-
-![Streaming Ingestion Architecture](../../website/static/img/diagrams/generated/streaming-14-b4057e93e3.svg)
-
-### 4.2 Streaming Ingestion API
-
-```java
-/**
- * Streaming writer
- *
- *
- */
-public class StreamingWriter implements AutoCloseable {
-
-    private final String tableName;
-    private final TableWriter tableWriter;  // Delegates to unified TableWriter SPI (§2.6)
-    private final StreamingWriterConfig config;
-    private final List<Record> buffer = new ArrayList<>();
-    private final ScheduledExecutorService scheduler;
-
-    private long bufferBytes = 0;
-    private Instant lastFlushTime = Instant.now();
-
-    public StreamingWriter(String tableName, TableWriter tableWriter, StreamingWriterConfig config) {
-        this.tableName = tableName;
-        this.tableWriter = tableWriter;
-        this.config = config;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
-    }
-
-    /**
-     * Write a single record
-     */
-    public void write(Record record) {
-        synchronized (buffer) {
-            buffer.add(record);
-            bufferBytes += estimateSize(record);
-
-            if (shouldFlush()) {
-                flush();
-            }
-        }
-    }
-
-    /**
-     * Batch write
-     */
-    public void writeBatch(List<Record> records) {
-        synchronized (buffer) {
-            buffer.addAll(records);
-            bufferBytes += records.stream().mapToLong(this::estimateSize).sum();
-
-            if (shouldFlush()) {
-                flush();
-            }
-        }
-    }
-
-    private boolean shouldFlush() {
-        return bufferBytes >= config.getMaxBufferBytes() ||
-               buffer.size() >= config.getMaxBufferRows() ||
-               Duration.between(lastFlushTime, Instant.now()).compareTo(config.getMaxBufferTime()) > 0;
-    }
-
-    /**
-     * Flush buffer via TableWriter SPI (not direct Iceberg API).
-     * Uses SELF_MANAGED transaction mode — TableWriter commits internally.
-     * MaintenanceScheduler is notified by TableWriter.write() automatically.
-     */
-    public void flush() {
-        List<Record> toWrite;
-        synchronized (buffer) {
-            if (buffer.isEmpty()) return;
-            toWrite = new ArrayList<>(buffer);
-            buffer.clear();
-            bufferBytes = 0;
-            lastFlushTime = Instant.now();
-        }
-
-        // Delegate to TableWriter SPI — unified write path
-        List<WriteRecord> writeRecords = toWrite.stream()
-            .map(r -> WriteRecord.fromClient(r.toMap(), org.pangrova.connector.api.enums.WriteOperation.INSERT))
-            .toList();
-
-        tableWriter.write(tableName, writeRecords, WriteMode.APPEND,
-            new WriteContext(org.pangrova.connector.api.enums.WriteTransactionMode.SELF_MANAGED, Optional.empty()));
-
-        log.info("Flushed {} records to {} via TableWriter", toWrite.size(), tableName);
-    }
-
-    @Override
-    public void close() {
-        flush();  // Flush remaining data before closing
-        scheduler.shutdown();
-    }
-}
-```
-
----
+Use stream DDL for Kafka ingestion. Use relational SQL DML to append query results
+or values through the Worker connector write path. See [Streaming SQL](../sql-reference/streaming.md)
+and [DML](../sql-reference/dml.md).
 
 ## 5. Watermark Management
 
@@ -1168,7 +740,7 @@ Maintenance design measures are listed separately.
 ### 8.2 Tracing Spans
 
 - `cdc.consume` — CDC batch consumption (SERVER span)
-  - `cdc.write` — TableWriter write operation (INTERNAL)
+  - `cdc.write` — connector sink staging (INTERNAL)
   - `cdc.commit` — Transaction commit (INTERNAL)
 - `maintenance.compact` — Compaction task (SERVER span)
 - `maintenance.expire_snapshots` — Snapshot expiration (SERVER span)
@@ -1184,15 +756,11 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-> **Write Interface Hierarchy**: `CdcWriteSink` owns the CDC commit handoff and `ConnectorPageSinkCdcWriter` persists through the connector page sink. SQL writes use the Worker `NativeWriteExecutor` with `ConnectorPageSink`. The former `TableWriter` batch hierarchy was retired; §2.6 keeps its sketch as history. `DataWriter` (02 §6) is deprecated.
-
-
-> **CDC execution boundary:** The current streaming bootstrap creates a
-> Coordinator-local `ConnectorPageSinkCdcWriter`; it does not run CDC consumers in
-> Workers and does not require ZooKeeper for partition assignment. ZooKeeper is an
-> optional coordination backend, not a CDC dependency. Distributed native CDC
-> ingestion, atomic source-offset/catalog publication, and exactly-once delivery
-> remain unimplemented. See [Current Capability Status](../getting-started/capability-status.md).
+> **CDC execution boundary.** A Coordinator hosting both roles dispatches bounded
+> CDC tasks to Worker JVMs. A streaming-only Coordinator stages those ranges locally. Kafka supplies partition inventory and
+> ZooKeeper remains an optional coordination backend. Catalog publication precedes
+> source acknowledgement, with a failure window between the two operations. See
+> [Current Capability Status](../getting-started/capability-status.md).
 
 
 > **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.

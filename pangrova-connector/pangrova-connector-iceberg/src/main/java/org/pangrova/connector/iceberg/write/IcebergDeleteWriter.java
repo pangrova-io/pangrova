@@ -2,10 +2,10 @@ package org.pangrova.connector.iceberg.write;
 
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.deletes.BaseDVFileWriter;
@@ -52,7 +52,7 @@ public final class IcebergDeleteWriter {
         OutputFile outputFile = newDeleteOutputFile(table);
         PositionDeleteWriter<Record> writer = createPositionWriter(outputFile, table);
         try {
-            writePositions(writer, table.schema(), dataFilePath, positions);
+            writePositions(writer, dataFilePath, positions);
             writer.close();
             return writer.toDeleteFile();
         } catch (IOException e) {
@@ -64,9 +64,11 @@ public final class IcebergDeleteWriter {
             OutputFile outputFile, Table table) {
         try {
             return Parquet.writeDeletes(outputFile)
-                    .forTable(table)
-                    .withSpec(PartitionSpec.unpartitioned())
-                    .createWriterFunc(GenericParquetWriter::create)
+                    // No row image is written. All-null row metrics can hide a
+                    // position delete when the SDK plans a filtered scan.
+                    .setAll(table.properties())
+                    .metricsConfig(MetricsConfig.forPositionDelete())
+                    .withSpec(table.spec().isUnpartitioned() ? table.spec() : PartitionSpec.unpartitioned())
                     .overwrite()
                     .buildPositionWriter();
         } catch (IOException e) {
@@ -76,14 +78,11 @@ public final class IcebergDeleteWriter {
 
     private static void writePositions(
             PositionDeleteWriter<Record> writer,
-            Schema schema,
             String dataFilePath,
             List<Long> positions) {
-        // Iceberg 1.4.x requires non-null row for GenericParquetWriter
-        Record emptyRow = GenericRecord.create(schema);
         PositionDelete<Record> posDelete = PositionDelete.create();
         for (long pos : positions) {
-            writer.write(posDelete.set(dataFilePath, pos, emptyRow));
+            writer.write(posDelete.set(dataFilePath, pos));
         }
     }
 

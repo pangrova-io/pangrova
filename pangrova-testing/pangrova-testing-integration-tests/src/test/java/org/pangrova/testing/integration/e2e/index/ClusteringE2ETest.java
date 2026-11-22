@@ -3,7 +3,6 @@ package org.pangrova.testing.integration.e2e.index;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.testing.integration.e2e.runner.QueryError;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,12 +57,16 @@ class ClusteringE2ETest extends SqlE2ETestBase {
     class SetClustering {
 
         @Test
-        @DisplayName("SET CLUSTERING ORDER is parsed but not yet routed — returns INTERNAL_ERROR")
-        void setClusteringOrderNotYetSupported() {
-            QueryError error = sqlRunner.executeExpectingError(
-                    "ALTER TABLE " + fqn()
-                    + " SET CLUSTERING ORDER (col1, col2) MODE INTERLEAVE");
-            assertThat(error.message()).containsAnyOf("Unsupported statement", "Unknown statement type");
+        @DisplayName("Iceberg publishes interleaved clustering")
+        void interleavedRewritePreservesRows() {
+            sqlRunner.executeDdl("ALTER TABLE " + fqn() + " SET CLUSTERING ORDER (col1, col2) MODE INTERLEAVE");
+            sqlRunner.execute("RECLUSTER TABLE " + fqn());
+            assertThat(sqlRunner.execute("SHOW CLUSTERING STATUS FOR TABLE " + fqn()))
+                    .singleElement().satisfies(status -> {
+                        assertThat(status.getString("mode")).isEqualTo("INTERLEAVE");
+                        assertThat(status.getString("state")).isEqualTo("CLUSTERED");
+                    });
+            assertThat(sqlRunner.execute("SELECT * FROM " + fqn())).hasSize(4);
         }
     }
 
@@ -72,12 +75,17 @@ class ClusteringE2ETest extends SqlE2ETestBase {
     class Recluster {
 
         @Test
-        @DisplayName("RECLUSTER depends on SET CLUSTERING — not yet supported")
-        void reclusterNotYetSupported() {
-            QueryError error = sqlRunner.executeExpectingError(
-                    "ALTER TABLE " + fqn()
-                    + " SET CLUSTERING ORDER (col1) MODE LINEAR");
-            assertThat(error.message()).containsAnyOf("Unsupported statement", "Unknown statement type");
+        @DisplayName("LINEAR rewrite records a successful run and preserves all rows")
+        void linearRewritePreservesRows() {
+            sqlRunner.executeDdl("ALTER TABLE " + fqn() + " SET CLUSTERING ORDER (col1) MODE LINEAR");
+            sqlRunner.execute("RECLUSTER TABLE " + fqn());
+
+            var rows = sqlRunner.execute("SHOW CLUSTERING STATUS FOR TABLE " + fqn());
+            assertThat(rows).singleElement().satisfies(status -> {
+                assertThat(status.getString("state")).isEqualTo("CLUSTERED");
+                assertThat(status.getString("task_state")).isEqualTo("SUCCEEDED");
+            });
+            assertThat(sqlRunner.execute("SELECT * FROM " + fqn())).hasSize(4);
         }
     }
 

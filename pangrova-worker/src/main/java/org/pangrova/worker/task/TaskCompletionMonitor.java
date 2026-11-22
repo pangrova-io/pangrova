@@ -139,18 +139,20 @@ public final class TaskCompletionMonitor {
         }
         var parsed = requireCanonicalTaskReport(info.request().taskRequest(), status);
         info.setTerminalTaskReport(status);
-        if (isWorkerExecuted(info.request().taskRequest())) {
-            info.setTerminalCommitFragments(
-                    deps.taskExecutor().getTaskCommitFragments(handle));
-            return;
+        boolean workerExecuted = isWorkerExecuted(info.request().taskRequest());
+        if (!workerExecuted) {
+            captureTaskStats(info, handle, parsed);
         }
-        captureTaskStats(info, handle, parsed);
         if (parsed.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
             throw new IllegalStateException(
-                    "Native task did not finish successfully: task="
+                    "Task did not finish successfully: task="
                             + info.taskId()
                             + " state="
                             + parsed.getState());
+        }
+        if (workerExecuted) {
+            info.setTerminalCommitFragments(
+                    deps.taskExecutor().getTaskCommitFragments(handle));
         }
     }
 

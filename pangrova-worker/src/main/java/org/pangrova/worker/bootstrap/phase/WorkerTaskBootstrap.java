@@ -61,6 +61,7 @@ public final class WorkerTaskBootstrap {
             var composite = new org.pangrova.worker.execution.CompositeTaskExecutor(
                     executor, workerBackend);
             ownership.retain(composite);
+            refs.setWorkerExecutedTaskBackend(null);
             executor = composite;
         }
         injectShuffleHmacKey(refs);

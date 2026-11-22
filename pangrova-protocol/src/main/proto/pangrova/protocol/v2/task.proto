@@ -128,6 +128,15 @@ message CdcIngestBinding {
   Checksum commit_identity_sha256 = 9;
   string target_table_uuid = 10;
   sint64 base_snapshot_id = 11;
+  // The stream creator has been authorized for these exact source operations.
+  repeated CdcWriteOperation allowed_operations = 12;
+}
+
+enum CdcWriteOperation {
+  CDC_WRITE_OPERATION_UNSPECIFIED = 0;
+  CDC_WRITE_OPERATION_INSERT = 1;
+  CDC_WRITE_OPERATION_UPDATE = 2;
+  CDC_WRITE_OPERATION_DELETE = 3;
 }
 
 message CdcSourceRange {
