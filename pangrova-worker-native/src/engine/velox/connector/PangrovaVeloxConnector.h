@@ -7,6 +7,7 @@
 // Placement: velox/ — Velox integration layer.
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -29,6 +30,7 @@
 #include "engine/velox/connector/SchemaEvolution.h"
 #include "engine/velox/connector/SourceObjectIdentityInjector.h"
 #include "engine/velox/connector/ParquetUuidReadPlan.h"
+#include "engine/velox/filter/PendingFilterRegistry.h"
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
@@ -103,8 +105,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Construct with optional remaining filter for reader-level pushdown.
   // When remainingFilter is non-null, openVeloxReader() passes it to
   // RowReaderOptions enabling row group statistics-based pruning.
-  // task_id is used to drain externally injected dynamic filters from
-  // the PendingFilterRegistry on each next() call.
+  // Task and scan identities select the external filters for this driver.
   explicit PangrovaVeloxDataSource(
       facebook::velox::memory::MemoryPool* pool,
       const facebook::velox::RowTypePtr& outputType,
@@ -147,6 +148,9 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // then compacts via dictionary wrapping (same pattern as applyDeleteFilter).
   facebook::velox::RowVectorPtr applyDynamicFilters(
       facebook::velox::RowVectorPtr rowVector);
+  void receivePendingDynamicFilters();
+  void bindDynamicFiltersToReader(
+      facebook::velox::common::ScanSpec& scan_spec, const facebook::velox::RowTypePtr& reader_type);
   // Applies a Native retrieval allowlist using the DWIO physical row-index
   // column, then removes that hidden column before the relational pipeline.
   facebook::velox::RowVectorPtr applyArtifactCandidateFilter(
@@ -176,13 +180,11 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Create a Velox DWIO Reader + RowReader pair for a file path.
   // Shared by openVeloxReader() and initializeMergeReader() to eliminate
   // duplicated reader construction logic (ReaderOptions, BufferedInput,
-  // CachedBufferedInput, ScanSpec). Returns the ScanSpec via outScanSpec
-  // for dynamic filtering. Static predicates are bound before reader creation.
+  // CachedBufferedInput, ScanSpec). Reader predicates are bound before creation.
   void createReaderPair(
       const split::SplitConfig& splitConfig,
       std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
       std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
-      std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec = nullptr,
       facebook::velox::RowTypePtr requestedType = nullptr,
       std::unique_ptr<ParquetUuidReadPlan>* uuidReadPlan = nullptr,
       bool allowPredicatePushdown = false);
@@ -324,15 +326,12 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Ordering: read → delete filter → dynamic filter → post-processing.
   // @GuardedBy: dynamic_filter_mutex_
   std::mutex dynamic_filter_mutex_;
+  std::atomic<bool> has_dynamic_filters_{false};
+  PendingFilterCursor pending_filter_cursor_;
   std::vector<std::pair<facebook::velox::column_index_t,
                         std::shared_ptr<facebook::velox::common::Filter>>>
       dynamic_filters_;
 
-  // L2-1: Stored ScanSpec for dynamic filter pushdown to reader level.
-  // Set by openVeloxReader() and used to push dynamic filters directly
-  // to the DWIO reader's ScanSpec, enabling row-group/page skipping.
-  std::shared_ptr<facebook::velox::common::ScanSpec> current_scan_spec_;
-  bool dynamic_filters_pushed_to_scan_ = false;
 };
 
 // Pangrova's Velox Connector implementation.

@@ -1,6 +1,5 @@
 // PendingFilterRegistry: Sharded implementation for reduced lock contention.
 // Each shard owns an independent mutex + map, keyed by hash(task_id) % N.
-// Concurrent push/drain on different tasks never contend.
 #include "engine/velox/filter/PendingFilterRegistry.h"
 
 #include <functional>
@@ -33,27 +32,29 @@ void PendingFilterRegistry::push(
   std::lock_guard<std::mutex> lock(shard.mutex);
   shard.store[task_id][plan_node_id].push_back(
       {column_index, std::move(filter)});
+  publication_.fetch_add(1, std::memory_order_release);
 }
 
-std::vector<PendingFilterEntry> PendingFilterRegistry::drain(
+std::vector<PendingFilterEntry> PendingFilterRegistry::readAfter(
     const std::string& task_id,
-    const std::string& plan_node_id) {
-  auto& shard = shardFor(task_id);
+    const std::string& plan_node_id,
+    PendingFilterCursor& cursor) const {
+  const auto published = publication_.load(std::memory_order_acquire);
+  if (cursor.observed_publication == published) return {};
+  const auto& shard = shardFor(task_id);
   std::lock_guard<std::mutex> lock(shard.mutex);
+  cursor.observed_publication = published;
   auto task_it = shard.store.find(task_id);
   if (task_it == shard.store.end()) {
     return {};
   }
   auto node_it = task_it->second.find(plan_node_id);
-  if (node_it == task_it->second.end()) {
+  if (node_it == task_it->second.end() || cursor.next_filter >= node_it->second.size()) {
     return {};
   }
-  std::vector<PendingFilterEntry> result;
-  result.swap(node_it->second);
-  task_it->second.erase(node_it);
-  if (task_it->second.empty()) {
-    shard.store.erase(task_it);
-  }
+  const auto& filters = node_it->second;
+  std::vector<PendingFilterEntry> result(filters.begin() + cursor.next_filter, filters.end());
+  cursor.next_filter = filters.size();
   return result;
 }
 

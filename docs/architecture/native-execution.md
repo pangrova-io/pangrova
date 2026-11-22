@@ -93,6 +93,14 @@ one driver. A task may still use multiple drivers for other pipelines, including
 the scan side of a mixed `UNION ALL`. Table functions with input rows retain
 per-input parallelism.
 
+An admitted runtime filter is published for a task and scan node. Each scan
+driver advances its own cursor through that publication sequence. Filters
+available before a file opens can enter the reader's scan specification when
+the physical column and type match and no deletion or conversion affects the
+row. A late filter runs on materialized logical rows after applicable deletes,
+partition values and schema evolution. A batch with zero matches retains its
+identity as a batch so a driver continues to the next read.
+
 Result-service shutdown first seals registration and revokes each retained result
 authority, waking its actual pending SDK fetch. It then cancels transport calls
 through Arrow's deadline shutdown and joins the real handlers and serving thread.

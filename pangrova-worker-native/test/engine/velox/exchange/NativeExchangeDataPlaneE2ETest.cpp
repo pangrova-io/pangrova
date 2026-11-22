@@ -230,6 +230,21 @@ struct TransportSecurityReset {
   }
 };
 
+void writeParquetFixture(const std::filesystem::path& path, const facebook::velox::RowVectorPtr& rows,
+                         facebook::velox::memory::MemoryPool* root,
+                         facebook::velox::memory::MemoryPool* pool) {
+  namespace sdk = facebook::velox;
+  auto properties = std::make_shared<const sdk::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{});
+  sdk::parquet::WriterOptions options;
+  options.memoryPool = root;
+  sdk::dwio::common::FileSink::Options sink{.connectorProperties = properties, .pool = pool};
+  sdk::parquet::Writer writer(std::make_unique<sdk::dwio::common::LocalFileSink>(path.string(), sink),
+      options, rows->rowType());
+  writer.write(rows);
+  writer.close();
+}
+
 class NativeExchangeDataPlaneE2ETest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -350,15 +365,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   const auto path = std::filesystem::temp_directory_path() /
       ("pangrova-published-build-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".parquet");
   auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
-  auto properties = std::make_shared<const sdk::config::ConfigBase>(
-      std::unordered_map<std::string, std::string>{});
-  sdk::parquet::WriterOptions writerOptions;
-  writerOptions.memoryPool = root.get();
-  sdk::dwio::common::FileSink::Options sinkOptions{.connectorProperties = properties, .pool = pool.get()};
-  sdk::parquet::Writer writer(std::make_unique<sdk::dwio::common::LocalFileSink>(path.string(), sinkOptions),
-      writerOptions, input->rowType());
-  writer.write(input);
-  writer.close();
+  writeParquetFixture(path, input, root.get(), pool.get());
   const auto connector = PangrovaVeloxConnector::kConnectorId;
   const auto handle = std::make_shared<PangrovaTableHandle>(connector, "probe", "probe-scan", input->rowType());
   sdk::connector::ColumnHandleMap assignments{
@@ -415,6 +422,86 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   runner->cleanup();
   std::sort(actual.begin(), actual.end());
   EXPECT_EQ(actual, std::vector<int64_t>({2, 4, 4}));
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, BothScanDriversApplyTheSamePublishedFilter) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("SharedBuildFilter");
+  auto pool = root->addLeafChild("file");
+  sdk::test::VectorMaker maker(pool.get());
+  auto rows = maker.rowVector({"probe_key"}, {maker.flatVector<int64_t>({1, 2, 3, 4})});
+  const auto path = std::filesystem::temp_directory_path() /
+      ("pangrova-driver-filter-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+       ".parquet");
+  auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
+  writeParquetFixture(path, rows, root.get(), pool.get());
+
+  const std::string task_id = "same-task-two-drivers";
+  const std::string plan_node = "same-table-scan";
+  const auto connector = PangrovaVeloxConnector::kConnectorId;
+  split::SplitConfig split;
+  split.split_id = "probe";
+  split.table_name = "probe";
+  split.connector_id = connector;
+  split.file_format = split::FileFormatType::PARQUET;
+  split.file_path = path.string();
+  split.length = std::filesystem::file_size(path);
+
+  auto& filters = PendingFilterRegistry::instance();
+  auto clear = folly::makeGuard([&] { filters.remove(task_id); });
+  filters.push(task_id, plan_node, 0, std::make_shared<sdk::common::BigintRange>(2, 3, false));
+  for (int driver = 0; driver < 2; ++driver) {
+    PangrovaVeloxDataSource source(pool.get(), rows->rowType(), rows->rowType(), task_id, plan_node);
+    source.addSplit(std::make_shared<PangrovaConnectorSplit>(connector, split));
+    auto future = sdk::ContinueFuture::makeEmpty();
+    auto batch = source.next(16, future);
+    ASSERT_TRUE(batch.has_value() && *batch);
+    ASSERT_EQ((*batch)->size(), 2) << "driver=" << driver;
+    sdk::DecodedVector keys(*(*batch)->childAt(0));
+    EXPECT_EQ(keys.valueAt<int64_t>(0), 2);
+    EXPECT_EQ(keys.valueAt<int64_t>(1), 3);
+  }
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, EvolvedKeyFilterUsesLogicalTypeAndKeepsReadingAfterAnEmptyBatch) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("EvolvedBuildFilter");
+  auto pool = root->addLeafChild("file");
+  sdk::test::VectorMaker maker(pool.get());
+  auto rows = maker.rowVector({"old_key"}, {maker.flatVector<int32_t>({1, 2, 3, 4})});
+  auto logical = sdk::ROW({"probe_key"}, {sdk::BIGINT()});
+  const auto path = std::filesystem::temp_directory_path() /
+      ("pangrova-evolved-filter-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+       ".parquet");
+  auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
+  writeParquetFixture(path, rows, root.get(), pool.get());
+
+  const auto connector = PangrovaVeloxConnector::kConnectorId;
+  split::SplitConfig split;
+  split.split_id = "probe";
+  split.table_name = "probe";
+  split.connector_id = connector;
+  split.file_format = split::FileFormatType::PARQUET;
+  split.file_path = path.string();
+  split.length = std::filesystem::file_size(path);
+  split.column_mappings = {{1, 1, "old_key", "probe_key", ""}};
+  split.type_promotions = {{1, "INTEGER", "BIGINT", "probe_key"}};
+  PangrovaVeloxDataSource source(pool.get(), logical, logical);
+  source.addDynamicFilter(0, std::make_shared<sdk::common::BigintRange>(3, 4, false));
+  source.addSplit(std::make_shared<PangrovaConnectorSplit>(connector, split));
+  auto future = sdk::ContinueFuture::makeEmpty();
+  auto filtered = source.next(2, future);
+  ASSERT_TRUE(filtered.has_value() && *filtered);
+  EXPECT_EQ((*filtered)->size(), 0);
+  auto batch = source.next(2, future);
+  ASSERT_TRUE(batch.has_value() && *batch);
+  ASSERT_EQ((*batch)->size(), 2);
+  sdk::DecodedVector keys(*(*batch)->childAt(0));
+  EXPECT_EQ(keys.valueAt<int64_t>(0), 3);
+  EXPECT_EQ(keys.valueAt<int64_t>(1), 4);
+  auto finished = source.next(2, future);
+  ASSERT_TRUE(finished.has_value());
+  EXPECT_EQ(*finished, nullptr);
 }
 
 TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
