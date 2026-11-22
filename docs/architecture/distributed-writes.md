@@ -279,6 +279,10 @@ OVERWRITE, which is a real truncate operation rather than an empty-fragment no-o
 the fingerprint as the durable snapshot user marker and resolves the exact committed snapshot
 on replay, rather than substituting the current/latest snapshot.
 
+A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
+that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
+a marker-bearing snapshot and verify it after publication.
+
 If an Iceberg fingerprint is absent, the connector checks that every retained snapshot on the
 current parent chain back to the bound base snapshot is available. A gap caused by snapshot
 expiration fails closed instead of re-appending. This check cannot prove an outcome when the

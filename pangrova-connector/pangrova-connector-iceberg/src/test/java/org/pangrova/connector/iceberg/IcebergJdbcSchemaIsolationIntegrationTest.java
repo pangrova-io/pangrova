@@ -2,6 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -11,19 +12,26 @@ import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -39,7 +47,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
         @Override public String getUser() { return "reader"; }
         @Override public Optional<String> getCatalog() { return Optional.empty(); }
         @Override public Optional<String> getSchema() { return Optional.of("data"); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "jdbc-budget"); }
         @Override public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return Optional.empty();
         }
@@ -118,6 +126,45 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             assertThat(tables.getTableReadMetadata(first).metadata().columns()).contains("new_field");
 
             assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void distributedWriteCatalogPointerBudget(boolean requiresPublication) throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, metadata.getTableHandle(READER, name));
+            var table = catalog.loadTable(TABLE);
+            var data = DataFiles.builder(table.spec()).withPath(table.location() + "/data/committed.parquet")
+                    .withFileSizeInBytes(128).withRecordCount(1).build();
+            var fragments = List.of(("[" + ContentFileParser.toJson(data, table.spec()) + "]")
+                    .getBytes(StandardCharsets.UTF_8));
+            var binding = IcebergWriteBindingFixtures.binding(handle);
+            var receipt = IcebergWriteReceiptFixtures.receipt();
+            var tenant = READER.getProperties().get("tenant_id");
+            var fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
+                    "exact-write", tenant, schema.name(), name.toString(), handle.writeMode(),
+                    handle.baseSnapshotId(), binding, READER.getUser(), receipt, null), fragments);
+            var context = new DistributedWriteCommitContext("exact-write", tenant, handle.baseSnapshotId(),
+                    binding, fingerprint, READER.getUser(), receipt, null);
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            if (requiresPublication) {
+                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context)
+                        .manifestSha256()).hasSize(32);
+            } else {
+                metadata.finishDistributedWrite(READER, handle, fragments, context);
+            }
+            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
+                    .isEqualTo(requiresPublication ? 8 : 7);
+            table.refresh();
+            assertThat(table.snapshots()).hasSize(1);
+            assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+                    context.commitFingerprint());
         }
     }
 

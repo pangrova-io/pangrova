@@ -49,7 +49,10 @@ final class IcebergCatalogTables {
     }
 
     static Table resolveTable(Catalog catalog, IcebergTableHandle handle) {
-        TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
+        return resolveTable(catalog, TableIdentifier.of(handle.schemaName(), handle.tableName()));
+    }
+
+    static Table resolveTable(Catalog catalog, TableIdentifier id) {
         Table table = catalog.loadTable(id);
         if (catalog.getClass() != JdbcCatalog.class) {
             table.refresh();

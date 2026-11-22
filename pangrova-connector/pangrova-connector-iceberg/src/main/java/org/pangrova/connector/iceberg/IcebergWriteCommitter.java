@@ -87,9 +87,10 @@ final class IcebergWriteCommitter {
     }
 
     /** An explicitly required empty INSERT still needs its own fenced, marker-bearing catalog snapshot. */
-    void ensureEmptyInsertPublication(Table table, IcebergOutputTableHandle handle, List<byte[]> fragments,
+    Snapshot publishedSnapshotOrCommitEmptyInsert(Table table, IcebergOutputTableHandle handle, List<byte[]> fragments,
             String tenant, DistributedWriteCommitContext context) {
-        if (IcebergDistributedCommitMarker.isPublished(table, context)) return;
+        Snapshot published = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (published != null) return published;
         var collected = IcebergFragmentParser.collectAllFragments(table, handle, fragments);
         if (!IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
                 || !collected.dataFiles().isEmpty() || !collected.deleteFiles().isEmpty()) {
@@ -103,6 +104,8 @@ final class IcebergWriteCommitter {
             append.commit();
         });
         notifyAfterCommit(table, handle, List.of(), CommitEventType.APPEND, tenant, context);
+        table.refresh();
+        return IcebergDistributedCommitMarker.publishedSnapshot(table, context);
     }
 
     private void handleEmptyFragments(

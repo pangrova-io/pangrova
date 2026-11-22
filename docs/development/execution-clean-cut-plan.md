@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 101 复用 Iceberg JDBC SDK 新建表对象时读取的权威元数据。现有非空发布快照复用同一次元数据确认，要求发布回执的空 INSERT 仍提交并查验精确标记。真实 PostgreSQL `pg_stat_statements` 对照中，已绑定写入的精确 Iceberg 目录指针 SELECT 由 8 次减为 7 次，要求发布回执时由 11 次减为 8 次。50 项定向 Java 和 Checkstyle 通过，包含普通 SQL、COPY、空快照、精确重复提交、Dynamic Table 和 Materialized View。
+
 实施批次 100 用实际打包的 Coordinator、两个 Worker、CLI 和 C++ Release JNI 验证了单输入 AQE。公开 SQL 从四个分开提交的 Iceberg 文件读出 20 行，四个哈希分区经 mTLS 远端 Shuffle 合并为一个消费任务。Native Flight 返回有序的四组计数 4、8、4、4。两个 Worker 回报精确 attempt 的 Native 释放，已归还租户槽位与 PostgreSQL Shuffle allocation，MinIO 桶内的实际对象已清空。现有 NATIVE 进程回归还验证了双 Worker 查询和优雅重启。34 项定向 Java 和 Checkstyle、9 项打包工具测试通过。
 
 实施批次 99 让普通 INSERT 直接进入现有 fenced commit。真实 HTTP、Iceberg 和 PostgreSQL 对照中，物化任务查询从 1 次降到 0 次，执行所有权 SELECT 从 4 次降到 3 次。客户端携带内部物化属性的用例仍走普通授权，写入文件在实际 drain 后可读且只有一行。COPY 持久化回执后的检查与物化发布的权威查验继续生效。连接器提供的发布回执以 journal 写入确认作为持久化证据。59 项 Java 和 Checkstyle 回归通过，含真实 PostgreSQL、COPY SQL、Dynamic Table 的真实空快照及 Materialized View 的提交与刷新。
