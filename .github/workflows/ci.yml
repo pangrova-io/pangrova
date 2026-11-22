@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Native fixture JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
@@ -370,7 +370,7 @@ jobs:
           ls -la native-bundle-jar/
 
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
           distribution: 'temurin'
@@ -427,7 +427,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -544,7 +544,7 @@ jobs:
         run: python -m pip install -r pangrova-testing/pangrova-testing-benchmark/requirements.txt
       - name: Verify complete workloads, real Parquet conversion, runner and comparison contracts
         run: python -m unittest discover -s pangrova-testing/pangrova-testing-benchmark/scripts/tests -v
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
@@ -575,7 +575,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Native fixture JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: temurin
@@ -791,7 +791,7 @@ jobs:
           python-version: '3.12'
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -839,7 +839,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up JDK 17 for Java source analysis
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -871,7 +871,7 @@ jobs:
           python-version: '3.12'
 
       - name: Set up JDK 17 for source and descriptor verification
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -970,7 +970,7 @@ jobs:
           python-version: '3.12'
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'

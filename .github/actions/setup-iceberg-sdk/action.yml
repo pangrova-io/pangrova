@@ -7,7 +7,7 @@ runs:
       shell: bash
       run: echo "PANGROVA_MAVEN_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
     - name: Set up JDK 17 for Iceberg
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v6
       with:
         java-version: '17'
         distribution: temurin
