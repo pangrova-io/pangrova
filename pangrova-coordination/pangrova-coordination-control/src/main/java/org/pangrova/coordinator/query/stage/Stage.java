@@ -142,8 +142,8 @@ public final class Stage {
     }
 
     /** Merges the winning summary under the same generation fence as the terminal task. */
-    public void onTaskFinished(String taskId, int generation, BuildKeyRange range) {
-        applyTaskReport(taskId, generation, true, null, range);
+    public boolean onTaskFinished(String taskId, int generation, BuildKeyRange range) {
+        return applyTaskReport(taskId, generation, true, null, range);
     }
 
     /** Returns a range only when the full admitted build cohort proved its coverage. */
@@ -169,13 +169,13 @@ public final class Stage {
         applyTaskReport(taskId, generation, false, error, null);
     }
 
-    private void applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
+    private boolean applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
             BuildKeyRange range) {
         checkNotNull(taskId, "taskId must not be null");
         boolean allSucceeded;
         synchronized (this) {
             if (generation != attemptGeneration.get() || !taskIds.contains(taskId) || terminalDecisionClaimed
-                    || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return;
+                    || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return false;
             if (success) {
                 finishedTaskIds.add(taskId);
                 if (range != null) {
@@ -186,7 +186,7 @@ public final class Stage {
                 failedTaskIds.add(taskId);
                 lastError = error;
             }
-            if (!allTasksReported()) return;
+            if (!allTasksReported()) return true;
             terminalDecisionClaimed = true;
             allSucceeded = failedTaskIds.isEmpty();
         }
@@ -196,6 +196,7 @@ public final class Stage {
         } else {
             stateMachine.tryTransitionTo(StageState.FAILED);
         }
+        return true;
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */

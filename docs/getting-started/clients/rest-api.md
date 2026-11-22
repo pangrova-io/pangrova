@@ -48,6 +48,10 @@ mode, and observed stage transitions with retry generation. Transition `elapsedN
 uses one Coordinator monotonic clock and starts at graph registration. The graph is
 retained with the in-process telemetry and can be absent from historical profiles.
 Planned widths and observed attempt counts are separate measurements.
+`selectedAttempts` identifies physical successes accepted by a logical task slot
+and stage generation. A speculative copy can settle its original logical slot.
+The record carries both task IDs and the physical attempt’s plan epoch. It can
+include earlier stage generations from a retried query.
 
 ### Submit a Query
 

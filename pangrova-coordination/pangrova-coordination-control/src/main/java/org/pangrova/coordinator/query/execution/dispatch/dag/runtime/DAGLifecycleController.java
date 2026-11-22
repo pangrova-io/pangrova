@@ -24,6 +24,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecy
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
+import org.pangrova.coordinator.query.task.QueryStageObservations;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
+import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -120,6 +123,12 @@ public final class DAGLifecycleController {
         return queryContexts.get(queryId);
     }
 
+    /** Records selections made by this exact live DAG's task terminal registry. */
+    public void observeTaskSelections(String queryId, StageDAG dag, QueryStageObservations observations) {
+        RegisteredDAG current = queryDags.get(queryId);
+        if (current != null && current.dag() == dag) current.terminals().observeTaskSelections(observations);
+    }
+
     /** Registers a task in the terminal-state correlator. */
     public void registerTask(String queryId, String taskId, Stage stage) {
         RegisteredDAG registration = queryDags.get(queryId);
@@ -192,6 +201,13 @@ public final class DAGLifecycleController {
             org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange range) {
         RegisteredDAG owner = queryDags.get(queryId);
         if (owner != null) owner.terminals().onTerminal(queryId, taskId, state, error, range);
+    }
+
+    /** Routes the selected physical attempt to its still-current logical slot. */
+    public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
+            BuildKeyRange range) {
+        var owner = queryDags.get(queryId);
+        if (owner != null) owner.terminals().onSuccessfulTerminal(queryId, logicalTaskId, attempt, range);
     }
 
     /** A retained terminal signal also owns late reports until query cleanup. */

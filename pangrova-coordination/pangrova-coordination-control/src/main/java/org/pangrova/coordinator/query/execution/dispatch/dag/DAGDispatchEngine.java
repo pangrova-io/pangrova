@@ -199,6 +199,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         var registry = operatorStats;
         var observations = registry != null && state.execution() instanceof StageExecutionContext.Live
                 ? registry.beginExecution(state.queryId(), state.dag()) : null;
+        if (observations != null) lifecycle.observeTaskSelections(state.queryId(), state.dag(), observations);
         for (Stage stage : state.dag().stageEntities()) {
             stage.stateMachine().addStateChangeListener((id, previous, next) -> {
                 if (!lifecycle.owns(state.queryId(), state.dag()) || state.cancelled().get()) return;
@@ -567,6 +568,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     public void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
             BuildKeyRange range) {
         lifecycle.onTaskTerminal(queryId, taskId, state, error, range);
+    }
+
+    @Override
+    public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
+            BuildKeyRange range) {
+        lifecycle.onSuccessfulTaskTerminal(queryId, logicalTaskId, attempt, range);
     }
 
     /** Removes all per-query dispatch state. */

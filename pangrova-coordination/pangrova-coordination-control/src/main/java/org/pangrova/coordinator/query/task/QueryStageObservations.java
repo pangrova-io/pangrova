@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.query.api.enums.StageState;
+import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
+import org.pangrova.query.profiling.OperatorStatsSource.SelectedAttempt;
 import org.pangrova.query.profiling.OperatorStatsSource.Exchange;
 import org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph;
 import org.pangrova.query.profiling.OperatorStatsSource.Stage;
@@ -16,6 +18,7 @@ public final class QueryStageObservations {
     private final List<Stage> stages;
     private final List<Exchange> exchanges;
     private final ConcurrentLinkedQueue<StageTransition> transitions = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
 
     QueryStageObservations(StageDAG dag) {
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
@@ -30,8 +33,16 @@ public final class QueryStageObservations {
                 System.nanoTime() - startedAt));
     }
 
+    public void recordSelection(int stageId, int generation, String logicalTaskId, SuccessfulAttempt attempt) {
+        selectedAttempts.add(new SelectedAttempt(stageId, generation, attempt.partitionId(), attempt.planEpoch(),
+                attempt.attemptId(), logicalTaskId, attempt.taskId()));
+    }
+
     ExecutionGraph snapshot() {
-        var snapshot = transitions.stream().sorted(Comparator.comparingLong(StageTransition::elapsedNanos)).toList();
-        return new ExecutionGraph(stages, exchanges, snapshot);
+        var timeline = transitions.stream().sorted(Comparator.comparingLong(StageTransition::elapsedNanos)).toList();
+        var selected = selectedAttempts.stream().sorted(Comparator.comparingInt(SelectedAttempt::stageId)
+                .thenComparingInt(SelectedAttempt::generation).thenComparingInt(SelectedAttempt::partitionId)
+                .thenComparing(SelectedAttempt::taskId)).toList();
+        return new ExecutionGraph(stages, exchanges, timeline, selected);
     }
 }

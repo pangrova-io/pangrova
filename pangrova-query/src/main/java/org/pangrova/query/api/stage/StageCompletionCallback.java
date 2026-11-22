@@ -20,6 +20,14 @@ public interface StageCompletionCallback {
         onTaskTerminal(queryId, taskId, state, error);
     }
 
+    /** Identifies the physical attempt selected to settle a logical slot. */
+    default void onSuccessfulTaskTerminal(String queryId, String logicalTaskId,
+            SuccessfulAttempt attempt, BuildKeyRange buildKeyRange) {
+        onTaskTerminal(queryId, logicalTaskId, "FINISHED", null, buildKeyRange);
+    }
+
+    record SuccessfulAttempt(String taskId, int partitionId, long planEpoch, int attemptId) {}
+
     /** Inclusive signed bounds, or a complete summary with no non-null keys. */
     record BuildKeyRange(long minimum, long maximum, boolean empty) {
         public BuildKeyRange {

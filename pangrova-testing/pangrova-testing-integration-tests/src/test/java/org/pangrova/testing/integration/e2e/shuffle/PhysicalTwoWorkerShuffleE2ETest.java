@@ -445,6 +445,14 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         assertThat(event.generation()).isNotNegative();
                     });
                     var attempts = profile.orElseThrow().attempts();
+                    assertThat(graph.selectedAttempts()).isNotEmpty().allSatisfy(selection ->
+                            assertThat(attempts).anySatisfy(attempt -> {
+                                assertThat(attempt.stageId()).isEqualTo(selection.stageId());
+                                assertThat(attempt.partitionId()).isEqualTo(selection.partitionId());
+                                assertThat(attempt.planEpoch()).isEqualTo(selection.planEpoch());
+                                assertThat(attempt.attemptId()).isEqualTo(selection.attemptId());
+                                assertThat(attempt.taskId()).isEqualTo(selection.taskId());
+                            }));
                     assertThat(attempts.stream().mapToInt(attempt -> attempt.stageId()).distinct().count())
                             .isGreaterThanOrEqualTo(2);
                     assertThat(attempts).extracting(attempt -> attempt.workerId())

@@ -75,6 +75,32 @@ class DAGLifecycleControllerTaskRetryTest {
     }
 
     @Test
+    void retainedSelectionsExcludeReplacedSlotsAndKeepThePhysicalWinner() {
+        var dag = independentDag();
+        var controller = controller(dag);
+        var registry = new org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry();
+        var observations = registry.beginExecution("q-retry", dag);
+        controller.observeTaskSelections("q-retry", dag, observations);
+        var stage = dag.findStage(0);
+        stage.addTaskId("old");
+        running(stage);
+        controller.registerTask("q-retry", "old", stage);
+        assertThat(controller.tryPrepareTaskRetry("q-retry", "old", "replacement", 1)).isTrue();
+        controller.onSuccessfulTaskTerminal("q-retry", "old",
+                new org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt("old", 0, 1, 0), null);
+        assertThat(registry.executionGraph("q-retry").selectedAttempts()).isEmpty();
+        controller.onSuccessfulTaskTerminal("q-retry", "replacement",
+                new org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt("winning-copy", 0, 1, 2),
+                null);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        assertThat(registry.executionGraph("q-retry").selectedAttempts()).singleElement().satisfies(selection -> {
+            assertThat(selection.logicalTaskId()).isEqualTo("replacement");
+            assertThat(selection.taskId()).isEqualTo("winning-copy");
+            assertThat(selection.attemptId()).isEqualTo(2);
+        });
+    }
+
+    @Test
     void rollbackRedeliversFirstTerminalReceivedWhileTheOriginalSlotWasReplaced() {
         var dag = independentDag();
         var controller = controller(dag);

@@ -11,18 +11,22 @@ public final class TaskReportCompletion {
 
     /** Routes an accepted attempt to its selected logical slot when DAG tracking is enabled. */
     static void notifyStageTerminal(StageCompletionCallback callback, String logicalTaskId, TaskStatusReport report) {
-        if (callback != null) {
-            var decoded = report.decodedStatus();
-            if ("FINISHED".equals(report.state()) && decoded != null
-                    && decoded.getNativeTaskStats().hasBuildKeyRange()) {
-                var range = decoded.getNativeTaskStats().getBuildKeyRange();
-                callback.onTaskTerminal(report.queryId(), logicalTaskId, report.state(), null,
-                        new StageCompletionCallback.BuildKeyRange(range.getMinimum(), range.getMaximum(),
-                                range.getEmpty()));
-            } else {
-                callback.onTaskTerminal(report.queryId(), logicalTaskId, report.state(), failure(report));
-            }
+        if (callback == null) return;
+        if (!"FINISHED".equals(report.state())) {
+            callback.onTaskTerminal(report.queryId(), logicalTaskId, report.state(), failure(report));
+            return;
         }
+        var decoded = report.decodedStatus();
+        StageCompletionCallback.BuildKeyRange buildKeys = null;
+        if (decoded != null && decoded.getNativeTaskStats().hasBuildKeyRange()) {
+            var range = decoded.getNativeTaskStats().getBuildKeyRange();
+            buildKeys = new StageCompletionCallback.BuildKeyRange(range.getMinimum(), range.getMaximum(),
+                    range.getEmpty());
+        }
+        var attempt = report.attempt();
+        var selected = new StageCompletionCallback.SuccessfulAttempt(report.taskId(), report.partitionId(),
+                attempt.planEpoch(), attempt.attemptId());
+        callback.onSuccessfulTaskTerminal(report.queryId(), logicalTaskId, selected, buildKeys);
     }
 
     /**

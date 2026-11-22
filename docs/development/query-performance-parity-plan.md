@@ -30,13 +30,13 @@ unlisted: true
 | 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及读取 161 行、输出至多 40 条分组状态 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
 | AQE 读取布局 | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 完整 SQL 负载仍需归因，Join 多输入合并、偏斜拆分和 durable replay 各需覆盖证明 |
 | 短查询、交换与结果 | JNI 完成轮询已读取标量状态。定时 HTTP、远端逐 batch SQL 与 Flight IPC 回转已有调用证据。现有局部 Top-K 和最终归并应作为基础 | 按查询类别量化固定开销、读放大、实际出口和客户端背压，优先缩短无数据依赖的等待 |
-| 归因能力 | JSON Profile 保留已签发 attempt 的坐标、Native 计数、实际派发 DAG 的 Stage 和 Exchange，以及 Coordinator 同一时钟观察到的阶段转换 | 补齐实际获胜关系与 Exchange 等待证据，区分排队、执行、blocked、撤销和物理释放 |
+| 归因能力 | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt 与被 Stage 接纳的物理成功尝试 | 补齐 Exchange 等待与调度原因，区分排队、执行、blocked、撤销和物理释放 |
 
 ## 修正工作包
 
 ### Q0 建立可解释的查询基线
 
-1. 对同源 Coordinator、Worker、Native bundle 关联 query、stage、partition、attempt、plan node 和 owner epoch。保留实际获胜 attempt 与候选数据。采样 trace 关联高基数标识，常驻指标保持低基数。记录对象 GET/字节、decode、Shuffle payload/wire bytes、CPU、blocked、spill、RSS/heap/direct、JNI/控制字节、SQL 次数和锁等待。
+1. 对同源 Coordinator、Worker、Native bundle 关联 query、stage、partition、attempt、plan node 和 owner epoch。按 Stage 代次和逻辑槽位对应 Profile 中的物理尝试与已接纳记录。采样 trace 关联高基数标识，常驻指标保持低基数。记录对象 GET/字节、decode、Shuffle payload/wire bytes、CPU、blocked、spill、RSS/heap/direct、JNI/控制字节、SQL 次数和锁等待。
 2. EXPLAIN 分别记录各叶/Join/Aggregate 的估计行数和字节、统计来源及版本、物理分布、并行度和降到 singleton 的理由。运行报告展示实际工作量、blocked 原因、首批、尾 partition 和真实资源释放。基数用对称误差比衡量，零行和未知各自保留。阶段时间基于因果关系，避免把并行段相加。 [Trino EXPLAIN ANALYZE](https://trino.io/docs/current/sql/explain-analyze.html) · [Dremio Profile](https://docs.dremio.com/current/admin/monitoring/jobs/view-profiles/)
 3. 现有 `tpch-sf100-baseline.json` 的 22 项 P50/P99 均为零。历史 SF10 聚合和 macOS 样本只作排查。跨引擎基线需要绑定代码、Native/依赖、硬件、数据和客户端，先验证结果再测速。
 

@@ -13,15 +13,21 @@ public interface OperatorStatsSource {
         return null;
     }
 
-    record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions) {
+    record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
+            List<SelectedAttempt> selectedAttempts) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
             transitions = List.copyOf(transitions);
+            selectedAttempts = List.copyOf(selectedAttempts);
         }
     }
 
     record Stage(int stageId, String taskType, int plannedParallelism) {}
+
+    /** Physical success accepted by one exact logical slot in this stage generation. */
+    record SelectedAttempt(int stageId, int generation, int partitionId, long planEpoch, int attemptId,
+            String logicalTaskId, String taskId) {}
 
     record Exchange(String exchangeId, int producerStageId, int consumerStageId, String shuffleType,
             String readMode, int plannedPartitions) {}
