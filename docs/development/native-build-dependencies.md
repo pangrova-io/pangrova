@@ -67,7 +67,8 @@ instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
 The same check requires the Homebrew Bison executable to satisfy Velox's
 minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
-keg when its executable is missing.
+keg when its executable is missing. CI also provisions the Flex keg and compiles
+against its `FlexLexer.h`, which Velox's generated C++ scanner includes.
 macOS CI reuses preinstalled tools and installs only a missing tool without
 upgrading existing Homebrew formulae. It keeps Homebrew's download cache:
 Intel macOS 15 is a Tier 3 Homebrew configuration where several formulae have
