@@ -68,6 +68,8 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
         }
     }
 
+    void allowCatalog(String catalog) { local.allowCatalog(catalog); }
+
     private void awaitSchedulableWorkers() {
         var client = HttpClient.newHttpClient();
         String credentials = ProcessSecurityAuthority.USER + ":" + ProcessSecurityAuthority.PASSWORD;
@@ -100,9 +102,12 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
 
     ProcessStatusReportRelay reports() { return local.reports(); }
     ProcessInputSnapshot input() { return Objects.requireNonNull(input, "Processes have not started"); }
+    java.nio.file.Path warehouse() { return local.warehouse(); }
+    javax.sql.DataSource metadataDataSource() { return local.metadataDataSource(); }
     List<WorkerNetwork> workers() { return List.copyOf(networks); }
     URI coordinator() { return URI.create("http://127.0.0.1:" + local.coordinatorPort()); }
     long pid(String workerId) { return local.pid(workerId); }
+    void crashWorker(String workerId) throws InterruptedException { local.crashWorker(workerId); }
     java.nio.file.Path retainDiagnostics() { return local.retainDiagnostics(); }
     int activeTenantReservations() { return local.activeTenantReservations(); }
     QueryStatusResponse queryStatus(String queryId) { return local.status(queryId); }

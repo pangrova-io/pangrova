@@ -79,6 +79,13 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     Optional<WriteCommitEntry> getEntry(String queryId);
 
     /**
+     * Finds a batch awaiting publication or the most recently confirmed checkpoint for
+     * one exact CDC source generation. An unresolved batch takes priority over confirmed
+     * history so another batch cannot bypass it after leadership transfer.
+     */
+    Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch);
+
+    /**
      * Replays PENDING entries only for executions atomically claimed by the
      * recovering process.
      * Returns entries that were recorded but not yet marked COMMITTED,

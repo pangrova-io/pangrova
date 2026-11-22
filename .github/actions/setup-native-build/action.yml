@@ -109,7 +109,13 @@ runs:
         bison_bin="$(brew --prefix bison)/bin/bison"
         ensure_tool bison "$bison_bin"
         [[ -x "$bison_bin" ]] || { echo "ERROR: Homebrew Bison is missing at $bison_bin" >&2; exit 1; }
-        ensure_tool flex flex
+        # Velox's generated C++ scanner also needs the FlexLexer.h header.
+        flex_prefix="$(brew --prefix flex)"
+        ensure_tool flex "$flex_prefix/bin/flex"
+        [[ -x "$flex_prefix/bin/flex" && -f "$flex_prefix/include/FlexLexer.h" ]] || {
+          echo "ERROR: Homebrew Flex executable and FlexLexer.h are required at $flex_prefix" >&2
+          exit 1
+        }
         ensure_tool ripgrep rg
 
         select_llvm() {
@@ -225,6 +231,8 @@ runs:
           -B "$build_dir" -G Ninja \
           -DCMAKE_CXX_COMPILER="$PANGROVA_LLVM_PREFIX/bin/clang++" \
           -DBISON_EXECUTABLE="$(brew --prefix bison)/bin/bison" \
+          -DFLEX_EXECUTABLE="$(brew --prefix flex)/bin/flex" \
+          -DFLEX_INCLUDE_DIR="$(brew --prefix flex)/include" \
           -DCMAKE_PREFIX_PATH="$HOME/.pangrova/native-deps" \
           -DCMAKE_IGNORE_PATH="/opt/local;/opt/homebrew"
         cmake --build "$build_dir" --verbose

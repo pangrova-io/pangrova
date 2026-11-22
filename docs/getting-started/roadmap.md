@@ -32,6 +32,8 @@ training, and evaluation designs.
 
 | Direction | Remaining scope |
 |---|---|
+| Partition-scoped reclustering | Bind a `RECLUSTER WHERE` predicate to eligible partitions and prove the connector preserves all unaffected rows |
+| Iceberg CDC mutation coverage | Extend the write contract to partitioned tables and multiple Kafka partitions with an explicit ordering policy for conflicting row changes |
 | Retrieval quality | Build reproducible recall and precision benchmarks for supported search paths |
 | RAG workflows | Add workflow orchestration around retrieval, context assembly, and generation |
 | Python access | Develop a Python client and Arrow-based dataset delivery integrations |

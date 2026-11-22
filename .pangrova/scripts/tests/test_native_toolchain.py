@@ -104,7 +104,7 @@ exit 1
                                 env=env, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def macos_tooling(self, llvm_formula="llvm@17", bison_installed=True):
+    def macos_tooling(self, llvm_formula="llvm@17", bison_installed=True, flex_installed=True):
         for name in ("cmake", "ninja", "autoconf", "automake", "glibtoolize",
                      "pkg-config", "flex", "rg"):
             self.executable(self.bin / name, "exit 0")
@@ -112,6 +112,12 @@ exit 1
         bison = self.root / "bison/bin/bison"
         if bison_installed:
             self.executable(bison, 'echo "bison (GNU Bison) 3.8.2"')
+        flex = self.root / "flex/bin/flex"
+        if flex_installed:
+            self.executable(flex, 'echo "flex 2.6.4"')
+            flex_header = self.root / "flex/include/FlexLexer.h"
+            flex_header.parent.mkdir(parents=True)
+            flex_header.touch()
         prefix = self.root / llvm_formula.replace("@", "")
         self.executable(prefix / "bin/clang++",
                         'echo "Homebrew clang version 17.0.6"')
@@ -125,14 +131,21 @@ if [ "$1" = "--prefix" ]; then
     *) exit 1 ;;
   esac
 fi
-if [ "$1" = "list" ] && [ "$3" = "bison" ]; then
-  [ -x "$HOME/bison/bin/bison" ]
-  exit $?
+if [ "$1" = "list" ]; then
+  case "$3" in
+    bison|flex) test -x "$HOME/$3/bin/$3"; exit $? ;;
+  esac
 fi
 if [ "$1" = "install" ] && [ "$2" = "bison" ]; then
   mkdir -p "$HOME/bison/bin"
   printf '%s\\n' '#!/bin/sh' 'echo "bison (GNU Bison) 3.8.2"' > "$HOME/bison/bin/bison"
   chmod +x "$HOME/bison/bin/bison"
+fi
+if [ "$1" = "install" ] && [ "$2" = "flex" ]; then
+  mkdir -p "$HOME/flex/bin" "$HOME/flex/include"
+  printf '%s\\n' '#!/bin/sh' 'echo "flex 2.6.4"' > "$HOME/flex/bin/flex"
+  chmod +x "$HOME/flex/bin/flex"
+  touch "$HOME/flex/include/FlexLexer.h"
 fi
 """)
         sdk_root = self.root / "macos sdk"
@@ -151,12 +164,20 @@ fi
         self.assertIn(f"{prefix / 'bin'}\n", path)
         self.assertIn(f"{self.root / 'bison/bin'}\n", path)
         self.assertNotIn("install bison\n", trace)
+        self.assertNotIn("install flex\n", trace)
 
     def test_macos_action_installs_bison_when_only_the_system_version_exists(self):
         self.macos_tooling(bison_installed=False)
         _, path, trace = self.run_action("Install build tools (macOS)")
         self.assertIn("install bison\n", trace)
         self.assertIn(f"{self.root / 'bison/bin'}\n", path)
+
+    def test_macos_action_installs_flex_when_only_the_system_executable_exists(self):
+        self.macos_tooling(flex_installed=False)
+        _, path, trace = self.run_action("Install build tools (macOS)")
+        self.assertIn("install flex\n", trace)
+        self.assertIn(f"{self.root / 'flex/bin'}\n", path)
+        self.assertTrue((self.root / "flex/include/FlexLexer.h").is_file())
 
     def test_macos_action_prefers_an_installed_newer_llvm_without_installing(self):
         _, prefix = self.macos_tooling(llvm_formula="llvm@18")

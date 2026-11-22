@@ -5,6 +5,7 @@
 // (Parquet format) and Puffin deletion vectors. Since it requires real Parquet
 // files on disk, we test the API contract and edge cases using temporary files.
 #include <gtest/gtest.h>
+#include <folly/ScopeGuard.h>
 
 #include <roaring.hh>
 #include <cstdio>
@@ -16,7 +17,14 @@
 #include <vector>
 
 #include "engine/delete/io/DeleteFileReader.h"
+#include "engine/velox/connector/PangrovaVeloxConnector.h"
 #include "jni/RuntimeInitializer.h"
+#include "TestMemoryHelper.h"
+#include "velox/core/Expressions.h"
+#include "velox/dwio/common/FileSink.h"
+#include "velox/dwio/parquet/writer/Writer.h"
+#include "velox/vector/DecodedVector.h"
+#include "velox/vector/tests/utils/VectorMaker.h"
 
 namespace pangrova::delete_filter::test {
 namespace {
@@ -102,6 +110,60 @@ TEST(DeleteFileReaderTest, ReadPositionsNonExistentFileReturnsEmpty) {
       DeleteFileReader::readPositions("/nonexistent.parquet", "data.parquet"),
       std::runtime_error);
 #endif
+}
+
+TEST(DeleteFileReaderTest, ScanKeepsPhysicalPositionsBeforePredicateFiltering) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("PositionDeleteScan");
+  auto pool = root->addLeafChild("parquet");
+  sdk::test::VectorMaker maker(pool.get());
+  char temp[] = "/tmp/pangrova_position_delete_XXXXXX";
+  ASSERT_NE(mkdtemp(temp), nullptr);
+  const std::filesystem::path directory(temp);
+  auto cleanup = folly::makeGuard([&] { std::filesystem::remove_all(directory); });
+  const auto dataPath = (directory / "data.parquet").string();
+  const auto deletePath = (directory / "delete.parquet").string();
+  auto write = [&](const std::string& path, const sdk::RowVectorPtr& rows) {
+    auto config = std::make_shared<const sdk::config::ConfigBase>(
+        std::unordered_map<std::string, std::string>{});
+    sdk::parquet::WriterOptions options;
+    options.memoryPool = root.get();
+    sdk::dwio::common::FileSink::Options sinkOptions{
+        .connectorProperties = config, .pool = pool.get()};
+    sdk::parquet::Writer writer(
+        std::make_unique<sdk::dwio::common::LocalFileSink>(path, sinkOptions), options, rows->rowType());
+    writer.write(rows);
+    writer.close();
+  };
+  auto data = maker.rowVector({"id"}, {maker.flatVector<int64_t>({4, 42, 44})});
+  write(dataPath, data);
+  write(deletePath, maker.rowVector({"file_path", "pos"}, {
+      maker.flatVector<sdk::StringView>({sdk::StringView(dataPath)}), maker.flatVector<int64_t>({1})}));
+
+  auto filter = std::make_shared<sdk::core::CallTypedExpr>(sdk::BOOLEAN(),
+      std::vector<sdk::core::TypedExprPtr>{
+          std::make_shared<sdk::core::FieldAccessTypedExpr>(sdk::BIGINT(), "id"),
+          std::make_shared<sdk::core::ConstantTypedExpr>(sdk::BIGINT(), sdk::variant(int64_t{10}))},
+      "gt");
+  pangrova::velox::PangrovaVeloxDataSource source(pool.get(), data->rowType(),
+      data->rowType(), "", "", filter);
+  pangrova::split::SplitConfig split;
+  split.file_path = dataPath;
+  split.file_format = pangrova::split::FileFormatType::PARQUET;
+  split.length = std::filesystem::file_size(dataPath);
+  split.iceberg.emplace().delete_files.push_back({
+      .file_path = deletePath, .delete_type = "position"});
+  source.addSplit(std::make_shared<pangrova::velox::PangrovaConnectorSplit>(
+      pangrova::velox::PangrovaVeloxConnector::kConnectorId, split));
+
+  sdk::ContinueFuture future = folly::makeSemiFuture();
+  auto next = source.next(10, future);
+  ASSERT_TRUE(next.has_value() && *next);
+  auto output = *next;
+  ASSERT_EQ(output->size(), 2);
+  sdk::DecodedVector ids(*output->childAt(0));
+  EXPECT_EQ(ids.valueAt<int64_t>(0), 4);
+  EXPECT_EQ(ids.valueAt<int64_t>(1), 44);
 }
 
 // Actual Iceberg SDK Parquet.writeDeletes().buildEqualityWriter() output from

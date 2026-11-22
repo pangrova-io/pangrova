@@ -30,24 +30,26 @@ public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
         Objects.requireNonNull(request, "request");
         String queryId = request.getAttempt().getQueryOrJobId();
         String taskId = request.getAttempt().getTaskId();
-        var worker = selector.select(request.getSecurity().getTenantId());
-        var submitted = SubmitTaskRequest.from(request);
+        var worker = selector.selectForCdc(request.getSecurity().getTenantId());
+        var submitted = dispatcher.bindControlIdentity(
+                dispatcher.bindWorkerIdentity(SubmitTaskRequest.from(request), worker));
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(submitted.taskRequest());
         tracker.registerTask(queryId, taskId);
-        boolean dispatched = false;
         try {
             tracker.registerTaskRequest(taskId, submitted);
-            tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.from(request.getAttempt()));
+            tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.from(submitted.taskRequest().getAttempt()));
+            tracker.bindDispatchTarget(submitted, worker);
+            tracker.assignWorker(taskId, worker.workerId());
             tracker.markScheduled(queryId, taskId);
-            dispatcher.dispatch(submitted, worker);
-            dispatched = true;
-        } finally {
-            if (!dispatched) {
-                try {
-                    tracker.unregisterUndispatchedTask(queryId, taskId);
-                } catch (RuntimeException cleanup) {
-                    // Preserve the original transport/registration failure.
-                }
+            tracker.enterTaskDispatch(submitted);
+        } catch (RuntimeException | Error failure) {
+            try {
+                tracker.unregisterUndispatchedTask(queryId, taskId);
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
             }
+            throw failure;
         }
+        dispatcher.dispatch(submitted, worker);
     }
 }

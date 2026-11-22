@@ -182,7 +182,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
             }
             boolean same = existing != null && toSnapshot(existing).registrationIdentity().equals(expected)
                     && java.util.Objects.equals(existing.shuffleDeployment(),
-                            accepted.orElseThrow().shuffleDeployment());
+                            accepted.orElseThrow().shuffleDeployment())
+                    && existing.cdcIngestSupported() == accepted.orElseThrow().cdcIngestSupported();
             WorkerInfo base = same ? existing : inventoryPool.share(fromSnapshot(accepted.orElseThrow()));
             WorkerInfo next = buildUpdatedWorker(base, data);
             changed.set(!same || base.healthState() != next.healthState());
@@ -408,7 +409,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 existing.protocolVersion(),
                 existing.rackId(), existing.dataLocality(), newSummary,
                 existing.capabilityInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity(),
-                existing.shuffleDeployment());
+                existing.shuffleDeployment(), existing.cdcIngestSupported());
     }
 
     /**
@@ -428,7 +429,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 }
                 if (existing != null && toSnapshot(existing).registrationIdentity().equals(
                         current.registrationIdentity())
-                        && java.util.Objects.equals(existing.shuffleDeployment(), current.shuffleDeployment())) {
+                        && java.util.Objects.equals(existing.shuffleDeployment(), current.shuffleDeployment())
+                        && existing.cdcIngestSupported() == current.cdcIngestSupported()) {
                     return existing;
                 }
                 if (existing != null) dropTenantUsage(id);
@@ -514,7 +516,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 info.cacheSummary(),
                 inventoryPool.encode(info.capabilityInventory()),
                 info.copyTaskTlsPort(), info.workerExecutionIdentity().admissionDomainId(),
-                info.workerExecutionIdentity().incarnationId(), info.shuffleDeployment());
+                info.workerExecutionIdentity().incarnationId(), info.shuffleDeployment(), info.cdcIngestSupported());
     }
 
     private static HeartbeatSnapshot toHeartbeatSnapshot(HeartbeatData data) {
@@ -548,7 +550,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 CapabilityInventoryCodec.decode(snapshot.capabilityInventory()),
                 snapshot.copyTaskTlsPort(),
                 new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
-                        snapshot.admissionDomainId(), snapshot.incarnationId()), snapshot.shuffleDeployment());
+                        snapshot.admissionDomainId(), snapshot.incarnationId()),
+                snapshot.shuffleDeployment(), snapshot.cdcIngestSupported());
     }
 
     private HealthState classifyHealth(long elapsedMs) {
