@@ -38,6 +38,20 @@ void validateGroupingReferences(const substrait::AggregateRel& relation) {
     throw std::runtime_error("Every grouping expression must be referenced");
   }
 }
+
+void collectGroupIdInputs(
+    const core::AggregationNode::Aggregate& measure,
+    std::unordered_set<std::string>& fields,
+    std::vector<core::FieldAccessTypedExprPtr>& inputs) {
+  auto add = [&](const core::FieldAccessTypedExprPtr& field) {
+    if (field && fields.insert(field->name()).second) inputs.push_back(field);
+  };
+  for (const auto& argument : measure.call->inputs()) {
+    add(std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(argument));
+  }
+  add(measure.mask);
+  for (const auto& key : measure.sortingKeys) add(key);
+}
 }  // namespace
 
 core::TypedExprPtr VeloxPlanConverter::aggregateInputValue(
@@ -143,25 +157,42 @@ VeloxPlanConverter::PreparedAggregate VeloxPlanConverter::prepareAggregate(
       computed.push_back(std::move(value));
     }
   }
+  const bool expansion = relation.groupings_size() > 1;
+  std::unordered_set<std::string> expansionFields;
   for (const auto& measure : relation.measures()) {
     auto binding = convertAggregateMeasure(measure, inputType, names, computed);
+    if (expansion) collectGroupIdInputs(binding.measure, expansionFields, prepared.group_id_inputs);
     prepared.measures.push_back(std::move(binding.measure));
     if (localPartial) prepared.intermediate_types.push_back(std::move(binding.intermediate_type));
   }
+  if (expansion) {
+    prepared.group_id_alias_offset = names.size();
+    for (const auto& key : prepared.keys) expansionFields.insert(key->name());
+  }
   for (int i = 0; i < relation.measures_size(); ++i) {
     prepared.names.push_back(physicalFieldAlias(names.size() + relation.grouping_expressions_size() +
-        (relation.groupings_size() > 1 ? 1 : 0) + i));
+        (expansion ? 1 : 0) + i));
   }
-  if (computed.empty()) return prepared;
+  if (computed.empty() && (!expansion || expansionFields.size() == names.size())) return prepared;
+
   std::vector<core::TypedExprPtr> projections;
-  projections.reserve(names.size());
+  std::vector<std::string> projectedNames;
+  const auto projectedSize = expansion ? expansionFields.size() : names.size();
+  projections.reserve(projectedSize);
+  projectedNames.reserve(projectedSize);
+  // GroupId eagerly loads all input children. Keep only the columns used by the
+  // grouping sets and measure inputs at that boundary.
   for (size_t i = 0; i < inputType->size(); ++i) {
+    if (expansion && !expansionFields.contains(names[i])) continue;
     projections.push_back(std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(i), names[i]));
+    projectedNames.push_back(std::move(names[i]));
   }
   projections.insert(projections.end(), std::make_move_iterator(computed.begin()),
       std::make_move_iterator(computed.end()));
+  projectedNames.insert(projectedNames.end(),
+      std::make_move_iterator(names.begin() + inputType->size()), std::make_move_iterator(names.end()));
   prepared.input = std::make_shared<core::ProjectNode>(
-      nextNodeId(), std::move(names), std::move(projections), std::move(prepared.input));
+      nextNodeId(), std::move(projectedNames), std::move(projections), std::move(prepared.input));
   return prepared;
 }
 

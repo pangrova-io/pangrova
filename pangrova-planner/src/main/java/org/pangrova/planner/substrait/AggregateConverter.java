@@ -10,7 +10,6 @@ import io.substrait.relation.Aggregate;
 import io.substrait.relation.ImmutableAggregate;
 import io.substrait.relation.ImmutableGrouping;
 import io.substrait.relation.ImmutableMeasure;
-import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.Rel;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
@@ -19,12 +18,7 @@ import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlKind;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 
@@ -42,145 +36,18 @@ final class AggregateConverter {
     }
 
     Rel convert(LogicalAggregate agg, Rel input) {
-        if (agg.getGroupSets().size() > 1) {
-            return convertMultiGroupSet(agg, input);
-        }
-
         List<Aggregate.Grouping> groupings = buildGroupings(agg);
+        RelDataType inputRowType = agg.getInput().getRowType();
         List<Aggregate.Measure> measures = agg.getAggCallList().stream()
-                .map(call -> buildMeasure(call, agg.getInput().getRowType()))
+                .map(call -> buildMeasure(call, inputRowType))
                 .toList();
         var builder = ImmutableAggregate.builder()
                 .input(input).groupings(groupings).measures(measures);
-
+        if (groupings.size() > 1) {
+            // Hide the structural grouping set identifier from the SQL row.
+            builder.remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()));
+        }
         return builder.build();
-    }
-
-    /**
-     * Handles multi-grouping-set aggregates (ROLLUP/CUBE/GROUPING SETS).
-     * Inserts a compact Project below the Aggregate so that field indices
-     * are contiguous starting from 0. The native GroupIdNode expects compact
-     * indices — without this normalization, field references from the original
-     * scan (e.g. index 3 for o_totalprice in a 9-column table) exceed the
-     * GroupIdNode output column count.
-     */
-    private Rel convertMultiGroupSet(LogicalAggregate agg, Rel input) {
-        RelDataType inputRowType = agg.getInput().getRowType();
-        CompactLayout layout = buildCompactLayout(agg, inputRowType);
-        Rel aggInput = layout.needsProject()
-                ? buildCompactingProject(input, inputRowType, layout.sortedIndices())
-                : input;
-        List<Aggregate.Grouping> groupings = buildCompactedGroupings(
-                agg, inputRowType, layout.indexMapping());
-        List<Aggregate.Measure> measures = agg.getAggCallList().stream()
-                .map(call -> buildMeasureWithMapping(call, inputRowType, layout.indexMapping()))
-                .toList();
-        return ImmutableAggregate.builder()
-                .input(aggInput).groupings(groupings).measures(measures)
-                .remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()))
-                .build();
-    }
-
-    /** Compact field layout derived from the indices referenced by a multi-grouping-set aggregate. */
-    private record CompactLayout(List<Integer> sortedIndices,
-                                 Map<Integer, Integer> indexMapping,
-                                 boolean needsProject) {
-    }
-
-    private CompactLayout buildCompactLayout(LogicalAggregate agg, RelDataType inputRowType) {
-        Set<Integer> referencedIndices = new TreeSet<>();
-        for (var groupSet : agg.getGroupSets()) {
-            referencedIndices.addAll(groupSet.asList());
-        }
-        for (AggregateCall call : agg.getAggCallList()) {
-            referencedIndices.addAll(call.getArgList());
-            if (call.filterArg >= 0) {
-                referencedIndices.add(call.filterArg);
-            }
-        }
-        List<Integer> sortedIndices = new ArrayList<>(referencedIndices);
-        Map<Integer, Integer> indexMapping = new HashMap<>();
-        for (int i = 0; i < sortedIndices.size(); i++) {
-            indexMapping.put(sortedIndices.get(i), i);
-        }
-        boolean needsProject = sortedIndices.size() < inputRowType.getFieldCount();
-        for (int i = 0; i < sortedIndices.size() && !needsProject; i++) {
-            if (sortedIndices.get(i) != i) {
-                needsProject = true;
-            }
-        }
-        return new CompactLayout(sortedIndices, indexMapping, needsProject);
-    }
-
-    private Rel buildCompactingProject(Rel input, RelDataType inputRowType,
-                                       List<Integer> sortedIndices) {
-        List<Expression> projections = sortedIndices.stream()
-                .map(idx -> {
-                    Type type = typeMapper.map(inputRowType.getFieldList().get(idx).getType());
-                    return (Expression) FieldReference.newRootStructReference(idx, type);
-                })
-                .toList();
-        return ImmutableProject.builder().input(input).expressions(projections)
-                .remap(Rel.Remap.offset(input.getRecordType().fields().size(), projections.size())).build();
-    }
-
-    private List<Aggregate.Grouping> buildCompactedGroupings(LogicalAggregate agg,
-            RelDataType inputRowType, Map<Integer, Integer> indexMapping) {
-        return agg.getGroupSets().stream()
-                .map(groupSet -> {
-                    List<Expression> groupExprs = groupSet.asList().stream()
-                            .map(idx -> {
-                                int compactIdx = indexMapping.get(idx);
-                                Type type = typeMapper.map(
-                                        inputRowType.getFieldList().get(idx).getType());
-                                return (Expression) FieldReference.newRootStructReference(
-                                        compactIdx, type);
-                            })
-                            .toList();
-                    return (Aggregate.Grouping) ImmutableGrouping.builder()
-                            .expressions(groupExprs).build();
-                })
-                .toList();
-    }
-
-    private Aggregate.Measure buildMeasureWithMapping(AggregateCall call,
-            RelDataType inputRowType, Map<Integer, Integer> indexMapping) {
-        FunctionReference ref;
-        String opName = call.getAggregation().getName();
-        if (call.getAggregation().getKind() == SqlKind.SINGLE_VALUE
-                || "LITERAL_AGG".equals(opName)) {
-            ref = new FunctionReference("aggregate", "min");
-        } else {
-            ref = functionMapper.map(call.getAggregation());
-        }
-        var variant = functionMapper.resolveAggregateVariant(ref);
-        Type outputType = resolveAggregateOutputType(call, ref);
-        List<Expression> args = call.getArgList().stream()
-                .map(idx -> {
-                    int compactIdx = indexMapping.get(idx);
-                    Type t = typeMapper.map(inputRowType.getFieldList().get(idx).getType());
-                    return (Expression) FieldReference.newRootStructReference(compactIdx, t);
-                })
-                .toList();
-        if (args.isEmpty()) {
-            args = List.of(ExpressionCreator.bool(false, true));
-        }
-        var invocation = ImmutableAggregateFunctionInvocation.builder()
-                .declaration(variant).outputType(outputType)
-                .aggregationPhase(Expression.AggregationPhase.INITIAL_TO_RESULT)
-                .invocation(call.isDistinct()
-                        ? Expression.AggregationInvocation.DISTINCT
-                        : Expression.AggregationInvocation.ALL)
-                .arguments(args).build();
-        var measureBuilder = ImmutableMeasure.builder().function(invocation);
-        if (call.filterArg >= 0) {
-            int compactFilterIdx = indexMapping.get(call.filterArg);
-            Type filterType = typeMapper.map(
-                    inputRowType.getFieldList().get(call.filterArg).getType());
-            measureBuilder.preMeasureFilter(
-                    FieldReference.newRootStructReference(compactFilterIdx, filterType));
-        }
-        return measureBuilder.build();
     }
 
     /**

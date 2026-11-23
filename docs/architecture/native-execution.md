@@ -100,6 +100,10 @@ Final keeps the original raw argument types alongside its state input. For
 DECIMAL(22,7) SUM, the local accumulator is VARBINARY and the result is
 DECIMAL(38,7).
 
+Substrait grouping sets use original input ordinals for keys, arguments and
+masks. The Native preparation keeps exactly the fields that GroupId must load,
+and GroupId carries only measure inputs alongside the grouping keys and set ID.
+
 Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
 the planner assigns one producer task to a stage containing the source, and
 the zero-input Native table-function node limits its Velox source pipeline to

@@ -419,6 +419,8 @@ class VeloxPlanConverter {
     std::vector<facebook::velox::core::AggregationNode::Aggregate> measures;
     std::vector<facebook::velox::core::FieldAccessTypedExprPtr> keys;
     std::vector<facebook::velox::TypePtr> intermediate_types;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> group_id_inputs;
+    size_t group_id_alias_offset = 0;
     facebook::velox::core::AggregationNode::Step step{};
     bool requires_single = false;
 

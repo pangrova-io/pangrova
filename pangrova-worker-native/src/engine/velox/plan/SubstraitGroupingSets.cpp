@@ -43,30 +43,28 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAg
     const substrait::AggregateRel& aggregate,
     std::shared_ptr<const core::PlanNode> input, const RowTypePtr& inputType) {
   auto prepared = prepareAggregate(aggregate, std::move(input), inputType);
-  const auto preparedType = prepared.input->outputType();
+  const auto aliasOffset = prepared.group_id_alias_offset;
   const auto& inputKeys = prepared.keys;
   std::vector<core::GroupIdNode::GroupingKeyInfo> keyInfos;
   std::vector<std::vector<std::string>> sets;
   std::vector<vector_size_t> globalSets;
   for (size_t index = 0; index < inputKeys.size(); ++index) {
-    keyInfos.push_back({physicalFieldAlias(preparedType->size() + index), inputKeys[index]});
+    keyInfos.push_back({physicalFieldAlias(aliasOffset + index), inputKeys[index]});
   }
   for (const auto& grouping : aggregate.groupings()) {
     std::vector<std::string> set;
     std::unordered_set<uint32_t> used;
     for (const auto index : grouping.expression_references()) {
       if (!used.emplace(index).second) continue;
-      const auto name = physicalFieldAlias(preparedType->size() + index);
+      const auto name = physicalFieldAlias(aliasOffset + index);
       set.push_back(name);
     }
     if (set.empty()) globalSets.push_back(static_cast<vector_size_t>(sets.size()));
     sets.push_back(std::move(set));
   }
-  std::vector<core::FieldAccessTypedExprPtr> passthrough;
-  for (size_t i = 0; i < preparedType->size(); ++i) passthrough.push_back(field(preparedType, i));
   auto expanded = std::make_shared<core::GroupIdNode>(nextNodeId(), std::move(sets),
-      std::move(keyInfos), std::move(passthrough),
-      physicalFieldAlias(preparedType->size() + inputKeys.size()), std::move(prepared.input));
+      std::move(keyInfos), std::move(prepared.group_id_inputs),
+      physicalFieldAlias(aliasOffset + inputKeys.size()), std::move(prepared.input));
   const auto expandedType = expanded->outputType();
   std::vector<core::FieldAccessTypedExprPtr> keys;
   for (size_t i = 0; i < inputKeys.size(); ++i) keys.push_back(field(expandedType, i));

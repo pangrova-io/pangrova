@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 153 移除 Java GROUPING SETS 的预压缩 Project 和重复的字段重映射。在五列输入的真实 Substrait 转换夹具中，分组键、聚合参数和布尔掩码保留原 ordinal 3、1、4。Native 在同一次绑定内计算 GroupId 的列需求，旧夹具的 GroupId 输入由 6 列减至 4 列，聚合透传由 6 列减至 2 列，输出由 9 列减至 5 列。Velox 会急切加载 GroupId 的输入列，因此在该边界保留按需列裁剪。65 项规划回归、619 项 Native 定向测试、4,357 项 Native 全量测试、57 项真实 Java 到 Native 回归和 Checkstyle 通过。实际 SQL 覆盖 CUBE、ROLLUP、GROUPING SETS、TPC 派生查询、双 Worker Shuffle、Flight 结果和 PostgreSQL 读预算。
+
 实施批次 152 让成员解析返回一次权威读取取得的租户和配额，并直接交给 Scheduler 准入。实库常量 SQL 从提交到物理释放的读取为 1 次成员查询加 2 次租户 ID 查询，候选为 1 加 1，保留每个阶段放置对当前资源池的核验。撤销成员关系后，下一次提交执行一次成员查询、返回 HTTP 403，槽位保持为零。没有跨请求权限缓存。105 项准入和所有者测试、追加的 30 项撤权和 HTTP 校验、Checkstyle 及模块事实检查通过。739 项角色清单 `0c0a404df95ddeacac57001f093475166f2409a5dea27718b454f181318ddf6a` 分别通过撤权和以 45 次配额拒绝、40 次完整读取及物理排空为门槛的独立双 Worker 验收。第一次合跑有一次 Worker 健康探针超时，同一产物的负载用例单独复测通过。
 
 实施批次 151 让 Native 本地并行聚合复用首次绑定返回的累加器类型，Partial 构建移除一次同签名注册表绑定。DECIMAL(22,7) SUM 的实际计划验证 Partial 产出 VARBINARY，Final 保留 DECIMAL(22,7) 原始实参并返回 DECIMAL(38,7)。619 项定向测试、4,356 项 Native 全量测试和 54 项真实 Java 到 Native 回归通过，包含 TPC 派生、GROUPING SETS、双 Worker Shuffle 和 PostgreSQL 读预算。Native 函数目录逐字节一致。该结论覆盖单任务内的类型绑定和执行，跨 Stage DECIMAL 状态仍待验收。
