@@ -91,6 +91,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+Native Shuffle 直连 Coordinator 签发的 Worker 域名和端口，使用同一 Worker TLS 身份与任务票据。在可控代理对照中，基线的 gRPC 客户端错误地尝试连接进程代理，候选直连并读回三行。macOS arm64 和 Linux arm64 的 Release Native 各通过 4,365 项测试，零失败、零跳过。使用相同无效代理环境，同源 macOS 角色包的 36 项端到端回归以及 Linux 的 9 项独立进程回归通过，覆盖双 Worker 直接交换、对象存储远端交换、租户超载与资源归还，以及 Iceberg、Paimon 和 Lance 写入恢复。macOS 角色包内三处 Native 资源与 Release 库逐字节相同，清单 SHA-256 为 `e99e5f6f073bcab83e0d37a019c018a06bd04f9411cf3fade2fd9e3857ce1fbf`。
+
 首次受理在执行锚点 INSERT 内分配并返回 fencing token。先取得同一执行 ID 的事务锁，再分配令牌，插入后以已取得的行锁为起点计算租约。真实 PostgreSQL 单笔对照中，独立令牌 SELECT 从 1 次降到 0 次。实际 HTTP、Iceberg 和 Native Flight 的每秒 25 次对照中，两版各完成 50 笔，独立令牌 SELECT 从 50 次降到 0 次，读结果和物理资源归还逐笔核对。候选每秒 60 次的同机窗口也完成 50 笔。23 项 PostgreSQL 与协调回归、58 项打包端到端回归通过，涵盖并发插入、同 ID 重用、到期接管、租户资源归还及三种连接器的独立进程恢复。运行包清单 SHA-256 为 `5a36d33d3801031b9e91c48208c5fa77415ebd1512fde73d9f780240b9ca9eb1`。
 
 前台表策略在 PostgreSQL 的同一语句快照读取启用的行过滤和列掩码。普通点查对照使用完整限定表名、实际 Iceberg JDBC 目录、HTTP 提交及 Native Flight 读回。每秒 25 次时两版各完成 50 笔，独立的行策略与掩码 SELECT 各从 50 次降到 0 次，候选使用 50 次联合读取。逐笔核对结果和物理资源归还。候选每秒 60 次的同机窗口也完成 50 笔。保留当前表身份与治理绑定的权威检查，以及每笔 4 次执行所有权校验。7 项 PostgreSQL 与 86 项打包端到端回归通过，涵盖同名或已重命名表、行列授权、双 Worker 交换及写入。运行包清单 SHA-256 为 `531ec914de21167a107d51af2f6dedb944152d124d9b3003d25ac6ea8129f44b`。
