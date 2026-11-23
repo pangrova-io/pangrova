@@ -136,6 +136,8 @@ A delayed write by an expired owner can finish in its own directory after takeov
 without changing the replacement’s bytes. Collecting files left by an attempt
 that lost ownership before recording its mapping requires separate orphan tracking.
 
+The collector prepares one mutation per index and binds typed arrays for each cohort. Cohort size changes only the bound data.
+
 Obsolete mappings are removed in bounded batches under the observed descriptor
 row lock. Removal checks the exact mapping identity and verification timestamp.
 The transaction reports only the paths with no remaining mapping, so a current

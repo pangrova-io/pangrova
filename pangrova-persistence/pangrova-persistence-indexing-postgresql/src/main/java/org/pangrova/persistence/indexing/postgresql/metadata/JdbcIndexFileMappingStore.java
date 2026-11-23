@@ -90,7 +90,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         for (int offset = 0; offset < excludedDataFiles.size(); offset += BATCH_PARTITION_SIZE) {
             List<String> batch = excludedDataFiles.subList(
                     offset, Math.min(offset + BATCH_PARTITION_SIZE, excludedDataFiles.size()));
-            try (var paths = JdbcTextSelection.create(connection, batch);
+            try (var paths = JdbcArraySelection.create(connection, batch);
                     var statement = connection.prepareStatement(
                             "DELETE FROM index_file_mappings WHERE index_id=? AND generation=? "
                                     + "AND data_file_path = ANY (?)")) {
@@ -217,7 +217,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
 
     private static void selectArtifacts(Connection connection, Map<String, IndexFileSelection> selections,
             List<String> distinctPaths, Map<String, Map<String, IndexFileMapping>> result) throws SQLException {
-        try (var ids = JdbcTextSelection.create(connection, List.copyOf(selections.keySet()));
+        try (var ids = JdbcArraySelection.create(connection, List.copyOf(selections.keySet()));
                 var statement = connection.prepareStatement("""
                         SELECT m.*, g.source_snapshot
                         FROM index_file_mappings m
@@ -228,7 +228,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
             statement.setArray(1, ids.array());
             for (int offset = 0; offset < distinctPaths.size(); offset += BATCH_PARTITION_SIZE) {
                 int end = Math.min(offset + BATCH_PARTITION_SIZE, distinctPaths.size());
-                try (var paths = JdbcTextSelection.create(connection, distinctPaths.subList(offset, end))) {
+                try (var paths = JdbcArraySelection.create(connection, distinctPaths.subList(offset, end))) {
                     statement.setArray(2, paths.array());
                     try (var rows = statement.executeQuery()) {
                         collectArtifactResults(rows, selections, result);
@@ -274,8 +274,8 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                                    String snapshotToken,
                                    Map<String, Map<String, String>> result) {
         try (var connection = dataSource().getConnection();
-                var ids = JdbcTextSelection.create(connection, indexIds);
-                var paths = JdbcTextSelection.create(connection, batch);
+                var ids = JdbcArraySelection.create(connection, indexIds);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement("""
                         SELECT index_id, data_file_path, index_file_path FROM index_file_mappings
                         WHERE index_id = ANY (?) AND data_file_path = ANY (?)
@@ -327,8 +327,8 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
     private void queryMappingCounts(List<String> indexIds, List<String> batch,
                                     Map<String, Integer> result) {
         try (var connection = dataSource().getConnection();
-                var ids = JdbcTextSelection.create(connection, indexIds);
-                var paths = JdbcTextSelection.create(connection, batch);
+                var ids = JdbcArraySelection.create(connection, indexIds);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement("""
                         SELECT index_id, COUNT(*) AS cnt FROM index_file_mappings
                         WHERE index_id = ANY (?) AND data_file_path = ANY (?) GROUP BY index_id
@@ -360,7 +360,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
 
     private List<String> queryIndexedFiles(String indexId, List<String> batch) {
         try (var connection = dataSource().getConnection();
-                var paths = JdbcTextSelection.create(connection, batch);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement(
                         "SELECT data_file_path FROM index_file_mappings "
                                 + "WHERE index_id=? AND data_file_path = ANY (?)")) {

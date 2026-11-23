@@ -30,7 +30,7 @@ final class JdbcIndexDescriptorReadStore extends JdbcStoreSupport {
             return Map.of();
         }
         try (var connection = dataSource().getConnection();
-                var ids = JdbcTextSelection.create(connection, indexIds);
+                var ids = JdbcArraySelection.create(connection, indexIds);
                 var statement = connection.prepareStatement(
                         "SELECT * FROM index_descriptors WHERE index_id = ANY (?)")) {
             statement.setArray(1, ids.array());

@@ -519,7 +519,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             String tenantId, String catalog, String schema, String table,
             List<String> columns, boolean includeStale) {
         try (var connection = dataSource().getConnection();
-                var selection = JdbcTextSelection.create(connection, columns);
+                var selection = JdbcArraySelection.create(connection, columns);
                 var statement = connection.prepareStatement("""
                         SELECT * FROM index_descriptors
                         WHERE tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=?

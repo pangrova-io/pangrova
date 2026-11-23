@@ -9,12 +9,12 @@ import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.OrphanRemoval
 import org.pangrova.indexing.api.enums.IndexState;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.sql.SQLException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +25,36 @@ import java.util.Set;
  * cache events, and circuit breaker state.
  */
 final class JdbcIndexGcStore extends JdbcStoreSupport {
+
+    private static final String REMOVE_ORPHAN_MAPPINGS = """
+        WITH candidates(data_file_path, index_file_path, generation, last_verified_at, created_at) AS (
+            SELECT * FROM unnest(?::text[], ?::text[], ?::integer[], ?::bigint[], ?::timestamp[])
+        ),
+        removed AS (
+            DELETE FROM index_file_mappings AS mapping
+            USING candidates
+            WHERE mapping.index_id = ?
+              AND mapping.data_file_path = candidates.data_file_path
+              AND mapping.index_file_path = candidates.index_file_path
+              AND mapping.generation = candidates.generation
+              AND mapping.last_verified_at = candidates.last_verified_at
+              AND mapping.created_at = candidates.created_at
+            RETURNING mapping.id, mapping.index_file_path
+        ),
+        removed_paths AS (
+            SELECT index_file_path, count(*) AS removed_count FROM removed GROUP BY index_file_path
+        ),
+        surviving_paths AS (
+            SELECT DISTINCT owner.index_file_path
+            FROM index_file_mappings AS owner
+            JOIN removed_paths AS path ON owner.index_file_path = path.index_file_path
+            LEFT JOIN removed AS deleted ON owner.id = deleted.id
+            WHERE owner.index_id = ? AND deleted.id IS NULL
+        )
+        SELECT path.index_file_path, path.removed_count, survivor.index_file_path IS NULL AS can_delete
+        FROM removed_paths AS path
+        LEFT JOIN surviving_paths AS survivor USING (index_file_path)
+        """;
 
     JdbcIndexGcStore(DataSource dataSource) {
         super(dataSource);
@@ -40,7 +70,7 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
             List<String> batch = dataFilePaths.subList(
                     offset, Math.min(offset + BATCH_PARTITION_SIZE, dataFilePaths.size()));
             try (var connection = dataSource().getConnection();
-                    var paths = JdbcTextSelection.create(connection, batch);
+                    var paths = JdbcArraySelection.create(connection, batch);
                     var statement = connection.prepareStatement(
                             "UPDATE index_file_mappings SET last_verified_at=0 "
                                     + "WHERE index_id=? AND data_file_path = ANY (?)")) {
@@ -117,70 +147,60 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
                                                      List<IndexFileMapping> mappings) throws SQLException {
         int removed = 0;
         Set<String> unreferenced = new LinkedHashSet<>();
-        for (int offset = 0; offset < mappings.size(); offset += BATCH_PARTITION_SIZE) {
-            var batch = mappings.subList(offset, Math.min(offset + BATCH_PARTITION_SIZE, mappings.size()));
-            var result = removeOrphanBatch(connection, indexId, batch);
-            removed += result.mappingsRemoved();
-            unreferenced.addAll(result.pathsToDelete());
+        // Prepare once for all cohorts. Each statement snapshot sees earlier removals in this transaction.
+        try (var statement = connection.prepareStatement(REMOVE_ORPHAN_MAPPINGS)) {
+            for (int offset = 0; offset < mappings.size(); offset += BATCH_PARTITION_SIZE) {
+                var batch = mappings.subList(offset, Math.min(offset + BATCH_PARTITION_SIZE, mappings.size()));
+                var result = removeOrphanBatch(connection, statement, indexId, batch);
+                removed += result.mappingsRemoved();
+                unreferenced.addAll(result.pathsToDelete());
+            }
         }
         return new OrphanRemoval(removed, unreferenced);
     }
 
-    private static OrphanRemoval removeOrphanBatch(Connection connection, String indexId,
-                                                   List<IndexFileMapping> candidates) throws SQLException {
-        // A data-modifying CTE and its SELECT share a PostgreSQL snapshot.
-        // Exclude deleted identities explicitly before publishing a path for removal.
-        String placeholders = "(?::text,?::text,?::integer,?::bigint,?::timestamp)";
-        String values = String.join(",", Collections.nCopies(candidates.size(), placeholders));
-        String sql = """
-                WITH candidates(data_file_path, index_file_path, generation, last_verified_at, created_at) AS (
-                    VALUES %s
-                ),
-                removed AS (
-                    DELETE FROM index_file_mappings AS mapping
-                    USING candidates
-                    WHERE mapping.index_id = ?
-                      AND mapping.data_file_path = candidates.data_file_path
-                      AND mapping.index_file_path = candidates.index_file_path
-                      AND mapping.generation = candidates.generation
-                      AND mapping.last_verified_at = candidates.last_verified_at
-                      AND mapping.created_at = candidates.created_at
-                    RETURNING mapping.id, mapping.index_file_path
-                ),
-                removed_paths AS (
-                    SELECT index_file_path, count(*) AS removed_count FROM removed GROUP BY index_file_path
-                ),
-                surviving_paths AS (
-                    SELECT DISTINCT owner.index_file_path
-                    FROM index_file_mappings AS owner
-                    JOIN removed_paths AS path ON owner.index_file_path = path.index_file_path
-                    LEFT JOIN removed AS deleted ON owner.id = deleted.id
-                    WHERE owner.index_id = ? AND deleted.id IS NULL
-                )
-                SELECT path.index_file_path, path.removed_count, survivor.index_file_path IS NULL AS can_delete
-                FROM removed_paths AS path
-                LEFT JOIN surviving_paths AS survivor USING (index_file_path)
-                """.formatted(values);
-        try (var statement = connection.prepareStatement(sql)) {
-            int parameter = 1;
-            for (var candidate : candidates) {
-                statement.setString(parameter++, candidate.dataFilePath());
-                statement.setString(parameter++, candidate.indexFilePath());
-                statement.setInt(parameter++, candidate.generation());
-                statement.setLong(parameter++, candidate.lastVerifiedAt());
-                statement.setTimestamp(parameter++, Timestamp.from(candidate.createdAt()));
+    private static OrphanRemoval removeOrphanBatch(Connection connection, PreparedStatement statement,
+            String indexId, List<IndexFileMapping> candidates) throws SQLException {
+        int size = candidates.size();
+        String[] dataPaths = new String[size];
+        String[] indexPaths = new String[size];
+        Integer[] generations = new Integer[size];
+        Long[] verifiedAt = new Long[size];
+        Timestamp[] createdAt = new Timestamp[size];
+        for (int offset = 0; offset < size; offset++) {
+            var candidate = candidates.get(offset);
+            dataPaths[offset] = candidate.dataFilePath();
+            indexPaths[offset] = candidate.indexFilePath();
+            generations[offset] = candidate.generation();
+            verifiedAt[offset] = candidate.lastVerifiedAt();
+            createdAt[offset] = Timestamp.from(candidate.createdAt());
+        }
+        try (var data = JdbcArraySelection.create(connection, "text", dataPaths);
+                var paths = JdbcArraySelection.create(connection, "text", indexPaths);
+                var generation = JdbcArraySelection.create(connection, "integer", generations);
+                var verified = JdbcArraySelection.create(connection, "bigint", verifiedAt);
+                var created = JdbcArraySelection.create(connection, "timestamp", createdAt)) {
+            statement.setArray(1, data.array());
+            statement.setArray(2, paths.array());
+            statement.setArray(3, generation.array());
+            statement.setArray(4, verified.array());
+            statement.setArray(5, created.array());
+            statement.setString(6, indexId);
+            statement.setString(7, indexId);
+            return readOrphanRemoval(statement);
+        }
+    }
+
+    private static OrphanRemoval readOrphanRemoval(PreparedStatement statement) throws SQLException {
+        // The data-modifying CTE and its SELECT share a snapshot. The query excludes the exact removed IDs.
+        try (var rows = statement.executeQuery()) {
+            int removed = 0;
+            Set<String> unreferenced = new LinkedHashSet<>();
+            while (rows.next()) {
+                removed += rows.getInt("removed_count");
+                if (rows.getBoolean("can_delete")) unreferenced.add(rows.getString("index_file_path"));
             }
-            statement.setString(parameter++, indexId);
-            statement.setString(parameter, indexId);
-            try (var rows = statement.executeQuery()) {
-                int removed = 0;
-                Set<String> unreferenced = new LinkedHashSet<>();
-                while (rows.next()) {
-                    removed += rows.getInt("removed_count");
-                    if (rows.getBoolean("can_delete")) unreferenced.add(rows.getString("index_file_path"));
-                }
-                return new OrphanRemoval(removed, unreferenced);
-            }
+            return new OrphanRemoval(removed, unreferenced);
         }
     }
 
