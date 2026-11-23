@@ -107,7 +107,8 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
             Integer domainStatus = switch (failure.getErrorCode()) {
                 case METADATA_FILE_SPACE_NOT_FOUND, FILE_OBJECT_NOT_FOUND -> HTTP_STATUS_NOT_FOUND;
                 case FILE_PATH_INVALID, PARSER_SYNTAX_ERROR, PARSER_UNSUPPORTED_FEATURE -> HTTP_STATUS_BAD_REQUEST;
-                case FILE_STORAGE_UNAVAILABLE, FILE_STORAGE_NOT_CONFIGURED -> HTTP_STATUS_SERVICE_UNAVAILABLE;
+                case FILE_STORAGE_UNAVAILABLE, FILE_STORAGE_NOT_CONFIGURED, COORDINATOR_QUERY_REJECTED ->
+                        HTTP_STATUS_SERVICE_UNAVAILABLE;
                 default -> null;
             };
             if (domainStatus != null) return domainStatus;

@@ -19,11 +19,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.journal.QueryStateEvent;
 
@@ -80,6 +82,8 @@ public class QueryStateMachine {
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
+    @GuardedBy("this")
+    private boolean admissionHealthProbe;
     private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageStart =
             new AtomicReference<>();
     private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageTerminal =
@@ -586,6 +590,24 @@ public class QueryStateMachine {
     /** Requires positive local planning evidence. Recovered executions have no such evidence. */
     public boolean hasReadOnlyTaskExecution() {
         return readOnlyTaskExecution;
+    }
+
+    /** Acquires a health probe before dispatch can outlive this local admission. */
+    public synchronized void acquireAdmissionHealthProbe(java.util.function.BooleanSupplier acquire) {
+        if (isTerminal()) {
+            throw new QueryRejectedException("Query ended before admission");
+        }
+        if (admissionHealthProbe) {
+            throw new IllegalStateException("Query already owns an admission health probe");
+        }
+        admissionHealthProbe = acquire.getAsBoolean();
+    }
+
+    /** Transfers this query's health probe to its terminal observer. */
+    public synchronized boolean takeAdmissionHealthProbe() {
+        boolean acquired = admissionHealthProbe;
+        admissionHealthProbe = false;
+        return acquired;
     }
 
     /** Terminal owner claims logical notifications once, after durable terminal recording succeeds. */

@@ -54,6 +54,15 @@ class CoordinatorExceptionMapperTest {
     }
 
     @Test
+    void coordinatorAdmissionUnavailabilityUsesServiceUnavailable() {
+        var rejected = new org.pangrova.query.api.exception.QueryRejectedException("admission temporarily unavailable");
+        try (var response = mapper.toResponse(rejected)) {
+            assertThat(response.getStatus()).isEqualTo(503);
+            assertThat(((ErrorDetail) response.getEntity()).errorCode()).isEqualTo("COORDINATOR-0002");
+        }
+    }
+
+    @Test
     void unexpectedFailuresRemainInternalErrors() {
         try (var response = mapper.toResponse(new IllegalStateException("storage unavailable"))) {
             assertThat(response.getStatus()).isEqualTo(500);

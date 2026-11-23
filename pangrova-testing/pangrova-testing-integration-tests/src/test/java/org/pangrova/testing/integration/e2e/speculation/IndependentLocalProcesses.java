@@ -409,23 +409,24 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryStatusResponse status(String queryId) {
-        try (var client = coordinatorClient()) {
+        try (var client = coordinatorClientBuilder().build()) {
             return client.getQueryStatus(queryId);
         }
     }
 
     String submit(String sql) {
-        try (var client = coordinatorClient()) {
+        try (var client = coordinatorClientBuilder().build()) {
             return client.submitQuery(sql, Map.of()).queryId();
         }
     }
 
-    private PangrovaRestClient coordinatorClient() {
+    PangrovaRestClient.Builder coordinatorClientBuilder() {
         return PangrovaRestClient.builder()
                 .coordinatorHost("127.0.0.1").coordinatorPort(coordinatorPort)
                 .authentication(ClientAuthentication.basic(
                         ProcessSecurityAuthority.USER, ProcessSecurityAuthority.PASSWORD))
-                .build();
+                .resultTransportSecurity(new org.pangrova.transport.client.security.ResultTransportSecurity(
+                        true, tls.root(), clientIdentity.certificateChain(), clientIdentity.privateKey()));
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {

@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Uses real TenantResolver, QuotaChecker, and InMemoryTenantStore.
  */
 class QueryManagerTenantTest {
+    private static final int RESULT_PORT = 19090;
 
     private InMemoryTenantStore tenantStore;
     private TenantResolver tenantResolver;
@@ -69,7 +70,7 @@ class QueryManagerTenantTest {
 
         TaskManager workerTaskManager = TaskManager.forHttpWiringOnly();
         workerHttpServer = new WorkerHttpServer(
-                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
+                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", RESULT_PORT),
                 workerTaskManager, TestExchangeTransport.INSTANCE,
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         workerHttpServer.start();
@@ -222,7 +223,7 @@ class QueryManagerTenantTest {
     void submitQueryWithoutTenantResolverSkipsTenantChecks() throws Exception {
         TaskManager localTaskManager = TaskManager.forHttpWiringOnly();
         WorkerHttpServer localServer = new WorkerHttpServer(
-                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
+                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", RESULT_PORT),
                 localTaskManager, TestExchangeTransport.INSTANCE,
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         localServer.start();
@@ -263,7 +264,7 @@ class QueryManagerTenantTest {
         TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
-                "test-w", "localhost", workerPort, 0, workerIdentity));
+                "test-w", "localhost", workerPort, RESULT_PORT, workerIdentity));
         RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         dispatcher.setControlEpochSupplier(() -> 1L);

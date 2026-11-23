@@ -38,7 +38,8 @@ class QueryManagerJournalTest {
             owner.queued(queryId, "SELECT 1", session, state);
             QueryStateEvent committed = store.journal().latestQueryEvent(queryId).orElseThrow();
             var json = org.pangrova.common.json.JsonMapperFactory.shared().readTree(committed.sessionJson());
-            assertThat(json.size()).isEqualTo(2);
+            assertThat(json.size()).isEqualTo(3);
+            assertThat(json.get("principal").asText()).isEqualTo("anonymous");
             assertThat(json.get("queryId").asText()).isEqualTo(queryId);
             assertThat(json.get("tenantId").asText()).isEqualTo(tenant);
             assertThat(committed.queryId()).isEqualTo(queryId);

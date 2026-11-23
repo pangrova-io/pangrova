@@ -28,23 +28,24 @@ final class QueryTerminalEvents {
 
     void emit(QueryTerminalCleanup.Context context) {
         String queryId = context.queryId();
-        if (context.state().getState() == QueryState.FINISHED) {
+        QueryState state = context.state().getState();
+        QueryFailure failure = context.state().getError().orElse(null);
+        if (context.state().takeAdmissionHealthProbe()) {
+            effect(queryId, "admission", () -> admission.recordOutcome(state, failure));
+        }
+        if (state == QueryState.FINISHED) {
             effect(queryId, "completed_metric", () -> increment(completed));
-            effect(queryId, "admission", () -> admission.recordOutcome(true));
             LOG.info("event=query_completed queryId={}", queryId);
             effect(queryId, "audit", () -> audit.emitAuditCompleted(queryId, context.state()));
         } else {
-            unsuccessful(context);
+            unsuccessful(context, failure);
         }
     }
 
-    private void unsuccessful(QueryTerminalCleanup.Context context) {
+    private void unsuccessful(QueryTerminalCleanup.Context context, QueryFailure error) {
         String queryId = context.queryId();
         effect(queryId, "failed_metric", () -> increment(failed));
-        effect(queryId, "admission", () -> admission.recordOutcome(
-                context.state().getState() == QueryState.CANCELLED));
         if (context.state().getState() == QueryState.FAILED) {
-            QueryFailure error = context.state().getError().orElse(null);
             LOG.warn("event=query_failed queryId={} reason={} trigger={}", queryId,
                     error != null ? error.message() : "unknown", context.reason());
             effect(queryId, "audit", () -> audit.emitAuditFailed(queryId, context.state(), error));

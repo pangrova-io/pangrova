@@ -135,7 +135,7 @@ JSON body. It does not derive status from numeric error-code ranges.
 | `FILE_PATH_INVALID` | 400 | actual Pangrova code |
 | `UnregisteredWorkerException` | 409 | actual Pangrova code |
 | `TenantQuotaExceededException` | 429 | actual Pangrova code or `RATE_LIMITED` |
-| `NoAvailableWorkerException`; `FILE_STORAGE_UNAVAILABLE`; `FILE_STORAGE_NOT_CONFIGURED` | 503 | actual Pangrova code or `SERVICE_UNAVAILABLE` |
+| `NoAvailableWorkerException`; `FILE_STORAGE_UNAVAILABLE`; `FILE_STORAGE_NOT_CONFIGURED`; `COORDINATOR_QUERY_REJECTED` | 503 | actual Pangrova code or `SERVICE_UNAVAILABLE` |
 | other exceptions | 500 | `INTERNAL_ERROR` |
 
 `error_type` is `USER_ERROR` for statuses from 400 through 499 and
@@ -242,6 +242,8 @@ public class CircuitBreakerConfig {
 ```
 
 ---
+
+The query admission breaker acquires a probe for one local submission. The terminal owner settles that probe once. Expected tenant quota, policy and validation rejections and explicit cancellation release the probe without recording a health outcome. Successful queries and infrastructure failures continue to inform the breaker. A closed admission gate returns HTTP 503 with `COORDINATOR-0002`. Tenant quota rejections return HTTP 429 with `TENANT-0001`.
 
 ## 5. Degradation Strategy
 

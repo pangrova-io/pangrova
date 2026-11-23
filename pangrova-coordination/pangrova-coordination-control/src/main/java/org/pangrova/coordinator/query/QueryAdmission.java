@@ -9,20 +9,31 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.throttle.QueryThrottlingService;
 import org.pangrova.planner.throttle.ThrottlePermit;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.query.api.enums.QueryState;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
 /** Owns query admission reservations until dependent physical execution has drained. */
 @ThreadSafe
 final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissionPort {
-    private final ResilienceRegistry resilience;
+    private static final java.util.Set<String> IGNORED_ERROR_CODES = java.util.stream.Stream.of(
+            PangrovaErrorCode.TENANT_QUOTA_EXCEEDED, PangrovaErrorCode.TENANT_NOT_FOUND,
+            PangrovaErrorCode.COORDINATOR_QUERY_REJECTED, PangrovaErrorCode.ACCESS_DENIED,
+            PangrovaErrorCode.PARSER_SYNTAX_ERROR, PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+            PangrovaErrorCode.PARSER_INPUT_TOO_LARGE, PangrovaErrorCode.PLANNER_VALIDATION_FAILURE)
+            .map(PangrovaErrorCode::getCode).collect(java.util.stream.Collectors.toUnmodifiableSet());
+
+    private final CircuitBreaker breaker;
     private final QueryThrottlingService throttle;
     private final ConcurrentHashMap<String, ThrottlePermit> permits = new ConcurrentHashMap<>();
     private volatile ClusterAdmissionController cluster;
 
     QueryAdmission(ResilienceRegistry resilience, QueryThrottlingService throttle) {
-        this.resilience = resilience;
+        this.breaker = resilience == null ? null : resilience.getCircuitBreaker("coordinator-query-admission");
         this.throttle = throttle;
     }
 
@@ -30,17 +41,26 @@ final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissio
     public void setClusterController(ClusterAdmissionController controller) { cluster = controller; }
 
     @Override
-    public void checkDegradation() {
-        if (resilience != null && !resilience.allowRequest("coordinator-query-admission")) {
+    public boolean acquireHealthProbe() {
+        if (breaker == null) return false;
+        if (!breaker.tryAcquirePermission()) {
             throw new QueryRejectedException("Query rejected: system overloaded — admission circuit breaker open");
         }
+        return true;
     }
 
     @Override
-    public void recordOutcome(boolean success) {
-        if (resilience == null) return;
-        if (success) resilience.recordSuccess("coordinator-query-admission");
-        else resilience.recordFailure("coordinator-query-admission", new IllegalStateException("query failed"));
+    public void recordOutcome(QueryState state, QueryFailure failure) {
+        if (state == QueryState.FINISHED) {
+            breaker.onSuccess(0, java.util.concurrent.TimeUnit.NANOSECONDS);
+        } else if (state == QueryState.CANCELLED
+                || failure != null && failure.errorCode() != null
+                && IGNORED_ERROR_CODES.contains(failure.errorCode())) {
+            breaker.releasePermission();
+        } else {
+            breaker.onError(0, java.util.concurrent.TimeUnit.NANOSECONDS,
+                    new IllegalStateException(failure == null ? "Query failed" : failure.message()));
+        }
     }
 
     @Override
