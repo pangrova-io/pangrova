@@ -172,7 +172,8 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   static std::optional<TaskOutputInfo> lookupTaskOutputInfo(
       const std::string& task_id);
 
-  arrow::Result<TaskOutputInfo> claimTaskOutputInfo(
+  // Checks the complete immutable grant before claiming the result reader.
+  arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> openTaskOutput(
       const protocol::v2::ResultReadGrant& grant,
       std::chrono::milliseconds wait = std::chrono::milliseconds::zero(),
       const arrow::flight::ServerCallContext* context = nullptr);

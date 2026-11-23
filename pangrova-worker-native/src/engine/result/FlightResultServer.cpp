@@ -85,7 +85,7 @@ std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTask
   return it == server->output_type_cache_.end() ? std::nullopt : std::optional<TaskOutputInfo>(it->second);
 }
 
-arrow::Result<FlightResultServer::TaskOutputInfo> FlightResultServer::claimTaskOutputInfo(
+arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> FlightResultServer::openTaskOutput(
     const protocol::v2::ResultReadGrant& grant,
     std::chrono::milliseconds wait,
     const arrow::flight::ServerCallContext* context) {
@@ -115,7 +115,10 @@ arrow::Result<FlightResultServer::TaskOutputInfo> FlightResultServer::claimTaskO
     return arrow::Status::Invalid("Result authority is unavailable or already claimed");
   }
   info.claimed = true;
-  return info;
+  auto claimed = info;
+  lock.unlock();
+  return resultBatchStreamReader(std::move(claimed), config_.max_bytes_per_response,
+      config_.result_fetch_timeout_seconds, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,9 +343,7 @@ arrow::Status FlightResultServer::DoGet(
       arrow::flight::FlightStatusCode::Unauthenticated, "Invalid result authority");
   const auto& grant = *authenticated;
   constexpr auto registrationWait = std::chrono::milliseconds(750);
-  ARROW_ASSIGN_OR_RAISE(auto claimed, claimTaskOutputInfo(grant, registrationWait, &context));
-  ARROW_ASSIGN_OR_RAISE(auto reader, resultBatchStreamReader(std::move(claimed), grant,
-      config_.max_bytes_per_response, config_.result_fetch_timeout_seconds, &context));
+  ARROW_ASSIGN_OR_RAISE(auto reader, openTaskOutput(grant, registrationWait, &context));
   *stream = std::make_unique<arrow::flight::RecordBatchStream>(reader);
   return arrow::Status::OK();
 }

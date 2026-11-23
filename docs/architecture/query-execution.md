@@ -667,6 +667,7 @@ ticket. The client passes that ticket directly to Flight DoGet. The signed
 payload contains a ResultReadGrant that binds the task attempt, caller security
 context, scope and expiry. DoGet validates the grant against the registered
 Native output before claiming the stream.
+The stream retains the admitted task identity and uses it for batch reads. Each read checks the live cancellation, revocation and deadline conditions before publishing data.
 
 HTTP can advertise the endpoint while Native initializes the task. An early
 DoGet waits up to 750 ms for the readiness notification. Velox initializes

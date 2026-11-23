@@ -11,7 +11,6 @@
 #include "engine/columnar/CanonicalBatchStream.h"
 #include "engine/columnar/CanonicalArrowValidation.h"
 #include "capabilities/capability/LogicalTypeContract.h"
-#include "engine/result/ResultReadAuthority.h"
 #include "engine/result/ResultPendingRead.h"
 #include "engine/velox/serde/CanonicalArrowSchema.h"
 #include "engine/observability/PangrovaLog.h"
@@ -81,13 +80,13 @@ struct ReaderLease {
 
 class ResultBatchReader final : public arrow::RecordBatchReader {
  public:
-  ResultBatchReader(FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
+  ResultBatchReader(FlightResultServer::TaskOutputInfo info,
       std::shared_ptr<arrow::Schema> storage, std::shared_ptr<arrow::Schema> result,
       int64_t maximumBytes, int64_t timeoutSeconds,
       const arrow::flight::ServerCallContext* context)
       : info_(std::move(info)), lease_(std::make_shared<ReaderLease>(info_.ownership)),
-        grant_(std::move(grant)), storage_(std::move(storage)),
-        result_(std::move(result)), maximumBytes_(maximumBytes), timeoutSeconds_(timeoutSeconds),
+        storage_(std::move(storage)), result_(std::move(result)),
+        maximumBytes_(maximumBytes), timeoutSeconds_(timeoutSeconds),
         context_(context) {}
 
   ~ResultBatchReader() override {
@@ -148,18 +147,18 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
     }
   }
 
-  const std::string& taskId() const { return grant_.attempt().task_id(); }
+  const std::string& taskId() const { return info_.authority.attempt().task_id(); }
 
   arrow::Status validateLiveAuthority() const {
     if ((context_ && context_->is_cancelled()) || info_.ownership->evidence().authority_revoked ||
-        grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
+        info_.authority.deadline_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
       return arrow::Status::Cancelled("Result authority was revoked or expired");
     }
-    return validateResultRead(grant_, info_.authority);
+    return arrow::Status::OK();
   }
 
   arrow::Result<ResultPages> fetch() {
-    const int64_t deadlineMillis = static_cast<int64_t>(grant_.expires_at_epoch_ms()) - nowMillis();
+    const int64_t deadlineMillis = static_cast<int64_t>(info_.authority.deadline_epoch_ms()) - nowMillis();
     const auto waitMillis = timeoutSeconds_ > 0
         ? std::min(deadlineMillis, timeoutSeconds_ * 1000) : deadlineMillis;
     if (waitMillis <= 0) return arrow::Status::Cancelled("Result authority expired");
@@ -229,9 +228,8 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
     return arrow::Status::OK();
   }
 
-  FlightResultServer::TaskOutputInfo info_;
+  const FlightResultServer::TaskOutputInfo info_;
   std::shared_ptr<ReaderLease> lease_;
-  protocol::v2::ResultReadGrant grant_;
   std::shared_ptr<arrow::Schema> storage_, result_;
   int64_t maximumBytes_, timeoutSeconds_, sequence_ = 0;
   bool finished_ = false;
@@ -253,10 +251,11 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> parseArrowBatchF
 }  // namespace detail
 
 arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader(
-    FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
+    FlightResultServer::TaskOutputInfo info,
     int64_t maximumResponseBytes, int64_t timeoutSeconds,
     const arrow::flight::ServerCallContext* context) {
-  if (!info.pool || !info.buffers || !info.output_type || !info.wire_schema || !info.ownership || maximumResponseBytes <= 0 ||
+  if (!info.claimed || !info.pool || !info.buffers || !info.output_type || !info.wire_schema ||
+      !info.ownership || maximumResponseBytes <= 0 ||
       maximumResponseBytes > columnar::kMaximumBatchStreamBytes ||
       static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size()) {
@@ -275,7 +274,7 @@ arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader
   const auto ownership = info.ownership;
   try {
     return std::shared_ptr<arrow::RecordBatchReader>(std::make_shared<ResultBatchReader>(
-        std::move(info), std::move(grant), std::move(storage), std::move(result),
+        std::move(info), std::move(storage), std::move(result),
         maximumResponseBytes, timeoutSeconds, context));
   } catch (const std::runtime_error& error) {
     if (ownership->evidence().authority_revoked) {

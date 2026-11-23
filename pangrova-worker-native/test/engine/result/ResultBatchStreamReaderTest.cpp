@@ -55,7 +55,9 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
     task_id_ = "typed-result-reader-" + std::to_string(next.fetch_add(1));
     pool_ = pangrova::test::testLeafPool(task_id_);
     allocator_ = std::make_shared<memory::ColumnarMemoryPool>(pool_);
-    server_ = std::make_unique<FlightResultServer>(FlightResultServerConfig{});
+    auto config = FlightResultServerConfig{};
+    config.result_fetch_timeout_seconds = 10;
+    server_ = std::make_unique<FlightResultServer>(config);
     server_->start();
     buffers_ = exec::OutputBufferManager::getInstanceRef();
     previous_current_key_ = shuffle::ShuffleTicketKeys::instance().currentKey();
@@ -131,9 +133,7 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
       ASSERT_TRUE(buffers_->stats(task_id_).has_value());
       ASSERT_TRUE(FlightResultServer::markTaskOutputReady(task_id_));
     }
-    auto claimed = server_->claimTaskOutputInfo(grant(admitted));
-    ASSERT_TRUE(claimed.ok()) << claimed.status().ToString();
-    auto opened = resultBatchStreamReader(*claimed, grant(admitted), 4 * 1024 * 1024, 10);
+    auto opened = server_->openTaskOutput(grant(admitted));
     ASSERT_TRUE(opened.ok()) << opened.status().ToString();
     reader_ = *opened;
   }
@@ -268,7 +268,7 @@ TEST_F(ResultBatchStreamReaderTest, FlightReaderOpensWhenTheActualOutputBufferBe
   ASSERT_TRUE(registered->pool);
   ASSERT_FALSE(buffers_->stats(task_id_).has_value());
   ASSERT_FALSE(registered->ready);
-  EXPECT_FALSE(server_->claimTaskOutputInfo(grant(registered->authority)).ok());
+  EXPECT_FALSE(server_->openTaskOutput(grant(registered->authority)).ok());
   auto started = std::promise<void>();
   auto entered = started.get_future();
   std::unique_ptr<arrow::flight::FlightStreamReader> stream;
@@ -288,7 +288,7 @@ TEST_F(ResultBatchStreamReaderTest, FlightReaderOpensWhenTheActualOutputBufferBe
   const auto ready = Clock::now();
   const auto [status, schemaReady] = schemaRead.get();
   ASSERT_TRUE(status.ok()) << status.ToString();
-  EXPECT_FALSE(server_->claimTaskOutputInfo(grant(registered->authority)).ok());
+  EXPECT_FALSE(server_->openTaskOutput(grant(registered->authority)).ok());
   RecordProperty("ready_to_schema_us", std::to_string(
       std::chrono::duration_cast<std::chrono::microseconds>(schemaReady - ready).count()));
 
@@ -335,6 +335,11 @@ TEST_F(ResultBatchStreamReaderTest, ActualRunnerKeepsLogicalWireNamesRequiredFla
   EXPECT_EQ(info->wire_schema->field(0)->name(), "logical_value");
   EXPECT_FALSE(info->wire_schema->field(0)->nullable());
   auto completion = runner_->startAsync().via(pangrova::jni::globalExecutor().get());
+  auto wrong = info->authority;
+  wrong.mutable_attempt()->set_control_epoch(wrong.attempt().control_epoch() + 1);
+  auto denied = rpcReader(wrong);
+  const auto denial = denied.ok() ? (*denied)->GetSchema().status() : denied.status();
+  EXPECT_FALSE(denial.ok());
   open(info->authority);
   ASSERT_NE(reader_, nullptr);
   EXPECT_EQ(reader_->schema()->field(0)->name(), "client_alias");
@@ -360,7 +365,9 @@ TEST_F(ResultBatchStreamReaderTest, MissingAuthoritativeWireSchemaCannotBeRegist
   auto info = registration();
   info.wire_schema.reset();
   EXPECT_THROW(FlightResultServer::registerTaskOutputType(task_id_, info), std::invalid_argument);
-  EXPECT_FALSE(resultBatchStreamReader(info, grant(info.authority), 1024, 10).ok());
+  info.claimed = true;
+  info.buffers = buffers_;
+  EXPECT_FALSE(resultBatchStreamReader(std::move(info), 1024, 10).ok());
 }
 
 TEST_F(ResultBatchStreamReaderTest, LatePageRequiredNullCannotPublishEarlierPageOrAdvanceAcknowledgement) {
