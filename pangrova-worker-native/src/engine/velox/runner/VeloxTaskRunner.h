@@ -293,6 +293,8 @@ class VeloxTaskRunner
   mutable std::mutex build_key_ranges_mutex_;
   BuildKeyRanges build_key_ranges_;
   std::atomic<bool> finished_{false};
+  void startInitializedTask();
+
   std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
   std::atomic<bool> cancelled_{false};
   mutable std::mutex error_mutex_;

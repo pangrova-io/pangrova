@@ -34,7 +34,8 @@ void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskO
   if (!server || !server->isRunning() || !info.output_type || !info.wire_schema || !info.pool || !info.ownership ||
       static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size() || info.authority.attempt().task_id() != taskId ||
-      info.authority.security().tenant_id().empty() || info.authority.deadline_epoch_ms() == 0 || info.claimed) {
+      info.authority.security().tenant_id().empty() || info.authority.deadline_epoch_ms() == 0 ||
+      info.ready || info.claimed) {
     throw std::invalid_argument("Result task requires live server, exact admitted authority, schema, labels and pool");
   }
   std::lock_guard<std::mutex> lock(server->output_type_mutex_);
@@ -42,6 +43,21 @@ void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskO
   if (!server->output_type_cache_.emplace(taskId, std::move(info)).second) {
     throw std::invalid_argument("Result task identity is already registered");
   }
+}
+
+bool FlightResultServer::markTaskOutputReady(const std::string& taskId) {
+  std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
+  auto* server = instance();
+  if (!server) return false;
+  {
+    std::lock_guard<std::mutex> lock(server->output_type_mutex_);
+    auto found = server->output_type_cache_.find(taskId);
+    if (!server->isRunning() || found == server->output_type_cache_.end()) return false;
+    if (found->second.ready) return true;
+    found->second.ready = true;
+  }
+  server->output_ready_.notify_all();
+  return true;
 }
 
 void FlightResultServer::unregisterTaskOutputType(const std::string& taskId) {
@@ -55,6 +71,7 @@ void FlightResultServer::unregisterTaskOutputType(const std::string& taskId) {
     if (found == server->output_type_cache_.end()) return;
     removed = std::move(found->second);
     server->output_type_cache_.erase(found);
+    server->output_ready_.notify_all();
   }
   removed->ownership->revokeAuthority();
 }
@@ -69,19 +86,36 @@ std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTask
 }
 
 arrow::Result<FlightResultServer::TaskOutputInfo> FlightResultServer::claimTaskOutputInfo(
-    const protocol::v2::ResultReadGrant& grant) {
-  std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
-  auto* server = instance();
-  if (!server) return arrow::Status::Invalid("Result authority is unavailable");
-  std::lock_guard<std::mutex> lock(server->output_type_mutex_);
-  auto it = server->output_type_cache_.find(grant.attempt().task_id());
-  if (it == server->output_type_cache_.end() || it->second.claimed ||
-      it->second.ownership->evidence().authority_revoked) {
+    const protocol::v2::ResultReadGrant& grant,
+    std::chrono::milliseconds wait,
+    const arrow::flight::ServerCallContext* context) {
+  const auto& taskId = grant.attempt().task_id();
+  auto cancelled = [context] { return context && context->is_cancelled(); };
+  std::unique_lock<std::mutex> lock(output_type_mutex_);
+  auto found = output_type_cache_.end();
+  bool observedRegistration = false;
+  auto settled = [&] {
+    found = output_type_cache_.find(taskId);
+    if (!isRunning() || cancelled()) return true;
+    if (found == output_type_cache_.end()) return observedRegistration;
+    observedRegistration = true;
+    return found->second.ready;
+  };
+  if (!settled() && wait > std::chrono::milliseconds::zero()) {
+    output_ready_.wait_for(lock, wait, settled);
+  }
+  if (cancelled()) return arrow::Status::Cancelled("Result reader cancelled while opening");
+  if (!isRunning() || found == output_type_cache_.end() || !found->second.ready ||
+      !validateResultRead(grant, found->second.authority).ok()) {
+    return arrow::flight::MakeFlightError(arrow::flight::FlightStatusCode::Unauthorized,
+        "Result authority has no matching live registration");
+  }
+  auto& info = found->second;
+  if (info.claimed || info.ownership->evidence().authority_revoked) {
     return arrow::Status::Invalid("Result authority is unavailable or already claimed");
   }
-  ARROW_RETURN_NOT_OK(validateResultRead(grant, it->second.authority));
-  it->second.claimed = true;
-  return it->second;
+  info.claimed = true;
+  return info;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +266,11 @@ int FlightResultServer::start() {
       PANGROVA_LOG(ERROR) << "event=flight_result_serve_error"
                         << " error=" << status.ToString();
     }
-    running_.store(false);
+    {
+      std::lock_guard<std::mutex> lock(output_type_mutex_);
+      running_.store(false);
+    }
+    output_ready_.notify_all();
   });
 
   PANGROVA_LOG(INFO) << "event=flight_result_server_started"
@@ -254,6 +292,7 @@ void FlightResultServer::stop() {
     std::lock_guard<std::mutex> lock(output_type_mutex_);
     revoked.swap(output_type_cache_);
   }
+  output_ready_.notify_all();
   // Transfer the actual cache nodes, not an unbudgeted deep copy of every
   // schema/security envelope. Admission is sealed; failed nodes are returned
   // to the same authoritative cache for retry without a second registry.
@@ -300,21 +339,8 @@ arrow::Status FlightResultServer::DoGet(
   if (!authenticated.ok()) return arrow::flight::MakeFlightError(
       arrow::flight::FlightStatusCode::Unauthenticated, "Invalid result authority");
   const auto& grant = *authenticated;
-  const auto& taskId = grant.attempt().task_id();
-  const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-  if (!buffers) return arrow::Status::Invalid("Result buffer service is unavailable");
-  auto info = lookupTaskOutputInfo(taskId);
-  auto stats = buffers->stats(taskId);
-  for (int retry = 0; retry < 25 && (!info || !stats); ++retry) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10 * (1 + retry / 5)));
-    info = lookupTaskOutputInfo(taskId);
-    stats = buffers->stats(taskId);
-  }
-  if (!info || !stats || !validateResultRead(grant, info->authority).ok()) {
-    return arrow::flight::MakeFlightError(arrow::flight::FlightStatusCode::Unauthorized,
-        "Result authority has no matching live registration");
-  }
-  ARROW_ASSIGN_OR_RAISE(auto claimed, claimTaskOutputInfo(grant));
+  constexpr auto registrationWait = std::chrono::milliseconds(750);
+  ARROW_ASSIGN_OR_RAISE(auto claimed, claimTaskOutputInfo(grant, registrationWait, &context));
   ARROW_ASSIGN_OR_RAISE(auto reader, resultBatchStreamReader(std::move(claimed), grant,
       config_.max_bytes_per_response, config_.result_fetch_timeout_seconds, &context));
   *stream = std::make_unique<arrow::flight::RecordBatchStream>(reader);

@@ -950,6 +950,19 @@ void VeloxTaskRunner::releaseTaskAndWaitForDeletion() {
   deletion_future.wait();
 }
 
+void VeloxTaskRunner::startInitializedTask() {
+  const int32_t drivers = config_.max_drivers_override > 0
+      ? config_.max_drivers_override
+      : config_.max_drivers;
+  velox_task_->start(drivers);
+  if (!result_ownership_ || cancelled_.load() || !velox_task_->isRunning()) return;
+  const bool activated = result_buffers_ && result_buffers_->stats(config_.task_id).has_value() &&
+      pangrova::result::FlightResultServer::markTaskOutputReady(config_.task_id);
+  if (!activated && !cancelled_.load() && velox_task_->isRunning()) {
+    throw std::runtime_error("Running result task has no active output buffer registration");
+  }
+}
+
 bool VeloxTaskRunner::waitForCompletion() {
   if (!velox_task_) {
     {
@@ -961,12 +974,7 @@ bool VeloxTaskRunner::waitForCompletion() {
   }
 
   try {
-    // Parallel mode: Task::start() initiates multi-Driver execution.
-    // Use per-query override if set (> 0), otherwise fall back to default max_drivers.
-    int32_t effective_drivers = config_.max_drivers_override > 0
-        ? config_.max_drivers_override
-        : config_.max_drivers;
-    velox_task_->start(effective_drivers);
+    startInitializedTask();
 
     // Wait until the task finishes via taskCompletionFuture.
     // For result tasks with PartitionedOutputNode, this future resolves
@@ -1059,10 +1067,7 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
     return folly::makeSemiFuture(false);
   }
   try {
-    const int32_t effective_drivers = config_.max_drivers_override > 0
-        ? config_.max_drivers_override
-        : config_.max_drivers;
-    velox_task_->start(effective_drivers);
+    startInitializedTask();
   } catch (const std::exception& e) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);

@@ -649,71 +649,35 @@ silently truncate these identities.
 
 #### 3.3.4 Arrow Flight Data-Plane Protocol
 
-**Flight Ticket encoding**
+**Flight tickets**
 
-All Arrow Flight interactions use a unified Ticket encoding:
+Worker-to-Worker Flight uses the producer route supplied by the sealed
+Exchange input binding. The ticket identifies the signed producer handle,
+query, stage, output partition, plan epoch, attempt and fencing token. The
+server validates the route against the owning attempt before returning
+serialized pages. The consumer enqueues those pages for its Velox Exchange
+operator and closes the input on producer EOF.
 
-```protobuf
-// Internal structure of the Flight Ticket (serialized to bytes and placed in the Arrow Flight Ticket)
-message FlightTicket {
-    string query_id = 1;
-    string task_id = 2;
-    int32 output_partition = 3;         // Shuffle partition number
-    TicketType type = 4;
-}
+![Output Worker and Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
 
-enum TicketType {
-    TICKET_TYPE_UNSPECIFIED = 0;
-    TICKET_TYPE_SHUFFLE = 1;            // Shuffle data between Compute Workers
-    TICKET_TYPE_RESULT = 2;             // Final result: Output Worker → Client
-}
-```
+**Result pull (Client to Output Worker)**
 
-**Shuffle data pull (Output Worker → Compute Worker)**
+The HTTP result endpoint contains the Worker address and an opaque signed
+ticket. The client passes that ticket directly to Flight DoGet. The signed
+payload contains a ResultReadGrant that binds the task attempt, caller security
+context, scope and expiry. DoGet validates the grant against the registered
+Native output before claiming the stream.
 
-```
-Exchange pull flow after the Output Worker starts:
+HTTP can advertise the endpoint while Native initializes the task. An early
+DoGet waits up to 750 ms for the readiness notification. Velox initializes
+the actual output buffer before the Worker activates the registration. The
+same registry lock guards readiness and the one allowed stream claim.
+Registration retirement and server shutdown wake pending readers.
 
-1. Parse TaskDescriptor.exchange_sources to obtain the Flight endpoints of all upstream Tasks
-2. For each ExchangeSource, construct a FlightTicket:
-   {query_id, source_task_id, output_partition=0 (GATHER), type=SHUFFLE}
-3. Call Arrow Flight DoGet(ticket) to establish a streaming connection
-
-
-
-
-> **REPARTITION Scenario**: In REPARTITION shuffle (§3.3.9), Stage N+1 Task-k pulls partition k from every Stage N task. The FlightTicket is constructed as:
-> `{query_id, source_task_id=task-j, output_partition=k, type=SHUFFLE}`
-> where `task-j` iterates over all Stage N tasks and `k` is the target partition assigned to the consuming task. In GATHER mode (single Output Worker), `output_partition` is always 0.
-4. Receive the RecordBatch stream and feed it into the input queue of the Velox Exchange Operator
-5. Once all upstream Sources complete, the Exchange Operator marks the input as finished
-```
-
-![Output Worker                      Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
-
-**Result pull (Client → Output Worker)**
-
-```
-Client result-pull flow:
-
-1. The Client obtains the Output Worker address from SubmitQueryResponse.result_endpoint
-2. The Client constructs a FlightTicket: {query_id, task_id="", output_partition=0, type=RESULT}
-3. The Client calls GetFlightInfo(ticket) to obtain Schema information
-
-
-
-> **Ticket Conversion Rule**: The `resultEndpoint.ticket` string returned by the REST API (e.g., `"query-20260206-001"`) maps directly to `FlightTicket.query_id`. The Client constructs the full FlightTicket Protobuf as: `{query_id = resultEndpoint.ticket, task_id = "", output_partition = 0, type = RESULT}`, serializes it to bytes, and passes it as the Arrow Flight `Ticket` in DoGet/GetFlightInfo calls.
-4. The Client calls DoGet(ticket) to establish a streaming connection
-5. The Output Worker reads RecordBatches from the Output Operator of the Velox Pipeline
-6. Sends them batch by batch to the Client until all data is sent
-7. Sends a COMPLETED signal, and the Client closes the connection
-```
-
-**Flight Server implementation notes**
-
-The Worker starts the Native result transport from Java. Native owns the result
-buffers, validates result tickets, and serves result batches through Flight.
-The Coordinator serves control-plane statement results through its own result source.
+The Flight stream carries the result schema and Arrow RecordBatches. The
+client reads to EOF and observes query completion and physical cleanup through
+the HTTP query state. The Coordinator serves control-plane statement results
+through its own result source.
 
 #### 3.3.5 Full Interaction Timeline
 
@@ -727,7 +691,7 @@ The Coordinator serves control-plane statement results through its own result so
 |------|------|------|
 | Compute Tasks scheduled before Output Task | The Coordinator must schedule Stage 1 before Stage 0 | The Output Task needs to know the Flight endpoints of upstream Tasks |
 | Return to Client only after Output Task is scheduled | SubmitQueryResponse must include resultEndpoint | The Client needs to know where to pull results |
-| Client may connect to the Output Worker before data is ready | The Output Worker's Flight Server accepts connections as soon as the Task starts | DoGet blocks and waits for the first RecordBatch |
+| Client may connect before Native output is ready | DoGet waits for the actual output registration | The stream carries its schema and then waits for the first RecordBatch |
 | Compute Tasks may produce data before the Output Worker connects | The Shuffle Buffer caches data, waiting for downstream to pull | Decouples upstream/downstream startup ordering |
 
 **State machines**

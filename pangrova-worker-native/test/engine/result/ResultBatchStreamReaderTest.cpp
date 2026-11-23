@@ -127,7 +127,11 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
   }
 
   void open(const protocol::v2::ExecutionCallbackContext& admitted) {
-    auto claimed = FlightResultServer::claimTaskOutputInfo(grant(admitted));
+    if (task_) {
+      ASSERT_TRUE(buffers_->stats(task_id_).has_value());
+      ASSERT_TRUE(FlightResultServer::markTaskOutputReady(task_id_));
+    }
+    auto claimed = server_->claimTaskOutputInfo(grant(admitted));
     ASSERT_TRUE(claimed.ok()) << claimed.status().ToString();
     auto opened = resultBatchStreamReader(*claimed, grant(admitted), 4 * 1024 * 1024, 10);
     ASSERT_TRUE(opened.ok()) << opened.status().ToString();
@@ -187,7 +191,7 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
 
   // Pause the real SDK Task before starting its actual drivers. Its actual
   // PartitionedOutputNode initializes the real route but cannot enqueue a page.
-  folly::SemiFuture<bool> startPausedRunner() {
+  void preparePausedRunner() {
     facebook::velox::test::VectorMaker maker(pool_.get());
     auto values = maker.rowVector({"__column_0"},
         {maker.flatVector<int64_t>(std::vector<int64_t>{42})});
@@ -210,6 +214,10 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
     auto paused = std::move(pause).via(pangrova::jni::globalExecutor().get());
     paused.wait(std::chrono::seconds(2));
     EXPECT_TRUE(paused.isReady());
+  }
+
+  folly::SemiFuture<bool> startPausedRunner() {
+    preparePausedRunner();
     return runner_->startAsync();
   }
 
@@ -252,6 +260,55 @@ class ResultBatchStreamReaderTest : public ::testing::Test {
   std::string previous_current_key_, previous_old_key_;
   inline static const std::string kTicketKey = "result-reader-real-ticket-key-012345678901";
 };
+
+TEST_F(ResultBatchStreamReaderTest, FlightReaderOpensWhenTheActualOutputBufferBecomesReady) {
+  preparePausedRunner();
+  const auto registered = FlightResultServer::lookupTaskOutputInfo(task_id_);
+  ASSERT_TRUE(registered.has_value());
+  ASSERT_TRUE(registered->pool);
+  ASSERT_FALSE(buffers_->stats(task_id_).has_value());
+  ASSERT_FALSE(registered->ready);
+  EXPECT_FALSE(server_->claimTaskOutputInfo(grant(registered->authority)).ok());
+  auto started = std::promise<void>();
+  auto entered = started.get_future();
+  std::unique_ptr<arrow::flight::FlightStreamReader> stream;
+  using Clock = std::chrono::steady_clock;
+  auto schemaRead = std::async(std::launch::async, [&] {
+    started.set_value();
+    auto opened = rpcReader(registered->authority);
+    if (!opened.ok()) return std::pair{opened.status(), Clock::now()};
+    stream = std::move(*opened);
+    const auto schema = stream->GetSchema();
+    return std::pair{schema.status(), Clock::now()};
+  });
+  ASSERT_EQ(entered.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+  EXPECT_EQ(schemaRead.wait_for(std::chrono::milliseconds(17)), std::future_status::timeout);
+  auto completion = runner_->startAsync().via(pangrova::jni::globalExecutor().get());
+  ASSERT_TRUE(buffers_->stats(task_id_).has_value());
+  const auto ready = Clock::now();
+  const auto [status, schemaReady] = schemaRead.get();
+  ASSERT_TRUE(status.ok()) << status.ToString();
+  EXPECT_FALSE(server_->claimTaskOutputInfo(grant(registered->authority)).ok());
+  RecordProperty("ready_to_schema_us", std::to_string(
+      std::chrono::duration_cast<std::chrono::microseconds>(schemaReady - ready).count()));
+
+  exec::Task::resume(runner_->veloxTask()->shared_from_this());
+  runner_pause_owned_ = false;
+  ASSERT_NE(stream, nullptr);
+  auto data = stream->Next();
+  ASSERT_TRUE(data.ok()) << data.status().ToString();
+  ASSERT_NE(data->data, nullptr);
+  const auto values = std::static_pointer_cast<arrow::Int64Array>(data->data->column(0));
+  ASSERT_EQ(values->length(), 1);
+  EXPECT_EQ(values->Value(0), 42);
+  data = stream->Next();
+  ASSERT_TRUE(data.ok()) << data.status().ToString();
+  EXPECT_EQ(data->data, nullptr);
+  stream.reset();
+  completion.wait(std::chrono::seconds(2));
+  ASSERT_TRUE(completion.isReady());
+  EXPECT_TRUE(std::move(completion).get());
+}
 
 TEST_F(ResultBatchStreamReaderTest, ActualRunnerKeepsLogicalWireNamesRequiredFlagsAndPresentationLabelsSeparate) {
   facebook::velox::test::VectorMaker maker(pool_.get());

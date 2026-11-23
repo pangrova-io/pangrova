@@ -10,6 +10,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -129,6 +131,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
     // A streaming failure is terminal for the exact Native task before the
     // reader releases its OutputBuffer and unblocks producer completion.
     std::function<void(const std::string&)> report_stream_failure;
+    bool ready = false;
     bool claimed = false;
   };
 
@@ -159,6 +162,9 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
       const std::string& task_id,
       TaskOutputInfo info);
 
+  // Activates the registration after Velox has initialized the actual output buffer.
+  static bool markTaskOutputReady(const std::string& task_id);
+
   // Removes the cached output type for a task (called during task cleanup).
   static void unregisterTaskOutputType(const std::string& task_id);
 
@@ -166,8 +172,10 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   static std::optional<TaskOutputInfo> lookupTaskOutputInfo(
       const std::string& task_id);
 
-  static arrow::Result<TaskOutputInfo> claimTaskOutputInfo(
-      const protocol::v2::ResultReadGrant& grant);
+  arrow::Result<TaskOutputInfo> claimTaskOutputInfo(
+      const protocol::v2::ResultReadGrant& grant,
+      std::chrono::milliseconds wait = std::chrono::milliseconds::zero(),
+      const arrow::flight::ServerCallContext* context = nullptr);
 
   // Singleton instance accessor. Set during start(), cleared during stop().
   static FlightResultServer* instance();
@@ -192,6 +200,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // F-NATIVE-SHUF-08: Per-instance caches instead of process-global statics.
   // Guarded by their respective mutexes; accessed via instance().
   mutable std::mutex output_type_mutex_;
+  std::condition_variable output_ready_;
   std::unordered_map<std::string, TaskOutputInfo> output_type_cache_;
   static std::atomic<FlightResultServer*> instance_;
   // Pins the actual service during short registration operations. Never held
