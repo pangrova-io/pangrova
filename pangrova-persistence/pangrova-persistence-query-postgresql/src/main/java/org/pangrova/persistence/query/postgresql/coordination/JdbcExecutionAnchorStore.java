@@ -35,13 +35,16 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String SELECT_CURRENT =
             "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
                     + "FROM execution_anchor WHERE execution_id = ? AND expires_at > clock_timestamp()";
-    private static final String INSERT_ANCHOR =
-            "INSERT INTO execution_anchor "
-                    + "(execution_id, owner_id, owner_incarnation, fencing_token, "
-                    + "acquired_at, expires_at, version) SELECT ?, ?, ?, ?, ?, ?, 1 "
-                    + "WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w "
-                    + "WHERE w.execution_id=? AND w.protected_until>clock_timestamp()) "
-                    + "ON CONFLICT DO NOTHING";
+    private static final String INSERT_ANCHOR = """
+            WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS sampled_at)
+            INSERT INTO execution_anchor
+                (execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version)
+            SELECT ?, ?, ?, ?, sampled_at, sampled_at + CAST(? AS interval), 1
+            FROM lease_clock
+            WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w
+                WHERE w.execution_id=? AND w.protected_until>clock_timestamp())
+            ON CONFLICT DO NOTHING
+            """;
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
                     + "acquired_at=?, expires_at=?, version=version+1 "
@@ -92,9 +95,14 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String LOCK_OWNED =
             "SELECT execution_id FROM execution_anchor WHERE owner_id=? AND owner_incarnation=? "
                     + "ORDER BY execution_id FOR UPDATE";
-    private static final String REFRESH_INSERTED =
-            "UPDATE execution_anchor SET acquired_at=?, expires_at=? "
-                    + "WHERE execution_id=? AND fencing_token=? AND version=1";
+    private static final String REFRESH_INSERTED = """
+            WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS sampled_at)
+            UPDATE execution_anchor
+            SET acquired_at=sampled_at, expires_at=sampled_at + CAST(? AS interval)
+            FROM lease_clock
+            WHERE execution_id=? AND fencing_token=? AND version=1
+            RETURNING owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version
+            """;
     private static final String SELECT_EXPIRED =
             "SELECT execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version FROM execution_anchor "
@@ -156,16 +164,11 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         AnchorRow row = selectForUpdate(connection, executionId);
         if (row == null) {
             long token = nextToken(connection);
-            Instant now = dbNow(connection);
-            if (insert(connection, executionId, ownerId, ownerIncarnation, token,
-                    now, now.plusMillis(leaseDuration.toMillis()))) {
+            String interval = leaseDuration.toMillis() + " milliseconds";
+            if (insert(connection, executionId, ownerId, ownerIncarnation, token, interval)) {
                 // INSERT may wait for an invisible competing INSERT that rolls back.
                 // Our row is now exclusively owned; grant from time after that wait.
-                now = dbNow(connection);
-                Instant deadline = now.plusMillis(leaseDuration.toMillis());
-                refreshInserted(connection, executionId, token, now, deadline);
-                return Optional.of(anchor(
-                        executionId, ownerId, ownerIncarnation, token, now, deadline));
+                return Optional.of(refreshInserted(connection, executionId, token, interval));
             }
             row = selectForUpdate(connection, executionId);
         }
@@ -367,15 +370,17 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static void refreshInserted(Connection connection, String executionId, long token,
-                                        Instant now, Instant deadline) throws SQLException {
+    private static ExecutionAnchor refreshInserted(Connection connection, String executionId, long token,
+            String interval) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(REFRESH_INSERTED)) {
-            setInstant(statement, 1, now);
-            setInstant(statement, 2, deadline);
-            statement.setString(3, executionId);
-            statement.setLong(4, token);
-            if (statement.executeUpdate() != 1) {
-                throw new SQLException("Inserted execution anchor lost its transaction ownership");
+            statement.setString(1, interval);
+            statement.setString(2, executionId);
+            statement.setLong(3, token);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new SQLException("Inserted execution anchor lost its transaction ownership");
+                }
+                return anchor(executionId, mapRow(result));
             }
         }
     }
@@ -386,16 +391,14 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             String ownerId,
             String ownerIncarnation,
             long token,
-            Instant now,
-            Instant deadline) throws SQLException {
+            String interval) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(INSERT_ANCHOR)) {
             statement.setString(1, executionId);
             statement.setString(2, ownerId);
             statement.setString(3, ownerIncarnation);
             statement.setLong(4, token);
-            setInstant(statement, 5, now);
-            setInstant(statement, 6, deadline);
-            statement.setString(7, executionId);
+            statement.setString(5, interval);
+            statement.setString(6, executionId);
             return statement.executeUpdate() == 1;
         }
     }
