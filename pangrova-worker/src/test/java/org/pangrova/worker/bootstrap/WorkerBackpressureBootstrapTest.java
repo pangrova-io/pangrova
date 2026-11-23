@@ -43,6 +43,14 @@ class WorkerBackpressureBootstrapTest {
             var receipt = TaskReport.parseFrom(runtime.executor().releaseTask(handle).orElseThrow());
             assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
             assertThat(receipt.getAttempt()).isEqualTo(request.getAttempt());
+            assertThat(receipt.hasNativeTaskStats()).isTrue();
+            assertThat(receipt.getNativeTaskStats().getOperatorStatsList())
+                    .filteredOn(op -> "PartitionedOutput".equals(op.getOperatorType()))
+                    .anySatisfy(op -> {
+                        assertThat(op.getWaitForConsumerNanos()).isPositive();
+                        assertThat(op.getBlockedNanos()).isGreaterThanOrEqualTo(op.getWaitForConsumerNanos());
+                        assertThat(op.getWaitForProducerNanos()).isZero();
+                    });
             assertThat(runtime.nodePool().getUsedBytes()).isZero();
             assertThat(runtime.executor().releaseTask(handle)).isEmpty();
         }

@@ -11,6 +11,19 @@ exporter catalogue used by function-contract tests.
 ## Current capture
 
 On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the task-report protocol with per-operator blocked time and
+selected wait causes. Both fixtures carry descriptor SHA-256
+`584ccf8d14fd47a231c009051615d3d559c694cd03025cc12d1ce7ce3c0203a3`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322897797 | `746ca93308ac46d33f923ecc182fe81d437595b00c1bd637593925f5cc2ca38a` | |
+| Worker inventory | 796871 | `431651966b187974912be8f4bf390c614daa28fb6e292c1bd9109186a7cf6ea9` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `82ece65ae65d4feff6b8f5b9c3850614d78ff976796a889175d4eebe17f959fd` | 9 / 92 / 0 |
+
+## Earlier November 23 sparse-key capture
+
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
 exporter captured the protocol for bounded disjoint build-key ranges used by
 cross-stage Iceberg pruning. Both fixtures carry descriptor SHA-256
 `37f4135b6b03274ca856e45c14238b44c476c8ebead26a3fe2d3bbebf25c571a`.

@@ -73,7 +73,7 @@ public interface OperatorStatsSource {
         }
     }
 
-    /** One operator instance reported by Native, within the named task attempt. */
+    /** One operator in the named attempt. Wait counters accumulate across its Velox drivers. */
     record Metric(
             String operatorType,
             String planNodeId,
@@ -84,6 +84,11 @@ public interface OperatorStatsSource {
             long cpuNanos,
             long wallNanos,
             long peakMemoryBytes,
-            long spillBytes) {
+            long spillBytes,
+            long blockedNanos,
+            long waitForProducerNanos,
+            long waitForConsumerNanos,
+            long waitForSplitNanos,
+            long waitForConnectorNanos) {
     }
 }

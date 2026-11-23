@@ -37,7 +37,7 @@ unlisted: true
 ### Q0 建立可解释的查询基线
 
 1. 对同源 Coordinator、Worker、Native bundle 关联 query、stage、partition、attempt、plan node 和 owner epoch。按 Stage 代次和逻辑槽位对应 Profile 中的物理尝试与已接纳记录。采样 trace 关联高基数标识，常驻指标保持低基数。记录对象 GET/字节、decode、Shuffle payload/wire bytes、CPU、blocked、spill、RSS/heap/direct、JNI/控制字节、SQL 次数和锁等待。
-2. EXPLAIN 分别记录各叶/Join/Aggregate 的估计行数和字节、统计来源及版本、物理分布、并行度和降到 singleton 的理由。运行报告展示实际工作量、blocked 原因、首批、尾 partition 和真实资源释放。基数用对称误差比衡量，零行和未知各自保留。阶段时间基于因果关系，避免把并行段相加。 [Trino EXPLAIN ANALYZE](https://trino.io/docs/current/sql/explain-analyze.html) · [Dremio Profile](https://docs.dremio.com/current/admin/monitoring/jobs/view-profiles/)
+2. EXPLAIN 分别记录各叶/Join/Aggregate 的估计行数和字节、统计来源及版本、物理分布、并行度和降到 singleton 的理由。运行报告已有算子累计阻塞以及生产者、消费者、split 与连接器等待。继续把对象请求、解码、首批、尾 partition 和真实资源释放关联到物理关键路径。基数用对称误差比衡量，零行和未知各自保留。阶段时间基于因果关系，避免把并行段相加。 [Trino EXPLAIN ANALYZE](https://trino.io/docs/current/sql/explain-analyze.html) · [Dremio Profile](https://docs.dremio.com/current/admin/monitoring/jobs/view-profiles/)
 3. 现有 `tpch-sf100-baseline.json` 的 22 项 P50/P99 均为零。历史 SF10 聚合和 macOS 样本只作排查。跨引擎基线需要绑定代码、Native/依赖、硬件、数据和客户端，先验证结果再测速。
 
 2026 年 11 月 22 日核对 GitHub Actions 的基准 runner 和配置，当前无匹配的专用 Linux runner，`TPC_BENCHMARK_CONFIG_DIR` 未配置。最近两次计划运行均跳过。SF100/SF1000 保持待验收。 [最近一次受控基准运行](https://github.com/pangrova-io/pangrova/actions/runs/45005872612)

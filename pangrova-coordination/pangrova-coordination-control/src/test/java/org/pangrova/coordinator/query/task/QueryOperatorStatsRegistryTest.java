@@ -85,6 +85,11 @@ class QueryOperatorStatsRegistryTest {
                 assertThat(metric.operatorType()).isEqualTo("TableScan");
                 assertThat(metric.planNodeId()).isEqualTo("node-1");
                 assertThat(metric.outputRows()).isEqualTo(22L);
+                assertThat(metric.blockedNanos()).isEqualTo(97_000_000L);
+                assertThat(metric.waitForProducerNanos()).isEqualTo(74_000_000L);
+                assertThat(metric.waitForConsumerNanos()).isEqualTo(5_000_000L);
+                assertThat(metric.waitForSplitNanos()).isEqualTo(7_000_000L);
+                assertThat(metric.waitForConnectorNanos()).isEqualTo(2_000_000L);
             });
         });
     }
@@ -104,6 +109,9 @@ class QueryOperatorStatsRegistryTest {
     private static NativeTaskStats stats(long rows) {
         return NativeTaskStats.newBuilder().setBackpressureWaitMs(5)
                 .addOperatorStats(OperatorStats.newBuilder().setPlanNodeId("node-1")
-                        .setOperatorType("TableScan").setOutputRows(rows)).build();
+                        .setOperatorType("TableScan").setOutputRows(rows)
+                        .setBlockedNanos(97_000_000).setWaitForProducerNanos(74_000_000)
+                        .setWaitForConsumerNanos(5_000_000).setWaitForSplitNanos(7_000_000)
+                        .setWaitForConnectorNanos(2_000_000)).build();
     }
 }

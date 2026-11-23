@@ -4,6 +4,8 @@
 
 // Velox TaskStats for per-operator metrics.
 #if __has_include("velox/exec/TaskStats.h")
+#include <string>
+
 #include "velox/exec/BlockingReason.h"
 #include "velox/exec/TaskStats.h"
 #define PANGROVA_HAS_VELOX_TASK_STATS 1
@@ -14,6 +16,23 @@
 #include "pangrova/protocol/v2/result.pb.h"
 
 namespace pangrova::velox {
+namespace {
+
+#if PANGROVA_HAS_VELOX_TASK_STATS
+const std::string kWaitForProducer = "blockedWaitForProducerWallNanos";
+const std::string kWaitForConsumer = "blockedWaitForConsumerWallNanos";
+const std::string kWaitForSplit = "blockedWaitForSplitWallNanos";
+const std::string kWaitForConnector = "blockedWaitForConnectorWallNanos";
+
+int64_t waitNanos(
+    const facebook::velox::exec::OperatorStats& stats,
+    const std::string& key) {
+  const auto metric = stats.runtimeStats.find(key);
+  return metric == stats.runtimeStats.end() ? 0 : metric->second.sum;
+}
+#endif
+
+} // namespace
 
 protocol::v2::NativeTaskStats encodeNativeTaskStats(
     const facebook::velox::exec::TaskStats& task_stats,
@@ -78,9 +97,14 @@ protocol::v2::NativeTaskStats encodeNativeTaskStats(
           static_cast<int64_t>(
               opStats.memoryStats.peakUserMemoryReservation));
       totalSpill += opStats.spilledBytes;
-      const auto consumerWait = opStats.runtimeStats.find("blockedWaitForConsumerWallNanos");
-      if (consumerWait != opStats.runtimeStats.end()) {
-        consumerWaitNanos += consumerWait->second.sum;
+      if (opStats.blockedWallNanos > 0) {
+        const auto consumerWait = waitNanos(opStats, kWaitForConsumer);
+        entry->set_blocked_nanos(opStats.blockedWallNanos);
+        entry->set_wait_for_producer_nanos(waitNanos(opStats, kWaitForProducer));
+        entry->set_wait_for_consumer_nanos(consumerWait);
+        entry->set_wait_for_split_nanos(waitNanos(opStats, kWaitForSplit));
+        entry->set_wait_for_connector_nanos(waitNanos(opStats, kWaitForConnector));
+        consumerWaitNanos += consumerWait;
       }
     }
   }

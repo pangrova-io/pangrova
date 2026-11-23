@@ -28,7 +28,9 @@
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
+#include "velox/exec/BlockingReason.h"
 #include "velox/exec/ExchangeClient.h"
+#include "velox/exec/Task.h"
 #include "velox/exec/ExchangeQueue.h"
 #include "engine/velox/exchange/PangrovaExchangeSource.h"
 #include "engine/velox/exchange/PendingEndpointRegistry.h"
@@ -354,6 +356,86 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
   EXPECT_EQ(server.lingeringHandleCount(), 0);
   server.stop();
   registry.discardExecutor(kConsumerHandle);
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, ReportsWaitForTheActualFlightProducer) {
+  using Clock = std::chrono::steady_clock;
+  using facebook::velox::exec::BlockingReason;
+
+  auto& registry = PendingEndpointRegistry::instance();
+  registry.clear();
+  auto rootPool = pangrova::test::testRootPool("FlightProducerWaitE2E");
+  auto pool = rootPool->addLeafChild("producer");
+  facebook::velox::test::VectorMaker maker(pool.get());
+  auto input = maker.rowVector(
+      {physicalFieldAlias(0)}, {maker.flatVector<int64_t>({42, 7, 99})});
+  shuffle::ShuffleBatchSerializer serializer(serializerConfig());
+  shuffle::ShuffleBatch batch;
+  batch.partition_id = 0;
+  batch.data = serializer.serialize(input, pool.get());
+  batch.row_count = input->size();
+
+  shuffle::SerializedShuffleQueue producerQueue(8);
+  shuffle::FlightShuffleServerConfig config;
+  config.port = 0;
+  shuffle::FlightShuffleServer server(config);
+  const int port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(
+      kProducerHandle, &producerQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+
+  registry.registerSource(kConsumerHandle, kPlanNodeId, kExchangeId, localEndpoint(port));
+  registry.sealInput(kConsumerHandle, kPlanNodeId, kExchangeId, 1);
+  SCOPE_EXIT {
+    server.unregisterHandle(kProducerHandle);
+    server.stop();
+    registry.discardExecutor(kConsumerHandle);
+  };
+  executor::OutputQueue outputQueue(8);
+  auto runner = makeConsumer(&outputQueue);
+  ASSERT_NO_THROW(runner->start());
+  auto completion = runner->startAsync();
+  SCOPE_EXIT {
+    if (!runner->isFinished()) runner->cancel();
+    runner->cleanup();
+  };
+
+  auto awaitingProducer = [&] {
+    return runner->veloxTask()->taskStats().numBlockedDrivers.contains(BlockingReason::kWaitForProducer);
+  };
+  const auto deadline = Clock::now() + std::chrono::seconds(5);
+  while (!awaitingProducer() && Clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(awaitingProducer());
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  ASSERT_TRUE(producerQueue.push(std::move(batch), std::chrono::seconds(1)));
+  ASSERT_TRUE(producerQueue.commit());
+  ASSERT_TRUE(std::move(completion).get()) << runner->errorMessage();
+  facebook::velox::RowVectorPtr output;
+  ASSERT_EQ(outputQueue.pop(output, std::chrono::seconds(1)), executor::PopResult::DATA);
+  ASSERT_NE(output, nullptr);
+  const auto* ids = output->childAt(0)->asFlatVector<int64_t>();
+  ASSERT_NE(ids, nullptr);
+  ASSERT_EQ(ids->size(), 3);
+  EXPECT_EQ(ids->valueAt(0), 42);
+  EXPECT_EQ(ids->valueAt(1), 7);
+  EXPECT_EQ(ids->valueAt(2), 99);
+
+  const auto report = runner->collectTaskStats();
+  ASSERT_TRUE(report.has_value());
+  for (const auto& op : report->operator_stats()) {
+    if (op.plan_node_id() != kPlanNodeId) continue;
+    RecordProperty("producer_wait_driver_nanos", std::to_string(op.wait_for_producer_nanos()));
+    RecordProperty("blocked_driver_nanos", std::to_string(op.blocked_nanos()));
+    EXPECT_GE(op.wait_for_producer_nanos(), 25'000'000);
+    EXPECT_GE(op.blocked_nanos(), op.wait_for_producer_nanos());
+    EXPECT_EQ(op.wait_for_consumer_nanos(), 0);
+    EXPECT_EQ(op.wait_for_connector_nanos(), 0);
+    return;
+  }
+  ADD_FAILURE() << "real exchange input was missing from terminal task stats";
 }
 
 TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {

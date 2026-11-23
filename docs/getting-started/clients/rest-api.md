@@ -42,6 +42,15 @@ backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts
 retry and its predecessor appear separately. If the Coordinator retains no attempt
 counters, `attempts` is empty and `telemetryAvailable` is false.
 
+Each operator reports `blockedNanos` and the selected reasons
+`waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and
+`waitForConnectorNanos`. Velox accumulates these intervals across that
+operator's drivers. Drivers and operators can overlap, so the counters are
+distinct from query wall time. An Exchange can report split wait while it
+can still receive either an input announcement or a data page. The connector
+counter measures time awaiting a connector future. Object request latency
+and decoding time use their own measurements.
+
 `executionGraph` describes the physical Stage and Exchange topology registered by the
 owning Coordinator. It includes planned parallelism, Exchange distribution and read
 mode, and observed stage transitions with retry generation. Transition `elapsedNanos`

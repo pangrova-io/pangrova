@@ -76,7 +76,9 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
             var operators = stats.getOperatorStatsList().stream()
                     .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
                             op.getOutputRows(), op.getInputBytes(), op.getOutputBytes(), op.getCpuNanos(),
-                            op.getWallNanos(), op.getPeakMemoryBytes(), op.getSpillBytes()))
+                            op.getWallNanos(), op.getPeakMemoryBytes(), op.getSpillBytes(), op.getBlockedNanos(),
+                            op.getWaitForProducerNanos(), op.getWaitForConsumerNanos(), op.getWaitForSplitNanos(),
+                            op.getWaitForConnectorNanos()))
                     .toList();
             return new Attempt(attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(),
                     attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence,

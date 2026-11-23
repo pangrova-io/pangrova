@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 137 在规范 Native 回报和 JSON Profile 中保留算子总阻塞及生产者、消费者、split、连接器四类等待。计量按 Velox driver 累加，并行等待可以重叠。受控真实 Flight 测试在暂停生产者时录得 85.477 ms 的生产者累计等待，消费者和连接器等待为零，三行结果完整。实际输出背压测试在取消并物理释放后保留了消费者等待。对应 JNI 与两份能力夹具同源重采，4,354 项 Native 和 107 项 Java 验证通过，另通过描述符、Checkstyle 和模块边界检查。 [Trino 的算子等待归因](https://trino.io/docs/current/sql/explain-analyze.html)
+
 实施批次 136 让索引构建和目录文件枚举在一次连接器观察中选择当前快照并读取其文件集合。Iceberg 复用一个已打开的目录表，Paimon 保留同一已绑定表。真实 PostgreSQL 的三次对照均从两条目录指针 SELECT 降到一条，空表保持一次。实际提交新快照后，当前文件集合包含新文件，显式历史快照仍只返回原文件。43 项回归和 Checkstyle、模块边界检查通过，涵盖 Iceberg 与 Paimon SQL、索引创建、增量构建和快照固定。
 
 实施批次 135 让 Worker 的进度回报与独立补充统计直接使用规范 Protobuf，移除无生产 HTTP 入口的状态响应 DTO、算子 DTO 和 Native 统计投影。补充字段校验禁止携带构建键证据，重发仍核对相同状态、序号和内容。Corretto 17 用相同生产编解码器对照五组各 512 次。94 B 的进度回报往返分配由 2,848 B 降到 2,064 B，837 B 的 16 算子样本由 15,992 B 降到 9,504 B，两份载荷逐字节一致。162 项验证和 Checkstyle 通过，覆盖 HTTP 重发、双 Worker、COPY、PostgreSQL 读预算、Flight 断连及物理释放。 同源 macOS 独立进程验收使用 739 项内容清单，Coordinator、Worker 和 CLI 及对象存储远端 Shuffle 两项通过。

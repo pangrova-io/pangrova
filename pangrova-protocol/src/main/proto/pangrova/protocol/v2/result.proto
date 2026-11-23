@@ -226,6 +226,12 @@ message OperatorStats {
   uint64 memory_bytes = 9;
   uint64 peak_memory_bytes = 10;
   uint64 spill_bytes = 11;
+  // Cumulative driver wait time. Selected causes are subsets of blocked_nanos.
+  uint64 blocked_nanos = 12;
+  uint64 wait_for_producer_nanos = 13;
+  uint64 wait_for_consumer_nanos = 14;
+  uint64 wait_for_split_nanos = 15;
+  uint64 wait_for_connector_nanos = 16;
 }
 
 message NativeTaskStats {
