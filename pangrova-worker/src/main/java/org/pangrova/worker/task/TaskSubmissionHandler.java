@@ -42,14 +42,15 @@ final class TaskSubmissionHandler {
     }
 
     String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        return submitTask(descriptor, request, false);
+        return submitTask(descriptor, request, null);
     }
 
     String submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
-        return submitTask(descriptor, request.submission(), true);
+        return submitTask(descriptor, request.submission(), request);
     }
 
-    private String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request, boolean structurallyValidated) {
+    private String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request,
+            ValidatedTaskSubmission previouslyValidated) {
         checkNotNull(descriptor, "descriptor must not be null");
         checkNotNull(request, "request must not be null");
         // Leadership fencing must run before draining checks, tenant admission,
@@ -59,9 +60,7 @@ final class TaskSubmissionHandler {
         owner.verifyWorkerExecutionIdentity(canonical.getAttempt());
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
-        if (!structurallyValidated) {
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
-        }
+        var admission = previouslyValidated == null ? new ValidatedTaskSubmission(request) : previouslyValidated;
         owner.verifyExecutionOwnerForAdmission(request);
         if (canonical.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST
                 && !owner.cdcIngestSupported()) {
@@ -85,14 +84,15 @@ final class TaskSubmissionHandler {
                 owner.tasks.nextId(descriptor.queryId().toString());
         var reservation = owner.taskAdmissions.reserve(canonical, taskId);
         if (!reservation.first()) return reservation.awaitAdmission();
-        return submitReserved(descriptor, request, taskId, reservation);
+        return submitReserved(descriptor, admission, taskId, reservation);
     }
 
     private String submitReserved(
             TaskDescriptor descriptor,
-            SubmitTaskRequest request,
+            ValidatedTaskSubmission admission,
             String taskId,
             TaskAdmissionRegistry.Reservation reservation) {
+        var request = admission.submission();
         String queryId = descriptor.queryId().toString();
         TaskInfo info = null;
         try {
@@ -113,7 +113,7 @@ final class TaskSubmissionHandler {
         }
         LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
         if (owner.lifecycleManager != null) {
-            owner.lifecycleManager.executeTask(taskId, info, owner.lifecycleCallback);
+            owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
         } else {
             autoFinishIfConfigured(taskId, queryId, request);
         }

@@ -6,6 +6,7 @@ import org.pangrova.observability.api.tracing.Span;
 import org.pangrova.observability.api.enums.SpanKind;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.worker.result.ResultTransport;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
@@ -99,11 +100,12 @@ final class TaskLifecycleManager {
      *
      * @param taskId   worker-assigned task identifier
      * @param info     task tracking record
+     * @param admission validated immutable Worker submission
      * @param callback lifecycle event callbacks (state transition, index cleanup, completion)
      */
-    void executeTask(String taskId, TaskInfo info, LifecycleCallback callback) {
+    void executeTask(String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
         if (info.isWorkerExecuted()) {
-            executeWorkerExecutedTask(taskId, info, callback);
+            executeWorkerExecutedTask(taskId, info, admission, callback);
             return;
         }
         boolean creationBegun = false;
@@ -115,7 +117,7 @@ final class TaskLifecycleManager {
             creationBegun = true;
             bindWriteResources(taskId, info);
             creationDelegated = true;
-            long handle = createExecutor(taskId, info);
+            long handle = createExecutor(taskId, info, admission);
             Consumer<String> onCompleted = tid -> completionMonitor.onTaskCompleted(
                     tid, info, callback, () -> releaseAllResources(info, taskId));
             Consumer<Exception> onError = e -> completionMonitor.onTaskError(
@@ -144,10 +146,10 @@ final class TaskLifecycleManager {
      * exchange, shuffle, or resource-drain branch.
      */
     private void executeWorkerExecutedTask(
-            String taskId, TaskInfo info, LifecycleCallback callback) {
+            String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
         try {
             requireNotCancelled(info);
-            long handle = deps.taskExecutor().createTask(info.request().taskRequest());
+            long handle = deps.taskExecutor().createAdmittedTask(admission);
             if (handle <= 0) {
                 throw new IllegalStateException(
                         "Worker-executed task creation returned no positive owner");
@@ -383,8 +385,8 @@ final class TaskLifecycleManager {
 
     // ── Lifecycle flow methods ──
 
-    private long createExecutor(String taskId, TaskInfo info) {
-        long handle = TaskExecutorCreation.create(info, deps.taskExecutor(), () -> {
+    private long createExecutor(String taskId, TaskInfo info, ValidatedTaskSubmission admission) {
+        long handle = TaskExecutorCreation.create(info, deps.taskExecutor(), admission, () -> {
             requireNotCancelled(info);
             traceTaskExecute(taskId, info);
         });

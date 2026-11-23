@@ -1,6 +1,7 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.util.Optional;
@@ -41,9 +42,18 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
 
     @Override
     public long createTask(TaskRequest request) {
-        if (!supportsWorkerTask(request.getTaskKind())) {
-            return nativeExecutor.createTask(request);
-        }
+        return supportsWorkerTask(request.getTaskKind())
+                ? createWorkerTask(request) : nativeExecutor.createTask(request);
+    }
+
+    @Override
+    public long createAdmittedTask(ValidatedTaskSubmission admission) {
+        var request = admission.submission().taskRequest();
+        return supportsWorkerTask(request.getTaskKind())
+                ? createWorkerTask(request) : nativeExecutor.createAdmittedTask(admission);
+    }
+
+    private long createWorkerTask(TaskRequest request) {
         long backendHandle = workerBackend.create(request);
         if (backendHandle <= 0) {
             throw new IllegalStateException("Worker-executed backend returned no positive handle");

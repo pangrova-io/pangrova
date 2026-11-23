@@ -5,6 +5,9 @@ import org.pangrova.protocol.execution.AiTaskLifecycle;
 import org.pangrova.worker.function.WorkerCallbackProviders;
 
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
@@ -99,34 +102,38 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     @Override
     public long createTask(TaskRequest request) {
         try {
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
-            if (request.hasCopySourceStagingCommandSha256()) {
-                throw new IllegalArgumentException("COPY creation requires its private Worker envelope");
-            }
+            CanonicalTaskRequests.validateForAdmission(request);
         } catch (RuntimeException failure) {
             throw new NativeTaskCreationFailure(0, true, failure);
+        }
+        return createWithoutCopyInput(request);
+    }
+
+    @Override
+    public long createAdmittedTask(ValidatedTaskSubmission admission) {
+        var envelope = admission.submission();
+        var request = envelope.taskRequest();
+        return envelope.copySourceRead() == null
+                ? createWithoutCopyInput(request) : createValidatedCopyTask(request, envelope);
+    }
+
+    private long createWithoutCopyInput(TaskRequest request) {
+        if (request.hasCopySourceStagingCommandSha256()) {
+            throw new NativeTaskCreationFailure(0, true,
+                    new IllegalArgumentException("COPY creation requires its private Worker envelope"));
         }
         return createTask(request, null);
     }
 
-    /** Keeps the private ticket in Worker Java; only a verified local request reaches JNI. */
-    public long createCopyTask(org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
-        TaskRequest request;
-        try {
-            request = envelope.taskRequest();
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
-        } catch (RuntimeException failure) {
-            throw new NativeTaskCreationFailure(0, true, failure);
-        }
-        if (envelope.copySourceRead() == null || copyInputs == null) {
+    private long createValidatedCopyTask(TaskRequest request, SubmitTaskRequest envelope) {
+        if (copyInputs == null) {
             throw new NativeTaskCreationFailure(0, true,
                     new IllegalStateException("COPY input runtime and private source ticket are required"));
         }
         return createTask(request, envelope);
     }
 
-    private long createTask(org.pangrova.protocol.v2.TaskRequest request,
-                            org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
+    private long createTask(TaskRequest request, SubmitTaskRequest envelope) {
         var owner = prepareCreation(request);
         try {
             var local = org.pangrova.worker.catalog

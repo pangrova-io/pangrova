@@ -615,7 +615,10 @@ Response:
 acknowledgement. `TaskSubmission.task` carries one typed v2 `TaskRequest`.
 Private COPY submissions use the Worker mutual-TLS listener and carry the
 original canonical bytes and scoped ticket in `TaskSubmission.copy`. The
-Worker keeps the ticket outside the Native request.
+Worker keeps the ticket outside the Native request. HTTP admission verifies the
+immutable task structure and plan checksum once in Worker Java. The validated
+submission is passed through task routing to Native task creation. JNI validates
+the local execution request at the Native boundary.
 
 The Worker returns a `TaskSubmitAck` with an `admitted` or `rejected` outcome.
 An admitted acknowledgement carries the canonical task ID and any result or

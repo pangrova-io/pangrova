@@ -1,6 +1,7 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.common.api.annotation.Stable;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.util.Optional;
@@ -30,6 +31,11 @@ public interface TaskExecutor {
      * @return a non-negative executor handle for subsequent calls
      */
     long createTask(TaskRequest request);
+
+    /** Creates a task whose immutable request already passed Worker admission validation. */
+    default long createAdmittedTask(ValidatedTaskSubmission admission) {
+        return createTask(admission.submission().taskRequest());
+    }
 
     /**
      * Starts execution of a previously created task.
