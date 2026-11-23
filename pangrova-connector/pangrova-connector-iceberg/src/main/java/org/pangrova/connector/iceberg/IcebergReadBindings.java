@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -18,6 +19,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
@@ -25,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Consumer;
 
 /** Binds immutable data snapshot evidence without changing ordinary current-schema semantics. */
 final class IcebergReadBindings {
@@ -74,9 +77,16 @@ final class IcebergReadBindings {
                     ReadSnapshotState.METADATA, OptionalLong.empty(),
                     system.metadataLocation(), Optional.empty(), Optional.empty());
         }
-        var handle = (IcebergTableHandle) selector;
+        return bindData(tables, (IcebergTableHandle) selector, null);
+    }
+
+    static ConnectorReadBinding bindData(IcebergCatalogTables tables, IcebergTableHandle handle,
+            Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
         Table table = tables.resolveTable(handle);
         var capturedMetadata = metadata(table);
+        if (beforeSnapshotBinding != null) {
+            beforeSnapshotBinding.accept(Optional.of(liveIdentity(capturedMetadata)));
+        }
         Snapshot snapshot = selectedSnapshot(table, handle);
         String identity = identity(table, snapshot);
         var properties = new LinkedHashMap<>(table.properties());
@@ -106,6 +116,11 @@ final class IcebergReadBindings {
                         && handle.snapshotId().isEmpty() && capturedMetadata.currentSnapshot() == snapshot
                         && capturedMetadata.schema().schemaId() == schema.schemaId()
                         ? Optional.of(currentVersion(capturedMetadata)) : Optional.empty());
+    }
+
+    static TableIdentity liveIdentity(TableMetadata metadata) {
+        return new TableIdentity("ICEBERG", metadata.uuid(), metadata.location(),
+                DigestUtils.sha256Hex(SchemaParser.toJson(metadata.schema())));
     }
 
     static TableVersionToken currentVersion(TableMetadata metadata) {

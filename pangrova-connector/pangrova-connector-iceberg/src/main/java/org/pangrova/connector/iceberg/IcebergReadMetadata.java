@@ -1,7 +1,6 @@
 package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
-import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -22,6 +21,7 @@ import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.pangrova.connector.api.metadata.SnapshotReference;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Consumer;
 
 /** Sole connector read SPI implementation; write and index lifecycles share these actual owners. */
 abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRegistry {
@@ -127,9 +128,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
             return Optional.empty();
         }
         var metadata = currentMetadata(catalogTables.resolveTable(handle));
-        return Optional.of(new TableIdentity(
-                "ICEBERG", metadata.uuid(), metadata.location(),
-                schemaFingerprint(SchemaParser.toJson(metadata.schema()))));
+        return Optional.of(IcebergReadBindings.liveIdentity(metadata));
     }
 
     @Override
@@ -151,10 +150,6 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     private static org.apache.iceberg.TableMetadata currentMetadata(Table table) {
         return ((HasTableOperations) table).operations().current();
-    }
-
-    private static String schemaFingerprint(String schemaJson) {
-        return org.pangrova.common.util.DigestUtils.sha256Hex(schemaJson);
     }
 
     @Override
@@ -262,9 +257,20 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     }
 
     @Override
-    public org.pangrova.connector.api.metadata.table.ConnectorReadBinding bindRead(
-            ConnectorSession session, ConnectorTableHandle table) {
+    public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
         return IcebergReadBindings.bind(catalogTables, table);
+    }
+
+    @Override
+    public ConnectorReadBinding bindReadWithIdentityCheck(ConnectorSession session, ConnectorTableHandle liveTable,
+            ConnectorTableHandle selector, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
+        if (liveTable instanceof IcebergTableHandle live && selector instanceof IcebergTableHandle selected) {
+            if (!live.schemaName().equals(selected.schemaName()) || !live.tableName().equals(selected.tableName())) {
+                throw new IllegalArgumentException("Read selector refers to another Iceberg table");
+            }
+            return IcebergReadBindings.bindData(catalogTables, selected, beforeSnapshotBinding);
+        }
+        return ConnectorMetadata.super.bindReadWithIdentityCheck(session, liveTable, selector, beforeSnapshotBinding);
     }
 
     @Override

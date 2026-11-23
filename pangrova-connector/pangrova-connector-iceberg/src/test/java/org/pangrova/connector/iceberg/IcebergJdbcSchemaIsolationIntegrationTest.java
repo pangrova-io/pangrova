@@ -16,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.connector.api.metadata.DynamicFilter;
@@ -36,8 +37,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real SDK initialization must inspect only the connection's exact catalog and schema. */
 class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
@@ -216,6 +219,57 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             assertThat(tables.getTableReadMetadata(first).metadata().columns()).contains("new_field");
 
             assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void controlledReadChecksTheIdentityAndBindsTheSnapshotInOneCatalogLoad() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = metadata.getTableHandle(READER, name);
+            var expected = metadata.getTableIdentity(READER, handle);
+            assertThat(expected).isPresent();
+            var observed = new AtomicReference<Optional<TableIdentity>>();
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+
+            long before = schema.catalogPointerLookups();
+            var binding = metadata.bindReadWithIdentityCheck(READER, handle, handle,
+                    identity -> assertThat(observed.compareAndSet(null, identity)).isTrue());
+            assertThat(schema.catalogPointerLookups() - before).isOne();
+            assertThat(observed.get()).isEqualTo(expected);
+            assertThat(binding.schemaIdentity()).isPresent();
+
+            long beforeRejected = schema.catalogPointerLookups();
+            assertThatThrownBy(() -> metadata.bindReadWithIdentityCheck(READER, handle, handle, identity -> {
+                throw new IllegalStateException("reject observed table");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("reject observed table");
+            assertThat(schema.catalogPointerLookups() - beforeRejected).isOne();
+        }
+    }
+
+    @Test
+    void controlledReadNeverBindsAReplacementDuringTheIdentityCheck() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = metadata.getTableHandle(READER, name);
+            var original = metadata.getTableIdentity(READER, handle).orElseThrow();
+
+            var binding = metadata.bindReadWithIdentityCheck(READER, handle, handle, observed -> {
+                assertThat(observed).contains(original);
+                assertThat(catalog.dropTable(TABLE, false)).isTrue();
+                catalog.buildTable(TABLE, TABLE_SCHEMA).withLocation(warehouse.resolve("replacement").toString())
+                        .create();
+            });
+
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(original));
+            assertThatThrownBy(() -> metadata.validateReadBinding(READER, binding))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Selected table or snapshot identity changed");
         }
     }
 

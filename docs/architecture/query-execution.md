@@ -2006,6 +2006,11 @@ with a removed deployment fails admission. The Coordinator also verifies the
 local catalog and rechecks the table owner after resolving the handle and
 binding the snapshot.
 
+Iceberg checks the live format identity against the metadata already opened
+for snapshot binding. The connector checks that identity before choosing the
+snapshot. Split planning verifies the selected source against the current
+catalog table as a separate boundary.
+
 Foreground authorization observes current subject roles and grants once per
 protected compilation. Row filters and column masks share the verified table
 identity in that scope. The next compilation reads current policy. Durable

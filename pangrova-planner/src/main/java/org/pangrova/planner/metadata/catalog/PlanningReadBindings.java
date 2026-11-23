@@ -189,8 +189,6 @@ public final class PlanningReadBindings {
                 : metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
         if (handle == null) return new AdmittedRead(Optional.empty(), controlled);
         var liveHandle = handle;
-        controlled.ifPresent(record -> control.requireReadIdentity(
-                record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
         var snapshot = PlanningSnapshotSelectors.snapshot(session, key.catalog(), key.schema(), key.table());
         var range = PlanningIncrementalSelectors.range(session, key.catalog(), key.schema(), key.table());
         if (snapshot.isPresent() && range.isPresent()) {
@@ -198,11 +196,16 @@ public final class PlanningReadBindings {
         }
         if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(snapshot.getAsLong());
         if (range.isPresent()) handle = handle.withIncrementalRange(range.orElseThrow());
-        var binding = metadata.bindRead(session, handle);
-        controlled.ifPresent(record -> control.requireReadIdentity(
-                record, binding.schemaIdentity().map(ConnectorReadSchemaIdentity::tableIdentity)
-                        .or(() -> metadata.getTableIdentity(session, liveHandle)),
-                "SQL read binding"));
+        ConnectorReadBinding binding;
+        if (controlled.isPresent()) {
+            var record = controlled.orElseThrow();
+            binding = metadata.bindReadWithIdentityCheck(session, liveHandle, handle,
+                    identity -> control.requireReadIdentity(record, identity, "SQL read binding"));
+            control.requireReadIdentity(record, binding.schemaIdentity().map(ConnectorReadSchemaIdentity::tableIdentity)
+                    .or(() -> metadata.getTableIdentity(session, liveHandle)), "SQL read binding");
+        } else {
+            binding = metadata.bindRead(session, handle);
+        }
         if (snapshot.isPresent() && (binding.snapshotId().isEmpty()
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");

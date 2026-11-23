@@ -6,15 +6,18 @@ import org.pangrova.connector.api.enums.MetadataTableKind;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.common.api.annotation.Stable;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.types.enums.PangrovaType;
 
 /**
@@ -80,6 +83,13 @@ public interface ConnectorMetadata
                 getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
                 org.pangrova.connector.api.enums.ReadSnapshotState.UNVERSIONED,
                 java.util.OptionalLong.empty(), "", java.util.Optional.empty(), java.util.Optional.empty());
+    }
+
+    /** Checks the current physical identity before binding the selected snapshot. */
+    default ConnectorReadBinding bindReadWithIdentityCheck(ConnectorSession session, ConnectorTableHandle liveTable,
+            ConnectorTableHandle selector, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
+        beforeSnapshotBinding.accept(getTableIdentity(session, liveTable));
+        return bindRead(session, selector);
     }
 
     /**
