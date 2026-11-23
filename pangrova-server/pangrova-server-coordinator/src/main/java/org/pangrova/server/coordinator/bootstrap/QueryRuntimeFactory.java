@@ -5,6 +5,7 @@ import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFact
 
 import javax.sql.DataSource;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
@@ -85,6 +86,8 @@ final class QueryRuntimeFactory {
         java.util.Objects.requireNonNull(stateJournal, "stateJournal must be selected explicitly");
         AsyncSubmitConfig asyncConfig = AsyncSubmitConfig.defaultEnabled();
         ExecutorService asyncExecutor = createAsyncSubmitExecutor();
+        ScheduledExecutorService submitDeadlines = ManagedExecutorFactory.newScheduledThreadPool(
+                "coordinator-submit-deadline", 2);
         QueryManager queryManager;
         try {
             var admission = org.pangrova.coordinator.query.QueryManagerCollaborators.admission(
@@ -103,21 +106,18 @@ final class QueryRuntimeFactory {
                     admission, audit,
                     org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                             stateJournal, audit),
-                    null, asyncConfig, asyncExecutor,
+                    null, asyncConfig, asyncExecutor, submitDeadlines,
                     new OtelExecutionTraceContextFactory());
             LOG.info("event=async_submit_wired enabled={} submitTimeoutMs={}",
                     asyncConfig.enabled(), asyncConfig.submitTimeoutMs());
             queryManager = new QueryManager(context, readerPins);
         } catch (RuntimeException | Error failure) {
-            try {
-                asyncExecutor.shutdownNow();
-            } catch (RuntimeException | Error cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
-            }
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure,
+                    asyncExecutor::shutdownNow, submitDeadlines::shutdownNow);
             throw failure;
         }
         queryManager.setLocalCoordinatorId(dependencies.config().coordinatorId());
-        return new QueryManagerResult(queryManager, auditEmitter, asyncExecutor);
+        return new QueryManagerResult(queryManager, auditEmitter, asyncExecutor, submitDeadlines);
     }
 
     static ExecutorService createAsyncSubmitExecutor() {
@@ -137,6 +137,6 @@ final class QueryRuntimeFactory {
     record QueryManagerResult(
             QueryManager queryManager,
             AuditEventEmitter auditEmitter,
-            ExecutorService asyncExecutor) {
+            ExecutorService asyncExecutor, ScheduledExecutorService submitDeadlines) {
     }
 }

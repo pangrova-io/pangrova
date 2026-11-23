@@ -45,6 +45,12 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
+The HTTP submission exchange suspends while the query waits for readiness.
+Concurrent retries with the same authenticated principal, idempotency key and
+request fingerprint observe the same owned receipt. They release their HTTP
+threads while the original request is pending, and cancelling an observer
+does not cancel the admitted query.
+
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
 and settles the execution through its completion stage. A running query does not

@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.pangrova.query.lifecycle.QueryRegistry;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
@@ -33,6 +36,8 @@ import org.pangrova.query.api.retention.ReaderPinLifecycle;
 import org.pangrova.query.retention.ReaderPinRenewal;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
@@ -72,6 +77,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     private final org.pangrova.query.lifecycle.QueryJournalLifecyclePort journalLifecycle;
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
+    private final ScheduledExecutorService submitDeadlines;
     private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
     private final Optional<ReaderPinLifecycle> readerPinLifecycle;
     private final Optional<ReaderPinRenewal> readerPinRenewal;
@@ -110,6 +116,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.journalLifecycle = deps.journal();
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
+        this.submitDeadlines = deps.submitDeadlines();
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
                 "pangrova.coordinator.queries.submitted", "Total queries submitted", "queries");
         this.terminalEvents = new QueryTerminalEvents(auditBridge, admission,
@@ -135,14 +142,38 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
     private void incrementCounter(LongCounter counter) { if (counter != null) counter.add(1); }
 
-    /** Admits and submits a query under its execution authority. */
+    /** Synchronous caller of the same submission receipt used by HTTP. */
     public QuerySubmissionResult submitQuery(String queryId, String sql, QuerySession session) {
+        var pending = startSubmission(queryId, sql, session);
+        try {
+            return pending.receipt().get();
+        } catch (InterruptedException interrupted) {
+            try {
+                pending.interrupt().run();
+            } finally {
+                Thread.currentThread().interrupt();
+            }
+            throw new QueryRejectedException("Query submission was interrupted");
+        } catch (ExecutionException failed) {
+            var cause = failed.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            if (cause instanceof Error error) throw error;
+            throw new CompletionException(cause);
+        }
+    }
+
+    /** Admits the query and returns its receipt once the execution owner publishes readiness. */
+    public CompletionStage<QuerySubmissionResult> submitQueryAsync(String queryId, String sql, QuerySession session) {
+        return startSubmission(queryId, sql, session).receipt().minimalCompletionStage();
+    }
+
+    private QueryAsyncSubmission.Pending startSubmission(String queryId, String sql, QuerySession session) {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
         QuerySession submittedSession;
         QueryStateMachine stateMachine;
-        org.pangrova.query.api.lifecycle.QueryOperation submission;
+        QueryOperation submission;
         queryLifecycleLock.readLock().lock();
         try {
             if (draining) {
@@ -154,41 +185,56 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         } finally {
             queryLifecycleLock.readLock().unlock();
         }
-        Throwable submissionFailure = null;
-        try {
-            try (Scope parent = submittedSession.traceContext().makeCurrent()) {
-                Span span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
-                span.setAttribute("query.id", queryId);
-                Map<String, String> previousLogContext = LogContext.snapshot();
-                try (Scope current = span.makeCurrent()) {
-                    submittedSession = submittedSession.withTraceContext(
-                            traceContexts.capture());
-                    LogContext.set(submittedSession.traceContext().traceId(), submittedSession.traceContext().spanId());
-                    LogContext.setQueryId(queryId);
-                    incrementCounter(querySubmitCounter);
-                    LOG.info("event=query_submitted queryId={}", queryId);
-                    auditBridge.emitAuditSubmitted(queryId, stateMachine.getSql(), submittedSession, stateMachine);
-                    stateMachine.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
-                    return executeQuery(queryId, sql, submittedSession, stateMachine);
-                } finally {
-                    LogContext.restore(previousLogContext);
-                    span.end();
-                }
+        Span span = null;
+        QueryAsyncSubmission.Pending pending;
+        try (Scope parent = submittedSession.traceContext().makeCurrent()) {
+            span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
+            span.setAttribute("query.id", queryId);
+            Map<String, String> previousLogContext = LogContext.snapshot();
+            try (Scope current = span.makeCurrent()) {
+                submittedSession = submittedSession.withTraceContext(traceContexts.capture());
+                LogContext.set(submittedSession.traceContext().traceId(), submittedSession.traceContext().spanId());
+                LogContext.setQueryId(queryId);
+                incrementCounter(querySubmitCounter);
+                LOG.info("event=query_submitted queryId={}", queryId);
+                auditBridge.emitAuditSubmitted(queryId, stateMachine.getSql(), submittedSession, stateMachine);
+                stateMachine.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
+                pending = executeQuery(queryId, sql, submittedSession, stateMachine);
+            } finally {
+                LogContext.restore(previousLogContext);
             }
         } catch (RuntimeException | Error failure) {
-            submissionFailure = failure;
-            stateMachine.resolveOwnership(false);
-            try {
-                failQuery(queryId, submissionError("QUERY_SUBMISSION_FAILED", failure), "submission_failed");
-            } catch (RuntimeException | Error cleanup) {
-                if (cleanup != failure) {
-                    failure.addSuppressed(cleanup);
-                }
-            }
+            recordSubmissionFailure(queryId, stateMachine, failure);
+            ResourceCloser.closeAll(failure,
+                    () -> finishSubmission(submission, queryId, stateMachine, failure),
+                    ResourceCloser.present(span, Span::end));
             throw failure;
-        } finally {
-            finishSubmission(submission, queryId, stateMachine, submissionFailure);
         }
+
+        var receiptSession = submittedSession;
+        var receiptSpan = span;
+        var receipt = pending.receipt().whenComplete((result, failure) -> {
+            Throwable cause = failure instanceof CompletionException && failure.getCause() != null
+                    ? failure.getCause() : failure;
+            var previousLogContext = LogContext.snapshot();
+            try (Scope scope = receiptSession.traceContext().makeCurrent()) {
+                LogContext.set(receiptSession.traceContext().traceId(), receiptSession.traceContext().spanId());
+                LogContext.setQueryId(queryId);
+                if (cause != null) recordSubmissionFailure(queryId, stateMachine, cause);
+            } finally {
+                ResourceCloser.closeAll(cause,
+                        () -> finishSubmission(submission, queryId, stateMachine, cause),
+                        receiptSpan::end,
+                        () -> LogContext.restore(previousLogContext));
+            }
+        });
+        return new QueryAsyncSubmission.Pending(receipt, pending.interrupt());
+    }
+
+    private void recordSubmissionFailure(String queryId, QueryStateMachine state, Throwable failure) {
+        state.resolveOwnership(false);
+        ResourceCloser.closeAll(failure,
+                () -> failQuery(queryId, submissionError("QUERY_SUBMISSION_FAILED", failure), "submission_failed"));
     }
 
     private static QueryFailure submissionError(String defaultCode, Throwable failure) {
@@ -196,7 +242,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         return new QueryFailure(code, failure.getClass().getSimpleName(), String.valueOf(failure.getMessage()));
     }
 
-    private void finishSubmission(org.pangrova.query.api.lifecycle.QueryOperation submission,
+    private void finishSubmission(QueryOperation submission,
             String queryId, QueryStateMachine state, Throwable original) {
         try {
             submission.close();
@@ -207,8 +253,8 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         }
     }
 
-    private QuerySubmissionResult executeQuery(String queryId, String sql, QuerySession session,
-                                             QueryStateMachine sm) {
+    private QueryAsyncSubmission.Pending executeQuery(String queryId, String sql, QuerySession session,
+            QueryStateMachine sm) {
         QuerySession enriched;
         try {
             registerJournalListener(queryId, sm);
@@ -249,13 +295,14 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             throw failure;
         }
         applyDispatchResult(queryId, sm, result);
-        return buildResponse(queryId, sm, result, queryDispatcher.removeColumnNames(queryId));
+        return QueryAsyncSubmission.Pending.completed(
+                buildResponse(queryId, sm, result, queryDispatcher.removeColumnNames(queryId)));
     }
 
-    private QuerySubmissionResult executeQueryAsync(String queryId, String sql,
-                                                 QuerySession session, QueryStateMachine state) {
-        return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor,
-                this::failQuery, this::applyDispatchResult).execute(queryId, sql, session, state);
+    private QueryAsyncSubmission.Pending executeQueryAsync(String queryId, String sql,
+            QuerySession session, QueryStateMachine state) {
+        return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor, submitDeadlines,
+                this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state);
     }
 
     private void acquireOwnershipOrReject(String queryId) {

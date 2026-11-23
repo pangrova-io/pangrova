@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+HTTP 提交在执行就绪前挂起，匹配 principal、请求内容及幂等键的重放订阅同一受理回执。提交期限、原始错误、断开观察者与真实执行取消各自由其所有者处理。真实 HTTP 与 Iceberg 对照中，在派发前暂停一笔写入并发出八个匹配重放。旧路径占用一条原请求线程及八条重放等待线程，候选为零。两轮对照均只受理一次，九份回执逐字节相同，目录只有一行可见，物理清理通过。最终打包 95 项定向和端到端测试与 Checkstyle 通过，涵盖请求主体、冲突、拒绝、记录失败、取消和终态。角色运行包清单 SHA-256 为 `cce026a9668632e19d04a4a63283dca76d107d9a6d91bdee0e413d8f966e5da0`。 [Jersey 异步请求处理](https://eclipse-ee4j.github.io/jersey.github.io/documentation/4.0.0/user-guide.html)
+
 字面值 INSERT 与 INSERT OVERWRITE 在预检内共用一次表元数据，列顺序、FILE MIME、托管文件与生成列校验复用同一观测。写入分配和 fenced commit 继续验证当前权威状态。定向对照中，显式列 INSERT 的句柄与元数据调用由 2 次和 3 次变为各 1 次，省略列名的写入由 2 次和 4 次变为各 1 次。真实并发 Iceberg 对照中，四个 INSERT 在受理到调度之间各自的目录表加载从 9 次降为 5 次，可见快照和读取结果一致。此处计量的是连接器加载调用。 88 项定向回归与 Checkstyle 通过，另有真实读写并发用例通过。
 
 Coordinator 提交线程执行规划和启动分布式 DAG，查询运行期间由完成事件推进。同步接口等待同一个结果，DML 与 CTAS 在提交栅栏通过后继续发布控制面结果，取消、阶段期限、写入期限和物理资源归还仍由执行所有者负责。真实单 Worker、HTTP 与 Flight 的旧路径对照中，四条已读完数据的查询保留其终态报告，占满四条提交线程。第五条等待 538 ms，释放一份报告后 33 ms 读到结果。候选在暂留全部四份报告时完成独立读取。四个真实 Iceberg 写入等待提交时也完成独立读取，随后各表读回预期数据并确认物理清理。这项受控对照验证调度隔离。固定到达率端到端 P95 留在发布验收。 164 项定向测试、69 项打包端到端测试及 Checkstyle、SpotBugs 通过。真实回归覆盖双 Worker Shuffle、CTAS、并发写入、拒绝与取消、物化和 Native 资源释放。角色运行包清单 SHA-256 为 `a6e4ddd526faf8da10ee046eadb9a6dcd3bce97f8854b46a01db0303831817fe`。 [Trino 查询生命周期](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/QueryExecution.java)
