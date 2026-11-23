@@ -56,7 +56,7 @@ class CoordinatorQueryStatusJournalIntegrationTest extends ContainerTestBase {
 
     private static void recordAdmission(JdbcQueryStateJournal journal, String queryId, String principal)
             throws Exception {
-        var payload = new org.pangrova.query.session.JournalSessionPayload(queryId, "", principal);
+        var payload = new org.pangrova.query.api.session.JournalSessionPayload(queryId, "", principal);
         String encoded = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(payload);
         journal.appendQueryEventSync(new QueryStateEvent(
                 JournalEventContext.create(System.currentTimeMillis(), "owner"), queryId, null, encoded, "QUEUED"));

@@ -1,12 +1,13 @@
-package org.pangrova.query.session;
+package org.pangrova.query.api.session;
 
-import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.common.api.annotation.Internal;
 
 import org.pangrova.common.json.JsonMapperFactory;
 
 import java.util.Optional;
 
 /** Minimal journal recovery context. Planning's exact session configuration remains a separate contract. */
+@Internal
 public record JournalSessionPayload(String queryId, String tenantId, String principal) {
     /**
      * Serializes the original minimal fields with JSON escaping, preserving null-tenant as empty.

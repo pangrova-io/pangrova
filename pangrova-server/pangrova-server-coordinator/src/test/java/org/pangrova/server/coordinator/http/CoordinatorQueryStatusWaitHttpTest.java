@@ -66,7 +66,7 @@ class CoordinatorQueryStatusWaitHttpTest {
                         .get(4, TimeUnit.SECONDS));
                 assertThat(expired).isEqualTo(initial);
             }
-            var session = new org.pangrova.query.session.JournalSessionPayload("q-peer", "", "anonymous");
+            var session = new org.pangrova.query.api.session.JournalSessionPayload("q-peer", "", "anonymous");
             String payload = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(session);
             peer.queries.getStateJournal().appendQueryEventSync(new QueryStateEvent(
                     JournalEventContext.create(System.currentTimeMillis(), "unreachable-peer"),

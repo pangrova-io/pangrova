@@ -1935,6 +1935,15 @@ lives in Coordinator until the session contract closure is extracted.
 
 ### Compiled relation ownership
 
+Foreground authorization observes current subject roles and grants once per
+protected compilation. Row filters and column masks share the verified table
+identity in that scope. The next compilation reads current policy. Durable
+execution verifies publication authority in its own transaction.
+
+The query journal recovery contract carries the query identifier, tenant and
+admitted principal. In-memory and PostgreSQL recovery use the same Query
+session payload at the persistence boundary.
+
 Calcite reuses generated metadata handlers across queries with the same planning features. Each relational node resolves its statistics estimator and cost model through its own planner context. Query authorizations, catalog handles, and column lineage stay in the query scope.
 
 Planner Core owns `analysis.AuthorizedRelation` and

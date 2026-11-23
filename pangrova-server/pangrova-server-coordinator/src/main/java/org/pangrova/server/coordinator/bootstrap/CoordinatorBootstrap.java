@@ -115,13 +115,12 @@ public final class CoordinatorBootstrap {
     }
 
     private void startRoleSubsystems() {
-        security = new SecurityBootstrap(config, metadataDataSource, source ->
-                new org.pangrova.metadata.security.TableControlColumnMaskStore(
-                        metadataBootstrap.catalogRegistry().tableGovernance(),
-                        new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(source)),
-                source -> new org.pangrova.metadata.security.TableControlRowPolicyStore(
-                        metadataBootstrap.catalogRegistry().tableGovernance(),
-                        new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(source)));
+        security = new SecurityBootstrap(config, metadataDataSource,
+                source -> new org.pangrova.persistence.workflow.postgresql.security.PostgresTableReadPolicyAuthority(
+                        source, metadataBootstrap.catalogRegistry().tableGovernance(),
+                        new org.pangrova.metadata.security.MetadataTableControlPolicyProjections(),
+                        org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
+                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks));
         security.start();
         validateInternalAuthSecret();
         startModules();

@@ -16,7 +16,7 @@ import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
-import org.pangrova.query.session.JournalSessionPayload;
+import org.pangrova.query.api.session.JournalSessionPayload;
 
 /** PostgreSQL journal with one query-fair, per-query ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe

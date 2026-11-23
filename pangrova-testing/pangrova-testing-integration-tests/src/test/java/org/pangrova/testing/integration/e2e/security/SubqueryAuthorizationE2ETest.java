@@ -16,8 +16,6 @@ import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
@@ -26,6 +24,8 @@ import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.config.TableControlSettings;
+import org.pangrova.metadata.security.MetadataTableControlPolicyProjections;
+import org.pangrova.persistence.workflow.postgresql.security.PostgresTableReadPolicyAuthority;
 import org.pangrova.metadata.security.TableControlColumnMaskStore;
 import org.pangrova.metadata.security.TableControlRowPolicyStore;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -225,7 +225,10 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
     private void bindAuthority() {
         rewired = true;
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks)));
+                new PostgresTableReadPolicyAuthority(stateStoreDataSource(), testCatalogRegistry().tableGovernance(),
+                        new MetadataTableControlPolicyProjections(),
+                        org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
+                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks)));
     }
 
     private void clearPolicies() {

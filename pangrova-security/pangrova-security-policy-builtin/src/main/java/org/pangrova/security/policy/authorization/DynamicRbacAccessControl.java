@@ -2,13 +2,17 @@ package org.pangrova.security.policy.authorization;
 
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.authorization.TableReadPolicySource;
+import org.pangrova.security.api.authorization.TableReadPolicySource.PolicyRead;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.file.api.enums.FileSpaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Objects;
@@ -31,17 +35,20 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     private final GrantStore grantStore;
     private final RoleStore roleStore;
-    private final RowFilterSource rlsFilter;
-    private final ColumnMaskSource maskProcessor;
+    private final TableReadPolicySource policySource;
 
     /** Creates the sole RBAC path with a mandatory role authority. */
     public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore,
                                     RowFilterSource rlsFilter,
                                     ColumnMaskSource maskProcessor) {
+        this(grantStore, roleStore, TableReadPolicySource.separate(rlsFilter, maskProcessor));
+    }
+
+    /** Binds foreground policies to the supplied table authority. */
+    public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore, TableReadPolicySource policySource) {
         this.grantStore = Objects.requireNonNull(grantStore, "grantStore");
         this.roleStore = Objects.requireNonNull(roleStore, "roleStore");
-        this.rlsFilter = Objects.requireNonNull(rlsFilter, "rlsFilter");
-        this.maskProcessor = Objects.requireNonNull(maskProcessor, "maskProcessor");
+        this.policySource = Objects.requireNonNull(policySource, "policySource");
     }
 
     /** Resolves current direct assignments and explicitly mapped identity groups. */
@@ -57,10 +64,13 @@ public final class DynamicRbacAccessControl implements AccessControl {
         return new RbacReadAuthorization(user);
     }
 
+    private record PolicyTarget(String catalog, String schema, String table) {}
+
     private final class RbacReadAuthorization implements ReadAuthorization {
         private final UserIdentity user;
         private Set<String> roles;
         private List<PrivilegeGrant> grants;
+        private Map<PolicyTarget, PolicyRead> policies;
 
         private RbacReadAuthorization(UserIdentity user) {
             this.user = user;
@@ -80,6 +90,12 @@ public final class DynamicRbacAccessControl implements AccessControl {
             return grants;
         }
 
+        private PolicyRead policy(String catalog, String schema, String table) {
+            if (policies == null) policies = new HashMap<>();
+            return policies.computeIfAbsent(new PolicyTarget(catalog, schema, table), target ->
+                    policySource.bind(user, roles(), target.catalog(), target.schema(), target.table()));
+        }
+
         @Override
         public void requireSelect(String catalog, String schema, String table) {
             requireTableGrant(user, grants(), catalog, schema, table, Privilege.SELECT);
@@ -87,17 +103,23 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
         @Override
         public void requireUnfilteredMetadata(String catalog, String schema, String table) {
-            requireMetadataRead(user, roles(), grants(), catalog, schema, table);
+            requireSelect(catalog, schema, table);
+            var policy = policy(catalog, schema, table);
+            if (policy.rowFilter().isPresent() || policy.hasApplicableMask()) {
+                throw new AuthorizationDeniedException(
+                        "Unfiltered table metadata cannot bypass current row or column policies on "
+                                + catalog + "." + schema + "." + table);
+            }
         }
 
         @Override
         public Optional<String> rowFilter(String catalog, String schema, String table) {
-            return rlsFilter.getFilter(user, roles(), catalog, schema, table);
+            return policy(catalog, schema, table).rowFilter();
         }
 
         @Override
         public TableColumnMasks columnMasks(String catalog, String schema, String table) {
-            return maskProcessor.getMasks(user, roles(), catalog, schema, table);
+            return policy(catalog, schema, table).columnMasks();
         }
     }
 
@@ -236,19 +258,7 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     @Override
     public void checkCanReadTableMetadata(UserIdentity user, String catalog, String schema, String table) {
-        Set<String> roles = effectiveRoles(user);
-        requireMetadataRead(user, roles, resolveGrants(roles), catalog, schema, table);
-    }
-
-    private void requireMetadataRead(UserIdentity user, Set<String> roles, List<PrivilegeGrant> grants,
-            String catalog, String schema, String table) {
-        requireTableGrant(user, grants, catalog, schema, table, Privilege.SELECT);
-        if (rlsFilter.getFilter(user, roles, catalog, schema, table).isPresent()
-                || maskProcessor.hasApplicableMask(user, roles, catalog, schema, table)) {
-            throw new AuthorizationDeniedException(
-                    "Unfiltered table metadata cannot bypass current row or column policies on "
-                            + catalog + "." + schema + "." + table);
-        }
+        beginReadAuthorization(user).requireUnfilteredMetadata(catalog, schema, table);
     }
 
     @Override
@@ -349,13 +359,13 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     @Override
     public Optional<String> getRowFilter(UserIdentity user, String catalog, String schema, String table) {
-        return rlsFilter.getFilter(user, effectiveRoles(user), catalog, schema, table);
+        return policySource.bind(user, effectiveRoles(user), catalog, schema, table).rowFilter();
     }
 
     @Override
     public TableColumnMasks getColumnMasks(
             UserIdentity user, String catalog, String schema, String table) {
-        return maskProcessor.getMasks(user, effectiveRoles(user), catalog, schema, table);
+        return policySource.bind(user, effectiveRoles(user), catalog, schema, table).columnMasks();
     }
 
     private List<PrivilegeGrant> resolveGrants(UserIdentity user) {

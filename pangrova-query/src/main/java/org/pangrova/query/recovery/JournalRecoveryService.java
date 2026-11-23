@@ -14,7 +14,7 @@ import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.QueryStateJournalReader;
-import org.pangrova.query.session.JournalSessionPayload;
+import org.pangrova.query.api.session.JournalSessionPayload;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

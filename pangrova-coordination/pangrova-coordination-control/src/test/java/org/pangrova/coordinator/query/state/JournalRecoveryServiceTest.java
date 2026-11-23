@@ -35,7 +35,7 @@ class JournalRecoveryServiceTest {
     @Test
     void recoverQueriesRebuildsStateMachines() throws Exception {
         try (var fixture = new RecoveryFixture(false)) {
-            var admission = new org.pangrova.query.session.JournalSessionPayload("q-1", "tenant-a", "alice");
+            var admission = new org.pangrova.query.api.session.JournalSessionPayload("q-1", "tenant-a", "alice");
             String payload = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(admission);
             fixture.journal.appendQueryEventSync(new QueryStateEvent(
                     org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "owner"),

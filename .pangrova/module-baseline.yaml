@@ -3366,6 +3366,7 @@ artifacts:
         - pangrova-persistence-workflow-api
         - pangrova-security-access
         - pangrova-security-api
+        - pangrova-table
       test:
         - pangrova-metadata-api
         - pangrova-persistence-catalog-api

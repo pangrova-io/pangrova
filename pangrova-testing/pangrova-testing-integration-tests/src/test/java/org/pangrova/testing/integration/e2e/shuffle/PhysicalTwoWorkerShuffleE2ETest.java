@@ -250,6 +250,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 + "%FROM catalog_definitions WHERE name=$1";
         String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
         String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
+        String tableNameTemplate = "SELECT %"
+                + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
+        long tableReadsBefore = statementCalls(tableNameTemplate);
         long identityBefore = statementCalls(identityTemplate);
         long catalogBefore = statementCalls(catalogTemplate);
         long rolesBefore = statementCalls(roleTemplate);
@@ -258,7 +261,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
                 .as("full catalog descriptor reads for one physical query").isZero();
         assertThat(statementCalls(identityTemplate) - identityBefore)
-                .as("narrow catalog deployment reads for one physical query").isPositive().isLessThanOrEqualTo(7);
+                .as("narrow catalog deployment reads for one physical query").isPositive().isLessThanOrEqualTo(6);
+        assertThat(statementCalls(tableNameTemplate) - tableReadsBefore)
+                .as("current table name reads for one physical query").isPositive().isLessThanOrEqualTo(2);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
                 .as("one effective-role lookup during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);

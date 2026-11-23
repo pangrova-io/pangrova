@@ -14,18 +14,16 @@ import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.security.MetadataTableControlPolicyProjections;
+import org.pangrova.persistence.workflow.postgresql.security.PostgresTableReadPolicyAuthority;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.policy.authorization.DynamicRbacAccessControl;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
-import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.security.api.enums.TenantRole;
 import org.pangrova.security.api.enums.TenantStatus;
@@ -83,11 +81,10 @@ final class E2eCurrentAuthority {
                     "STORAGE_PROFILE", "*", null, null, null));
         }
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new org.pangrova.metadata.security.TableControlRowPolicyStore(
-                        catalogs.tableGovernance(), new JdbcRowPolicyStore(dataSource))),
-                new ColumnMaskingProcessor(new org.pangrova.metadata.security.TableControlColumnMaskStore(
-                        catalogs.tableGovernance(),
-                        new JdbcColumnMaskStore(dataSource))));
+                new PostgresTableReadPolicyAuthority(dataSource, catalogs.tableGovernance(),
+                        new MetadataTableControlPolicyProjections(),
+                        org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
+                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks));
     }
 
     static void removeDefault(DataSource dataSource, String principal) {
