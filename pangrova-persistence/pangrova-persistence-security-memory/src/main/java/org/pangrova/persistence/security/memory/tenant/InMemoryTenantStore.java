@@ -32,6 +32,11 @@ public class InMemoryTenantStore implements TenantStore {
     }
 
     @Override
+    public Optional<Placement> getPlacement(String tenantId) {
+        return getTenant(tenantId).map(tenant -> new Placement(tenant.status(), tenant.resourcePool()));
+    }
+
+    @Override
     public synchronized List<Tenant> getAllActiveTenants() {
         return tenants.values().stream()
                 .filter(tenant -> tenant.status() == org.pangrova.security.api.enums.TenantStatus.ACTIVE).toList();

@@ -915,7 +915,7 @@ Task preparation uses the direct roles already verified by table authorization o
 
 **Stage scheduling order**
 
-Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. Later stages and retries resolve the current tenant policy again. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
