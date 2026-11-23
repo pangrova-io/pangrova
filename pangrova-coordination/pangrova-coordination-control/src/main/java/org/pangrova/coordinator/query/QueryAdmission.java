@@ -18,6 +18,7 @@ import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
+import org.pangrova.security.exception.TenantQuotaExceededException;
 import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
 /** Owns query admission reservations until dependent physical execution has drained. */
@@ -80,7 +81,7 @@ final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissio
         state.retainAdmissionRelease(() -> controller.release(queryId, tenantId));
         var decision = controller.admit(AdmissionRequest.of(tenantId, "default", queryId, limits));
         if (!decision.isAdmitted()) {
-            QueryRejectedException rejected = new QueryRejectedException(
+            var rejected = new TenantQuotaExceededException(
                     "Cluster admission denied for tenant " + tenantId + ": " + decision.reason());
             if (decision.verdict() == AdmissionVerdict.REJECT) {
                 state.discardUnacquiredAdmission();

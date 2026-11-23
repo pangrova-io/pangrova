@@ -90,6 +90,38 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void occupiedSharedSlotsReturnTheTenantQuotaResponseBeforeAnyLocalQueryRuns() throws Exception {
+        try (var processes = new IndependentLocalProcesses()) {
+            processes.startCoordinatorAndFirstWorker();
+            String first = "peer-query-1";
+            String second = "peer-query-2";
+            assertThat(processes.reservePeerTenantSlot(first)).isTrue();
+            try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+                assertThat(processes.reservePeerTenantSlot(second)).isTrue();
+                assertThat(processes.activeTenantReservations()).isEqualTo(2);
+                var denied = catchThrowableOfType(() -> client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of()),
+                        PangrovaClientException.class);
+                assertThat(denied).isNotNull();
+                LOG.info("event=peer_slot_admission errorCode={} serverError={}",
+                        denied.errorCode(), denied instanceof PangrovaServerException);
+                assertThat(denied).isNotInstanceOf(PangrovaServerException.class);
+                assertThat(denied.errorCode()).isEqualTo(PangrovaErrorCode.TENANT_QUOTA_EXCEEDED.getCode());
+                assertThat(processes.activeTenantReservations()).isEqualTo(2);
+            } finally {
+                processes.releasePeerTenantSlot(second);
+                processes.releasePeerTenantSlot(first);
+            }
+            assertThat(processes.activeTenantReservations()).isZero();
+            try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+                long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+                var accepted = client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of());
+                finish(client, accepted, awaitResult(accepted, deadline), List.of(42L), deadline);
+                assertThat(processes.activeTenantReservations()).isZero();
+            }
+        }
+    }
+
     private static void runArrivals(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();

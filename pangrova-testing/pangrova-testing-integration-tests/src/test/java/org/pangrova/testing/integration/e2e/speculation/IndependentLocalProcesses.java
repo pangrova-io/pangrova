@@ -430,6 +430,16 @@ final class IndependentLocalProcesses implements AutoCloseable {
         tenants.removeUserFromTenant(ProcessSecurityAuthority.TENANT, ProcessSecurityAuthority.USER);
     }
 
+    boolean reservePeerTenantSlot(String queryId) {
+        return new JdbcClusterConcurrencySlots(security.dataSource())
+                .tryReserve(ProcessSecurityAuthority.TENANT, queryId, 2);
+    }
+
+    void releasePeerTenantSlot(String queryId) {
+        new JdbcClusterConcurrencySlots(security.dataSource())
+                .release(ProcessSecurityAuthority.TENANT, queryId);
+    }
+
     int activeTenantReservations() {
         return new JdbcClusterConcurrencySlots(security.dataSource())
                 .active(ProcessSecurityAuthority.TENANT);

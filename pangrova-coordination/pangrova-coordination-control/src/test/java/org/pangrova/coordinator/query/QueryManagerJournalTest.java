@@ -22,6 +22,7 @@ import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.security.exception.TenantQuotaExceededException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -118,7 +119,8 @@ class QueryManagerJournalTest {
             var controller = new CountingController(fixture.admission::admit);
             fixture.manager.setClusterAdmissionController(controller);
             assertThatThrownBy(() -> fixture.manager.submitQuery("denied-admission", "SELECT 1",
-                    SourceFreeQueryFixture.session("denied-admission"))).isInstanceOf(QueryRejectedException.class)
+                    SourceFreeQueryFixture.session("denied-admission")))
+                    .isInstanceOf(TenantQuotaExceededException.class)
                     .hasMessageContaining("Cluster admission denied");
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
             assertThat(fixture.manager.getQueryState("denied-admission")).isEmpty();
@@ -134,7 +136,8 @@ class QueryManagerJournalTest {
             var controller = new CountingController(request -> AdmissionDecision.queue("queued at tenant limit"));
             fixture.manager.setClusterAdmissionController(controller);
             assertThatThrownBy(() -> fixture.manager.submitQuery("queued-admission", "SELECT 1",
-                    SourceFreeQueryFixture.session("queued-admission"))).isInstanceOf(QueryRejectedException.class);
+                    SourceFreeQueryFixture.session("queued-admission")))
+                    .isInstanceOf(TenantQuotaExceededException.class);
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
             assertThat(controller.releases).isOne();
         }
