@@ -100,7 +100,7 @@
           clean build impossible. Keep the compatible release line until the
           module-coordinate migration is performed atomically across the repo.
         -->
-        <testcontainers.version>1.21.3</testcontainers.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <jqwik.version>1.8.2</jqwik.version>
         <awaitility.version>4.2.2</awaitility.version>
 
