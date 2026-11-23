@@ -3,9 +3,9 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
@@ -71,23 +71,17 @@ public final class BuildFilterGate {
         }
     }
 
-    /** Releases exactly one scan decision. A late result cannot affect an issued probe. */
-    public ProbeRelease releaseProbe(CompletableFuture<?> queryCompletion) {
+    /** Releases exactly one scan decision when the build, deadline or query settles first. */
+    public CompletionStage<ProbeRelease> releaseProbe(CompletableFuture<?> queryCompletion,
+            ScheduledExecutorService deadlines) {
         queryCompletion.whenComplete((result, failure) -> completedBuild.complete(TERMINATED));
-        ProbeRelease decision;
-        try {
-            decision = completedBuild.get(MAX_WAIT_MS, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException timeout) {
-            completedBuild.complete(TIMEOUT);
-            decision = TIMEOUT;
-        } catch (InterruptedException interruption) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while awaiting the runtime-filter build", interruption);
-        } catch (ExecutionException failure) {
-            throw new IllegalStateException("Runtime-filter build observation failed", failure.getCause());
-        }
-        releasedProbe = decision;
-        return decision;
+        var timeout = completedBuild.isDone() ? null : deadlines.schedule(
+                () -> { completedBuild.complete(TIMEOUT); }, MAX_WAIT_MS, TimeUnit.MILLISECONDS);
+        return completedBuild.thenApply(decision -> {
+            if (timeout != null) timeout.cancel(false);
+            releasedProbe = decision;
+            return decision;
+        });
     }
 
     public List<BuildKeyRange> probeRanges(int stageId) {

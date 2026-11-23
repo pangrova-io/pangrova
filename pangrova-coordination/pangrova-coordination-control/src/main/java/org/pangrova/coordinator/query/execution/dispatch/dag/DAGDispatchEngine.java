@@ -284,16 +284,25 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         }
         roots.forEach(stage -> scheduleStage(stage, state, observations));
         var gate = state.buildFilter();
-        if (gate != null) {
-            var probe = state.dag().findStage(gate.plan().probeStageId());
-            long waitStarted = observations == null ? 0L : observations.elapsedNanos();
-            var release = gate.releaseProbe(state.completion());
-            if (observations != null) {
-                observations.recordRuntimeFilterWait(gate.plan().buildStageId(), probe.stageId(),
-                        probe.currentGeneration(), waitStarted, release.outcome(), release.rangeCount());
+        if (gate == null) return;
+
+        long waitStarted = observations == null ? 0L : observations.elapsedNanos();
+        gate.releaseProbe(state.completion(), deadlines).thenAccept(release -> {
+            try {
+                var probe = state.dag().findStage(gate.plan().probeStageId());
+                if (observations != null) {
+                    observations.recordRuntimeFilterWait(gate.plan().buildStageId(), probe.stageId(),
+                            probe.currentGeneration(), waitStarted, release.outcome(), release.rangeCount());
+                }
+                if (!state.completion().isDone() && !state.cancelled().get()
+                        && lifecycle.owns(state.queryId(), state.dag())) {
+                    requestReadyDownstream(state, observations);
+                }
+            } catch (RuntimeException | LinkageError failure) {
+                state.cancelled().set(true);
+                state.completion().completeExceptionally(failure);
             }
-            scheduleStage(probe, state, observations);
-        }
+        });
     }
 
     private void onStageRunning(DAGExecutionState state, QueryStageObservations observations) {
@@ -337,6 +346,15 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void scheduleReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
+        var gate = state.buildFilter();
+        if (gate != null && !gate.blocks(gate.plan().probeStageId())) {
+            // The probe is a source root. Like the initial roots, it can feed the
+            // producer/consumer pipeline even when the downstream cap is reached.
+            var probe = state.dag().findStage(gate.plan().probeStageId());
+            if (probe.stateMachine().getState() == StageState.PLANNED) {
+                scheduleStage(probe, state, observations);
+            }
+        }
         Set<Integer> activeIds = activeStageIds(state);
         for (Stage downstream : state.dag().readyStageEntities(activeIds)) {
             if (state.cancelled().get() || atConcurrencyLimit(state)) {
