@@ -1047,6 +1047,11 @@ thread. Timeout and connection completion detach its observer. State changes
 schedule HTTP response work on Jetty. An explicit historical status read can
 consult the query journal.
 
+A first execution acquires its PostgreSQL advisory lock before the anchor INSERT
+allocates and returns the fencing token. A separate statement starts the lease
+clock after the inserted row is exclusively owned, including when the INSERT
+waited for a competing uncommitted row.
+
 A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
 
 After physical cleanup, ownership release locks the execution anchor and starts a fresh PostgreSQL statement. That statement computes the database time, evaluates the write recovery obligation, and retires the exact owner. An unresolved, unquarantined write expires the anchor for takeover. A release with no outstanding write recovery deletes the anchor. A write intent that commits while release waits for the lock is visible to the retirement statement.
