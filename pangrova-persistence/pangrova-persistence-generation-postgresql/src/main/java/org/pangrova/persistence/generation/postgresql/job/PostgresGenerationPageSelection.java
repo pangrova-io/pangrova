@@ -31,56 +31,64 @@ final class PostgresGenerationPageSelection {
 
     record Selection(String tenantId, String jobId, Instant now, Optional<Coordinates> coordinates) {}
 
+    private static final String CLAIMABLE_PAGE = "SELECT * FROM artifact_build_pages "
+        + "WHERE tenant_id=? AND job_id=? "
+        + "AND ((state='PENDING' AND next_available_at<=?) "
+        + "OR (state='LEASED' AND lease_expires_at<?)) "
+        + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
+        + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
+        + "AND u.job_id=d.job_id "
+        + "AND u.page_id=d.dependency_page_id WHERE d.job_id=artifact_build_pages.job_id "
+        + "AND d.tenant_id=artifact_build_pages.tenant_id "
+        + "AND d.page_id=artifact_build_pages.page_id AND u.state<>'SUCCEEDED') "
+        + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
+        + "e.tenant_id=artifact_build_pages.tenant_id AND e.job_id=artifact_build_pages.job_id "
+        + "AND e.consumer_stage_id=artifact_build_pages.stage_id AND NOT EXISTS "
+        + "(SELECT 1 FROM artifact_exchange_finalizations f WHERE f.tenant_id=e.tenant_id "
+        + "AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id)) ";
+
+    private static final String CLAIMABLE_ORDER = "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
+    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + CLAIMABLE_ORDER;
+    private static final String CLAIMABLE_EXACT = """
+            WITH exact AS MATERIALIZED (
+                SELECT page_id FROM artifact_build_pages
+                WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id=? AND page_ordinal=?
+            ),
+            claimable AS (
+            """ + CLAIMABLE_PAGE
+            + "AND page_id IN (SELECT page_id FROM exact) " + CLAIMABLE_ORDER
+            + """
+            )
+            SELECT coordinates.allocations, claimable.*
+            FROM (SELECT count(*) AS allocations FROM exact) coordinates
+            LEFT JOIN claimable ON true
+            """;
+
     static Optional<PageRow> selectClaimablePage(Connection connection, Selection selection)
             throws SQLException {
-        String sql = "SELECT * FROM artifact_build_pages "
-                + "WHERE tenant_id=? AND job_id=? "
-                + "AND ((state='PENDING' AND next_available_at<=?) "
-                + "OR (state='LEASED' AND lease_expires_at<?)) "
-                + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
-                + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
-                + "AND u.job_id=d.job_id "
-                + "AND u.page_id=d.dependency_page_id WHERE d.job_id=artifact_build_pages.job_id "
-                + "AND d.tenant_id=artifact_build_pages.tenant_id "
-                + "AND d.page_id=artifact_build_pages.page_id AND u.state<>'SUCCEEDED') "
-                + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
-                + "e.tenant_id=artifact_build_pages.tenant_id AND e.job_id=artifact_build_pages.job_id "
-                + "AND e.consumer_stage_id=artifact_build_pages.stage_id AND NOT EXISTS "
-                + "(SELECT 1 FROM artifact_exchange_finalizations f WHERE f.tenant_id=e.tenant_id "
-                + "AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id)) "
-                + (selection.coordinates().isPresent() ? "AND stage_id=? AND partition_id=? AND page_ordinal=? " : "")
-                + "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, selection.tenantId());
-            statement.setString(2, selection.jobId());
-            setInstant(statement, 3, selection.now());
-            setInstant(statement, 4, selection.now());
-            if (selection.coordinates().isPresent()) {
-                var coordinates = selection.coordinates().orElseThrow();
-                statement.setInt(5, coordinates.stageId());
-                statement.setInt(6, coordinates.partitionId());
-                statement.setInt(7, coordinates.pageOrdinal());
+        Coordinates coordinates = selection.coordinates().orElse(null);
+        try (PreparedStatement statement = connection.prepareStatement(
+                coordinates == null ? CLAIMABLE_ANY : CLAIMABLE_EXACT)) {
+            int parameter = 1;
+            if (coordinates != null) {
+                statement.setString(parameter++, selection.tenantId());
+                statement.setString(parameter++, selection.jobId());
+                statement.setInt(parameter++, coordinates.stageId());
+                statement.setInt(parameter++, coordinates.partitionId());
+                statement.setInt(parameter++, coordinates.pageOrdinal());
             }
+            statement.setString(parameter++, selection.tenantId());
+            statement.setString(parameter++, selection.jobId());
+            setInstant(statement, parameter++, selection.now());
+            setInstant(statement, parameter, selection.now());
             try (ResultSet result = statement.executeQuery()) {
-                return result.next() ? Optional.of(mapPage(result)) : Optional.empty();
-            }
-        }
-    }
-
-    static void requireCoordinates(Connection connection, String tenantId, String jobId, Coordinates coordinates)
-            throws SQLException {
-        try (var statement = connection.prepareStatement("SELECT count(*) FROM artifact_build_pages "
-                + "WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id=? AND page_ordinal=?")) {
-            statement.setString(1, tenantId);
-            statement.setString(2, jobId);
-            statement.setInt(3, coordinates.stageId());
-            statement.setInt(4, coordinates.partitionId());
-            statement.setInt(5, coordinates.pageOrdinal());
-            try (var result = statement.executeQuery()) {
-                if (!result.next() || result.getLong(1) != 1) {
+                boolean present = result.next();
+                if (coordinates != null && (!present || result.getLong("allocations") != 1)) {
                     throw new IllegalStateException(
                             "Durable stage partition lacks one exact immutable page allocation");
                 }
+                return present && (coordinates == null || result.getString("page_id") != null)
+                        ? Optional.of(mapPage(result)) : Optional.empty();
             }
         }
     }

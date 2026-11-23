@@ -8,6 +8,7 @@ import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthori
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
@@ -16,6 +17,7 @@ import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.List;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
@@ -29,13 +31,7 @@ final class PostgresGenerationCompletion {
             GenerationExecutionTransactionFence executionFence,
             Connection connection, GenerationPageCompletion completion)
             throws SQLException {
-        transactionAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
-        try {
-            executionFence.requireCurrent(connection, completion.tenantId(),
-                    completion.jobId(), completion.executionOwner());
-        } catch (GenerationExecutionOwnerLostException staleOwner) {
-            return false;
-        }
+        if (!ownsCompletion(transactionAuthority, executionFence, connection, completion)) return false;
         GenerationJob job = PostgresGenerationJobStoreMappings.findJob(
                 connection, completion.tenantId(), completion.jobId(), true).orElse(null);
         if (job == null) {
@@ -47,6 +43,33 @@ final class PostgresGenerationCompletion {
         if (page == null) {
             return false;
         }
+        return applyCompletion(connection, completion, job, page);
+    }
+
+    /** The producer path already selected the exact job and page for update on this connection. */
+    static boolean completeLockedProducer(GenerationTransactionAuthority transactionAuthority,
+            GenerationExecutionTransactionFence executionFence, Connection connection,
+            GenerationPageCompletion completion, GenerationJob job,
+            PostgresGenerationJobStoreMappings.PageRow page) throws SQLException {
+        if (!ownsCompletion(transactionAuthority, executionFence, connection, completion)) return false;
+        return applyCompletion(connection, completion, job, page);
+    }
+
+    private static boolean ownsCompletion(GenerationTransactionAuthority transactionAuthority,
+            GenerationExecutionTransactionFence executionFence, Connection connection,
+            GenerationPageCompletion completion) throws SQLException {
+        transactionAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
+        try {
+            executionFence.requireCurrent(connection, completion.tenantId(),
+                    completion.jobId(), completion.executionOwner());
+            return true;
+        } catch (GenerationExecutionOwnerLostException staleOwner) {
+            return false;
+        }
+    }
+
+    private static boolean applyCompletion(Connection connection, GenerationPageCompletion completion,
+            GenerationJob job, PostgresGenerationJobStoreMappings.PageRow page) throws SQLException {
         if (!completion.executionOwner().equals(page.executionOwner())) {
             return false;
         }
@@ -85,13 +108,10 @@ final class PostgresGenerationCompletion {
             Connection connection, GenerationJob job,
             PostgresGenerationJobStoreMappings.PageRow page,
             GenerationPageCompletion completion) throws SQLException {
-        PostgresGenerationJobStoreSupport.validateOutputCoverage(
-                job, page,
-                INPUTS.loadSplits(
-                        connection, completion.tenantId(),
-                        completion.jobId(), completion.pageId()).stream()
-                        .map(GenerationSplit::dataObjectId).toList(),
-                completion.outputs());
+        List<String> expectedSources = page.kind() == GenerationPageKind.RELATIONAL_COMPUTE ? List.of()
+                : INPUTS.loadSplits(connection, completion.tenantId(), completion.jobId(), completion.pageId())
+                        .stream().map(GenerationSplit::dataObjectId).toList();
+        PostgresGenerationJobStoreSupport.validateOutputCoverage(job, page, expectedSources, completion.outputs());
         for (GenerationOutput output : completion.outputs()) {
             PostgresGenerationJobStoreSupport.insertOutput(
                     connection, completion.tenantId(),

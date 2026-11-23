@@ -27,6 +27,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycl
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.BuildFilterGate;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
+import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest.StageRequestPlan;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.shuffle.api.coordinator.RecoverableShuffleControl;
 import org.pangrova.shuffle.api.coordinator.ShuffleTaskAccess;
@@ -381,7 +382,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             PreparedStage prepared = prepareStage(stage, state, generation, observations);
             long submissionStarted = dispatchTimestamp(observations);
             List<PartitionDispatch> partitions =
-                    leafStageDispatcher.dispatchLeafStage(prepared.dispatch());
+                    leafStageDispatcher.dispatchLeafStage(prepared.dispatch(), prepared.durablePlan());
             recordDispatchWork(observations, stage.stageId(), generation, DispatchPhase.SUBMIT_TASKS,
                     submissionStarted, partitions.size(), true);
             awaitStageDispatch(stage, prepared.plan(), partitions, state, observations);
@@ -413,10 +414,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private PreparedStage prepareStage(Stage stage, DAGExecutionState state, int generation,
             QueryStageObservations observations) {
         if (state.durable() != null) {
+            var durablePlan = state.durable().prepareRequestPlan(stage.plan());
             return new PreparedStage(stage.plan(), new LeafStageDispatcher.LeafDispatch(
-                    state.execution(), stage.plan(), state.durable().boundPlan(stage.plan()), List.of(), null,
+                    state.execution(), stage.plan(), null, List.of(), null,
                     state.dag(), state.dispatched(), null, false,
-                    state.durable().control().planEpoch(stage.stageId()), state.durable(), OptionalInt.empty()));
+                    state.durable().control().planEpoch(stage.stageId()), state.durable(), OptionalInt.empty()),
+                    durablePlan);
         }
         StageNode plan = stage.plan();
         if (stage.retryCount() > 0) {
@@ -463,7 +466,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 !compiled.retrievalTopKHints().isEmpty(),
                 Math.addExact(stage.currentGeneration(), 1L), null,
                 state.buildFilter() == null ? OptionalInt.empty() : state.buildFilter().buildOrdinal(stage.stageId()));
-        return new PreparedStage(plan, dispatch);
+        return new PreparedStage(plan, dispatch, null);
     }
 
     private void awaitStageDispatch(
@@ -632,6 +635,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             org.pangrova.protocol.v2.TaskReport winner) {}
 
     private record PreparedStage(
-            StageNode plan, LeafStageDispatcher.LeafDispatch dispatch) {}
+            StageNode plan, LeafStageDispatcher.LeafDispatch dispatch, StageRequestPlan durablePlan) {}
 
 }

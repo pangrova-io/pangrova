@@ -104,7 +104,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             if (allocations.size() != 1 || allocations.get(0).planEpoch() != completion.planEpoch()) {
                 throw new IllegalStateException("Native producer winner differs from its original external allocation");
             }
-            findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
+            var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
             var page = PostgresGenerationPageSelection.findPartition(connection, key.tenantId(), key.jobId(),
                     completion.stageId(), completion.partitionId()).orElseThrow();
             if (!matchesIssuedProducer(page, completion)) return false;
@@ -114,7 +114,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     completion.controlTerm(), bytes, org.pangrova.common.util.DigestUtils.sha256Hex(bytes), List.of(),
                     completion.completedAt(), completion.executionOwner());
             requireCompletion(report);
-            return PostgresGenerationCompletion.complete(transactionAuthority, executionFence, connection, report);
+            return PostgresGenerationCompletion.completeLockedProducer(
+                    transactionAuthority, executionFence, connection, report, job, page);
         });
     }
 
@@ -147,7 +148,6 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             if (terminal(job.state())) return Optional.empty();
             var coordinates = new PostgresGenerationPageSelection.Coordinates(
                     request.stageId(), request.partitionId(), request.pageOrdinal());
-            PostgresGenerationPageSelection.requireCoordinates(connection, key.tenantId(), key.jobId(), coordinates);
             var selected = PostgresGenerationPageSelection.selectClaimablePage(connection,
                     new PostgresGenerationPageSelection.Selection(key.tenantId(), key.jobId(), request.now(),
                             Optional.of(coordinates)));

@@ -111,12 +111,13 @@ final class LeafStageDispatcher {
             boolean hasArtifacts,
             int taskCount) {}
 
-    List<DAGDispatchEngine.PartitionDispatch> dispatchLeafStage(LeafDispatch input) {
+    List<DAGDispatchEngine.PartitionDispatch> dispatchLeafStage(
+            LeafDispatch input, DurablePartitionRequest.StageRequestPlan durablePlan) {
         if (input.planEpoch() <= 0) {
             throw new IllegalArgumentException("planEpoch must be positive");
         }
         if (input.durable() != null) {
-            return dispatchDurable(input);
+            return dispatchDurable(input, durablePlan);
         }
         PreparedDispatch prepared = prepareDispatch(input);
         List<DAGDispatchEngine.PartitionDispatch> dispatches = new ArrayList<>();
@@ -236,7 +237,8 @@ final class LeafStageDispatcher {
                 worker.transportPort(), worker.workerId(), issued.request(), null);
     }
 
-    private List<DAGDispatchEngine.PartitionDispatch> dispatchDurable(LeafDispatch input) {
+    private List<DAGDispatchEngine.PartitionDispatch> dispatchDurable(
+            LeafDispatch input, DurablePartitionRequest.StageRequestPlan requestPlan) {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
         ExchangeSourceBuilder.StageInputs exchangeInputs = null;
         DurableStageRuntime.StageTasks stageTasks = null;
@@ -256,7 +258,7 @@ final class LeafStageDispatcher {
                 }
                 if (exchangeInputs == null) {
                     exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
-                    stageTasks = input.durable().bindStageTasks(stage);
+                    stageTasks = input.durable().bindStageTasks(stage, requestPlan);
                 }
                 var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
                         exchangeInputs.bind(partition, null),

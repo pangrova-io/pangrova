@@ -7,6 +7,7 @@ import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.execution.deadline.TaskLeaseDeadlines;
 
 import org.pangrova.generation.execution.binding.GenerationPartitionBindings;
+import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
 import org.pangrova.execution.binding.TaskRequestFactory;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
@@ -16,6 +17,7 @@ import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.shuffle.api.ShuffleHandle;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.time.Instant;
@@ -35,15 +37,35 @@ public final class DurablePartitionRequest {
         }
     }
 
+    /** Shares the validated template, plan bytes and checksum for one durable stage. */
+    public static final class StageRequestPlan {
+        private final GenerationPartitionBindings.StageBindings bindings;
+        private final TaskRequestFactory.FrozenStagePlan plan;
+
+        /** Freezes the canonical request plan before taking any partition claim. */
+        public StageRequestPlan(StagePlan stage, List<ModelSnapshot> models) {
+            bindings = new GenerationPartitionBindings.StageBindings(stage, models);
+            plan = new TaskRequestFactory.FrozenStagePlan(bindings.planBytes());
+        }
+    }
+
     /** Builds no alternate protocol: all task security, budgets, options and attempt fields use the common factory. */
     public static SubmitTaskRequest prepare(PreparedPartition partition, ExchangeAccess exchange, Instant now,
+            org.pangrova.observability.api.tracing.ExecutionTraceContext traceContext) {
+        var graph = partition.authority().dispatchSpec().stageGraph();
+        var stage = graph.requireStage(partition.lease().stageId());
+        return prepare(partition, new StageRequestPlan(stage, graph.modelSnapshots()), exchange, now, traceContext);
+    }
+
+    /** Binds current claim evidence to the already validated plan for this stage. */
+    public static SubmitTaskRequest prepare(PreparedPartition partition, StageRequestPlan requestPlan,
+            ExchangeAccess exchange, Instant now,
             org.pangrova.observability.api.tracing.ExecutionTraceContext traceContext) {
         StageExchangeAccessValidator.validate(partition, exchange);
         var lease = partition.lease();
         var spec = partition.authority().dispatchSpec();
         var stage = spec.stageGraph().requireStage(lease.stageId());
-        var prepared = GenerationPartitionBindings.bind(partition, now);
-        var bound = prepared.plan();
+        var prepared = GenerationPartitionBindings.bind(partition, requestPlan.bindings, now);
         TaskPurpose taskType = switch (stage.pageKind()) {
             case RELATIONAL_COMPUTE -> TaskPurpose.COMPUTE;
             case RELATIONAL_PARTITION -> TaskPurpose.OUTPUT;
@@ -52,12 +74,12 @@ public final class DurablePartitionRequest {
         var plan = new TaskStage(stage.stageId(), taskType);
         return TaskRequestFactory.buildLeafTaskRequest(new TaskRequestFactory.LeafTask(
                 new StageExecutionContext.Deferred(partition.authority(), lease, traceContext),
-                new TaskRequestFactory.FrozenStagePlan(bound.planBytes()), plan, lease.partitionId(),
-                resourceGrant(partition, bound.operatorBindings()), exchange.inputs(),
+                requestPlan.plan, plan, lease.partitionId(),
+                resourceGrant(partition, prepared.operatorBindings()), exchange.inputs(),
                 exchange.output(), prepared.splits(),
                 TaskLeaseDeadlines.forPartition(lease, spec, now),
                 new TaskAttemptDescriptor(exchange.planEpoch(), lease.attemptId(), lease.fencingToken()),
-                bound.operatorBindings(), exchange.allocation(), bound.resultColumnTypes()));
+                prepared.operatorBindings(), exchange.allocation(), requestPlan.bindings.resultColumnTypes()));
     }
 
     private static StageResourceGrant resourceGrant(PreparedPartition partition, List<OperatorBinding> bindings) {

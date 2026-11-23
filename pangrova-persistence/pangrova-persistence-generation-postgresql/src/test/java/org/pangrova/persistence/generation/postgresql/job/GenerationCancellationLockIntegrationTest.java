@@ -35,6 +35,33 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void exactClaimDistinguishesMissingCoordinatesFromAContendedOrUnavailablePage() throws Exception {
+        var target = new PostgresGenerationPageSelection.Coordinates(0, 0, 0);
+        var ready = new PostgresGenerationPageSelection.Selection(
+                "tenant-a", "job-a", NOW, java.util.Optional.of(target));
+        var future = new PostgresGenerationPageSelection.Selection(
+                "tenant-a", "job-a", NOW.minusSeconds(1), java.util.Optional.of(target));
+        var wrongOrdinal = new PostgresGenerationPageSelection.Selection(
+                "tenant-a", "job-a", NOW, java.util.Optional.of(new PostgresGenerationPageSelection.Coordinates(0, 0, 1)));
+        try (var owner = dataSource.getConnection(); var claimant = dataSource.getConnection()) {
+            owner.setAutoCommit(false);
+            claimant.setAutoCommit(false);
+            execute(claimant, "SET LOCAL statement_timeout='3s'");
+            execute(owner, "SELECT page_id FROM artifact_build_pages WHERE job_id='job-a' FOR UPDATE");
+
+            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, ready)).isEmpty();
+            assertThatThrownBy(() -> PostgresGenerationPageSelection.selectClaimablePage(claimant, wrongOrdinal))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact immutable page allocation");
+
+            owner.rollback();
+            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, future)).isEmpty();
+            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, ready))
+                    .hasValueSatisfying(page -> assertThat(page.pageId()).isEqualTo("page-a"));
+            claimant.rollback();
+        }
+    }
+
+    @Test
     void cancellationWaitsForJobBeforeTakingAnyPageLock() throws Exception {
         var executor = Executors.newSingleThreadExecutor();
         try (var owner = dataSource.getConnection()) {

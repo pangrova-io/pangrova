@@ -857,6 +857,21 @@ provide backpressure without a Java `addBatch` bridge.
 The Coordinator routes durable Shuffle producer reports by the exact task kind it issued. Progress reports use that local binding. A finished report is published with the durable job association and execution-owner fence before its stage advances.
 Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
+
+An exact durable partition claim checks its persisted page coordinates and selects
+the eligible locked page in a single PostgreSQL statement. The result distinguishes
+an invalid allocation from a valid page that is unavailable or already locked.
+
+Producer completion revalidates authorization and execution ownership using the
+current transaction. It uses the job and page already locked by the producer
+report and skips split loading when the page publishes only Shuffle data.
+Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
+Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+
+Before opening partition-claim transactions, relational replay decodes the
+immutable stage bindings and computes the request plan checksum. Each claim
+matches its current stage and model declarations against that prepared contract,
+then binds its own split, publication, lease, and resource evidence.
 Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
 Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
 Task preparation uses the direct roles already verified by table authorization on this connection. Tenant membership, table policy, model authority, and the exact execution owner are checked within the transaction.
