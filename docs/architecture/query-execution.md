@@ -632,7 +632,9 @@ deadline for each HTTP observation. The first request hands setup to a separate
 Worker executor after the exact reservation, with 64 active setups, 64 queued
 setups and 128 MiB of admitted request bodies across both. Setup rechecks
 authority before allocating task resources. Cancellation and shutdown can
-identify the actual owner during setup. The Coordinator verifies
+identify the actual owner during setup. Setup failures return a rejected acknowledgement
+with the original diagnostic after recording the task's terminal outcome.
+The Coordinator verifies
 the returned identity and endpoint scope before recording the dispatch result.
 
 | Scenario | HTTP status | Acknowledgement |

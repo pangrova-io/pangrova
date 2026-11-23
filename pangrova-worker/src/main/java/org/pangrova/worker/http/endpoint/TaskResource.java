@@ -234,7 +234,7 @@ public final class TaskResource implements Closeable {
             String workerTaskId, Throwable failure) {
         if (failure != null) {
             var cause = failure instanceof CompletionException completion ? completion.getCause() : failure;
-            if (cause instanceof Error error) throw error;
+            if (cause instanceof Error error && !(error instanceof LinkageError)) throw error;
             return handleSubmitError(queryId, cause);
         }
         var admitted = TaskAdmitted.newBuilder().setTaskId(taskId);
@@ -266,6 +266,9 @@ public final class TaskResource implements Closeable {
     }
 
     private Response handleSubmitError(String queryId, Throwable e) {
+        if (e instanceof java.util.concurrent.CancellationException) {
+            return rejectSubmit(Response.Status.CONFLICT.getStatusCode(), e.getMessage());
+        }
         if (e instanceof org.pangrova.worker.exception.TaskAdmissionException admission) {
             int status = switch (admission.reason()) {
                 case EXPIRED -> Response.Status.REQUEST_TIMEOUT.getStatusCode();

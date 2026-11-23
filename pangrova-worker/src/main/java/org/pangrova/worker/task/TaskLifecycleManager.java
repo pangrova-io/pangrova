@@ -102,11 +102,12 @@ final class TaskLifecycleManager {
      * @param info     task tracking record
      * @param admission validated immutable Worker submission
      * @param callback lifecycle event callbacks (state transition, index cleanup, completion)
+     * @return the original handled setup failure, or null after successful setup
      */
-    void executeTask(String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
+    RuntimeException executeTask(
+            String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
         if (info.isWorkerExecuted()) {
-            executeWorkerExecutedTask(taskId, info, admission, callback);
-            return;
+            return executeWorkerExecutedTask(taskId, info, admission, callback);
         }
         boolean creationBegun = false;
         boolean creationDelegated = false;
@@ -136,8 +137,9 @@ final class TaskLifecycleManager {
             startExecutor(taskId, info, handle, callback);
 
             routeCompletionPipeline(taskId, info, handle, callback, onCompleted, onError);
+            return null;
         } catch (RuntimeException | Error failure) {
-            handleSetupFailure(taskId, info, callback, failure, creationBegun, creationDelegated);
+            return handleSetupFailure(taskId, info, callback, failure, creationBegun, creationDelegated);
         }
     }
 
@@ -145,7 +147,7 @@ final class TaskLifecycleManager {
      * Starts a Worker-JVM task without entering any Native creation, memory,
      * exchange, shuffle, or resource-drain branch.
      */
-    private void executeWorkerExecutedTask(
+    private RuntimeException executeWorkerExecutedTask(
             String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
         try {
             requireNotCancelled(info);
@@ -161,13 +163,14 @@ final class TaskLifecycleManager {
                     taskId, info, e, callback, () -> releaseAllResources(info, taskId));
             startExecutor(taskId, info, handle, callback);
             completionMonitor.startCompletionMonitor(taskId, info, handle, onCompleted, onError);
+            return null;
         } catch (RuntimeException | Error failure) {
-            handleSetupFailure(taskId, info, callback, failure, false, false);
+            return handleSetupFailure(taskId, info, callback, failure, false, false);
         }
     }
 
-    private void handleSetupFailure(String taskId, TaskInfo info, LifecycleCallback callback,
-                                   Throwable failure, boolean creationBegun, boolean creationDelegated) {
+    private RuntimeException handleSetupFailure(String taskId, TaskInfo info, LifecycleCallback callback,
+            Throwable failure, boolean creationBegun, boolean creationDelegated) {
         if (creationBegun && !creationDelegated) info.nativeCreationRolledBackBeforeEntry();
         Exception reportable = failure instanceof Exception exception ? exception
                 : new IllegalStateException("Task setup failed", failure);
@@ -176,10 +179,9 @@ final class TaskLifecycleManager {
                     () -> releaseAllResources(info, taskId));
         } catch (RuntimeException | Error cleanup) {
             if (cleanup != failure) failure.addSuppressed(cleanup);
-            if (failure instanceof Error error) throw error;
-            throw cleanup;
         }
         if (failure instanceof Error error) throw error;
+        return (RuntimeException) failure;
     }
 
     private void bindWriteResources(String taskId, TaskInfo info) {

@@ -78,8 +78,12 @@ final class TaskSubmissionHandler {
             owner.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
             owner.verifyExecutionOwnerForAdmission(admission.submission());
             entered = true;
-            submitReserved(descriptor, admission, reservation.workerTaskId(), reservation);
-            result.complete(reservation.workerTaskId());
+            var failure = submitReserved(descriptor, admission, reservation.workerTaskId(), reservation);
+            if (failure == null) {
+                result.complete(reservation.workerTaskId());
+            } else {
+                result.completeExceptionally(failure);
+            }
         } catch (RuntimeException | Error failure) {
             if (!entered) reservation.rejectedBeforeOwnership(failure);
             result.completeExceptionally(failure);
@@ -139,7 +143,7 @@ final class TaskSubmissionHandler {
         return owner.taskAdmissions.reserve(canonical, taskId);
     }
 
-    private void submitReserved(
+    private RuntimeException submitReserved(
             TaskDescriptor descriptor,
             ValidatedTaskSubmission admission,
             String taskId,
@@ -168,11 +172,16 @@ final class TaskSubmissionHandler {
         try {
             LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
             if (owner.lifecycleManager != null) {
-                owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
+                var failure = owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
+                if (failure != null) {
+                    reservation.failAfterHandoff(failure);
+                    return failure;
+                }
             } else {
                 autoFinishIfConfigured(taskId, queryId, request);
             }
             reservation.completeTaskSetup();
+            return null;
         } catch (RuntimeException | Error failure) {
             reservation.failAfterHandoff(failure);
             throw failure;
